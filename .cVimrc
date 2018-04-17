@@ -1,0 +1,16 @@
+let searchengine weblio = "https://ejje.weblio.jp/content/%s" " If you leave out the '%s' at the end of the URL,
+                                                                    " your query will be appended to the link.
+                                                                    " Otherwise, your query will replace the '%s'.
+
+" alias ':g' to ':tabnew google'
+command g tabnew google
+" alias ':d' to ':tabnew weblio'
+command d tabnew weblio
+
+let completionengines = ["google", "amazon", "weblio"]
+
+" Create a shortcut for search engines.
+" For example, typing ':tabnew g example'
+" would act the same way as ':tabnew google example'
+let searchalias g = "google" 
+let searchalias d = "weblio"
