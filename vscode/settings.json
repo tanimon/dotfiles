@@ -1,0 +1,8 @@
+// Place this file in a appropriate location according to the OS
+// - Windows %APPDATA%\Code\User\settings.json
+// - macOS $HOME/Library/Application Support/Code/User/settings.json
+// - Linux $HOME/.config/Code/User/settings.json
+{
+    "workbench.iconTheme": "vscode-icons",
+    "explorer.sortOrder": "type"
+}
