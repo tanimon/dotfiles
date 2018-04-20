@@ -1,12 +1,21 @@
-let searchengine weblio = "https://ejje.weblio.jp/content/%s" " If you leave out the '%s' at the end of the URL,
-                                                                    " your query will be appended to the link.
-                                                                    " Otherwise, your query will replace the '%s'.
+""" Settings
 
-" alias ':g' to ':tabnew google'
+" Display the tab index in the tab’s title
+set showtabindices
+
+" Define a search engine
+" If you leave out the '%s' at the end of the URL,
+" your query will be appended to the link.
+" Otherwise, your query will replace the '%s'.
+let searchengine amazon = "https://www.amazon.co.jp/s/?field-keywords=%s"
+let searchengine weblio = "https://ejje.weblio.jp/content/%s" 
+
+" Define a command
+" For example, alias ':g' to ':tabnew google'
 command g tabnew google
-" alias ':d' to ':tabnew weblio'
 command d tabnew weblio
 
+" Use only the specified search engines
 let completionengines = ["google", "amazon", "weblio"]
 
 " Create a shortcut for search engines.
@@ -14,3 +23,16 @@ let completionengines = ["google", "amazon", "weblio"]
 " would act the same way as ':tabnew google example'
 let searchalias g = "google" 
 let searchalias d = "weblio"
+
+
+""" Mappings
+
+" Movement
+map <C-d> scrollPageDown
+map <C-u> scrollPageUp
+unmap d
+unmap u
+
+" Tab Navigation
+map J nextTab
+map K previousTab
