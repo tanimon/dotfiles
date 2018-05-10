@@ -4,5 +4,13 @@
 // - Linux $HOME/.config/Code/User/settings.json
 {
     "workbench.iconTheme": "vscode-icons",
-    "explorer.sortOrder": "type"
+    "explorer.sortOrder": "type",
+    "window.zoomLevel": 0,
+    "workbench.activityBar.visible": true,
+    "editor.multiCursorModifier": "alt",
+    "vim.neovimPath": "/usr/local/bin/nvim",
+    "vim.cmdLineInitialColon": true,
+    "vim.enableNeovim": true,
+    "vim.useSystemClipboard": true
 }
+
