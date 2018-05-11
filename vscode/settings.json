@@ -11,6 +11,11 @@
     "vim.neovimPath": "/usr/local/bin/nvim",
     "vim.cmdLineInitialColon": true,
     "vim.enableNeovim": true,
-    "vim.useSystemClipboard": true
+    "vim.useSystemClipboard": true,
+    "[markdown]": {
+        "editor.wordWrap": "on",
+        "editor.quickSuggestions": false,
+        "editor.tabSize": 2
+    }
 }
 
