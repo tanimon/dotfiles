@@ -128,9 +128,19 @@ Precomposition	Space	InsertSpace
 Prediction	Ctrl Delete	DeleteSelectedCandidate
 Suggestion	Down	PredictAndConvert
 Suggestion	Shift Enter	CommitFirstSuggestion
+DirectInput	Escape	CancelAndIMEOff
 Precomposition	Escape	CancelAndIMEOff
+Composition	Escape	CancelAndIMEOff
+Conversion	Escape	CancelAndIMEOff
+Suggestion	Escape	CancelAndIMEOff
+Prediction	Escape	CancelAndIMEOff
+DirectInput	Ctrl [	CancelAndIMEOff
 Precomposition	Ctrl [	CancelAndIMEOff
 Composition	ASCII	InsertCharacter
+Composition	Ctrl [	CancelAndIMEOff
+Conversion	Ctrl [	CancelAndIMEOff
+Suggestion	Ctrl [	CancelAndIMEOff
+Prediction	Ctrl [	CancelAndIMEOff
 Composition	Hankaku/Zenkaku	IMEOff
 Composition	Kanji	IMEOff
 Composition	OFF	IMEOff
