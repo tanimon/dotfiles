@@ -1,8 +1,5 @@
 """ Settings
 
-" Display the tab index in the tab’s title
-set showtabindices
-
 " Define a search engine
 " If you leave out the '%s' at the end of the URL,
 " your query will be appended to the link.
