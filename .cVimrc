@@ -21,6 +21,9 @@ let completionengines = ["google", "amazon", "weblio"]
 let searchalias g = "google" 
 let searchalias d = "weblio"
 
+" If a GitHub Gist is used to sync settings, pull updates every hour (and when Chrome restarts)
+set autoupdategist
+
 
 """ Mappings
 
