@@ -5,6 +5,7 @@ brew "colordiff"
 brew "gibo"
 brew "git"
 brew "git-now"
+brew "mas"
 brew "nkf"
 brew "peco"
 brew "tig"
@@ -18,3 +19,5 @@ cask "google-japanese-ime"
 cask "intellij-idea"
 cask "kindle"
 cask "visual-studio-code"
+mas "1Password", id: 443987910
+mas "Xcode", id: 497799835
