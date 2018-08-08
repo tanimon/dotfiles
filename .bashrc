@@ -161,7 +161,7 @@ TAB="$(echo -ne '\t')"
 ESC="$(echo -ne '\033')"
 
 # prompt
-PS1="\[\e[1m\]\u\[${NC}\]@\h: \[${Green}\]\w\[${NC}\]\n\$ "
+PS1="\[${Green}\]\u@\h:\[${NC}\]\[${Blue}\]\w\[${NC}\]\n\$ "
 
 
 # for macOS
