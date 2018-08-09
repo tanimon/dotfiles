@@ -18,6 +18,9 @@ set number
 " Always show the status line
 set laststatus=2
 
+" Enables syntax highlighting
+syntax enable
+
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " Editing mappings
