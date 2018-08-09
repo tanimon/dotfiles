@@ -165,5 +165,7 @@ PS1="\[${Green}\]\u@\h:\[${NC}\]\[${Blue}\]\w\[${NC}\]\n\$ "
 
 
 # for macOS
-# alias ls='ls -GF'
+alias ls='ls -GF'
+alias ll='ls -l'
+alias la='ls -a'
 
