@@ -169,3 +169,6 @@ alias ls='ls -GF'
 alias ll='ls -l'
 alias la='ls -a'
 
+ENHANCD_HOME=${HOME}/.zplug/repos/b4b4r07/enhancd
+source ${ENHANCD_HOME}/init.sh
+
