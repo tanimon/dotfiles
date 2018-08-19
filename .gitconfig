@@ -6,5 +6,6 @@
 	name = a-tanikd
 	email = 8575113+a-tanikd@users.noreply.github.com
 [alias]
-	co = !git checkout $(git branch | peco | awk '{ print $NF }') 
+	co = checkout
+	cob = !git checkout $(git branch | peco | awk '{ print $NF }') 
 
