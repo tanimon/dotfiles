@@ -4,6 +4,12 @@ promptinit
 prompt adam1
 
 ZPLUG_HOME=${HOME}/.zplug
+
+# Install zplug if it is not installed
+if ! type zplug > /dev/null 2>&1; then
+  curl -sL --proto-redir -all,https https://raw.githubusercontent.com/zplug/installer/master/installer.zsh| zsh
+fi
+
 source $ZPLUG_HOME/init.zsh
 
 zplug 'zplug/zplug', hook-build:'zplug --self-manage'
