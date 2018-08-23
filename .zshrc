@@ -1,4 +1,3 @@
-
 ZPLUG_HOME=${HOME}/.zplug
 
 # Install zplug if it is not installed
@@ -35,4 +34,7 @@ zplug load --verbose
 autoload -U compinit; compinit
 autoload -U promptinit; promptinit
 prompt pure
+
+# Disable beep when listing candidates for completion
+setopt nolistbeep
 
