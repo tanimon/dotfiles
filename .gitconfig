@@ -9,4 +9,5 @@
 	co = checkout
 	cob = !git checkout $(git branch | peco | awk '{ print $NF }') 
 	unstage = reset HEAD --
+	dmb = !git branch --merged | grep -v master | xargs -I % git branch -d %
 
