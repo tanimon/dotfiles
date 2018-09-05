@@ -38,3 +38,8 @@ prompt pure
 # Disable beep when listing candidates for completion
 setopt nolistbeep
 
+# Aliases
+alias ls='ls -FG'
+alias ll='ls -l'
+alias la='ls -la'
+
