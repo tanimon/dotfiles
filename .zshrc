@@ -38,3 +38,6 @@ alias ls='ls -FG'
 alias ll='ls -l'
 alias la='ls -la'
 
+export GOPATH=$HOME
+export PATH=$PATH:$GOPATH/bin
+
