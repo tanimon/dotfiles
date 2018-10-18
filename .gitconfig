@@ -11,3 +11,5 @@
 	unstage = reset HEAD --
 	dmb = !git branch --merged | grep -vE 'master|\\*' | xargs -I % git branch -d %
 
+[ghq]
+	root = ~/src
