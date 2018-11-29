@@ -6,6 +6,10 @@ zplug 'zplug/zplug', hook-build:'zplug --self-manage'
 zplug "b4b4r07/enhancd", use:init.sh
 zplug "mafredri/zsh-async", from:github
 zplug "sindresorhus/pure", use:pure.zsh, from:github, as:theme
+zplug "motemen/ghq", \
+    as:command, \
+    from:gh-r, \
+    rename-to:ghq
 
 # Run a command after a plugin is installed/updated
 # Provided, it requires to set the variable like the following:
