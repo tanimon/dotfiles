@@ -24,6 +24,9 @@ let searchalias d = "weblio"
 " If a GitHub Gist is used to sync settings, pull updates every hour (and when Chrome restarts)
 set autoupdategist
 
+" Black list
+let blacklists = ["https://taskchute.cloud/tasks"]
+
 
 """ Mappings
 
