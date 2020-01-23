@@ -35,6 +35,7 @@ map <C-d> scrollPageDown
 map <C-u> scrollPageUp
 unmap d
 unmap u
+unmap e
 
 " Tab Navigation
 map J nextTab
