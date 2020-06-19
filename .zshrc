@@ -9,7 +9,8 @@ zplug "sindresorhus/pure", use:pure.zsh, from:github, as:theme
 zplug "motemen/ghq", \
     as:command, \
     from:gh-r, \
-    rename-to:ghq
+    rename-to:ghq \
+    use:"*linux*amd64*"
 
 # Run a command after a plugin is installed/updated
 # Provided, it requires to set the variable like the following:
@@ -44,4 +45,9 @@ alias la='ls -la'
 
 export GOPATH=$HOME
 export PATH=$PATH:$GOPATH/bin
+
+# Environment variables
+if [[ -a ${HOME}/.env ]]; then
+    source ${HOME}/.env
+fi
 
