@@ -10,7 +10,6 @@ zplug "motemen/ghq", \
     as:command, \
     from:gh-r, \
     rename-to:ghq \
-    use:"*linux*amd64*"
 
 # Run a command after a plugin is installed/updated
 # Provided, it requires to set the variable like the following:
@@ -29,11 +28,10 @@ if ! zplug check --verbose; then
 fi
 
 # Then, source plugins and add commands to $PATH
-zplug load --verbose
+zplug load
 
 autoload -U compinit; compinit
 autoload -U promptinit; promptinit
-prompt pure
 
 # Disable beep when listing candidates for completion
 setopt nolistbeep
