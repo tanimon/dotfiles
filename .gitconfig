@@ -13,3 +13,5 @@
 
 [ghq]
 	root = ~/src
+[pull]
+	rebase = false
