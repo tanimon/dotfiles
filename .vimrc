@@ -1,6 +1,9 @@
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " General
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Turn off vi compatibility
+set nocompatible
+
 " Set to auto read when a file is changed from the outside
 set autoread
 
@@ -12,8 +15,8 @@ let mapleader = "\<Space>"
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " Appearance
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-" Show line number
-set number
+" Turn on hyblid line number
+set number relativenumber
 
 " Show ruler
 set ruler
@@ -21,9 +24,8 @@ set ruler
 " Always show the status line
 set laststatus=2
 
-
 " Enables syntax highlighting
-syntax enable
+syntax on
 
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -36,3 +38,17 @@ set nrformats=
 set tabstop=4
 set shiftwidth=4
 set expandtab
+
+
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Plugins
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Plugins will be downloaded under the specified directory.
+call plug#begin('~/.vim/plugged')
+
+" Declare the list of plugins.
+Plug 'vimwiki/vimwiki'
+
+" List ends here. Plugins become visible to Vim after this call.
+call plug#end()
+
