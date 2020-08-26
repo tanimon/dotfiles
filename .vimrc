@@ -11,6 +11,10 @@ set autoread
 " like <leader>w saves the current file
 let mapleader = "\<Space>"
 
+" Enable the use of the mouse in normal, visual, insert,
+" command line and help modes
+set mouse=a
+
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " Appearance
