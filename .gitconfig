@@ -1,6 +1,6 @@
 [core]
 	editor = vim
-	autocrlf = true
+	autocrlf = input
 [pager]
 	branch = cat
 [user]
