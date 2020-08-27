@@ -41,4 +41,6 @@ which is completely different.
 
 {
     "^[" = ("insertText:", "\U001B");    /* Ctrl + [ */
+    "_" = ("insertText:", "\\");
+    "$_" = ("insertText:", "_");
 }
