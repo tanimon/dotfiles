@@ -1,4 +1,20 @@
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Plugins
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Plugins will be downloaded under the specified directory.
+call plug#begin(expand('~/.vim/plugged'))
+
+" Declare the list of plugins.
+Plug 'vimwiki/vimwiki'
+Plug 'tbabej/taskwiki'
+Plug 'arcticicestudio/nord-vim'
+Plug 'itchyny/lightline.vim'
+
+" List ends here. Plugins become visible to Vim after this call.
+call plug#end()
+
+
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " General
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " Turn off vi compatibility
@@ -28,8 +44,19 @@ set ruler
 " Always show the status line
 set laststatus=2
 
+" Don't show mode info
+set noshowmode
+
 " Enables syntax highlighting
 syntax on
+
+" Specify color scheme
+colorscheme nord
+
+" Specify lightvim color scheme
+let g:lightline = {
+      \ 'colorscheme': 'nord',
+      \ }
 
 
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -43,16 +70,6 @@ set tabstop=4
 set shiftwidth=4
 set expandtab
 
-
-"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-" Plugins
-"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-" Plugins will be downloaded under the specified directory.
-call plug#begin('~/.vim/plugged')
-
-" Declare the list of plugins.
-Plug 'vimwiki/vimwiki'
-
-" List ends here. Plugins become visible to Vim after this call.
-call plug#end()
+" Turn off IM when leaving insert mode
+inoremap <ESC> <ESC>:set iminsert=0<CR>
 
