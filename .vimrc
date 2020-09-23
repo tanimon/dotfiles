@@ -9,6 +9,7 @@ Plug 'vimwiki/vimwiki'
 Plug 'tbabej/taskwiki'
 Plug 'arcticicestudio/nord-vim'
 Plug 'itchyny/lightline.vim'
+Plug 'tpope/vim-fugitive'
 
 " List ends here. Plugins become visible to Vim after this call.
 call plug#end()
@@ -53,9 +54,16 @@ syntax on
 " Specify color scheme
 colorscheme nord
 
-" Specify lightvim color scheme
+" Configure status line appearance with lightline.vim
 let g:lightline = {
       \ 'colorscheme': 'nord',
+      \ 'active': {
+      \   'left': [ [ 'mode', 'paste' ],
+      \             [ 'gitbranch', 'readonly', 'filename', 'modified' ] ]
+      \ },
+      \ 'component_function': {
+      \   'gitbranch': 'FugitiveHead'
+      \ },
       \ }
 
 
