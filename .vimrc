@@ -5,11 +5,12 @@
 call plug#begin(expand('~/.vim/plugged'))
 
 " Declare the list of plugins.
-Plug 'vimwiki/vimwiki'
-Plug 'tbabej/taskwiki'
 Plug 'arcticicestudio/nord-vim'
 Plug 'itchyny/lightline.vim'
+Plug 'tbabej/taskwiki'
 Plug 'tpope/vim-fugitive'
+Plug 'tpope/vim-surround'
+Plug 'vimwiki/vimwiki'
 
 " List ends here. Plugins become visible to Vim after this call.
 call plug#end()
