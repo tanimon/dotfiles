@@ -13,13 +13,14 @@ call plug#begin(expand('~/.vim/plugged'))
 
 Plug 'arcticicestudio/nord-vim'
 Plug 'itchyny/lightline.vim'
-Plug 'tbabej/taskwiki'
 
 Plug 'tpope/vim-fugitive'
 Plug 'airblade/vim-gitgutter'
 
 Plug 'tpope/vim-surround'
+
 Plug 'vimwiki/vimwiki'
+Plug 'tbabej/taskwiki'
 
 " LSP
 Plug 'prabirshrestha/vim-lsp'
@@ -34,6 +35,11 @@ Plug 'liuchengxu/vim-which-key'
 Plug 'preservim/nerdtree'
 
 Plug 'easymotion/vim-easymotion'
+
+Plug 'skanehira/translate.vim'
+
+" Japanese vim doc
+Plug 'vim-jp/vimdoc-ja'
 
 " List ends here. Plugins become visible to Vim after this call.
 call plug#end()
@@ -62,6 +68,10 @@ let mapleader = "\<Space>"
 " command line and help modes
 set mouse=a
 
+" Show command-line completion candidates
+set wildmenu
+
+" Smartcase
 set ignorecase
 set smartcase
 
@@ -74,11 +84,17 @@ set timeoutlen=400
 " Turn on hyblid line number
 set number relativenumber
 
+" Find the current line quickly
+set cursorline
+
 " Show ruler
 set ruler
 
 " Always show the status line
 set laststatus=2
+
+" Always show the tab line
+set showtabline=2
 
 " Don't show mode info
 set noshowmode
@@ -118,4 +134,15 @@ nnoremap <silent> <leader> :WhichKey '<Space>'<CR>
 
 " Turn off IM when leaving insert mode
 inoremap <ESC> <ESC>:set iminsert=0<CR>
+
+
+""""
+" Editing text and indent
+""""
+" Show matching parentheses
+set showmatch
+
+set shiftround
+set smarttab
+set autoindent
 
