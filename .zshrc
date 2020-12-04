@@ -6,14 +6,7 @@ zplug 'zplug/zplug', hook-build:'zplug --self-manage'
 zplug "b4b4r07/enhancd", use:init.sh
 zplug "mafredri/zsh-async", from:github
 zplug "sindresorhus/pure", use:pure.zsh, from:github, as:theme
-
-# Run a command after a plugin is installed/updated
-# Provided, it requires to set the variable like the following:
-# ZPLUG_SUDO_PASSWORD="********"
-zplug "jhawthorn/fzy", \
-    as:command, \
-    rename-to:fzy, \
-    hook-build:"make && sudo make install"
+zplug "junegunn/fzf", hook-build:'./install'
 
 # Install plugins if there are plugins that have not been installed
 if ! zplug check --verbose; then
@@ -69,4 +62,6 @@ export PATH=$PATH:$GOPATH/bin
 if [[ -a ${HOME}/.env ]]; then
     source ${HOME}/.env
 fi
+
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 
