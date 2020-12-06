@@ -81,6 +81,9 @@ set timeoutlen=400
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " Appearance
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Use true colors in the terminal
+set termguicolors
+
 " Turn on hyblid line number
 set number relativenumber
 
