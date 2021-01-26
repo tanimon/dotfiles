@@ -2,11 +2,11 @@ ZPLUG_HOME=${HOME}/.zplug
 
 source $ZPLUG_HOME/init.zsh
 
-zplug 'zplug/zplug', hook-build:'zplug --self-manage'
+zplug "zplug/zplug", hook-build:"zplug --self-manage"
 zplug "b4b4r07/enhancd", use:init.sh
-zplug "mafredri/zsh-async", from:github
+zplug "mafredri/zsh-async", from:github, use:"async.zsh"
 zplug "sindresorhus/pure", use:pure.zsh, from:github, as:theme
-zplug "junegunn/fzf", hook-build:'./install'
+zplug "junegunn/fzf", hook-build:"./install"
 
 # Install plugins if there are plugins that have not been installed
 if ! zplug check --verbose; then
