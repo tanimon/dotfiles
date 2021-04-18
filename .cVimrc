@@ -27,6 +27,10 @@ set autoupdategist
 " Black list
 let blacklists = ["https://taskchute.cloud"]
 
+" Display the tab index in the tab’s title
+" It's useful to switch to tab <N> with `<N>%` mapping
+set showtabindices
+
 
 """ Mappings
 
