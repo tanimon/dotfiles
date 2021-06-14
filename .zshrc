@@ -24,10 +24,15 @@ zplug load
 
 autoload -Uz promptinit; promptinit
 
-# Keep 1000 lines of history within the shell and save it to ~/.zsh_history:
-HISTSIZE=1000
-SAVEHIST=1000
+# History
+HISTSIZE=10000
+SAVEHIST=10000
 HISTFILE=~/.zsh_history
+setopt hist_ignore_all_dups
+setopt hist_no_store
+setopt hist_reduce_blanks
+setopt inc_append_history
+setopt share_history
 
 # Use modern completion system
 autoload -Uz compinit; compinit
