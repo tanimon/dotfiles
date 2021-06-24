@@ -4,8 +4,8 @@
 [pager]
 	branch = cat
 [user]
-	name = a-tanikd
-	email = 8575113+a-tanikd@users.noreply.github.com
+	name = tanimon
+	email = 8575113+tanimon@users.noreply.github.com
 [alias]
 	co = checkout
 	cob = !git checkout $(git branch | peco | awk '{ print $NF }') 
