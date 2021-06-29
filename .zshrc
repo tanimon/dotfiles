@@ -34,7 +34,12 @@ setopt hist_reduce_blanks
 setopt inc_append_history
 setopt share_history
 
-# Use modern completion system
+# Completion
+if type brew &>/dev/null; then
+    # Enable Homebrew's completions
+    FPATH=$(brew --prefix)/share/zsh/site-functions:$FPATH
+fi
+
 autoload -Uz compinit; compinit
 
 ZSH_AUTOSUGGEST_STRATEGY=(history completion)
