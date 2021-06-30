@@ -9,6 +9,7 @@ zplug "sindresorhus/pure", use:pure.zsh, from:github, as:theme
 zplug "junegunn/fzf", hook-build:"./install"
 zplug "zsh-users/zsh-autosuggestions", use:zsh-autosuggestions.zsh
 zplug "zsh-users/zsh-completions", depth:1
+zplug "simonwhitaker/gibo", use:'shell-completions/gibo-completion.zsh', as:plugin
 
 
 # Install plugins if there are plugins that have not been installed
