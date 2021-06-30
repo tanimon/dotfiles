@@ -24,6 +24,7 @@ zplug load
 
 autoload -Uz promptinit; promptinit
 
+
 # History
 HISTSIZE=10000
 SAVEHIST=10000
@@ -34,6 +35,7 @@ setopt hist_reduce_blanks
 setopt inc_append_history
 setopt share_history
 
+
 # Completion
 if type brew &>/dev/null; then
     # Enable Homebrew's completions
@@ -43,6 +45,10 @@ fi
 autoload -Uz compinit; compinit
 
 ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+
+# Enable Terraform's completions
+autoload -U +X bashcompinit && bashcompinit
+complete -o nospace -C /usr/local/bin/terraform terraform
 
 #zstyle ':completion:*' auto-description 'specify: %d'
 #zstyle ':completion:*' completer _expand _complete _correct _approximate
@@ -62,6 +68,7 @@ ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 #zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#)*=0=01;31'
 #zstyle ':completion:*:kill:*' command 'ps -u $USER -o pid,%cpu,tty,cputime,cmd'
 
+
 # Disable beep when listing candidates for completion
 setopt nolistbeep
 
@@ -72,6 +79,7 @@ alias la='ls -la'
 
 export GOPATH=$HOME
 export PATH=$PATH:$GOPATH/bin
+
 
 # Environment variables
 if [[ -a ${HOME}/.env ]]; then
