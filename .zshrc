@@ -74,6 +74,12 @@ complete -o nospace -C /usr/local/bin/terraform terraform
 # Disable beep when listing candidates for completion
 setopt nolistbeep
 
+
+# Enable zmv
+autoload -Uz zmv
+alias zmv='noglob zmv -W'
+
+
 # Aliases
 alias ls='ls -FG'
 alias ll='ls -l'
