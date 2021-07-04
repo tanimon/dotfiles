@@ -40,7 +40,7 @@ which is completely different.
 */
 
 {
-    "^[" = ("insertText:", "\U001B");    /* Ctrl + [ */
+    "^[" = ("insertText:", "\U001B");    /* Ctrl-[ => Esc */
     "_" = ("insertText:", "\\");
     "$_" = ("insertText:", "_");
 }
