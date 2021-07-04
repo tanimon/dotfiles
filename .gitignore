@@ -92,3 +92,8 @@ tags
 [._]*.un~
 
 
+### My preferences
+.config/yarn
+.config/gatsby
+.config/gcloud
+
