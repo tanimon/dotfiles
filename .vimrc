@@ -18,6 +18,7 @@ Plug 'tpope/vim-fugitive'
 Plug 'airblade/vim-gitgutter'
 
 Plug 'tpope/vim-surround'
+Plug 'tpope/vim-repeat'
 
 Plug 'vimwiki/vimwiki'
 Plug 'tbabej/taskwiki'
@@ -32,7 +33,7 @@ Plug 'prabirshrestha/asyncomplete-lsp.vim'
 
 Plug 'liuchengxu/vim-which-key'
 
-Plug 'preservim/nerdtree'
+Plug 'tpope/vim-vinegar'
 
 Plug 'easymotion/vim-easymotion'
 
