@@ -136,9 +136,6 @@ set expandtab
 " Show which-key with <leader>
 nnoremap <silent> <leader> :WhichKey '<Space>'<CR>
 
-" Turn off IM when leaving insert mode
-inoremap <ESC> <ESC>:set iminsert=0<CR>
-
 
 """"
 " Editing text and indent
