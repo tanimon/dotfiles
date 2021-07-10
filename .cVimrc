@@ -25,7 +25,7 @@ let searchalias d = "weblio"
 set autoupdategist
 
 " Black list
-let blacklists = ["https://taskchute.cloud"]
+let blacklists = ["https://taskchute.cloud", "https://app.clickup.com/*"]
 
 " Display the tab index in the tab’s title
 " It's useful to switch to tab <N> with `<N>%` mapping
