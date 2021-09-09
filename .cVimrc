@@ -6,6 +6,7 @@
 " Otherwise, your query will replace the '%s'.
 let searchengine amazon = "https://www.amazon.co.jp/s/?field-keywords=%s"
 let searchengine weblio = "https://ejje.weblio.jp/content/%s" 
+let searchengine presearch = "https://engine.presearch.org/search?q=%s" 
 
 " Define a command
 " For example, alias ':g' to ':tabnew google'
@@ -13,13 +14,16 @@ command g tabnew google
 command d tabnew weblio
 
 " Use only the specified search engines
-let completionengines = ["google", "amazon", "weblio"]
+let completionengines = ["google", "amazon", "weblio", "presearch"]
 
 " Create a shortcut for search engines.
 " For example, typing ':tabnew g example'
 " would act the same way as ':tabnew google example'
 let searchalias g = "google" 
 let searchalias d = "weblio"
+
+" Define the default search engine
+let defaultengine = "presearch"
 
 " If a GitHub Gist is used to sync settings, pull updates every hour (and when Chrome restarts)
 set autoupdategist
