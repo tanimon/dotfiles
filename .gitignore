@@ -1,3 +1,9 @@
+### My preferences
+.config/yarn
+.config/gatsby
+.config/gcloud
+
+
 ### https://raw.github.com/github/gitignore/d67d1cae9a6d1804851a816b15460600eea29a45/Global/macOS.gitignore
 
 # General
@@ -92,8 +98,15 @@ tags
 [._]*.un~
 
 
-### My preferences
-.config/yarn
-.config/gatsby
-.config/gcloud
+### https://raw.github.com/github/gitignore/b0012e4930d0a8c350254a3caeedf7441ea286a3/Global/VisualStudioCode.gitignore
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Local History for Visual Studio Code
+.history/
 
