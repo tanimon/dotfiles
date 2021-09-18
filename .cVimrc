@@ -6,7 +6,7 @@
 " Otherwise, your query will replace the '%s'.
 let searchengine amazon = "https://www.amazon.co.jp/s/?field-keywords=%s"
 let searchengine weblio = "https://ejje.weblio.jp/content/%s" 
-let searchengine presearch = "https://engine.presearch.org/search?q=%s" 
+let searchengine presearch = "https://engine.presearch.org/search?q=" 
 
 " Define a command
 " For example, alias ':g' to ':tabnew google'
@@ -33,7 +33,7 @@ let blacklists = ["https://taskchute.cloud", "https://app.clickup.com/*"]
 
 " Display the tab index in the tab’s title
 " It's useful to switch to tab <N> with `<N>%` mapping
-set showtabindices
+"set showtabindices
 
 
 """ Mappings
