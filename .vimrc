@@ -82,6 +82,9 @@ set timeoutlen=400
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 " Appearance
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+" Enables syntax highlighting
+syntax on
+
 " Use true colors in the terminal
 set termguicolors
 
@@ -102,9 +105,6 @@ set showtabline=2
 
 " Don't show mode info
 set noshowmode
-
-" Enables syntax highlighting
-syntax on
 
 " Specify color scheme
 colorscheme nord
