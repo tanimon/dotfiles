@@ -174,3 +174,6 @@ source ${ENHANCD_HOME}/init.sh
 
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
 
+
+complete -C /usr/local/bin/terraform terraform
+. "$HOME/.cargo/env"
