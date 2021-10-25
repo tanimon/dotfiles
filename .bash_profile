@@ -3,3 +3,5 @@ if [ -f ~/.bashrc ]; then
 fi
 export PATH="/usr/local/bin:$HOME/bin:$PATH"
 
+. "$HOME/.cargo/env"
+
