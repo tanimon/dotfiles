@@ -1,5 +1,12 @@
 ZPLUG_HOME=${HOME}/.zplug
 
+# Check if zplug is installed
+if [[ ! -d ~/.zplug ]]; then
+    echo "zplug is not installed."
+    echo "Installing zplug..."
+    curl -sL --proto-redir -all,https https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
+fi
+
 source $ZPLUG_HOME/init.zsh
 
 zplug "zplug/zplug", hook-build:"zplug --self-manage"
@@ -13,11 +20,13 @@ zplug "simonwhitaker/gibo", use:'shell-completions/gibo-completion.zsh', as:plug
 zplug "sobolevn/wakatime-zsh-plugin", as:plugin
 
 
-# Install plugins if there are plugins that have not been installed
+# Install packages that have not been installed yet
 if ! zplug check --verbose; then
     printf "Install? [y/N]: "
     if read -q; then
         echo; zplug install
+    else
+        echo
     fi
 fi
 
