@@ -5,7 +5,7 @@
 ZPLUG_HOME=${HOME}/.zplug
 
 # Check if zplug is installed
-if [[ ! -d ~/.zplug ]]; then
+if [[ ! -d $ZPLUG_HOME ]]; then
     echo "zplug is not installed."
     echo "Installing zplug..."
     curl -sL --proto-redir -all,https https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
