@@ -1,1 +1,1 @@
-brew install --file=Brewfile
+brew bundle install --file=Brewfile
