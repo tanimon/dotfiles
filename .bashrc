@@ -177,3 +177,6 @@ source ${ENHANCD_HOME}/init.sh
 
 complete -C /usr/local/bin/terraform terraform
 . "$HOME/.cargo/env"
+
+export VOLTA_HOME="$HOME/.volta"
+export PATH="$VOLTA_HOME/bin:$PATH"
