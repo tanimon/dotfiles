@@ -103,11 +103,11 @@ export PATH=$PATH:$GOPATH/bin
 
 
 # Environment variables
-if [[ -a ${HOME}/.env ]]; then
+if [[ -f $HOME/.env ]]; then
     source ${HOME}/.env
 fi
 
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+[[ -f ~/.fzf.zsh ]] && source ~/.fzf.zsh
 
 export PATH=$PATH:$HOME/.local/bin
 
