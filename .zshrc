@@ -61,11 +61,6 @@ alias ll='ls -l'
 alias la='ls -la'
 
 
-# Golang
-export GOPATH=$HOME
-export PATH=$PATH:$GOPATH/bin
-
-
 # Environment variables
 if [[ -f $HOME/.env ]]; then
     source ${HOME}/.env
