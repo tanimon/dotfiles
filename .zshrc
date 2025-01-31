@@ -1,40 +1,4 @@
-ZPLUG_HOME=${HOME}/.zplug
-
-# Check if zplug is installed
-if [[ ! -d $ZPLUG_HOME ]]; then
-    echo "zplug is not installed."
-    echo "Installing zplug..."
-    curl -sL --proto-redir -all,https https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
-fi
-
-source $ZPLUG_HOME/init.zsh
-
-zplug "zplug/zplug", hook-build:"zplug --self-manage"
-zplug "b4b4r07/enhancd", use:init.sh
-zplug "mafredri/zsh-async", from:github, use:"async.zsh"
-zplug "sindresorhus/pure", use:pure.zsh, from:github, as:theme
-zplug "junegunn/fzf", hook-build:"./install"
-zplug "zsh-users/zsh-autosuggestions", use:zsh-autosuggestions.zsh
-zplug "zsh-users/zsh-completions", depth:1
-zplug "simonwhitaker/gibo", use:'shell-completions/gibo-completion.zsh', as:plugin
-zplug "sobolevn/wakatime-zsh-plugin", as:plugin
-
-
-# Install packages that have not been installed yet
-if ! zplug check --verbose; then
-    printf "Install? [y/N]: "
-    if read -q; then
-        echo; zplug install
-    else
-        echo
-    fi
-fi
-
-# Then, source plugins and add commands to $PATH
-zplug load
-
-autoload -Uz promptinit; promptinit
-
+eval "$(sheldon source)"
 
 # History
 HISTSIZE=10000
