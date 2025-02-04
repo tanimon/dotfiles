@@ -44,7 +44,8 @@ if [[ -f $HOME/.env ]]; then
     source ${HOME}/.env
 fi
 
-[[ -f ~/.fzf.zsh ]] && source ~/.fzf.zsh
+# Set up fzf key bindings and fuzzy completion
+source <(fzf --zsh)
 
 export PATH=$PATH:$HOME/.local/bin
 
