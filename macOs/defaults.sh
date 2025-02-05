@@ -5,6 +5,9 @@ if [ "$(uname)" != "Darwin" ] ; then
 	exit 1
 fi
 
+# タップでクリックを有効化
+defaults write com.apple.AppleMultitouchTrackpad Clicking -bool true
+
 # Show bluetooth in the menu bar
 defaults write com.apple.controlcenter "NSStatusItem Visible Bluetooth" -bool true
 
@@ -44,6 +47,9 @@ defaults write com.apple.menuextra.clock DateFormat -string 'EEE d MMM HH:mm'
 
 # Increase mouse speed
 defaults write -g com.apple.mouse.scaling 1.5
+
+# Spotlight検索のショートカットを無効化
+defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 64 "{ enabled = 0; value = { parameters = (32, 49, 1048576); type = standard; }; }"
 
 # Increase trackpad speed
 defaults write -g com.apple.trackpad.scaling 3
