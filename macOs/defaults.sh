@@ -54,6 +54,12 @@ defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 64 "{ en
 # Increase trackpad speed
 defaults write -g com.apple.trackpad.scaling 3
 
+# キーのリピート速度を上げる
+defaults write -g KeyRepeat -int 2
+
+# キーリピート入力認識までの時間を短くする
+defaults write -g InitialKeyRepeat -int 25
+
 # カーソルを2.0倍のサイズに設定
 defaults write com.apple.universalaccess mouseDriverCursorSize -float 2.0
 
