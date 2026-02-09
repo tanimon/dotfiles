@@ -12,9 +12,28 @@ setopt share_history
 
 
 # Completion
+autoload -Uz compinit; compinit
+zstyle ':completion:*' menu select
+
+if command -v aqua &> /dev/null; then
+    source <(aqua completion zsh)
+fi
+
 if type brew &>/dev/null; then
     # Enable Homebrew's completions
     FPATH=$(brew --prefix)/share/zsh/site-functions:$FPATH
+fi
+
+if command -v chezmoi &> /dev/null; then
+    source <(chezmoi completion zsh)
+fi
+
+if command -v dyff &> /dev/null; then
+    source <(dyff completion zsh)
+fi
+
+if command -v kubectl &> /dev/null; then
+    source <(kubectl completion zsh)
 fi
 
 fpath+=~/.zfunc
