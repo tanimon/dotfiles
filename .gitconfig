@@ -12,9 +12,6 @@
 	cob = !git checkout $(git branch | peco | awk '{ print $NF }') 
 	unstage = reset HEAD --
 	dmb = !git branch --merged | grep -vE 'master|\\*' | xargs -I % git branch -d %
-
-[ghq]
-	root = ~/src
 [pull]
 	rebase = false
 [init]
