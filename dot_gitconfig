@@ -9,9 +9,11 @@
 	email = 8575113+tanimon@users.noreply.github.com
 [alias]
 	co = checkout
-	cob = !git checkout $(git branch | peco | awk '{ print $NF }') 
+	sw = !git branch | fzf | xargs git switch
 	unstage = reset HEAD --
 	dmb = !git branch --merged | grep -vE 'master|\\*' | xargs -I % git branch -d %
+[fetch]
+	prune = true
 [pull]
 	rebase = false
 [init]
