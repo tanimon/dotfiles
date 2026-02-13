@@ -38,7 +38,6 @@ fi
 
 fpath+=~/.zfunc
 
-autoload -Uz compinit; compinit
 
 ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 
@@ -56,6 +55,8 @@ alias zmv='noglob zmv -W'
 alias ls='ls -FG'
 alias ll='ls -l'
 alias la='ls -la'
+
+alias diff='difft --display side-by-side-show-both'
 
 
 # Environment variables
