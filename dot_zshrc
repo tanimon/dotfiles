@@ -1,5 +1,3 @@
-eval "$(sheldon source)"
-
 # History
 HISTFILE=~/.zsh_history
 HISTSIZE=10000
@@ -52,18 +50,18 @@ if [[ -f $HOME/.env ]]; then
     source ${HOME}/.env
 fi
 
-# Set up fzf key bindings and fuzzy completion
+
+# Tool initializations
+source <(carapace _carapace)
 source <(fzf --zsh)
+eval "$(/opt/homebrew/bin/mise activate zsh)"
+eval "$(sheldon source)"
+eval "$(starship init zsh)"
+eval "$(zoxide init zsh --cmd cd)"
+
 
 export PATH=$PATH:$HOME/.local/bin
 
-eval "$(/opt/homebrew/bin/mise activate zsh)"
-
-eval "$(starship init zsh)"
-
-eval "$(zoxide init zsh --cmd cd)"
-
-source <(carapace _carapace)
 
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
