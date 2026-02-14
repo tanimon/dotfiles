@@ -1,5 +1,5 @@
 # PATH settings
-typeset -U path  # Remove duplicates
+typeset -U path PATH # Remove duplicates
 
 path=(
   $HOME/.local/bin
