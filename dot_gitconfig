@@ -1,22 +1,48 @@
-[core]
-	editor = vim
-	autocrlf = input
-	excludesFile = ~/.gitignore
-[pager]
-	branch = cat
-[user]
-	name = tanimon
-	email = 8575113+tanimon@users.noreply.github.com
+# ref: https://blog.gitbutler.com/how-git-core-devs-configure-git
 [alias]
-	co = checkout
-	sw = !git branch | fzf | xargs git switch
-	unstage = reset HEAD --
-	dmb = !git branch --merged | grep -vE 'master|\\*' | xargs -I % git branch -d %
+  co = checkout
+  sw = !git branch | fzf | xargs git switch
+[branch]
+  sort = -committerdate
+[column]
+  ui = auto
+[commit]
+  verbose = true
+[core]
+  autocrlf = input
+  excludesfile = ~/.gitignore
+  fsmonitor = true
+  untrackedCache = true
+[diff]
+  algorithm = histogram
+  colorMoved = plain
+  mnemonicPrefix = true
+  renames = true
 [fetch]
-	prune = true
-[pull]
-	rebase = false
+  prune = true
+  pruneTags = true
+  all = true
+[help]
+  autocorrect = prompt
 [init]
-	defaultBranch = main
+  defaultBranch = main
+[merge]
+  conflictstyle = zdiff3
+[pull]
+  rebase = false
 [push]
-	default = current
+  default = simple
+  autoSetupRemote = true
+  followTags = true
+[rebase]
+  autoSquash = true
+  autoStash = true
+  updateRefs = true
+[rerere]
+  enabled = true
+  autoupdate = true
+[tag]
+  sort = version:refname
+[user]
+  name = tanimon
+  email = 8575113+tanimon@users.noreply.github.com
