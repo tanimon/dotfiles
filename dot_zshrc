@@ -73,6 +73,8 @@ eval "$(/opt/homebrew/bin/mise activate zsh)"
 
 eval "$(starship init zsh)"
 
+eval "$(zoxide init zsh --cmd cd)"
+
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 case ":$PATH:" in
