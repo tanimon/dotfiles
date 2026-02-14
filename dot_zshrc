@@ -1,8 +1,11 @@
+# PATH settings
+source ~/.config/zsh/path.zsh
+
+
 # Environment variables
 [[ -f $HOME/.env ]] && source ${HOME}/.env
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
 export EDITOR="hx"
-export PATH=$PATH:$HOME/.local/bin
 
 
 # History
