@@ -1,3 +1,9 @@
+# Environment variables
+[[ -f $HOME/.env ]] && source ${HOME}/.env
+export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
+export PATH=$PATH:$HOME/.local/bin
+
+
 # History
 HISTFILE=~/.zsh_history
 HISTSIZE=10000
@@ -45,12 +51,6 @@ alias la='eza -la'
 alias diff='difft --display side-by-side-show-both'
 
 
-# Environment variables
-if [[ -f $HOME/.env ]]; then
-    source ${HOME}/.env
-fi
-
-
 # Tool initializations
 source <(carapace _carapace)
 source <(fzf --zsh)
@@ -58,9 +58,6 @@ eval "$(/opt/homebrew/bin/mise activate zsh)"
 eval "$(sheldon source)"
 eval "$(starship init zsh)"
 eval "$(zoxide init zsh --cmd cd)"
-
-
-export PATH=$PATH:$HOME/.local/bin
 
 
 # pnpm
