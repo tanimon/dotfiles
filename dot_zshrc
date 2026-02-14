@@ -12,11 +12,12 @@ setopt share_history
 
 
 # Completion
-autoload -Uz compinit; compinit
+autoload -Uz compinit
+compinit
 zstyle ':completion:*' menu select
 
 command -v aqua &>/dev/null && source <(aqua completion zsh)
-command -v brew &>/dev/null && FPATH=$(brew --prefix)/share/zsh/site-functions:$FPATH
+command -v brew &>/dev/null && fpath=("$(brew --prefix)/share/zsh/site-functions" $fpath)
 command -v chezmoi &>/dev/null && source <(chezmoi completion zsh)
 command -v dyff &>/dev/null && source <(dyff completion zsh)
 command -v kubectl &>/dev/null && source <(kubectl completion zsh)
