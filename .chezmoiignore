@@ -32,9 +32,7 @@ windows/
 .claude/plugins/cache
 .claude/plugins/marketplaces
 .claude/plugins/repos
-.claude/plugins/installed_plugins.json
 .claude/plugins/blocklist.json
-.claude/plugins/known_marketplaces.json
 .claude/plugins/install-counts-cache.json
 .claude/docs
 .claude/hooks
