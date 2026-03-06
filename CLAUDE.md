@@ -47,7 +47,9 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **`modify_dot_claude.json`** — Partially manages `~/.claude.json` (a large runtime file). Uses `jq` to replace only the `mcpServers` key from `dot_claude/mcp-servers.json`, preserving all other runtime state. This is the correct pattern for files where chezmoi should own a subset of keys.
 
-**`run_after_sync-plugins.sh.tmpl`** — Reverse-syncs Claude Code plugin JSON files from `~/` back into the source directory after every apply, templating `$HOME` → `{{ .chezmoi.homeDir }}`. This avoids `chezmoi add` recursion issues.
+**`modify_private_installed_plugins.json.tmpl` / `modify_known_marketplaces.json.tmpl`** — Uses `modify_` pattern to preserve runtime plugin changes. If target exists (stdin non-empty), passes through unchanged. If target doesn't exist (new machine), seeds from `.data` default files. This prevents `chezmoi apply` from overwriting plugins installed at runtime.
+
+**`run_after_sync-plugins.sh.tmpl`** — Reverse-syncs Claude Code plugin JSON files from `~/` back into the source directory (`.data` files) after every apply, templating `$HOME` → `{{ .chezmoi.homeDir }}`. This avoids `chezmoi add` recursion issues.
 
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "macOs/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 

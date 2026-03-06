@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+DATA_FILE="{{ .chezmoi.sourceDir }}/dot_claude/plugins/.known_marketplaces.json.data"
+INPUT=$(cat)
+
+if [ -n "$INPUT" ]; then
+    printf '%s\n' "$INPUT"
+else
+    sed 's|{{ "{{ .chezmoi.homeDir }}" }}|{{ .chezmoi.homeDir }}|g' "$DATA_FILE"
+fi
