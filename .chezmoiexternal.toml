@@ -1,0 +1,4 @@
+[".claude/skills/claudeception"]
+  type = "git-repo"
+  url = "git@github.com:blader/Claudeception.git"
+  refreshPeriod = "168h"

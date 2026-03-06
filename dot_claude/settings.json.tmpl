@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "ENABLE_TOOL_SEARCH": "true",
+    "HOME": "{{ .chezmoi.homeDir }}",
+    "LANG": "ja_JP.UTF-8"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(colima list:*)",
+      "Bash(cp:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker inspect:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker ps:*)",
+      "Bash(fd:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr reviews:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git add:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "Bash(git fetch:*)",
+      "Bash(git log:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git pull:*)",
+      "Bash(git push:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(git submodule:*)",
+      "Bash(git worktree:*)",
+      "Bash(go build:*)",
+      "Bash(go doc:*)",
+      "Bash(go env:*)",
+      "Bash(go generate:*)",
+      "Bash(go get:*)",
+      "Bash(go list:*)",
+      "Bash(go mod:*)",
+      "Bash(go test:*)",
+      "Bash(go tool cover:*)",
+      "Bash(go vet:*)",
+      "Bash(gofmt:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(jq:*)",
+      "Bash(ls:*)",
+      "Bash(lsof:*)",
+      "Bash(make:*)",
+      "Bash(mise:*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(npm:*)",
+      "Bash(pnpm:*)",
+      "Bash(python3:*)",
+      "Bash(realpath:*)",
+      "Bash(time go test:*)",
+      "Bash(tree:*)",
+      "Bash(vite:*)",
+      "Bash(wc:*)",
+      "Edit(!.git/**)",
+      "Edit(!build/**)",
+      "Edit(!dist/**)",
+      "Edit(!node_modules/**)",
+      "Edit(!vendor/**)",
+      "mcp__context7",
+      "mcp__deepwiki",
+      "Read({{ .chezmoi.homeDir }}/ghq/github.com/400f/**)",
+      "WebFetch(domain:*)",
+      "WebSearch",
+      "Write(!.git/**)",
+      "Write(!build/**)",
+      "Write(!dist/**)",
+      "Write(!node_modules/**)",
+      "Write(!vendor/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf /*)",
+      "Bash(sudo:*)",
+      "Bash(dd:*)",
+      "Bash(mkfs:*)",
+      "Bash(fdisk:*)",
+      "Bash(> /dev/*)",
+      "Bash(>> /dev/*)",
+      "Bash(chmod 777:*)",
+      "Bash(chown root:*)",
+      "Bash(sudo chmod 777:*)",
+      "Bash(sudo chown:*)",
+      "Bash(sudo -i:*)",
+      "Bash(sudo su:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(rm -rf .git)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push -f:*)",
+      "Bash(docker system prune -af)",
+      "Bash(npm publish:*)",
+      "Bash(cargo publish:*)",
+      "Bash(deno publish:*)",
+      "Edit(/etc/**)",
+      "Edit(/usr/**)",
+      "Edit(/var/**)",
+      "Edit(/opt/**)",
+      "Edit(/bin/**)",
+      "Edit(/sbin/**)",
+      "Edit(/lib/**)",
+      "Edit(/lib64/**)",
+      "Edit(/boot/**)",
+      "Edit(/proc/**)",
+      "Edit(/sys/**)",
+      "Edit(/dev/**)",
+      "Edit(~/.ssh/id_*)",
+      "Edit(~/.ssh/*_rsa)",
+      "Edit(~/.ssh/*_ecdsa)",
+      "Edit(~/.ssh/*_ed25519)",
+      "Edit(/etc/passwd)",
+      "Edit(/etc/shadow)",
+      "Edit(/etc/sudoers)",
+      "Write(/etc/**)",
+      "Write(/usr/**)",
+      "Write(/var/**)",
+      "Write(/opt/**)",
+      "Write(/bin/**)",
+      "Write(/sbin/**)",
+      "Write(/lib/**)",
+      "Write(/lib64/**)",
+      "Write(/boot/**)",
+      "Write(/proc/**)",
+      "Write(/sys/**)",
+      "Write(/dev/**)",
+      "Write(~/.ssh/*_rsa)",
+      "Write(~/.ssh/*_ecdsa)",
+      "Write(~/.ssh/*_ed25519)",
+      "Write(/etc/passwd)",
+      "Write(/etc/shadow)",
+      "Write(/etc/sudoers)"
+    ],
+    "defaultMode": "default",
+    "additionalDirectories": [
+      "{{ .chezmoi.homeDir }}/ghq/github.com/400f/**"
+    ]
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/scripts/notify.mjs"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=\"$CLAUDE_FILE\"; case \"$FILE\" in *.ts|*.tsx) pnpm lint:fix \"$FILE\" ;; *.go) gofmt -w \"$FILE\" ;; esac'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $HOME/.claude/scripts/notify.mjs"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/skills/claudeception/scripts/claudeception-activator.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node --experimental-strip-types $HOME/.claude/statusline-command.ts"
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": false,
+    "planning-with-files@planning-with-files": false,
+    "gopls-lsp@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": false,
+    "everything-claude-code@everything-claude-code": false,
+    "compound-engineering@every-marketplace": true,
+    "commit-commands@claude-plugins-official": true,
+    "claude-delegator@jarrodwatts-claude-delegator": false
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "network": {
+      "allowUnixSockets": [
+        "/var/run/docker.sock"
+      ],
+      "allowLocalBinding": true
+    },
+    "excludedCommands": [
+      "docker"
+    ]
+  },
+  "feedbackSurveyState": {
+    "lastShownTime": 1754017890073
+  },
+  "mcpServers": {
+    "codex": {
+      "args": [
+        "-m",
+        "gpt-5.2-codex",
+        "mcp-server"
+      ],
+      "command": "codex",
+      "type": "stdio"
+    }
+  }
+}
