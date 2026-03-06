@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+# MCP servers source file
+MCP_SOURCE="${CHEZMOI_SOURCE_DIR}/dot_claude/mcp-servers.json"
+
+# Read current file from stdin
+CURRENT="$(cat)"
+
+# Guard: jq not installed
+if ! command -v jq >/dev/null 2>&1; then
+  echo "WARNING: jq not found, skipping MCP server merge" >&2
+  printf '%s' "${CURRENT}"
+  exit 0
+fi
+
+# Guard: source file missing or invalid
+if [ ! -f "${MCP_SOURCE}" ] || ! jq empty "${MCP_SOURCE}" 2>/dev/null; then
+  echo "WARNING: ${MCP_SOURCE} missing or invalid, skipping MCP server merge" >&2
+  printf '%s' "${CURRENT}"
+  exit 0
+fi
+
+# Merge: replace mcpServers key, preserve everything else
+# If stdin was empty (file doesn't exist yet), default to empty object
+printf '%s' "${CURRENT:-"{}"}" | jq --slurpfile servers "${MCP_SOURCE}" '.mcpServers = $servers[0]'
