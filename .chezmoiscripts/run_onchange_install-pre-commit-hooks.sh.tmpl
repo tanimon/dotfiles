@@ -10,7 +10,7 @@ command -v pnpm >/dev/null 2>&1 || { echo "pnpm not found, skipping secretlint s
 cd {{ .chezmoi.sourceDir | quote }}
 
 echo "Installing secretlint dependencies..."
-pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+pnpm install --frozen-lockfile || { echo "WARNING: frozen-lockfile failed, falling back to mutable install"; pnpm install; }
 
 echo "Installing pre-commit hooks..."
 command -v prek >/dev/null 2>&1 && prek install || echo "prek not found, skipping hook install (run 'mise install' first)"
