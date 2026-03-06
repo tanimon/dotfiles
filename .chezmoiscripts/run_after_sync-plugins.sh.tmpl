@@ -1,0 +1,25 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_DIR="{{ .chezmoi.sourceDir }}"
+HOME_DIR="{{ .chezmoi.homeDir }}"
+PLUGINS_SRC="${SOURCE_DIR}/dot_claude/plugins"
+TMPL_VAR='{{ "{{ .chezmoi.homeDir }}" }}'
+
+# Sync installed_plugins.json → source (templated)
+if [ -f "${HOME_DIR}/.claude/plugins/installed_plugins.json" ]; then
+  cp "${HOME_DIR}/.claude/plugins/installed_plugins.json" \
+     "${PLUGINS_SRC}/private_installed_plugins.json.tmpl"
+  sed -i '' "s|${HOME_DIR}|${TMPL_VAR}|g" \
+     "${PLUGINS_SRC}/private_installed_plugins.json.tmpl"
+fi
+
+# Sync known_marketplaces.json → source (templated)
+if [ -f "${HOME_DIR}/.claude/plugins/known_marketplaces.json" ]; then
+  cp "${HOME_DIR}/.claude/plugins/known_marketplaces.json" \
+     "${PLUGINS_SRC}/known_marketplaces.json.tmpl"
+  sed -i '' "s|${HOME_DIR}|${TMPL_VAR}|g" \
+     "${PLUGINS_SRC}/known_marketplaces.json.tmpl"
+fi
+{{ end -}}
