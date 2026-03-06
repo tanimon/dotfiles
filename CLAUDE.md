@@ -73,3 +73,5 @@ Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Depende
 - **Template escaping** — To output literal `{{ .chezmoi.homeDir }}` in a `.tmpl` file, use `{{ "{{ .chezmoi.homeDir }}" }}`.
 - **Git commit signing** — Requires 1Password SSH agent (`op-ssh-sign`). Commits will fail without it running.
 - **Repo-only files need `.chezmoiignore`** — Files like `CLAUDE.md`, `README.md` at repo root are excluded via `.chezmoiignore` so they don't deploy to `~/`. New repo-only files must be added there.
+- **`modify_` scripts: empty stdout = target deletion** — Never use OS guards (`{{ if eq .chezmoi.os "darwin" }}`); on non-matching OS the script outputs nothing and chezmoi zeros the file. Always include `set -e`. Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`.
+- **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (plugins, IDE configs). `.chezmoiignore` to exclude entirely. See `docs/solutions/integration-issues/chezmoi-apply-overwrites-runtime-plugin-changes.md`.
