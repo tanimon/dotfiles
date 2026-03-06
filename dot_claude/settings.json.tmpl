@@ -66,7 +66,7 @@
       "Edit(!vendor/**)",
       "mcp__context7",
       "mcp__deepwiki",
-      "Read({{ .chezmoi.homeDir }}/ghq/github.com/400f/**)",
+      "Read({{ .chezmoi.homeDir }}/ghq/github.com/{{ .ghOrg }}/**)",
       "WebFetch(domain:*)",
       "WebSearch",
       "Write(!.git/**)",
@@ -140,7 +140,7 @@
     ],
     "defaultMode": "default",
     "additionalDirectories": [
-      "{{ .chezmoi.homeDir }}/ghq/github.com/400f/**"
+      "{{ .chezmoi.homeDir }}/ghq/github.com/{{ .ghOrg }}/**"
     ]
   },
   "hooks": {
@@ -217,9 +217,6 @@
     "excludedCommands": [
       "docker"
     ]
-  },
-  "feedbackSurveyState": {
-    "lastShownTime": 1754017890073
   },
   "mcpServers": {
     "codex": {

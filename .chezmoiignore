@@ -28,6 +28,7 @@ windows/
 .claude/memory
 .claude/history.jsonl
 .claude/stats-cache.json
+.claude/settings.local.json
 .claude/plugins/cache
 .claude/plugins/marketplaces
 .claude/plugins/repos
