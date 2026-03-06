@@ -1,7 +1,7 @@
 # ref: https://blog.gitbutler.com/how-git-core-devs-configure-git
 [alias]
   co = checkout
-  sw = !git branch | fzf | xargs -I{} git switch {}
+  sw = !git branch -a --format='%(refname:short)' | sed 's/^origin\\///' | grep -v '^HEAD' | sort -u | fzf | xargs -I{} git switch {}
 [branch]
   sort = -committerdate
 [column]
