@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "devDependencies": {
+    "secretlint": "^8.0.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^8.0.0",
+    "@secretlint/secretlint-rule-no-dotenv": "^8.0.0"
+  },
+  "scripts": {
+    "secretlint": "secretlint '**/*'"
+  }
+}

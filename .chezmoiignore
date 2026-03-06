@@ -43,3 +43,12 @@ windows/
 .claude/skills/gemini-api-dev
 .claude/skills/parallel-task
 .claude/skills/swarm-planner
+
+# secretlint / prek
+package.json
+pnpm-lock.yaml
+node_modules/
+.pre-commit-config.yaml
+.secretlintrc.json
+.secretlintignore
+.gitignore
