@@ -70,3 +70,4 @@ Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Depende
 - **`.chezmoiignore` silently skips** — If `chezmoi add` does nothing, check `.chezmoiignore`.
 - **Template escaping** — To output literal `{{ .chezmoi.homeDir }}` in a `.tmpl` file, use `{{ "{{ .chezmoi.homeDir }}" }}`.
 - **Git commit signing** — Requires 1Password SSH agent (`op-ssh-sign`). Commits will fail without it running.
+- **Repo-only files need `.chezmoiignore`** — Files like `CLAUDE.md`, `README.md` at repo root are excluded via `.chezmoiignore` so they don't deploy to `~/`. New repo-only files must be added there.
