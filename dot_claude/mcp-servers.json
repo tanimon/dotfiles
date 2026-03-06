@@ -1,0 +1,27 @@
+{
+  "context7": {
+    "type": "http",
+    "url": "https://mcp.context7.com/mcp"
+  },
+  "notion": {
+    "command": "npx",
+    "args": ["-y", "mcp-remote", "https://mcp.notion.com/sse"]
+  },
+  "codex": {
+    "type": "stdio",
+    "command": "codex",
+    "args": ["-m", "gpt-5.2-codex", "mcp-server"]
+  },
+  "newrelic": {
+    "type": "http",
+    "url": "https://mcp.newrelic.com/mcp/"
+  },
+  "figma": {
+    "type": "http",
+    "url": "https://mcp.figma.com/mcp"
+  },
+  "deepwiki": {
+    "type": "http",
+    "url": "https://mcp.deepwiki.com/mcp"
+  }
+}
