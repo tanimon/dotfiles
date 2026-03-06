@@ -1,5 +1,6 @@
 {{ if eq .chezmoi.os "darwin" -}}
 #!/usr/bin/env bash
+set -euo pipefail
 
 # brewfile hash: {{ include "macOs/Brewfile" | sha256sum }}
 echo "Installing brew packages from Brewfile"

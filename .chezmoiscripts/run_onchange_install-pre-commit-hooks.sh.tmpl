@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # mise ツールが未インストールの場合はスキップ（新マシン初回 apply 時）
-command -v pnpm >/dev/null 2>&1 || { echo "pnpm not found, skipping secretlint setup (run 'mise install' first)"; exit 0; }
+command -v pnpm >/dev/null 2>&1 || { echo "⚠ WARNING: pnpm not found, skipping secretlint setup. Pre-commit hooks are NOT active. Run 'mise install && chezmoi apply' to enable." >&2; exit 0; }
 
 cd {{ .chezmoi.sourceDir | quote }}
 
@@ -13,4 +13,4 @@ echo "Installing secretlint dependencies..."
 pnpm install --frozen-lockfile || { echo "WARNING: frozen-lockfile failed, falling back to mutable install"; pnpm install; }
 
 echo "Installing pre-commit hooks..."
-command -v prek >/dev/null 2>&1 && prek install || echo "prek not found, skipping hook install (run 'mise install' first)"
+command -v prek >/dev/null 2>&1 && prek install || echo "⚠ WARNING: prek not found, skipping hook install. Run 'mise install && chezmoi apply' to enable." >&2
