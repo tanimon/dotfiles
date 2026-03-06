@@ -1,0 +1,6 @@
+{{ $profile := promptStringOnce . "profile" "Profile (work/personal)" -}}
+{{ $ghOrg := promptStringOnce . "ghOrg" "GitHub org for work repos (e.g. myorg)" -}}
+
+[data]
+  profile = {{ $profile | quote }}
+  ghOrg = {{ $ghOrg | quote }}
