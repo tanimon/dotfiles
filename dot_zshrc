@@ -56,9 +56,9 @@ alias diff='difft --display side-by-side-show-both'
 
 
 # Tool initializations
-source <(carapace _carapace)
-source <(fzf --zsh)
-eval "$(/opt/homebrew/bin/mise activate zsh)"
-eval "$(sheldon source)"
-eval "$(starship init zsh)"
-eval "$(zoxide init zsh --cmd cd)"
+command -v carapace &>/dev/null && source <(carapace _carapace)
+command -v fzf &>/dev/null && source <(fzf --zsh)
+command -v mise &>/dev/null && eval "$(mise activate zsh)"
+command -v sheldon &>/dev/null && eval "$(sheldon source)"
+command -v starship &>/dev/null && eval "$(starship init zsh)"
+command -v zoxide &>/dev/null && eval "$(zoxide init zsh --cmd cd)"

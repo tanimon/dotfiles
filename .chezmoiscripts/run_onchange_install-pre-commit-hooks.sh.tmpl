@@ -13,4 +13,8 @@ echo "Installing secretlint dependencies..."
 pnpm install --frozen-lockfile || { echo "WARNING: frozen-lockfile failed, falling back to mutable install"; pnpm install; }
 
 echo "Installing pre-commit hooks..."
-command -v prek >/dev/null 2>&1 && prek install || echo "⚠ WARNING: prek not found, skipping hook install. Run 'mise install && chezmoi apply' to enable." >&2
+if command -v prek >/dev/null 2>&1; then
+  prek install
+else
+  echo "⚠ WARNING: prek not found, skipping hook install. Run 'mise install && chezmoi apply' to enable." >&2
+fi

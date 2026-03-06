@@ -105,8 +105,6 @@ alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo
 
 export PATH=~/bin:"$PATH"
 export PAGER=less
-export LESS='-i -N -w  -z-4 -g -e -M -X -F -R -P%t?f%f :stdin .?pb%pb\%:?lbLine %lb:?bbByte %bb:-...'
-export LESS='-f -N -X -i -P ?f%f:(stdin). ?lb%lb?L/%L.. [?eEOF:?pb%pb\%..]'
 export LESS='-f -i -R -W -P ?f%f:(stdin). ?lb%lb?L/%L.. [?eEOF:?pb%pb\%:\?..]'
 export LESSCHARSET='utf-8'
 
@@ -170,13 +168,10 @@ alias ll='ls -l'
 alias la='ls -a'
 
 ENHANCD_HOME=${HOME}/.zplug/repos/b4b4r07/enhancd
-source ${ENHANCD_HOME}/init.sh
+[ -f "${ENHANCD_HOME}/init.sh" ] && source "${ENHANCD_HOME}/init.sh"
 
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
 
 
-complete -C /usr/local/bin/terraform terraform
-. "$HOME/.cargo/env"
-
-export VOLTA_HOME="$HOME/.volta"
-export PATH="$VOLTA_HOME/bin:$PATH"
+[ -x /usr/local/bin/terraform ] && complete -C /usr/local/bin/terraform terraform
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"

@@ -1,13 +1,14 @@
 # ref: https://blog.gitbutler.com/how-git-core-devs-configure-git
 [alias]
   co = checkout
-  sw = !git branch | fzf | xargs git switch
+  sw = !git branch | fzf | xargs -I{} git switch {}
 [branch]
   sort = -committerdate
 [column]
   ui = auto
 [commit]
   verbose = true
+  gpgsign = true
 [core]
   autocrlf = input
   excludesfile = ~/.gitignore
@@ -18,6 +19,8 @@
   colorMoved = plain
   mnemonicPrefix = true
   renames = true
+  tool = difft
+  external = difft
 [fetch]
   prune = true
   pruneTags = true
@@ -46,3 +49,27 @@
 [user]
   name = tanimon
   email = 8575113+tanimon@users.noreply.github.com
+  signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPqE5lfvsdUH7CAsIodo8L4zv3MY5s02cfR8sGjqYcBW
+
+# ref: https://1password.com/blog/git-commit-signing
+[gpg]
+  format = ssh
+[gpg "ssh"]
+  program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
+
+{{ if eq .profile "work" -}}
+### 会社用設定
+[url "git@github.com:"]
+  insteadOf = https://github.com/
+[gtr "copy"]
+  include = **/.envrc
+  include = tmp/scripts/**
+  include = .claude/settings.local.json
+[gtr "editor"]
+  default = code
+[credential]
+  helper =
+  helper = /usr/local/share/gcm-core/git-credential-manager
+[credential "https://dev.azure.com"]
+  useHttpPath = true
+{{ end -}}

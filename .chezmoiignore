@@ -44,6 +44,9 @@ windows/
 .claude/skills/parallel-task
 .claude/skills/swarm-planner
 
+# docs (brainstorms, plans — repo-only, not deployed to home)
+docs/
+
 # secretlint / prek
 package.json
 pnpm-lock.yaml
