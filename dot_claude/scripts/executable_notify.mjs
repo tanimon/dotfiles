@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, openSync, readSync, statSync, closeSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -30,9 +30,21 @@ try {
     process.exit(0);
   }
 
-  const lines = readFileSync(resolvedPath, "utf-8")
-    .split("\n")
-    .filter((line) => line.trim());
+  // Read only the last chunk of the file to avoid OOM on large transcripts
+  const TAIL_BYTES = 8192;
+  const fileStat = statSync(resolvedPath);
+  if (fileStat.size === 0) {
+    console.log("Hook execution failed: Transcript file is empty");
+    process.exit(0);
+  }
+  const fd = openSync(resolvedPath, "r");
+  const readSize = Math.min(TAIL_BYTES, fileStat.size);
+  const buf = Buffer.alloc(readSize);
+  readSync(fd, buf, 0, readSize, fileStat.size - readSize);
+  closeSync(fd);
+
+  const chunk = buf.toString("utf-8");
+  const lines = chunk.split("\n").filter((line) => line.trim());
   if (lines.length === 0) {
     console.log("Hook execution failed: Transcript file is empty");
     process.exit(0);

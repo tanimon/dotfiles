@@ -35,6 +35,10 @@ type FetchResult =
 const CACHE_DIR = join(homedir(), ".claude", "cache");
 const CACHE_FILE = join(CACHE_DIR, "usage.json");
 const CACHE_TTL = 360; // 6 minutes
+const NEG_CACHE_FILE = join(CACHE_DIR, "usage-neg.json");
+const NEG_CACHE_TTL = 30; // 30 seconds — avoid retry storms on API failure
+const DIFF_CACHE_FILE = join(CACHE_DIR, "git-diff.json");
+const DIFF_CACHE_TTL = 10; // 10 seconds — avoid repeated git diff on heavy repos
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 const USAGE_API = "https://api.anthropic.com/api/oauth/usage";
 const BETA_HEADER = "oauth-2025-04-20";
@@ -91,6 +95,15 @@ async function getGitBranch(cwd: string): Promise<string> {
 }
 
 async function getLineChanges(cwd: string): Promise<{ added: number; deleted: number }> {
+  // Short-lived file cache to avoid running git diff on every statusline refresh
+  try {
+    const st = statSync(DIFF_CACHE_FILE);
+    if ((Date.now() - st.mtimeMs) / 1000 <= DIFF_CACHE_TTL) {
+      const cached = JSON.parse(readFileSync(DIFF_CACHE_FILE, "utf8"));
+      if (cached.cwd === cwd) return { added: cached.added, deleted: cached.deleted };
+    }
+  } catch { /* cache miss — proceed to git */ }
+
   try {
     const { stdout } = await execFileAsync("git", ["diff", "--numstat", "--no-renames", "HEAD"], {
       cwd,
@@ -104,6 +117,10 @@ async function getLineChanges(cwd: string): Promise<{ added: number; deleted: nu
       if (a !== "-") added += parseInt(a, 10) || 0;
       if (d !== "-") deleted += parseInt(d, 10) || 0;
     }
+    try {
+      mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
+      writeFileSync(DIFF_CACHE_FILE, JSON.stringify({ cwd, added, deleted }), { mode: 0o600 });
+    } catch { /* best effort */ }
     return { added, deleted };
   } catch {
     return { added: 0, deleted: 0 };
@@ -153,9 +170,35 @@ function writeCache(data: UsageResponse): void {
   }
 }
 
+function isNegCached(): boolean {
+  try {
+    const st = statSync(NEG_CACHE_FILE);
+    return (Date.now() - st.mtimeMs) / 1000 <= NEG_CACHE_TTL;
+  } catch {
+    return false;
+  }
+}
+
+function writeNegCache(authError: boolean): void {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
+    writeFileSync(NEG_CACHE_FILE, JSON.stringify({ authError }), { mode: 0o600 });
+  } catch { /* best effort */ }
+}
+
 async function fetchUsage(): Promise<FetchResult> {
   const cached = readCache();
   if (cached) return { ok: true, data: cached };
+
+  // Negative cache: skip API call if recent failure
+  if (isNegCached()) {
+    try {
+      const neg = JSON.parse(readFileSync(NEG_CACHE_FILE, "utf8"));
+      return { ok: false, authError: !!neg.authError };
+    } catch {
+      return { ok: false, authError: false };
+    }
+  }
 
   const token = await getOAuthToken();
   if (!token) return { ok: false, authError: false };
@@ -173,6 +216,7 @@ async function fetchUsage(): Promise<FetchResult> {
       if (authError) {
         process.stderr.write(`[statusline] Usage API returned ${resp.status}: token may be expired\n`);
       }
+      writeNegCache(authError);
       return { ok: false, authError };
     }
     const data = (await resp.json()) as UsageResponse;
@@ -182,6 +226,7 @@ async function fetchUsage(): Promise<FetchResult> {
     if (err instanceof SyntaxError) {
       process.stderr.write(`[statusline] Usage API returned invalid JSON\n`);
     }
+    writeNegCache(false);
     return { ok: false, authError: false };
   }
 }
