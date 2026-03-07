@@ -3,9 +3,10 @@ set -e
 
 DATA_FILE="{{ .chezmoi.sourceDir }}/dot_claude/plugins/.known_marketplaces.json.data"
 INPUT=$(cat)
+DATA=$(sed 's|{{ "{{ .chezmoi.homeDir }}" }}|{{ .chezmoi.homeDir }}|g' "$DATA_FILE")
 
 if [ -n "$INPUT" ]; then
-    printf '%s\n' "$INPUT"
+    printf '%s\n' "$DATA" "$INPUT" | jq -s '.[0] + .[1]'
 else
-    sed 's|{{ "{{ .chezmoi.homeDir }}" }}|{{ .chezmoi.homeDir }}|g' "$DATA_FILE"
+    printf '%s\n' "$DATA"
 fi

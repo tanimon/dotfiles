@@ -13,7 +13,7 @@
       "repo": "anthropics/claude-plugins-official"
     },
     "installLocation": "{{ .chezmoi.homeDir }}/.claude/plugins/marketplaces/claude-plugins-official",
-    "lastUpdated": "2026-03-06T14:16:26.389Z"
+    "lastUpdated": "2026-03-07T16:04:32.484Z"
   },
   "jarrodwatts-claude-delegator": {
     "source": {
