@@ -1,0 +1,17 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# marketplaces.txt hash: {{ include "dot_claude/plugins/marketplaces.txt" | sha256sum }}
+
+if ! command -v claude &>/dev/null; then
+  echo "claude CLI not found, skipping marketplace registration"
+  exit 0
+fi
+
+while IFS= read -r source || [ -n "$source" ]; do
+  [[ -z "$source" || "$source" == \#* ]] && continue
+  echo "Ensuring marketplace: ${source}"
+  claude plugin marketplace add "$source" || true
+done < "{{ .chezmoi.sourceDir }}/dot_claude/plugins/marketplaces.txt"
+{{ end -}}

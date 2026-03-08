@@ -47,9 +47,7 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **`modify_dot_claude.json`** — Partially manages `~/.claude.json` (a large runtime file). Uses `jq` to replace only the `mcpServers` key from `dot_claude/mcp-servers.json`, preserving all other runtime state. This is the correct pattern for files where chezmoi should own a subset of keys.
 
-**`modify_private_installed_plugins.json.tmpl` / `modify_known_marketplaces.json.tmpl`** — Uses `modify_` pattern to preserve runtime plugin changes. If target exists (stdin non-empty), passes through unchanged. If target doesn't exist (new machine), seeds from `.data` default files. This prevents `chezmoi apply` from overwriting plugins installed at runtime.
-
-**`run_after_sync-plugins.sh.tmpl`** — Reverse-syncs Claude Code plugin JSON files from `~/` back into the source directory (`.data` files) after every apply, templating `$HOME` → `{{ .chezmoi.homeDir }}`. This avoids `chezmoi add` recursion issues.
+**Declarative marketplace sync** — `dot_claude/plugins/marketplaces.txt` lists marketplace sources (one per line: `owner/repo` or URL). `run_onchange_after_add-marketplaces.sh.tmpl` tracks the file hash and runs `claude plugin marketplace add` for each entry when it changes. To add a new marketplace: register it locally with `claude plugin marketplace add`, run `scripts/update-marketplaces.sh` to regenerate the list, then commit and push. To remove: run `claude plugin marketplace remove` manually on each machine — removing a line from `marketplaces.txt` does not unregister the marketplace. Plugin install/enable state (`installed_plugins.json`, `known_marketplaces.json`) is not managed by chezmoi — these files are in `.chezmoiignore`.
 
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "macOs/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
@@ -68,10 +66,10 @@ Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Depende
 ## Known Pitfalls
 
 - **`chezmoi add --autotemplate` breaks JSON** — `:` and `/` get over-substituted. Use `chezmoi add --template` + manual `sed` for homeDir substitution instead.
-- **`run_after_` scripts calling `chezmoi add` cause recursion** — Use `cp` + `sed` to write directly to the source directory (see `run_after_sync-plugins.sh.tmpl`).
+- **`run_after_` scripts calling `chezmoi add` cause recursion** — Use `cp` + `sed` to write directly to the source directory.
 - **`.chezmoiignore` silently skips** — If `chezmoi add` does nothing, check `.chezmoiignore`.
 - **Template escaping** — To output literal `{{ .chezmoi.homeDir }}` in a `.tmpl` file, use `{{ "{{ .chezmoi.homeDir }}" }}`.
 - **Git commit signing** — Requires 1Password SSH agent (`op-ssh-sign`). Commits will fail without it running.
 - **Repo-only files need `.chezmoiignore`** — Files like `CLAUDE.md`, `README.md` at repo root are excluded via `.chezmoiignore` so they don't deploy to `~/`. New repo-only files must be added there.
 - **`modify_` scripts: empty stdout = target deletion** — Never use OS guards (`{{ if eq .chezmoi.os "darwin" }}`); on non-matching OS the script outputs nothing and chezmoi zeros the file. Always include `set -e`. Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`.
-- **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (plugins, IDE configs). `.chezmoiignore` to exclude entirely. See `docs/solutions/integration-issues/chezmoi-apply-overwrites-runtime-plugin-changes.md`.
+- **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.

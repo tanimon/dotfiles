@@ -35,6 +35,9 @@ windows/
 .claude/plugins/repos
 .claude/plugins/blocklist.json
 .claude/plugins/install-counts-cache.json
+.claude/plugins/installed_plugins.json
+.claude/plugins/known_marketplaces.json
+.claude/plugins/marketplaces.txt
 .claude/docs
 .claude/hooks
 .claude/skills/learned
@@ -43,8 +46,9 @@ windows/
 .claude/skills/parallel-task
 .claude/skills/swarm-planner
 
-# docs (brainstorms, plans — repo-only, not deployed to home)
+# repo-only files (not deployed to home)
 docs/
+scripts/
 
 # secretlint / prek
 package.json
