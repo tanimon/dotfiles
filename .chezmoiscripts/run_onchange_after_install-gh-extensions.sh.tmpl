@@ -1,0 +1,22 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gh extensions hash: {{ include "dot_config/gh/extensions.txt" | sha256sum }}
+
+if ! command -v gh &>/dev/null; then
+  echo "gh CLI not found, skipping extension installation"
+  exit 0
+fi
+
+if ! gh auth status &>/dev/null; then
+  echo "gh not authenticated, skipping extension installation"
+  exit 0
+fi
+
+while IFS= read -r ext || [ -n "$ext" ]; do
+  [[ -z "$ext" || "$ext" == \#* ]] && continue
+  echo "Ensuring gh extension: ${ext}"
+  gh extension install "$ext" || echo "warning: failed to install $ext" >&2
+done < "{{ .chezmoi.sourceDir }}/dot_config/gh/extensions.txt"
+{{ end -}}
