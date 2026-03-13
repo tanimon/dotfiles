@@ -1,4 +1,13 @@
 [".claude/skills/claudeception"]
   type = "git-repo"
   url = "https://github.com/blader/Claudeception.git"
+  # renovate: branch=main
+  ref = "62dbb91d1183a866b5cf40079265c825b2695843"
+  refreshPeriod = "168h"
+
+[".local/share/cco"]
+  type = "git-repo"
+  url = "https://github.com/nikvdp/cco.git"
+  # renovate: branch=master
+  ref = "0b7265e4d629328a558364d86bb6a7f9a16b050b"
   refreshPeriod = "168h"

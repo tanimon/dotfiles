@@ -59,7 +59,9 @@ Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache
 
 ### `.chezmoiexternal.toml`
 
-Pulls external git repos (e.g., Claudeception skill) into the managed tree with auto-refresh.
+Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree with auto-refresh. Each entry is pinned to a commit SHA via `ref` for supply-chain safety. Renovate auto-updates these SHAs via a regex custom manager in `renovate.json`.
+
+**Renovate contract:** The regex requires `url`, `# renovate: branch=<branch>` comment, and `ref` lines to be strictly adjacent in order. Do not insert blank lines or reorder keys between them. When adding a new external entry, include the `# renovate: branch=` comment to enable auto-updates.
 
 ### Pre-commit Hooks
 

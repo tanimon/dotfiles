@@ -50,6 +50,7 @@ windows/
 # repo-only files (not deployed to home)
 docs/
 scripts/
+renovate.json
 
 # secretlint / prek
 package.json

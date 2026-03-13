@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Link cco to ~/bin if not already linked
+# cco hash: {{ include ".chezmoiexternal.toml" | sha256sum }}
+
+set -euo pipefail
+
+CCO_BIN="{{ .chezmoi.homeDir }}/.local/share/cco/cco"
+LINK="{{ .chezmoi.homeDir }}/bin/cco"
+
+if [ ! -f "$CCO_BIN" ]; then
+  echo "cco not found at $CCO_BIN, skipping"
+  exit 0
+fi
+
+if [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$CCO_BIN" ]; then
+  exit 0
+fi
+
+mkdir -p "$(dirname "$LINK")"
+ln -sf "$CCO_BIN" "$LINK"
+echo "Linked cco → $LINK"
