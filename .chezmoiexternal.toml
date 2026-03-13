@@ -2,3 +2,8 @@
   type = "git-repo"
   url = "https://github.com/blader/Claudeception.git"
   refreshPeriod = "168h"
+
+[".local/share/cco"]
+  type = "git-repo"
+  url = "https://github.com/nikvdp/cco.git"
+  refreshPeriod = "168h"
