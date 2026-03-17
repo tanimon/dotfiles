@@ -22,6 +22,7 @@ try {
   const resolvedPath = path.resolve(transcriptPath);
 
   if (!resolvedPath.startsWith(allowedBase)) {
+    console.error("notify: transcript path outside allowed directory, skipping");
     process.exit(0);
   }
 
