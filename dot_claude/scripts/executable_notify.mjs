@@ -22,7 +22,8 @@ try {
   const resolvedPath = path.resolve(transcriptPath);
 
   if (!resolvedPath.startsWith(allowedBase)) {
-    process.exit(1);
+    console.error("notify: transcript path outside allowed directory, skipping");
+    process.exit(0);
   }
 
   if (!existsSync(resolvedPath)) {
@@ -71,6 +72,6 @@ try {
     );
   }
 } catch (error) {
-  console.log("Hook execution failed:", error.message);
+  console.error("Hook execution failed:", error.message);
   process.exit(1);
 }
