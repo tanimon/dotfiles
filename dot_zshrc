@@ -53,6 +53,7 @@ alias ll='eza -l'
 alias la='eza -la'
 
 alias diff='difft --display side-by-side-show-both'
+alias claude='cco --safe'
 
 
 # Tool initializations
