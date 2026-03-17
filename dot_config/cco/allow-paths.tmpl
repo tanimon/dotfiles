@@ -7,6 +7,8 @@
 {{ .chezmoi.homeDir }}/.local/share/claude:ro
 # SSH config and known_hosts (needed for git push/pull over SSH)
 {{ .chezmoi.homeDir }}/.ssh:ro
+# Colima SSH config (included by ~/.ssh/config)
+{{ .chezmoi.homeDir }}/.colima:ro
 # Git config files (needed for commit signing, global ignore, aliases)
 {{ .chezmoi.homeDir }}/.gitconfig:ro
 {{ .chezmoi.homeDir }}/.gitignore:ro
@@ -19,3 +21,8 @@
 {{ .chezmoi.homeDir }}/Library/Keychains:ro
 # 1Password SSH agent socket (for git commit signing)
 {{ .chezmoi.homeDir }}/Library/Group Containers/2BUA8C4S2C.com.1password:ro
+# XDG cache (prek log files, etc.)
+{{ .chezmoi.homeDir }}/.cache
+# Claude Code config directory (settings, statusline, rules, skills, sessions, cache, logs)
+# rw needed: Claude Code writes to sessions/, projects/, statsig/, cache/, logs/ at runtime
+{{ .chezmoi.homeDir }}/.claude

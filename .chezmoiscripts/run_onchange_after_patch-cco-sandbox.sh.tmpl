@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Patch cco's sandbox script to allow file-read-metadata on $HOME.
+#
+# Problem: cco --safe denies ALL file-read* under $HOME. Node.js's
+# realpathSync calls lstat($HOME) during module loading, which fails.
+# This breaks every Node.js tool (secretlint, statusline, hooks, etc.).
+#
+# Fix: Add (allow file-read-metadata (subpath "$HOME")) after the deny
+# rule. This permits lstat/stat on $HOME itself (metadata only — no
+# file content reads) so Node.js path resolution succeeds.
+#
+# cco hash: {{ include ".chezmoiexternal.toml" | sha256sum }}
+
+set -euo pipefail
+
+SANDBOX="{{ .chezmoi.homeDir }}/.local/share/cco/sandbox"
+
+if [ ! -f "$SANDBOX" ]; then
+  echo "cco sandbox script not found, skipping"
+  exit 0
+fi
+
+# Ensure sandbox is always executable (awk > redirect loses +x)
+chmod u+x "$SANDBOX"
+
+# Idempotent: skip if already patched with subpath version
+if grep -q 'file-read-metadata (subpath' "$SANDBOX" 2>/dev/null; then
+  exit 0
+fi
+# Remove old literal version if present (upgrade to subpath)
+if grep -q 'file-read-metadata (literal' "$SANDBOX" 2>/dev/null; then
+  sed -i '' '/file-read-metadata (literal/d' "$SANDBOX"
+fi
+
+# Insert metadata allow right after the safe-mode deny rule using awk.
+# Target: printf '(deny file-read* (subpath "%s"))\n' "$(policy_quote "$HOME")"
+# Insert: printf '(allow file-read-metadata (subpath "%s"))\n' "$(policy_quote "$HOME")"
+#
+# Note: Use ENVIRON instead of awk -v to avoid \n being interpreted as newline.
+export PATCH_LINE
+PATCH_LINE=$(printf '\t\t\tprintf '\''(allow file-read-metadata (subpath "%%s"))\\n'\'' "$(policy_quote "$HOME")"')
+
+awk '
+  { print }
+  /deny file-read\* \(subpath/ && /policy_quote.*HOME/ { print ENVIRON["PATCH_LINE"] }
+' "$SANDBOX" > "${SANDBOX}.patched" && mv "${SANDBOX}.patched" "$SANDBOX"
+# Restore executable permission lost by awk > file redirect
+chmod u+x "$SANDBOX"
+
+if grep -q 'file-read-metadata' "$SANDBOX"; then
+  echo "Patched cco sandbox: added file-read-metadata exception for \$HOME"
+else
+  echo "Warning: failed to patch cco sandbox script" >&2
+fi
