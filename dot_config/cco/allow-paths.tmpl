@@ -2,3 +2,6 @@
 # These are passed as --add-dir arguments to cco
 # Append :ro for read-only access (default is :rw)
 {{ .chezmoi.homeDir }}/ghq
+# Allow sandbox to read/execute the claude binary
+{{ .chezmoi.homeDir }}/.local/bin:ro
+{{ .chezmoi.homeDir }}/.local/share/claude:ro
