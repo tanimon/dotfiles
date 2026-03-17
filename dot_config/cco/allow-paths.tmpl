@@ -7,6 +7,8 @@
 {{ .chezmoi.homeDir }}/.local/share/claude:ro
 # SSH config and known_hosts (needed for git push/pull over SSH)
 {{ .chezmoi.homeDir }}/.ssh:ro
+# Colima SSH config (included by ~/.ssh/config)
+{{ .chezmoi.homeDir }}/.colima:ro
 # Git config files (needed for commit signing, global ignore, aliases)
 {{ .chezmoi.homeDir }}/.gitconfig:ro
 {{ .chezmoi.homeDir }}/.gitignore:ro
