@@ -5,3 +5,10 @@
 # Allow sandbox to read/execute the claude binary
 {{ .chezmoi.homeDir }}/.local/bin:ro
 {{ .chezmoi.homeDir }}/.local/share/claude:ro
+# Git config files (needed for commit signing, global ignore, aliases)
+{{ .chezmoi.homeDir }}/.gitconfig:ro
+{{ .chezmoi.homeDir }}/.config/git:ro
+# mise-managed tools (prek for pre-commit hooks, etc.)
+{{ .chezmoi.homeDir }}/.local/share/mise:ro
+# 1Password SSH agent socket (for git commit signing)
+{{ .chezmoi.homeDir }}/Library/Group Containers/2BUA8C4S2C.com.1password:ro
