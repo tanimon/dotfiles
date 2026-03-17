@@ -27,15 +27,14 @@ try {
   }
 
   if (!existsSync(resolvedPath)) {
-    console.log("Hook execution failed: Transcript file does not exist");
     process.exit(0);
   }
 
-  // Read only the last chunk of the file to avoid OOM on large transcripts
-  const TAIL_BYTES = 8192;
+  // Read only the last chunk of the file to avoid OOM on large transcripts.
+  // Use a generous buffer since JSONL entries can be large (tool results, long responses).
+  const TAIL_BYTES = 65536;
   const fileStat = statSync(resolvedPath);
   if (fileStat.size === 0) {
-    console.log("Hook execution failed: Transcript file is empty");
     process.exit(0);
   }
   const fd = openSync(resolvedPath, "r");
@@ -47,12 +46,30 @@ try {
   const chunk = buf.toString("utf-8");
   const lines = chunk.split("\n").filter((line) => line.trim());
   if (lines.length === 0) {
-    console.log("Hook execution failed: Transcript file is empty");
     process.exit(0);
   }
 
-  const lastLine = lines[lines.length - 1];
-  const transcript = JSON.parse(lastLine);
+  // When tail-reading, the first line is almost always a partial fragment.
+  // Drop it unless we read from the start of the file.
+  const completeLines =
+    readSize < fileStat.size ? lines.slice(1) : lines;
+  if (completeLines.length === 0) {
+    process.exit(0);
+  }
+
+  // Try parsing from the last line backwards to find a valid JSONL entry.
+  let transcript;
+  for (let i = completeLines.length - 1; i >= 0; i--) {
+    try {
+      transcript = JSON.parse(completeLines[i]);
+      break;
+    } catch {
+      // Skip malformed lines
+    }
+  }
+  if (!transcript) {
+    process.exit(0);
+  }
   const lastMessageContent = transcript?.message?.content?.[0]?.text;
 
   if (lastMessageContent) {
@@ -72,6 +89,7 @@ try {
     );
   }
 } catch (error) {
-  console.error("Hook execution failed:", error.message);
-  process.exit(1);
+  // Notification is best-effort — log for debugging but never block Claude Code
+  console.error(`notify: ${error.message}`);
+  process.exit(0);
 }
