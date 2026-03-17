@@ -1,10 +1,10 @@
 ---
 title: "cco --safe sandbox: hooks and git operations fail with EPERM"
-date: 2026-03-17
+date: 2026-03-18
 category: runtime-errors
-tags: [cco, sandbox, seatbelt, hooks, git, node, eperm, notify, keychain, ssh]
-module: cco sandbox configuration, Claude Code hooks
-symptom: "Stop hook error: EPERM lstat '/Users/...'; git: unable to access ~/.gitconfig; gh auth: token invalid"
+tags: [cco, sandbox, seatbelt, hooks, git, node, eperm, notify, keychain, ssh, statusline, secretlint, file-read-metadata]
+module: cco sandbox configuration, Claude Code hooks, statusline
+symptom: "Stop hook error: EPERM lstat '/Users/...'; git: unable to access ~/.gitconfig; gh auth: token invalid; statusline not displaying; secretlint EPERM"
 root_cause: "cco --safe Seatbelt policy denies file-read* under $HOME; Node.js realpathSync needs lstat on every parent directory; git/gh/ssh configs are under $HOME"
 ---
 
@@ -83,8 +83,60 @@ In `~/.config/cco/allow-paths` (read by the shell function that wraps cco):
 
 5. **`GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null` bypasses git config access** when you need git to work despite sandbox restrictions (useful for bootstrapping).
 
+## Root Fix: Patch cco Seatbelt Profile (2026-03-18)
+
+The workarounds above (bash wrapping, individual allow-paths) treat symptoms. The root fix patches cco's Seatbelt profile to allow `file-read-metadata` on all paths under `$HOME`:
+
+```scheme
+(allow file-read-metadata (subpath "$HOME"))
+```
+
+This permits `lstat/stat` (metadata only — no file content reads) so Node.js `realpathSync` succeeds. All Node.js tools (secretlint, statusline, hooks, pnpm) work inside the sandbox.
+
+### Implementation
+
+A chezmoi `run_onchange_after_` script patches cco's `sandbox` script using awk:
+
+```bash
+export PATCH_LINE
+PATCH_LINE=$(printf '\t\t\tprintf '\''(allow file-read-metadata (subpath "%%s"))\\n'\'' "$(policy_quote "$HOME")"')
+
+awk '
+  { print }
+  /deny file-read\* \(subpath/ && /policy_quote.*HOME/ { print ENVIRON["PATCH_LINE"] }
+' "$SANDBOX" > "${SANDBOX}.patched" && mv "${SANDBOX}.patched" "$SANDBOX"
+chmod u+x "$SANDBOX"
+```
+
+### Pitfalls Encountered
+
+1. **`literal` vs `subpath`**: `(allow file-read-metadata (literal "$HOME"))` only allows `lstat($HOME)` itself. `realpathSync` also needs `lstat` on intermediate dirs like `$HOME/.local`, `$HOME/.local/share`, etc. Use `subpath` to cover all descendants.
+
+2. **awk `-v` interprets `\n`**: `awk -v var="string\n"` converts `\n` to newline. Use `ENVIRON["VAR"]` instead — no escape interpretation.
+
+3. **awk `>` redirect loses executable permission**: `awk '...' file > file.new && mv file.new file` creates file.new with 644. Add `chmod u+x file` after `mv`.
+
+4. **Idempotency check skips chmod**: `grep -q 'marker' && exit 0` placed before `chmod` means chmod is skipped when the file is already patched. Move `chmod u+x` BEFORE the idempotency check.
+
+### Additional allow-paths needed
+
+```
+~/.claude    # Claude Code config (rw for sessions, cache, logs)
+~/.cache     # XDG cache (prek log files)
+```
+
+### Statusline defense-in-depth
+
+Even with the root fix, a bash wrapper caches `statusline-command.ts` to `/tmp` as fallback:
+- `/tmp` is outside `$HOME` — no `realpathSync` issue
+- `.ts` extension preserved — `--experimental-strip-types` works
+- Process substitution `<(cat file.ts)` does NOT work — `/dev/fd/N` has no `.ts` extension
+
 ## Prevention
 
 - When adding new tools to the cco sandbox that need `$HOME` access, check what config/credential files the tool reads with: `strace -e openat <command>` (Linux) or `dtruss -f <command> 2>&1 | grep open` (macOS, outside sandbox)
 - Test hooks both inside and outside the sandbox
 - Prefer logging errors to `~/.claude/logs/` over suppressing them with `/dev/null`
+- When patching external tools via chezmoi, always preserve file permissions (`chmod` after `awk`/`sed` redirects)
+- Use `ENVIRON[]` instead of `awk -v` when passing strings containing escape sequences
+- Place essential operations (like `chmod`) BEFORE idempotency early-exit checks
