@@ -5,10 +5,17 @@
 # Allow sandbox to read/execute the claude binary
 {{ .chezmoi.homeDir }}/.local/bin:ro
 {{ .chezmoi.homeDir }}/.local/share/claude:ro
+# SSH config and known_hosts (needed for git push/pull over SSH)
+{{ .chezmoi.homeDir }}/.ssh:ro
 # Git config files (needed for commit signing, global ignore, aliases)
 {{ .chezmoi.homeDir }}/.gitconfig:ro
+{{ .chezmoi.homeDir }}/.gitignore:ro
 {{ .chezmoi.homeDir }}/.config/git:ro
 # mise-managed tools (prek for pre-commit hooks, etc.)
 {{ .chezmoi.homeDir }}/.local/share/mise:ro
+# gh CLI config (auth tokens, host config)
+{{ .chezmoi.homeDir }}/.config/gh:ro
+# macOS Keychain (gh CLI stores auth tokens here)
+{{ .chezmoi.homeDir }}/Library/Keychains:ro
 # 1Password SSH agent socket (for git commit signing)
 {{ .chezmoi.homeDir }}/Library/Group Containers/2BUA8C4S2C.com.1password:ro
