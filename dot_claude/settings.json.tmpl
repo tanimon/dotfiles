@@ -190,7 +190,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bash $HOME/.claude/scripts/statusline-wrapper.sh"
+    "command": "node --experimental-strip-types $HOME/.claude/statusline-command.ts"
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
@@ -262,5 +262,6 @@
     "excludedCommands": [
       "docker"
     ]
-  }
+  },
+  "skipDangerousModePermissionPrompt": true
 }
