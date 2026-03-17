@@ -88,7 +88,8 @@ try {
       }
     );
   }
-} catch {
-  // Silently exit — notification is best-effort, never block Claude Code
+} catch (error) {
+  // Notification is best-effort — log for debugging but never block Claude Code
+  console.error(`notify: ${error.message}`);
   process.exit(0);
 }
