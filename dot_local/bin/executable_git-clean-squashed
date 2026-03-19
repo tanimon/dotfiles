@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: git clean-squashed [options]
+
+Delete local branches that have been squash-merged into the base branch.
+
+Options:
+  --base <branch>    Base branch to compare against (default: main)
+  --force            Skip confirmation prompt
+  --dry-run          List branches without deleting
+  --no-fetch         Skip auto-fetch before scanning
+  --help             Show this help message
+USAGE
+}
+
+# Defaults
+BASE_BRANCH="main"
+FORCE=false
+DRY_RUN=false
+NO_FETCH=false
+PROTECTED_BRANCHES="main master develop"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --base) BASE_BRANCH="$2"; shift 2 ;;
+    --force) FORCE=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --no-fetch) NO_FETCH=true; shift ;;
+    --help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+# Validate git repo
+git rev-parse --is-inside-work-tree &>/dev/null || { echo "Error: Not a git repository" >&2; exit 1; }
+
+# Determine base ref (prefer remote tracking branch)
+if git rev-parse --verify "origin/$BASE_BRANCH" &>/dev/null; then
+  BASE_REF="origin/$BASE_BRANCH"
+elif git rev-parse --verify "$BASE_BRANCH" &>/dev/null; then
+  BASE_REF="$BASE_BRANCH"
+else
+  echo "Error: Base branch '$BASE_BRANCH' not found" >&2
+  exit 1
+fi
+
+# Auto-fetch
+if [[ "$NO_FETCH" == false ]]; then
+  echo "Fetching from remote..."
+  git fetch --prune --quiet
+fi
+
+# Get current branch and worktree branches
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+WORKTREE_BRANCHES=$(git worktree list --porcelain | grep '^branch ' | sed 's|^branch refs/heads/||')
+
+# Scan for squash-merged branches
+CANDIDATES=()
+for branch in $(git for-each-ref refs/heads/ --format='%(refname:short)'); do
+  # Skip protected branches
+  if echo "$PROTECTED_BRANCHES" | grep -qw "$branch"; then continue; fi
+  # Skip current branch
+  if [[ "$branch" == "$CURRENT_BRANCH" ]]; then
+    echo "Skipping '$branch' (currently checked out)"
+    continue
+  fi
+  # Skip worktree branches
+  if echo "$WORKTREE_BRANCHES" | grep -qx "$branch"; then
+    echo "Skipping '$branch' (checked out in another worktree)"
+    continue
+  fi
+
+  merge_base=$(git merge-base "$BASE_REF" "$branch" 2>/dev/null) || continue
+  squash_commit=$(git commit-tree "${branch}^{tree}" -p "$merge_base" -m _)
+  cherry_result=$(git cherry "$BASE_REF" "$squash_commit" 2>/dev/null) || continue
+
+  if [[ "$cherry_result" == "- $squash_commit" ]]; then
+    CANDIDATES+=("$branch")
+  fi
+done
+
+if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
+  echo "No squash-merged branches found."
+  exit 0
+fi
+
+# Display candidates
+echo ""
+echo "Squash-merged branches:"
+for branch in "${CANDIDATES[@]}"; do
+  last_commit=$(git log -1 --format='%ar' "$branch")
+  echo "  - $branch ($last_commit)"
+done
+echo ""
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "(dry-run: no branches deleted)"
+  exit 0
+fi
+
+# Confirm deletion
+if [[ "$FORCE" == false ]]; then
+  read -rp "Delete ${#CANDIDATES[@]} branch(es)? [y/N] " confirm
+  if [[ "$confirm" != [yY] ]]; then
+    echo "Aborted."
+    exit 0
+  fi
+fi
+
+# Delete branches
+for branch in "${CANDIDATES[@]}"; do
+  git branch -D "$branch"
+done
+
+echo "Done. Deleted ${#CANDIDATES[@]} branch(es)."
+echo "Tip: Branches can be recovered via 'git reflog' within 30 days."
