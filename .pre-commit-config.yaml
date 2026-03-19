@@ -6,3 +6,15 @@ repos:
         entry: pnpm exec secretlint
         language: system
         types: [text]
+      - id: shellcheck
+        name: shellcheck
+        entry: bash -c 'if command -v shellcheck &>/dev/null; then shellcheck "$@"; else echo "shellcheck not found, skipping"; fi' --
+        language: system
+        files: '(\.sh$|\.bash$|\.chezmoiscripts/|executable_)'
+        types: [file]
+      - id: shfmt
+        name: shfmt
+        entry: bash -c 'if command -v shfmt &>/dev/null; then shfmt -d -i 4 "$@"; else echo "shfmt not found, skipping"; fi' --
+        language: system
+        files: '(\.sh$|\.bash$|\.chezmoiscripts/|executable_)'
+        types: [file]
