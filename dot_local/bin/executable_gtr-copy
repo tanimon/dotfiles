@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v fzf &>/dev/null; then
+    echo "gtr-copy: fzf is required but not installed" >&2
+    exit 1
+fi
+
+worktree_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "gtr-copy: not inside a git repository" >&2
+    exit 1
+}
+
+cd "$worktree_root"
+
+destinations=$(git worktree list | grep -vF "${worktree_root} " | grep -vF "(bare)")
+
+if [[ -z "$destinations" ]]; then
+    echo "gtr-copy: no other worktrees found" >&2
+    exit 1
+fi
+
+selected_files=$(
+    { git ls-files; git ls-files --others --exclude-standard; } \
+    | sort -u \
+    | fzf --multi --preview 'f={}; bat --color=always -- "$f" 2>/dev/null || cat -- "$f"'
+) || exit 0
+
+dest_line=$(printf '%s\n' "$destinations" | fzf) || exit 0
+dest_worktree=$(printf '%s\n' "$dest_line" | awk '{print $1}')
+
+copied=0
+
+while IFS= read -r file; do
+    mkdir -p "${dest_worktree}/$(dirname "$file")"
+    cp "$file" "${dest_worktree}/${file}"
+    copied=$((copied + 1))
+done <<< "$selected_files"
+
+echo "gtr-copy: copied ${copied} file(s) to ${dest_worktree}"
