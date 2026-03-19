@@ -6,3 +6,13 @@ repos:
         entry: pnpm exec secretlint
         language: system
         types: [text]
+      - id: shellcheck
+        name: shellcheck
+        entry: bash -c 'command -v shellcheck &>/dev/null && shellcheck "$@" || echo "shellcheck not found, skipping"' --
+        language: system
+        types: [bash]
+      - id: shfmt
+        name: shfmt
+        entry: bash -c 'command -v shfmt &>/dev/null && shfmt -d "$@" || echo "shfmt not found, skipping"' --
+        language: system
+        types: [bash]
