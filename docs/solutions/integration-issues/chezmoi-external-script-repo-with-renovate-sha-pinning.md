@@ -85,7 +85,7 @@ ln -sf "$CCO_BIN" "$LINK"
 {
   "customManagers": [{
     "customType": "regex",
-    "managerFilePatterns": ["\\.chezmoiexternal\\.toml$"],
+    "managerFilePatterns": ["/\\.chezmoiexternal\\.toml$/"],
     "matchStrings": [
       "url\\s*=\\s*\"https://github\\.com/(?<depName>[^\"]+?)(?:\\.git)?\"\\s+#\\s*renovate:\\s*branch=(?<currentValue>\\S+)\\s+ref\\s*=\\s*\"(?<currentDigest>[a-f0-9]{40})\""
     ],
