@@ -8,11 +8,13 @@ repos:
         types: [text]
       - id: shellcheck
         name: shellcheck
-        entry: bash -c 'command -v shellcheck &>/dev/null && shellcheck "$@" || echo "shellcheck not found, skipping"' --
+        entry: bash -c 'if command -v shellcheck &>/dev/null; then shellcheck "$@"; else echo "shellcheck not found, skipping"; fi' --
         language: system
-        types: [bash]
+        files: '(\.sh$|\.bash$|\.chezmoiscripts/|executable_)'
+        types: [file]
       - id: shfmt
         name: shfmt
-        entry: bash -c 'command -v shfmt &>/dev/null && shfmt -d "$@" || echo "shfmt not found, skipping"' --
+        entry: bash -c 'if command -v shfmt &>/dev/null; then shfmt -d -i 4 "$@"; else echo "shfmt not found, skipping"; fi' --
         language: system
-        types: [bash]
+        files: '(\.sh$|\.bash$|\.chezmoiscripts/|executable_)'
+        types: [file]
