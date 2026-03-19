@@ -21,12 +21,14 @@ BASE_BRANCH="main"
 FORCE=false
 DRY_RUN=false
 NO_FETCH=false
-PROTECTED_BRANCHES="main master develop"
-
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --base) BASE_BRANCH="$2"; shift 2 ;;
+    --base)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: --base requires an argument" >&2; exit 1
+      fi
+      BASE_BRANCH="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     --no-fetch) NO_FETCH=true; shift ;;
@@ -38,10 +40,10 @@ done
 # Validate git repo
 git rev-parse --is-inside-work-tree &>/dev/null || { echo "Error: Not a git repository" >&2; exit 1; }
 
-# Determine base ref (prefer remote tracking branch)
-if git rev-parse --verify "origin/$BASE_BRANCH" &>/dev/null; then
+# Determine base ref (prefer remote tracking branch, use fully-qualified refs)
+if git rev-parse --verify "refs/remotes/origin/$BASE_BRANCH" &>/dev/null; then
   BASE_REF="origin/$BASE_BRANCH"
-elif git rev-parse --verify "$BASE_BRANCH" &>/dev/null; then
+elif git rev-parse --verify "refs/heads/$BASE_BRANCH" &>/dev/null; then
   BASE_REF="$BASE_BRANCH"
 else
   echo "Error: Base branch '$BASE_BRANCH' not found" >&2
@@ -61,15 +63,15 @@ WORKTREE_BRANCHES=$(git worktree list --porcelain | grep '^branch ' | sed 's|^br
 # Scan for squash-merged branches
 CANDIDATES=()
 for branch in $(git for-each-ref refs/heads/ --format='%(refname:short)'); do
-  # Skip protected branches
-  if echo "$PROTECTED_BRANCHES" | grep -qw "$branch"; then continue; fi
+  # Skip base branch
+  if [[ "$branch" == "$BASE_BRANCH" ]]; then continue; fi
   # Skip current branch
   if [[ "$branch" == "$CURRENT_BRANCH" ]]; then
     echo "Skipping '$branch' (currently checked out)"
     continue
   fi
   # Skip worktree branches
-  if echo "$WORKTREE_BRANCHES" | grep -qx "$branch"; then
+  if echo "$WORKTREE_BRANCHES" | grep -qxF "$branch"; then
     echo "Skipping '$branch' (checked out in another worktree)"
     continue
   fi
