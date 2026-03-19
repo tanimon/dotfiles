@@ -36,6 +36,10 @@ dest_worktree=$(printf '%s\n' "$dest_line" | awk '{print $1}')
 copied=0
 
 while IFS= read -r file; do
+    if [[ "$file" == ../* || "$file" == *../* ]]; then
+        echo "gtr-copy: skipping unsafe path: $file" >&2
+        continue
+    fi
     mkdir -p "${dest_worktree}/$(dirname "$file")"
     cp "$file" "${dest_worktree}/${file}"
     copied=$((copied + 1))
