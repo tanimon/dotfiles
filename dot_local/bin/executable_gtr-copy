@@ -20,10 +20,14 @@ if [[ -z "$destinations" ]]; then
     exit 1
 fi
 
+# shellcheck disable=SC2016
 selected_files=$(
-    { git ls-files; git ls-files --others --exclude-standard; } \
-    | sort -u \
-    | fzf --multi --preview 'f={}; bat --color=always -- "$f" 2>/dev/null || cat -- "$f"'
+    {
+        git ls-files
+        git ls-files --others --exclude-standard
+    } |
+        sort -u |
+        fzf --multi --preview 'f={}; bat --color=always -- "$f" 2>/dev/null || cat -- "$f"'
 ) || exit 0
 
 dest_line=$(printf '%s\n' "$destinations" | fzf) || exit 0
@@ -35,6 +39,6 @@ while IFS= read -r file; do
     mkdir -p "${dest_worktree}/$(dirname "$file")"
     cp "$file" "${dest_worktree}/${file}"
     copied=$((copied + 1))
-done <<< "$selected_files"
+done <<<"$selected_files"
 
 echo "gtr-copy: copied ${copied} file(s) to ${dest_worktree}"
