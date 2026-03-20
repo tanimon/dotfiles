@@ -6,3 +6,4 @@
 # Compound Engineering Plugin に関する補足
 
 `ralph-wiggum` skill は `ralph-loop` という名称で存在する場合がある。
+`/ralph-loop:ralph-loop` によって起動できる。
