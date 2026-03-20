@@ -12,6 +12,10 @@
 
 shell = "zsh"
 
+# Load order matters: sheldon sources plugins in declaration order.
+# fzf-tab must load after compinit (handled in .zshrc) and before
+# zsh-autosuggestions / zsh-syntax-highlighting which wrap widgets.
+
 [plugins.wakatime]
 github = "sobolevn/wakatime-zsh-plugin"
 
