@@ -15,12 +15,15 @@ shell = "zsh"
 [plugins.wakatime]
 github = "sobolevn/wakatime-zsh-plugin"
 
+[plugins.zsh-completions]
+github = "zsh-users/zsh-completions"
+
+[plugins.fzf-tab]
+github = "Aloxaf/fzf-tab"
+
 [plugins.zsh-autosuggestions]
 github = "zsh-users/zsh-autosuggestions"
 use = ["{{ name }}.zsh"]
-
-[plugins.zsh-completions]
-github = "zsh-users/zsh-completions"
 
 [plugins.zsh-syntax-highlighting]
 github = "zsh-users/zsh-syntax-highlighting"
