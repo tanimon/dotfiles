@@ -1,27 +1,47 @@
 # safehouse configuration for Claude Code sandbox
 # Each line is a CLI argument passed to safehouse
 # Lines starting with # are comments
+#
+# Architecture:
+#   safehouse assembles a deny-all Seatbelt profile from 40+ built-in .sb files.
+#   CLI flags here are processed in Phase 4 (after all built-in profiles).
+#   --add-dirs / --add-dirs-ro auto-detect file vs directory and emit the
+#   correct Seatbelt rule type (literal for files, subpath for directories).
+#   Ancestor literal rules are also auto-generated — no manual setup needed.
+#
+# Already covered by safehouse built-in profiles (do NOT add here):
+#   claude-code.sb:       ~/.claude (rw), ~/.claude.json (rw), ~/.local/share/claude
+#   keychain.sb:          ~/Library/Keychains (auto-required by claude-code)
+#   git.sb:               ~/.gitconfig, ~/.gitignore, ~/.config/git, ~/.ssh/config
+#   scm-clis.sb:          ~/.config/gh (rw)
+#   runtime-managers.sb:  ~/.local/share/mise, ~/.config/mise (rw)
+#   node.sb:              ~/.npm, ~/.npmrc, ~/.node_repl_history
+#   rust.sb:              ~/.cargo, ~/.rustup
+#   go.sb:                ~/go, ~/.cache/go-build
+#   python.sb:            ~/.python_history
 
-# Integrations (opt-in modules)
+# --- Integrations (opt-in modules) ---
 --enable=ssh
 --enable=1password
 
-# Working directories (read-write)
+# --- Working directories (read-write) ---
 --add-dirs={{ .chezmoi.homeDir }}/ghq
 --add-dirs={{ .chezmoi.homeDir }}/.cache
 --add-dirs={{ .chezmoi.homeDir }}/.codex
 
-# Binaries and tools (read-only)
+# --- Binaries and tools (read-only) ---
+# ~/.local/bin has claude symlink (covered by claude-code.sb as literal)
+# but also other user-installed binaries that need PATH resolution
 --add-dirs-ro={{ .chezmoi.homeDir }}/.local/bin
 
-# SSH and network (read-only)
+# --- SSH and network (read-only) ---
 --add-dirs-ro={{ .chezmoi.homeDir }}/.colima
 
-# chezmoi (read-only)
+# --- chezmoi (read-only) ---
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/chezmoi
 --add-dirs-ro={{ .chezmoi.homeDir }}/.local/share/chezmoi
 
-# Dotfiles in $HOME root (read-only, for chezmoi diff/comparison)
+# --- Dotfiles in $HOME root (read-only, for chezmoi diff/comparison) ---
 --add-dirs-ro={{ .chezmoi.homeDir }}/.zshrc
 --add-dirs-ro={{ .chezmoi.homeDir }}/.zprofile
 --add-dirs-ro={{ .chezmoi.homeDir }}/.bashrc
@@ -30,7 +50,7 @@
 --add-dirs-ro={{ .chezmoi.homeDir }}/.tmux.conf
 --add-dirs-ro={{ .chezmoi.homeDir }}/.cVimrc
 
-# ~/.config subdirectories (read-only, not covered by safehouse profiles)
+# --- ~/.config subdirectories (read-only, not covered by built-in profiles) ---
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/cco
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/safehouse
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/ghostty
