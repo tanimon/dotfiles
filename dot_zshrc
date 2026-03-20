@@ -1,6 +1,6 @@
 # PATH settings
 source ~/.config/zsh/path.zsh
-source ~/.config/zsh/cco.zsh
+source ~/.config/zsh/sandbox.zsh
 
 
 # Environment variables
