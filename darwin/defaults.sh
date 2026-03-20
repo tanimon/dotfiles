@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-if [ "$(uname)" != "Darwin" ] ; then
-	echo "Not macOS!"
-	exit 1
+if [ "$(uname)" != "Darwin" ]; then
+    echo "Not macOS!"
+    exit 1
 fi
 
 # タップでクリックを有効化
@@ -66,9 +66,8 @@ defaults write com.apple.universalaccess mouseDriverCursorSize -float 2.0
 # Show files with all extensions
 defaults write -g AppleShowAllExtensions -bool true
 
-
 for app in "Dock" \
-	"Finder" \
-	"SystemUIServer"; do
-	killall "${app}" &> /dev/null
+    "Finder" \
+    "SystemUIServer"; do
+    killall "${app}" &>/dev/null
 done
