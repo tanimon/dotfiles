@@ -53,6 +53,8 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
+**cco (Claude Code Offline) integration** — `.chezmoiexternal.toml` pulls the cco repo into `~/.local/share/cco`. `run_onchange_after_link-cco.sh.tmpl` symlinks the `cco` binary, and `run_onchange_after_patch-cco-sandbox.sh.tmpl` patches the macOS Seatbelt sandbox profile for Node.js compatibility.
+
 ### `.chezmoiignore`
 
 Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache, etc.) so only curated config files are managed. Also excludes repo-only files like `docs/`, `package.json`, `node_modules/`.
@@ -62,6 +64,16 @@ Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache
 Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree with auto-refresh. Each entry is pinned to a commit SHA via `ref` for supply-chain safety. Renovate auto-updates these SHAs via a regex custom manager in `renovate.json`.
 
 **Renovate contract:** The regex requires `url`, `# renovate: branch=<branch>` comment, and `ref` lines to be strictly adjacent in order. Do not insert blank lines or reorder keys between them. When adding a new external entry, include the `# renovate: branch=` comment to enable auto-updates.
+
+### Directory Layout
+
+| Directory | Purpose |
+|-----------|---------|
+| `darwin/` | macOS-specific resources: `Brewfile`, `DefaultKeyBinding.dict`, `defaults.sh` |
+| `windows/` | Windows-specific resources: `alacritty.yml`, `chocolatey` |
+| `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
+| `dot_claude/` | Claude Code config (`~/.claude/`): settings, MCP servers, rules, agents, commands, plugins |
+| `scripts/` | Repo-only helper scripts (`update-marketplaces.sh`, `update-gh-extensions.sh`) |
 
 ### Pre-commit Hooks
 
