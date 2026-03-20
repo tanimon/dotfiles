@@ -2,7 +2,7 @@ LICENSE
 README.md
 CLAUDE.md
 
-macOs/
+darwin/
 windows/
 
 *.txt

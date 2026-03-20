@@ -51,7 +51,7 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **Declarative gh extension sync** — `dot_config/gh/extensions.txt` lists gh extensions (one `owner/repo` per line). `run_onchange_after_install-gh-extensions.sh.tmpl` installs them when the list changes. `scripts/update-gh-extensions.sh` regenerates the list from `gh extension list`. Same pattern as marketplace sync. Note: `gh extension list` is tab-delimited — use `awk -F'\t'` to parse.
 
-**`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "macOs/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
+**`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
 ### `.chezmoiignore`
 

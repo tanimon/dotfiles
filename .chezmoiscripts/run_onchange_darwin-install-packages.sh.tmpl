@@ -2,7 +2,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# brewfile hash: {{ include "macOs/Brewfile" | sha256sum }}
+# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}
 echo "Installing brew packages from Brewfile"
-brew bundle install --file={{ joinPath .chezmoi.sourceDir "macOs/Brewfile" | quote }}
+brew bundle install --file={{ joinPath .chezmoi.sourceDir "darwin/Brewfile" | quote }}
 {{ end -}}
