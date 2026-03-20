@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# sheldon plugins hash: {{ include "dot_config/sheldon/plugins.toml" | sha256sum }}
+
+if ! command -v sheldon &>/dev/null; then
+  echo "sheldon not found, skipping lock"
+  exit 0
+fi
+
+echo "Updating sheldon lock file..."
+sheldon lock --update
