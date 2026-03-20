@@ -1,0 +1,41 @@
+# safehouse configuration for Claude Code sandbox
+# Each line is a CLI argument passed to safehouse
+# Lines starting with # are comments
+
+# Integrations (opt-in modules)
+--enable=ssh
+--enable=1password
+
+# Working directories (read-write)
+--add-dirs={{ .chezmoi.homeDir }}/ghq
+--add-dirs={{ .chezmoi.homeDir }}/.cache
+--add-dirs={{ .chezmoi.homeDir }}/.codex
+
+# Binaries and tools (read-only)
+--add-dirs-ro={{ .chezmoi.homeDir }}/.local/bin
+
+# SSH and network (read-only)
+--add-dirs-ro={{ .chezmoi.homeDir }}/.colima
+
+# chezmoi (read-only)
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/chezmoi
+--add-dirs-ro={{ .chezmoi.homeDir }}/.local/share/chezmoi
+
+# Dotfiles in $HOME root (read-only, for chezmoi diff/comparison)
+--add-dirs-ro={{ .chezmoi.homeDir }}/.zshrc
+--add-dirs-ro={{ .chezmoi.homeDir }}/.zprofile
+--add-dirs-ro={{ .chezmoi.homeDir }}/.bashrc
+--add-dirs-ro={{ .chezmoi.homeDir }}/.bash_profile
+--add-dirs-ro={{ .chezmoi.homeDir }}/.vimrc
+--add-dirs-ro={{ .chezmoi.homeDir }}/.tmux.conf
+--add-dirs-ro={{ .chezmoi.homeDir }}/.cVimrc
+
+# ~/.config subdirectories (read-only, not covered by safehouse profiles)
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/cco
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/safehouse
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/ghostty
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/sheldon
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/starship.toml
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/yazi
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/zellij
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/zsh
