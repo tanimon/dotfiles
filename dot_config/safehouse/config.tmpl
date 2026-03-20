@@ -23,6 +23,10 @@
 # --- Integrations (opt-in modules) ---
 --enable=ssh
 --enable=1password
+--enable=docker
+--enable=shell-init
+--enable=clipboard
+--enable=process-control
 
 # --- Working directories (read-write) ---
 --add-dirs={{ .chezmoi.homeDir }}/ghq
@@ -33,29 +37,35 @@
 # ~/.local/bin has claude symlink (covered by claude-code.sb as literal)
 # but also other user-installed binaries that need PATH resolution
 --add-dirs-ro={{ .chezmoi.homeDir }}/.local/bin
-
-# --- SSH and network (read-only) ---
---add-dirs-ro={{ .chezmoi.homeDir }}/.colima
+--add-dirs-ro={{ .chezmoi.homeDir }}/.local/share/cco
 
 # --- chezmoi (read-only) ---
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/chezmoi
 --add-dirs-ro={{ .chezmoi.homeDir }}/.local/share/chezmoi
 
 # --- Dotfiles in $HOME root (read-only, for chezmoi diff/comparison) ---
---add-dirs-ro={{ .chezmoi.homeDir }}/.zshrc
---add-dirs-ro={{ .chezmoi.homeDir }}/.zprofile
+# shell-init covers: ~/.zshrc, ~/.zprofile, ~/.zshenv
 --add-dirs-ro={{ .chezmoi.homeDir }}/.bashrc
 --add-dirs-ro={{ .chezmoi.homeDir }}/.bash_profile
 --add-dirs-ro={{ .chezmoi.homeDir }}/.vimrc
 --add-dirs-ro={{ .chezmoi.homeDir }}/.tmux.conf
 --add-dirs-ro={{ .chezmoi.homeDir }}/.cVimrc
 
+# --- Dev tool state (read-only) ---
+--add-dirs-ro={{ .chezmoi.homeDir }}/.bun
+--add-dirs-ro={{ .chezmoi.homeDir }}/.pnpm-state
+--add-dirs-ro={{ .chezmoi.homeDir }}/.agents
+
 # --- ~/.config subdirectories (read-only, not covered by built-in profiles) ---
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/cco
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/safehouse
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/ghostty
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/helix
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/karabiner
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/opencode
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/sheldon
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/starship.toml
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/yazi
+--add-dirs-ro={{ .chezmoi.homeDir }}/.config/zed
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/zellij
 --add-dirs-ro={{ .chezmoi.homeDir }}/.config/zsh
