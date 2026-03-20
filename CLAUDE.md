@@ -53,7 +53,7 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
-**cco (Claude Condom) integration** — `.chezmoiexternal.toml` pulls the cco repo into `~/.local/share/cco`. `run_onchange_after_link-cco.sh.tmpl` symlinks the `cco` binary, and `run_onchange_after_patch-cco-sandbox.sh.tmpl` patches the macOS Seatbelt sandbox profile for Node.js compatibility.
+**Claude Code sandbox** — The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` to run inside a macOS Seatbelt sandbox. Primary tool is [agent-safehouse](https://github.com/eugene1g/agent-safehouse) (Homebrew, deny-all default), with [cco](https://github.com/nikvdp/cco) as fallback. Sandbox configuration lives in `dot_config/safehouse/config.tmpl` (safehouse CLI flags, one per line) and `dot_config/cco/allow-paths.tmpl` (cco path allowlist). cco is still pulled via `.chezmoiexternal.toml` for Linux fallback; `run_onchange_after_link-cco.sh.tmpl` symlinks the binary, and `run_onchange_after_patch-cco-sandbox.sh.tmpl` patches the Seatbelt profile for Node.js compatibility. Use `command claude` or `\claude` to bypass sandboxing.
 
 ### `.chezmoiignore`
 
