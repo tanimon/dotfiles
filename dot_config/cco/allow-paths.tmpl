@@ -28,3 +28,26 @@
 {{ .chezmoi.homeDir }}/.claude
 # Codex CLI config, credentials, skills, sessions, cache (codex MCP server)
 {{ .chezmoi.homeDir }}/.codex
+# chezmoi config and source directory (needed for chezmoi diff, managed, data, apply --dry-run)
+{{ .chezmoi.homeDir }}/.config/chezmoi:ro
+{{ .chezmoi.homeDir }}/.local/share/chezmoi:ro
+# chezmoi targets: dotfiles in $HOME root (not covered by other entries)
+# Already covered: .gitconfig, .gitignore (git section), .claude (Claude Code section)
+{{ .chezmoi.homeDir }}/.zshrc:ro
+{{ .chezmoi.homeDir }}/.zprofile:ro
+{{ .chezmoi.homeDir }}/.bashrc:ro
+{{ .chezmoi.homeDir }}/.bash_profile:ro
+{{ .chezmoi.homeDir }}/.vimrc:ro
+{{ .chezmoi.homeDir }}/.tmux.conf:ro
+{{ .chezmoi.homeDir }}/.cVimrc:ro
+{{ .chezmoi.homeDir }}/.claude.json:ro
+# chezmoi targets: ~/.config subdirectories (not covered by other entries)
+# Already covered: .config/gh, .config/git (above)
+{{ .chezmoi.homeDir }}/.config/cco:ro
+{{ .chezmoi.homeDir }}/.config/ghostty:ro
+{{ .chezmoi.homeDir }}/.config/mise:ro
+{{ .chezmoi.homeDir }}/.config/sheldon:ro
+{{ .chezmoi.homeDir }}/.config/starship.toml:ro
+{{ .chezmoi.homeDir }}/.config/yazi:ro
+{{ .chezmoi.homeDir }}/.config/zellij:ro
+{{ .chezmoi.homeDir }}/.config/zsh:ro
