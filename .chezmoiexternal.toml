@@ -9,5 +9,5 @@
   type = "git-repo"
   url = "https://github.com/nikvdp/cco.git"
   # renovate: branch=master
-  ref = "9e514ba33e36d8a51243147541f141b008b3a016"
+  ref = "42fc44e5ecc0e26ef9068743b52485ebbcd54cf9"
   refreshPeriod = "168h"
