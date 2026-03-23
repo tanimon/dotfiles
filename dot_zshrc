@@ -25,6 +25,7 @@ autoload -Uz compinit
 compinit
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}' '+m:{A-Z}={a-z}'
 zstyle ':completion:*' format $'\e[2;37mCompleting %d\e[m'
+zstyle ':completion:*' menu select
 zstyle ':completion:*:git:*' group-order 'main commands' 'alias commands' 'external commands'
 
 command -v aqua &>/dev/null && source <(aqua completion zsh)
