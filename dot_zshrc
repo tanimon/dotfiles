@@ -34,7 +34,7 @@ command -v brew &>/dev/null && fpath=("$(brew --prefix)/share/zsh/site-functions
 command -v chezmoi &>/dev/null && source <(chezmoi completion zsh)
 command -v dyff &>/dev/null && source <(dyff completion zsh)
 command -v kubectl &>/dev/null && source <(kubectl completion zsh)
-command -v git &>/dev/null && git gtr version &>/dev/null 2>&1 && eval "$(git gtr completion zsh)"
+command -v git &>/dev/null && git gtr version &>/dev/null && eval "$(git gtr completion zsh)"
 
 fpath+=~/.zfunc
 
