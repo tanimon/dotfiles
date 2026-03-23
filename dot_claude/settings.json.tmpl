@@ -152,7 +152,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && node \"$HOME/.claude/scripts/notify.mjs\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify-wrapper.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
           }
         ]
       }
@@ -174,7 +174,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && node \"$HOME/.claude/scripts/notify.mjs\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify-wrapper.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
           }
         ]
       }
