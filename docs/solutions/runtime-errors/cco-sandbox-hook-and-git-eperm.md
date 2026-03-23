@@ -18,7 +18,7 @@ Three related failures when running Claude Code inside cco `--safe` sandbox:
 2. **git operations fail**: `unable to access ~/.gitconfig: Operation not permitted`
 3. **gh CLI auth fails**: `The token in default is invalid` — macOS Keychain inaccessible
 
-Additionally, a pre-existing bug: the notify.mjs hook crashes with `Unexpected token 'i', "icable\n  "... is not valid JSON` when JSONL transcript entries exceed the 8KB tail-read buffer.
+Additionally, a pre-existing bug: the notify.mts hook crashes with `Unexpected token 'i', "icable\n  "... is not valid JSON` when JSONL transcript entries exceed the 8KB tail-read buffer.
 
 ## Root Cause
 
@@ -29,7 +29,7 @@ cco's `--safe` mode generates a macOS Seatbelt policy that denies **all** `file-
 git reads `~/.gitconfig`, `~/.gitignore`, `~/.config/git/`; gh CLI stores auth tokens in macOS Keychain (`~/Library/Keychains/`); SSH needs `~/.ssh/known_hosts` for host verification; 1Password SSH agent socket is at `~/Library/Group Containers/2BUA8C4S2C.com.1password/`. None of these were in the cco allow-paths.
 
 ### JSONL tail-read truncation
-The notify.mjs hook reads the last 8192 bytes of the JSONL transcript to extract the last message for notification. When a JSONL entry exceeds 8KB (common with tool results), the read starts mid-entry, producing a truncated fragment that fails JSON.parse.
+The notify.mts hook reads the last 8192 bytes of the JSONL transcript to extract the last message for notification. When a JSONL entry exceeds 8KB (common with tool results), the read starts mid-entry, producing a truncated fragment that fails JSON.parse.
 
 ## Solution
 
@@ -38,7 +38,7 @@ The notify.mjs hook reads the last 8192 bytes of the JSONL transcript to extract
 The Node.js EPERM happens before user code, so the script's try/catch can't handle it. Wrap in bash with stderr logging and `|| true`:
 
 ```json
-"command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && node \"$HOME/.claude/scripts/notify.mjs\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
+"command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify-wrapper.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
 ```
 
 Key design: separate "never block Claude Code" (`|| true`, `exit 0`) from "never tell anyone what went wrong" (log to file, not `/dev/null`).

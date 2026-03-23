@@ -24,11 +24,11 @@ Every Claude Code session displays:
 Stop hook error: Failed with non-blocking status code: No stderr output
 ```
 
-The Stop hook (`notify.mjs`) appeared to fail, but notifications were actually working for valid transcripts. The error was noise from a legitimate "skip" path being treated as failure.
+The Stop hook (`notify.mts`, formerly `notify.mjs`) appeared to fail, but notifications were actually working for valid transcripts. The error was noise from a legitimate "skip" path being treated as failure.
 
 ## Investigation Steps
 
-1. **Read the hook script** (`dot_claude/scripts/executable_notify.mjs`): Found that when `transcript_path` resolves outside `~/.claude/projects/`, the script calls `process.exit(1)` with no output — neither stdout nor stderr.
+1. **Read the hook script** (`dot_claude/scripts/executable_notify.mts`): Found that when `transcript_path` resolves outside `~/.claude/projects/`, the script calls `process.exit(1)` with no output — neither stdout nor stderr.
 
 2. **Checked Claude Code hook protocol**: Claude Code interprets hook exit codes as:
    - `exit(0)` = success or intentional skip — no error shown
@@ -39,7 +39,7 @@ The Stop hook (`notify.mjs`) appeared to fail, but notifications were actually w
 
 ## Root Cause
 
-Two bugs in `executable_notify.mjs`:
+Two bugs in `executable_notify.mts`:
 
 1. **Line 25**: `process.exit(1)` for paths outside the allowed directory. This is an intentional skip (not an error), but exit code 1 signals failure to Claude Code.
 
@@ -80,7 +80,7 @@ if (!resolvedPath.startsWith(allowedBase)) {
 
 ### Same script, multiple hooks
 
-The `notify.mjs` script is used for both `Stop` and `Notification` hooks. Both hooks pass the same input format (`transcript_path`). When fixing hook scripts, verify behavior for all hook types that use the script.
+The `notify.mts` script (invoked via `notify-wrapper.sh`) is used for both `Stop` and `Notification` hooks. Both hooks pass the same input format (`transcript_path`). When fixing hook scripts, verify behavior for all hook types that use the script.
 
 ## Related
 
