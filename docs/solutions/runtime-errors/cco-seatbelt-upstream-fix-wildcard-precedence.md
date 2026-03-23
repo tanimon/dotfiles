@@ -122,12 +122,9 @@ When authoring policies, prefer specific operations (`file-read-data`) over wild
   - `readlink` on symlink under `$HOME` — succeeds
   - Existing tests preserved: content reads and directory listings still denied
 
-## Post-Merge Follow-up
+## Post-Merge Follow-up (Completed 2026-03-23)
 
-Once PR #50 merges and Renovate bumps the ref in `.chezmoiexternal.toml`:
-
-1. The local patch script (`run_onchange_after_patch-cco-sandbox.sh.tmpl`) will self-disable — its idempotency check detects `file-read-metadata (subpath` and skips patching
-2. Eventually remove the patch script entirely in a cleanup commit
+PR #50 merged on 2026-03-21. Renovate bumped the ref to `42fc44e` in commit `42648f0` (PR #42). The local patch script `run_onchange_after_patch-cco-sandbox.sh.tmpl` has been removed as the upstream cco now includes the `(allow file-read-metadata (subpath "$HOME"))` fix natively.
 
 ## Prevention
 
