@@ -1,12 +1,31 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync, openSync, readSync, statSync, closeSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  openSync,
+  readSync,
+  statSync,
+  closeSync,
+} from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
+interface HookInput {
+  transcript_path?: string;
+}
+
+interface TranscriptMessage {
+  content?: ReadonlyArray<{ text?: string }>;
+}
+
+interface TranscriptEntry {
+  message?: TranscriptMessage;
+}
+
 try {
-  const input = JSON.parse(readFileSync(process.stdin.fd, "utf8"));
+  const input: HookInput = JSON.parse(readFileSync(process.stdin.fd, "utf8"));
   if (!input.transcript_path) {
     process.exit(0);
   }
@@ -22,7 +41,9 @@ try {
   const resolvedPath = path.resolve(transcriptPath);
 
   if (!resolvedPath.startsWith(allowedBase)) {
-    console.error("notify: transcript path outside allowed directory, skipping");
+    console.error(
+      "notify: transcript path outside allowed directory, skipping"
+    );
     process.exit(0);
   }
 
@@ -51,17 +72,16 @@ try {
 
   // When tail-reading, the first line is almost always a partial fragment.
   // Drop it unless we read from the start of the file.
-  const completeLines =
-    readSize < fileStat.size ? lines.slice(1) : lines;
+  const completeLines = readSize < fileStat.size ? lines.slice(1) : lines;
   if (completeLines.length === 0) {
     process.exit(0);
   }
 
   // Try parsing from the last line backwards to find a valid JSONL entry.
-  let transcript;
+  let transcript: TranscriptEntry | undefined;
   for (let i = completeLines.length - 1; i >= 0; i--) {
     try {
-      transcript = JSON.parse(completeLines[i]);
+      transcript = JSON.parse(completeLines[i]) as TranscriptEntry;
       break;
     } catch {
       // Skip malformed lines
@@ -90,6 +110,6 @@ try {
   }
 } catch (error) {
   // Notification is best-effort — log for debugging but never block Claude Code
-  console.error(`notify: ${error.message}`);
+  console.error(`notify: ${(error as Error).message}`);
   process.exit(0);
 }
