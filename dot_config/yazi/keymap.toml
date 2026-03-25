@@ -1,4 +1,4 @@
 [[mgr.prepend_keymap]]
 on   = ["<C-p>"]
 run  = "shell --block -- mo %h"
-desc = "カーソル下のファイルをMarkdownプレビュー (mo)"
+desc = "カーソル下のファイルをMarkdownプレビュー"
