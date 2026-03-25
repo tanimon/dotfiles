@@ -10,6 +10,7 @@ tags:
   - shell
 modules:
   - dot_config/yazi/keymap.toml
+  - dot_config/yazi/scripts/executable_mo-preview.sh
 ---
 
 # yazi keymap で複雑なシェルコマンドを埋め込むパターン
@@ -24,10 +25,33 @@ yazi の `run` フィールドは TOML 文字列で、`%h` などの変数を ya
 
 ## Solution
 
-`sh -c '...' _ %h` パターンを使い、yazi の `%h` をシェルの位置パラメータ `$1` として受け取る:
+### 推奨: 外部スクリプトに抽出
+
+ロジックが複雑な場合（100文字超、複数の条件分岐）は外部スクリプトに抽出する:
 
 ```toml
-run = "shell --block -- sh -c 'd=\"$1\"; [ -f \"$d\" ] && d=$(dirname \"$d\"); g=\"$(basename \"$(dirname \"$d\")\")-$(basename \"$d\")\"; mo -w \"$d/**/*.md\" -t \"$g\" --foreground' _ %h"
+run = "shell --block -- ~/.config/yazi/scripts/mo-preview.sh %h"
+```
+
+```sh
+#!/bin/sh
+set -eu
+
+d="$1"
+[ -f "$d" ] && d=$(dirname "$d")
+
+g="$(basename "$(dirname "$d")")-$(basename "$d")"
+exec mo -w "$d/**/*.md" -t "$g" --foreground
+```
+
+chezmoi では `executable_` プレフィックスで実行権限を付与: `dot_config/yazi/scripts/executable_mo-preview.sh`
+
+### 代替: インラインの `sh -c` パターン
+
+短いロジック（100文字以内）なら `sh -c '...' _ %h` でインライン化も可:
+
+```toml
+run = "shell --block -- sh -c 'd=\"$1\"; [ -f \"$d\" ] && d=$(dirname \"$d\"); mo -w \"$d/**/*.md\" --foreground' _ %h"
 ```
 
 ### エスケープルール
@@ -76,4 +100,5 @@ g=\"$(basename \"$(dirname \"$d\")\")-$(basename \"$d\")\"
 
 - yazi keymap で複数コマンドが必要な場合は `sh -c '...' _ %h` パターンを使う
 - TOML basic string (`"..."`) 内ではダブルクォートのみエスケープ (`\"`)、シングルクォートはそのまま
-- 外部スクリプトファイルに分離するのは、ロジックが 100 文字を大幅に超える場合のみ検討
+- ロジックが 100 文字を超えたら外部スクリプトに抽出する（shellcheck/shfmt が使える、テスト可能）
+- chezmoi では `executable_` プレフィックスでスクリプトに実行権限を付与
