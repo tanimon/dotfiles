@@ -1,4 +1,4 @@
 [[mgr.prepend_keymap]]
 on   = ["<C-p>"]
-run  = "shell --block -- sh -c 'd=\"$1\"; [ -f \"$d\" ] && d=$(dirname \"$d\"); g=$(basename \"$d\"); mo -w \"$d/**/*.md\" -t \"$g\" --foreground' _ %h"
+run  = "shell --block -- sh -c 'd=\"$1\"; [ -f \"$d\" ] && d=$(dirname \"$d\"); g=\"$(basename \"$(dirname \"$d\")\")-$(basename \"$d\")\"; mo -w \"$d/**/*.md\" -t \"$g\" --foreground' _ %h"
 desc = "Markdownプレビュー (named group + watch)"
