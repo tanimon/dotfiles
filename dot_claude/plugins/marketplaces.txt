@@ -1,6 +1,7 @@
 affaan-m/everything-claude-code
 anthropics/claude-plugins-official
 anthropics/skills
+awslabs/agent-plugins
 EveryInc/compound-engineering-plugin
 jarrodwatts/claude-delegator
 OthmanAdi/planning-with-files
