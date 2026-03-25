@@ -27,7 +27,7 @@ yazi の `run` フィールドは TOML 文字列で、`%h` などの変数を ya
 `sh -c '...' _ %h` パターンを使い、yazi の `%h` をシェルの位置パラメータ `$1` として受け取る:
 
 ```toml
-run = "shell --block -- sh -c 'd=\"$1\"; [ -f \"$d\" ] && d=$(dirname \"$d\"); g=$(basename \"$d\"); mo -w \"$d/**/*.md\" -t \"$g\" --foreground' _ %h"
+run = "shell --block -- sh -c 'd=\"$1\"; [ -f \"$d\" ] && d=$(dirname \"$d\"); g=\"$(basename \"$(dirname \"$d\")\")-$(basename \"$d\")\"; mo -w \"$d/**/*.md\" -t \"$g\" --foreground' _ %h"
 ```
 
 ### エスケープルール
@@ -51,6 +51,26 @@ run = "shell --block -- sh -c 'd=\"$1\"; [ -f \"$d\" ] && d=$(dirname \"$d\"); g
 d="$1"; [ -f "$d" ] && d=$(dirname "$d"); g=$(basename "$d")
 # デフォルトはディレクトリとして扱い、ファイルの場合のみ dirname で上書き
 ```
+
+### named group の衝突回避
+
+`basename` だけでは同名ディレクトリ（例: `project-a/docs` と `project-b/docs`）でグループ名が衝突する。親ディレクトリ名を含めて一意にする:
+
+```sh
+# basename のみ → 衝突する
+g=$(basename "$d")  # 両方 "docs"
+
+# parent-basename → 衝突しない
+g="$(basename "$(dirname "$d")")-$(basename "$d")"  # "project-a-docs" vs "project-b-docs"
+```
+
+TOML 内でのネストした `$()` のエスケープ:
+
+```toml
+g=\"$(basename \"$(dirname \"$d\")\")-$(basename \"$d\")\"
+```
+
+`$()` はシェルの新しいクォーティングコンテキストを作るため、ネストしたダブルクォートが外側と干渉しない。
 
 ## Prevention
 
