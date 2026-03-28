@@ -166,6 +166,15 @@
             "command": "bash -c 'FILE=\"$CLAUDE_FILE\"; case \"$FILE\" in *.ts|*.tsx) pnpm lint:fix \"$FILE\" ;; *.go) gofmt -w \"$FILE\" ;; esac'"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=\"$CLAUDE_FILE\"; case \"$FILE\" in *.env|*.env.*|*credentials*|*secret*) if command -v secretlint >/dev/null 2>&1; then OUTPUT=$(secretlint \"$FILE\" 2>&1) || { echo \"secretlint: potential secret detected in $FILE: $OUTPUT\" >&2; exit 1; }; fi ;; esac'"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -177,6 +186,15 @@
             "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify-wrapper.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '\"$HOME/.claude/scripts/harness-feedback-collector.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -185,6 +203,14 @@
           {
             "type": "command",
             "command": "$HOME/.claude/skills/claudeception/scripts/claudeception-activator.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '\"$HOME/.claude/scripts/harness-check.sh\" || true'"
           }
         ]
       }
