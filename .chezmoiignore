@@ -52,6 +52,7 @@ windows/
 docs/
 scripts/
 renovate.json
+Makefile
 
 # secretlint / prek
 package.json

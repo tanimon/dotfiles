@@ -19,19 +19,14 @@ jobs:
           node-version: "22"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec secretlint '**/*'
+      - run: make secretlint
 
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run shellcheck
-        run: |
-          find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
-            ! -name '*.tmpl' ! -name '*.mts' ! -name '*.ts' ! -name '*.mjs' \
-            ! -path './node_modules/*' \
-            -print0 | xargs -0 -r shellcheck
+      - run: make shellcheck
 
   shfmt:
     name: shfmt
@@ -43,43 +38,14 @@ jobs:
           SHFMT_VERSION=3.11.0
           curl -fsSL "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" -o /usr/local/bin/shfmt
           chmod +x /usr/local/bin/shfmt
-      - name: Run shfmt
-        run: |
-          find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
-            ! -name '*.tmpl' ! -name '*.mts' ! -name '*.ts' ! -name '*.mjs' \
-            ! -path './node_modules/*' \
-            -print0 | xargs -0 -r shfmt -d -i 4
+      - run: make shfmt
 
   modify-scripts:
     name: modify_ script smoke tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Test modify_dot_claude.json with existing data
-        run: |
-          export CHEZMOI_SOURCE_DIR="$(pwd)"
-          output=$(printf '{"existingKey":"value","mcpServers":{}}' | bash modify_dot_claude.json)
-          echo "$output" | jq empty || { echo "::error::Output is not valid JSON"; exit 1; }
-          echo "$output" | jq -e '.existingKey == "value"' > /dev/null || { echo "::error::existingKey not preserved"; exit 1; }
-          echo "$output" | jq -e '.mcpServers | has("notion")' > /dev/null || { echo "::error::mcpServers not replaced from source"; exit 1; }
-          echo "PASS: existing data preserved, mcpServers replaced from source"
-      - name: Test modify_dot_claude.json with empty stdin
-        run: |
-          export CHEZMOI_SOURCE_DIR="$(pwd)"
-          output=$(printf '' | bash modify_dot_claude.json)
-          echo "$output" | jq empty || { echo "::error::Output is not valid JSON for empty stdin"; exit 1; }
-          echo "$output" | jq -e 'has("mcpServers")' > /dev/null || { echo "::error::mcpServers missing for empty stdin"; exit 1; }
-          echo "PASS: empty stdin produces valid JSON with mcpServers"
-      - name: Test modify_dot_claude.json with missing source file
-        run: |
-          export CHEZMOI_SOURCE_DIR="/tmp/nonexistent-dir"
-          input='{"existingKey":"keep","mcpServers":{"old":"data"}}'
-          output=$(printf '%s' "$input" | bash modify_dot_claude.json 2>/dev/null)
-          if [ "$output" != "$input" ]; then
-            echo "::error::Missing source file should passthrough stdin unchanged"
-            exit 1
-          fi
-          echo "PASS: missing source file passes through stdin"
+      - run: make test-modify
 
   chezmoi-templates:
     name: chezmoi templates
@@ -88,22 +54,4 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install chezmoi
         run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
-      - name: Create test config
-        run: |
-          mkdir -p "$HOME/.config/chezmoi"
-          printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' > "$HOME/.config/chezmoi/chezmoi.toml"
-      - name: Validate templates
-        run: |
-          find . -name '*.tmpl' \
-            ! -path './node_modules/*' \
-            ! -name '.chezmoi.toml.tmpl' \
-            -print0 | while IFS= read -r -d '' file; do
-            echo "Validating: ${file}"
-            chezmoi execute-template \
-              --config "$HOME/.config/chezmoi/chezmoi.toml" \
-              --source "$(pwd)" \
-              < "$file" > /dev/null || {
-              echo "::error file=${file}::Template validation failed"
-              exit 1
-            }
-          done
+      - run: make check-templates
