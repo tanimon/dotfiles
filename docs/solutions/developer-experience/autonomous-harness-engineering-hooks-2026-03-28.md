@@ -139,6 +139,22 @@ All hook scripts use `jq -r '.session_id // empty'` to extract the session ident
 - Redirect hook stderr to log files (`2>>$HOME/.claude/logs/harness-errors.log`) for observability when wrapping with `|| true`
 - Include Japanese keywords in transcript analysis patterns when `"language": "japanese"` is configured
 
+## Simplification (2026-03-28)
+
+The original four-hook architecture above was refactored to a single-hook claudeception-inspired pattern:
+
+- **Before:** 4 hooks, 2 scripts (~255 lines bash), /tmp cross-session state, grep-based transcript analysis
+- **After:** 1 hook, 1 script (`harness-activator.sh`, ~60 lines), no cross-session state
+
+Key changes:
+- Removed `harness-feedback-collector.sh` (Stop hook) — grep-based transcript analysis replaced by LLM self-evaluation
+- Removed `harness-check.sh` (UserPromptSubmit) — replaced by `harness-activator.sh` which prints a prompt for the agent to self-evaluate
+- Removed SessionStart "clear" hook — no longer needed (harness reminder fires once per session, /clear reset is unnecessary)
+- Simplified SessionStart "startup" hook — only cleans `claude-harness-checked-*` flags (no more feedback files)
+- Removed `/tmp/claude-harness-feedback-*` cross-session state entirely
+
+The insight: claudeception proved that delegating intelligence to the LLM (via prompt injection) is more effective than implementing it in bash. The agent has full session context and can detect harness improvement opportunities more accurately than grep patterns.
+
 ## Related
 
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md` — Hook exit code contract
