@@ -123,3 +123,4 @@ Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is inco
 
 - **Git commit signing** — Requires 1Password SSH agent (`op-ssh-sign`). Commits will fail without it running.
 - **Inline hook commands: keep simple or use jq** — Inline `bash -c` hook commands in `settings.json.tmpl` have two layers of escaping (JSON `\"` + shell quoting) that are extremely error-prone. Avoid complex grep/sed patterns; use `jq` (already a dependency) or extract logic into external script files.
+- **GitHub Actions テンプレート出力は検証が必要** — `claude-code-action` 等のテンプレートから生成されたワークフローは permissions がデフォルトで read-only。コメント投稿には `pull-requests: write` / `issues: write` が必要。テンプレート出力をそのまま使わず、用途に合った permissions を確認すること。GitHub Actions expression の構文制約は `~/.claude/rules/common/github-actions.md` を参照。
