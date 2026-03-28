@@ -79,6 +79,17 @@ Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree 
 
 Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Dependencies managed via pnpm. The `run_onchange_install-pre-commit-hooks.sh.tmpl` script auto-installs when `package.json` or `.pre-commit-config.yaml` change.
 
+## Verification
+
+```sh
+chezmoi apply --dry-run        # Preview changes before applying
+pnpm exec secretlint '**/*'   # Check for leaked secrets
+shellcheck <script.sh>         # Lint non-.tmpl shell scripts
+shfmt -d -i 4 <script.sh>     # Check shell script formatting
+```
+
+Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is incompatible).
+
 ## Known Pitfalls
 
 - **`chezmoi add --autotemplate` breaks JSON** — `:` and `/` get over-substituted. Use `chezmoi add --template` + manual `sed` for homeDir substitution instead.
@@ -90,3 +101,4 @@ Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Depende
 - **Repo-only files need `.chezmoiignore`** — Files like `CLAUDE.md`, `README.md` at repo root are excluded via `.chezmoiignore` so they don't deploy to `~/`. New repo-only files must be added there.
 - **`modify_` scripts: empty stdout = target deletion** — Never use OS guards (`{{ if eq .chezmoi.os "darwin" }}`); on non-matching OS the script outputs nothing and chezmoi zeros the file. Always include `set -e`. Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`.
 - **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.
+- **`docs/plans/` is gitignored** — `.gitignore` excludes `docs/*` with only `!docs/solutions/` as exception. Plan files created by `ce:plan` are local working documents and cannot be committed. Do not attempt to `git add` files under `docs/plans/` or modify `.gitignore` to include them without explicit user approval.

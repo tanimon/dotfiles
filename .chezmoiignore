@@ -48,6 +48,7 @@ windows/
 .claude/skills/swarm-planner
 
 # repo-only files (not deployed to home)
+.github/
 docs/
 scripts/
 renovate.json

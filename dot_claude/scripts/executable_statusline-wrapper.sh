@@ -20,7 +20,10 @@ cached="/tmp/claude-statusline-${UID}.ts"
 
 # Refresh cached copy only when source is newer or missing
 if [[ ! -f "$cached" ]] || [[ "$src" -nt "$cached" ]]; then
-  cat "$src" > "$cached" 2>/dev/null || { echo "🤖 Claude"; exit 0; }
+    cat "$src" >"$cached" 2>/dev/null || {
+        echo "🤖 Claude"
+        exit 0
+    }
 fi
 
 exec node --experimental-strip-types "$cached"
