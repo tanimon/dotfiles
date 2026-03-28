@@ -16,11 +16,14 @@
 
 set -euo pipefail
 
-# Read hook input from stdin (must happen before any other stdin reads)
-INPUT=$(cat) || exit 0
+# Require jq for JSON parsing
+command -v jq >/dev/null 2>&1 || {
+    echo "jq not found, skipping harness check" >&2
+    exit 1
+}
 
-# Extract session_id from JSON input (same grep pattern as harness-feedback-collector.sh)
-SESSION_ID=$(echo "$INPUT" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//') || exit 0
+# Extract session_id from stdin JSON (stable across all hook invocations in a session)
+SESSION_ID=$(jq -r '.session_id // empty') || exit 0
 
 if [[ -z "$SESSION_ID" ]]; then
     exit 0
