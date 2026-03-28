@@ -17,8 +17,9 @@ chezmoi edit <file>            # Edit a managed file's source
 chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
-# Pre-commit / linting (runs automatically on commit via prek)
-pnpm exec secretlint '**/*'   # Scan for leaked secrets
+# Linting (mirrors CI — also runs on commit via prek)
+make lint                      # Run all checks (secretlint + shellcheck + shfmt + modify_ tests + templates)
+pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 ```
 
 ## chezmoi Naming Conventions
@@ -81,16 +82,18 @@ Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Depende
 ## Verification
 
 ```sh
+make lint                      # Run ALL checks locally (mirrors CI)
 chezmoi apply --dry-run        # Preview changes before applying
-pnpm exec secretlint '**/*'   # Check for leaked secrets
-shellcheck <script.sh>         # Lint non-.tmpl shell scripts
-shfmt -d -i 4 <script.sh>     # Check shell script formatting
 
-# modify_ script smoke test (requires CHEZMOI_SOURCE_DIR)
-export CHEZMOI_SOURCE_DIR="$(pwd)" && printf '{"existingKey":"v","mcpServers":{}}' | bash modify_dot_claude.json | jq .
+# Individual targets (same as CI jobs):
+make secretlint                # Scan for leaked secrets
+make shellcheck                # Lint non-.tmpl shell scripts
+make shfmt                     # Check shell script formatting (indent=4)
+make test-modify               # Smoke test modify_ scripts
+make check-templates           # Validate chezmoi .tmpl files
 ```
 
-Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
+Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `make` targets — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
 
 ## Known Pitfalls
 

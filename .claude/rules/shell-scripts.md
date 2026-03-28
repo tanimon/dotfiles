@@ -37,11 +37,11 @@ command -v pnpm >/dev/null 2>&1 || { echo "WARNING: pnpm not found, skipping"; e
 
 These rules are enforced automatically — not just advisory:
 
-- **CI** (`.github/workflows/lint.yml`): Runs shellcheck and shfmt on all `.sh`/`.bash` files (excluding `.tmpl`) on every push and PR
-- **Pre-commit** (`.pre-commit-config.yaml`): Runs the same shellcheck and shfmt checks locally before each commit via prek
-- **secretlint**: Also runs in both CI and pre-commit to prevent committing secrets
+- **CI** (`.github/workflows/lint.yml`): Each CI job calls `Makefile` targets directly — local and CI run the exact same commands
+- **Pre-commit** (`.pre-commit-config.yaml`): Runs shellcheck, shfmt, and secretlint automatically before each commit via prek
+- **Local** (`Makefile`): `make lint` runs all checks. Individual targets: `make shellcheck`, `make shfmt`, `make secretlint`, `make test-modify`, `make check-templates`
 
-`.tmpl` files are excluded from both because Go template syntax is incompatible with shell linters.
+`.tmpl` files are excluded from shell linting because Go template syntax is incompatible with shell linters.
 
 
 ## Avoiding Recursion

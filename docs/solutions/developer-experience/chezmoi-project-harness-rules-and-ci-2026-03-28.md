@@ -2,6 +2,7 @@
 title: "Project-Specific Harness Rules and CI for chezmoi Dotfiles Repository"
 date: 2026-03-28
 last_updated: 2026-03-29
+updated_reason: "Added mktemp .toml extension pitfall and Makefile single-source-of-truth pattern"
 problem_type: developer_experience
 component: tooling
 symptoms:
@@ -44,6 +45,7 @@ Agents working in the chezmoi dotfiles repository had no project-specific rules 
 - **Using `chezmoi apply --dry-run` in CI** — Requires `.chezmoi.toml` with template variables (`.profile`, `.ghOrg`) that are environment-specific. Setup cost too high for CI; lint checks provide sufficient validation.
 - **`chezmoi execute-template --init` without `--source`** — Templates using `include` (e.g., `{{ include "darwin/Brewfile" | sha256sum }}`) fail silently because `execute-template --init` doesn't know the source directory. The `--source "$(pwd)"` flag is required.
 - **`chezmoi execute-template --init --promptString` does not populate `.data` namespace** — `--promptString 'ghOrg=test-org'` answers `promptStringOnce` prompts during config initialization, but does NOT set template data variables (`.ghOrg`, `.profile`). Templates referencing `.ghOrg` fail with `map has no entry for key "ghOrg"`. The fix is to use a test `chezmoi.toml` with `[data]` section and `--config` flag instead of `--init --promptString`.
+- **`mktemp` without `.toml` extension for chezmoi config** — `chezmoi execute-template --config` determines the config format from the file extension. Plain `mktemp` creates files like `/tmp/tmp.dcHXJCEb9v` with no recognizable extension, causing `chezmoi: invalid config: .dcHXJCEb9v: unknown format`. Fix: use `mktemp /tmp/chezmoi-test-XXXXXX.toml` to preserve the `.toml` suffix. This applies to any tool that infers format from file extension (chezmoi, viper-based CLIs, etc.).
 
 ## Solution
 
@@ -87,7 +89,18 @@ Four parallel jobs: secretlint (via pnpm), shellcheck (Ubuntu pre-installed), sh
 
 Added `.github/` to `.chezmoiignore` to prevent CI files from deploying to `~/`.
 
-### 4. Harness rule improvements
+### 4. Makefile as single source of truth for lint checks (2026-03-29)
+
+A `Makefile` was introduced with targets mirroring each CI job: `secretlint`, `shellcheck`, `shfmt`, `test-modify`, `check-templates`, and `lint` (runs all). CI workflow (`.github/workflows/lint.yml`) was refactored to call `make` targets directly instead of inline `find | xargs` commands. This ensures local `make lint` and CI run the exact same commands from one definition.
+
+Key details:
+- `SHELL_FILES` and `TMPL_FILES` variables centralize `find` patterns, matching CI's file discovery logic
+- Graceful skip via `command -v` when tools are missing (matches `.pre-commit-config.yaml` pattern)
+- `check-templates` target creates a temp config with `mktemp /tmp/chezmoi-test-XXXXXX.toml` (`.toml` extension required — see "What Didn't Work")
+- `pnpm run lint` delegates to `make lint` for users who prefer npm scripts
+- `Makefile` added to `.chezmoiignore` to prevent deployment to `~/`
+
+### 5. Harness rule improvements
 
 - **Concrete file references in `.claude/rules/chezmoi-patterns.md`** — Each pattern in the File Type Selection table now links to a real example file (e.g., `modify_dot_claude.json` for modify\_ pattern). Declarative Sync Pattern section references both marketplace and gh extension file triples.
 - **CI Enforcement section in `.claude/rules/shell-scripts.md`** — Explicitly states that shell script rules are enforced by CI (`.github/workflows/lint.yml`) and pre-commit (`.pre-commit-config.yaml`), not advisory.
@@ -109,6 +122,8 @@ Added `.github/` to `.chezmoiignore` to prevent CI files from deploying to `~/`.
 - Add smoke tests for `modify_` scripts in CI — a broken modify\_ script can silently zero out the target file on `chezmoi apply`. Test with sample input, empty stdin, and missing source file scenarios
 - When using `chezmoi execute-template` in CI, use `--config` with a test `chezmoi.toml` containing `[data]` section — `--init --promptString` does NOT populate the data namespace. Also pass `--source` for `include` resolution. Exclude `.chezmoi.toml.tmpl` from validation
 - When adding project rules, include concrete file path references to real repository examples — agents follow patterns better when they can read the actual implementation
+- When creating temp files for tools that infer format from extension (chezmoi, viper-based CLIs), always use `mktemp <dir>/prefix-XXXXXX.ext` with the correct extension — plain `mktemp` produces extensionless files that cause "unknown format" errors
+- When CI and local development run the same checks, consolidate the check logic into a `Makefile` (or equivalent) and have CI call the same targets — this eliminates drift between CI inline commands and local developer invocations
 - Remember that `docs/plans/` is gitignored — don't attempt to commit plan files
 
 ## Related Issues
