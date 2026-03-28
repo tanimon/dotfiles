@@ -49,3 +49,26 @@ jobs:
             ! -name '*.tmpl' \
             ! -path './node_modules/*' \
             -print0 | xargs -0 -r shfmt -d -i 4
+
+  chezmoi-templates:
+    name: chezmoi templates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install chezmoi
+        run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+      - name: Validate templates
+        run: |
+          find . -name '*.tmpl' \
+            ! -path './node_modules/*' \
+            -print0 | while IFS= read -r -d '' file; do
+            echo "Validating: ${file}"
+            chezmoi execute-template --init \
+              --source "$(pwd)" \
+              --promptString 'profile=personal' \
+              --promptString 'ghOrg=test-org' \
+              < "$file" > /dev/null || {
+              echo "::error file=${file}::Template validation failed"
+              exit 1
+            }
+          done

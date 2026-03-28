@@ -6,6 +6,7 @@
     "@secretlint/secretlint-rule-no-dotenv": "^11.0.0"
   },
   "scripts": {
-    "secretlint": "secretlint '**/*'"
+    "secretlint": "secretlint '**/*'",
+    "verify": "pnpm run secretlint"
   }
 }
