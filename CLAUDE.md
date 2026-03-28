@@ -61,9 +61,7 @@ Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache
 
 ### `.chezmoiexternal.toml`
 
-Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree with auto-refresh. Each entry is pinned to a commit SHA via `ref` for supply-chain safety. Renovate auto-updates these SHAs via a regex custom manager in `renovate.json`.
-
-**Renovate contract:** The regex requires `url`, `# renovate: branch=<branch>` comment, and `ref` lines to be strictly adjacent in order. Do not insert blank lines or reorder keys between them. When adding a new external entry, include the `# renovate: branch=` comment to enable auto-updates.
+Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree with auto-refresh. Each entry is pinned to a commit SHA via `ref` for supply-chain safety. Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved.
 
 ### Directory Layout
 
@@ -74,6 +72,7 @@ Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree 
 | `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
 | `dot_claude/` | Claude Code config (`~/.claude/`): settings, MCP servers, rules, agents, commands, plugins |
 | `scripts/` | Repo-only helper scripts (`update-marketplaces.sh`, `update-gh-extensions.sh`) |
+| `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
 
 ### Pre-commit Hooks
 
@@ -86,9 +85,12 @@ chezmoi apply --dry-run        # Preview changes before applying
 pnpm exec secretlint '**/*'   # Check for leaked secrets
 shellcheck <script.sh>         # Lint non-.tmpl shell scripts
 shfmt -d -i 4 <script.sh>     # Check shell script formatting
+
+# modify_ script smoke test (requires CHEZMOI_SOURCE_DIR)
+export CHEZMOI_SOURCE_DIR="$(pwd)" && printf '{"existingKey":"v","mcpServers":{}}' | bash modify_dot_claude.json | jq .
 ```
 
-Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is incompatible).
+Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
 
 ## Known Pitfalls
 
