@@ -43,6 +43,7 @@ These rules are enforced automatically — not just advisory:
 
 `.tmpl` files are excluded from both because Go template syntax is incompatible with shell linters.
 
+
 ## Avoiding Recursion
 
 - Never call `chezmoi add` from `run_after_` scripts — this causes infinite recursion
