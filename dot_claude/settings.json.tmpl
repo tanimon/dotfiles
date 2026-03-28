@@ -146,6 +146,17 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'rm -f /tmp/claude-harness-checked-\"${CLAUDE_SESSION_ID:-$PPID}\" || true'"
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "",
