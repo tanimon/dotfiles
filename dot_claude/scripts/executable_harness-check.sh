@@ -6,12 +6,28 @@
 # 2. Previous session's harness feedback (from harness-feedback-collector.sh)
 #
 # Uses a per-session flag file to avoid repeating the same check every prompt.
+# Session ID is extracted from the stdin JSON payload (session_id field),
+# which is stable across all hook invocations within the same session.
+#
 # Exit codes follow Claude Code hook semantics:
 #   exit 0 = success/skip (silent, but stderr is still displayed)
 #   exit 1 + stderr = error feedback displayed to agent
 # We use exit 0 with stderr for non-blocking informational feedback.
 
 set -euo pipefail
+
+# Require jq for JSON parsing
+command -v jq >/dev/null 2>&1 || {
+    echo "jq not found, skipping harness check" >&2
+    exit 1
+}
+
+# Extract session_id from stdin JSON (stable across all hook invocations in a session)
+SESSION_ID=$(jq -r '.session_id // empty') || exit 0
+
+if [[ -z "$SESSION_ID" ]]; then
+    exit 0
+fi
 
 PROJECT_DIR="${PWD}"
 
@@ -30,8 +46,6 @@ fi
 PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 
 # Per-session flag to avoid repeating checks on every prompt
-# CLAUDE_SESSION_ID is set by Claude Code; fall back to PPID (parent Claude process)
-SESSION_ID="${CLAUDE_SESSION_ID:-$PPID}"
 FLAG_FILE="/tmp/claude-harness-checked-${SESSION_ID}"
 
 if [[ -f "$FLAG_FILE" ]]; then

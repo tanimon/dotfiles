@@ -1,6 +1,7 @@
 ---
 title: Autonomous Harness Engineering via Claude Code Hooks
 date: 2026-03-28
+last_updated: 2026-03-28
 problem_type: developer_experience
 component: tooling
 symptoms:
@@ -37,10 +38,11 @@ Harness engineering improvements (adding rules, updating CLAUDE.md, documenting 
 - Relying on manual `/capture-harness-feedback` invocation — users forget
 - Attempting to use LLM-based analysis in hooks — too slow for every prompt
 - Using `$$` (current PID) for session flags — each hook invocation gets a different PID
+- Using `$PPID` for session flags — hooks run via `bash -c` wrapper, so `$PPID` is the wrapper's PID (unique per invocation), not the Claude Code process PID
 
 ## Solution
 
-Three-hook architecture using Claude Code's hook system:
+Four-hook architecture using Claude Code's hook system:
 
 ### 1. Stop Hook: Transcript Analysis (`harness-feedback-collector.sh`)
 
@@ -60,8 +62,11 @@ echo "$FINDINGS" > "/tmp/claude-harness-feedback-${PROJECT_ENCODED}.md"
 ### 2. UserPromptSubmit Hook: Session Start Check (`harness-check.sh`)
 
 ```bash
-# Per-session flag using PPID (not $$) for stable identification
-SESSION_ID="${CLAUDE_SESSION_ID:-$PPID}"
+# Require jq for JSON parsing
+command -v jq >/dev/null 2>&1 || { echo "jq not found" >&2; exit 1; }
+
+# Extract session_id from stdin JSON — stable across all hook invocations in a session
+SESSION_ID=$(jq -r '.session_id // empty')
 FLAG_FILE="/tmp/claude-harness-checked-${SESSION_ID}"
 
 # Check 1: Read previous session's feedback file
@@ -84,7 +89,7 @@ fi
     "matcher": "clear",
     "hooks": [{
       "type": "command",
-      "command": "bash -c 'rm -f /tmp/claude-harness-checked-\"${CLAUDE_SESSION_ID:-$PPID}\" || true'"
+      "command": "bash -c 'command -v jq >/dev/null || { echo \"jq not found\" >&2; exit 1; }; SID=$(jq -r \".session_id // empty\"); [ -n \"$SID\" ] && rm -f \"/tmp/claude-harness-checked-$SID\" || true'"
     }]
   }]
 }
@@ -92,9 +97,29 @@ fi
 
 Key discovery: `SessionStart` event fires with `source: "clear"` specifically when `/clear` is executed. The `matcher: "clear"` filter distinguishes it from `startup`, `resume`, and `compact`.
 
+### 4. SessionStart Hook: Startup Cleanup
+
+```json
+{
+  "SessionStart": [{
+    "matcher": "startup",
+    "hooks": [{
+      "type": "command",
+      "command": "bash -c 'find /tmp -maxdepth 1 -name \"claude-harness-checked-*\" -mtime +0 -delete 2>/dev/null; find /tmp -maxdepth 1 -name \"claude-harness-feedback-*\" -mtime +0 -delete 2>/dev/null; true'"
+    }]
+  }]
+}
+```
+
+Cleans up stale flag and feedback files older than 24 hours on each new session start.
+
 ### Project Key Matching
 
 Both scripts must use the same key to find the feedback file. The collector extracts the encoded project path from the transcript path (`~/.claude/projects/<encoded>/sessions/...`), while the checker encodes the project root (`${PROJECT_ROOT//\//-}`). These must produce the same string.
+
+### Session ID Strategy
+
+All hook scripts use `jq -r '.session_id // empty'` to extract the session identifier from the stdin JSON payload. The `// empty` filter ensures JSON `null` or missing fields produce an empty string (not the literal `"null"`). Previous approaches using `$PPID` or `$CLAUDE_SESSION_ID` (env var) were unreliable because hooks run in `bash -c` subprocesses with unique PIDs, and `CLAUDE_SESSION_ID` is not set as an environment variable. jq is required — scripts fail explicitly with `exit 1` + stderr message if jq is missing.
 
 ## Why This Works
 
@@ -109,7 +134,9 @@ Both scripts must use the same key to find the feedback file. The collector extr
 
 - When adding new hook scripts, always use `|| true` wrapping in settings.json to prevent hook failures from blocking Claude Code
 - Use `exit 0` for intentional skips, `exit 1 + stderr` only for genuine errors (see `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`)
-- For session-scoped flags, use `$PPID` (not `$$`) as fallback when `CLAUDE_SESSION_ID` is unavailable — `$$` changes with each hook invocation
+- For session-scoped flags, use `jq -r '.session_id // empty'` to extract from stdin JSON — do NOT use `$PPID` or `$$` (both change per hook invocation due to `bash -c` wrapper). Use `// empty` to avoid jq returning the literal string `"null"` for missing/null fields
+- Always add a `command -v jq` guard in hook scripts — fail explicitly (`exit 1` + stderr) rather than silently degrading
+- Redirect hook stderr to log files (`2>>$HOME/.claude/logs/harness-errors.log`) for observability when wrapping with `|| true`
 - Include Japanese keywords in transcript analysis patterns when `"language": "japanese"` is configured
 
 ## Related
