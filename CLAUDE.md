@@ -79,6 +79,17 @@ Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree 
 
 Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Dependencies managed via pnpm. The `run_onchange_install-pre-commit-hooks.sh.tmpl` script auto-installs when `package.json` or `.pre-commit-config.yaml` change.
 
+## Verification
+
+```sh
+chezmoi apply --dry-run        # Preview changes before applying
+pnpm exec secretlint '**/*'   # Check for leaked secrets
+shellcheck <script.sh>         # Lint non-.tmpl shell scripts
+shfmt -d -i 4 <script.sh>     # Check shell script formatting
+```
+
+Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is incompatible).
+
 ## Known Pitfalls
 
 - **`chezmoi add --autotemplate` breaks JSON** — `:` and `/` get over-substituted. Use `chezmoi add --template` + manual `sed` for homeDir substitution instead.
