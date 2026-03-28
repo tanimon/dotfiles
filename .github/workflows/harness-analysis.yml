@@ -1,0 +1,69 @@
+name: Harness Analysis
+
+on:
+  schedule:
+    # Weekly: Sunday 00:00 UTC (Monday 09:00 JST)
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Harness Analysis
+        uses: anthropics/claude-code-action@aee99972d0cfa0c47a4563e6fca42d7a5a0cb9bd # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are a harness engineering analyst. Analyze this repository's harness health and create GitHub Issues for actionable improvements.
+
+            ## Analysis Scope
+
+            Evaluate these areas:
+
+            1. **CLAUDE.md quality** — Is it accurate, concise (<200 lines useful content), and does it cover: project description, common commands, architecture, known pitfalls, testing?
+            2. **Project rules** (.claude/rules/) — Are rules specific, actionable, and grounded in real file references? Are any stale or duplicating global rules?
+            3. **Hook scripts** (dot_claude/scripts/) — Do they follow the exit code contract (exit 0 for skip, exit 1 + stderr for error)? Are one-shot flags placed after guards?
+            4. **CI/lint alignment** — Does the Makefile mirror CI jobs? Are there gaps between local and CI checks?
+            5. **Documentation drift** — Do docs/solutions/ entries reference files or patterns that no longer exist? Does CLAUDE.md match current repo state?
+            6. **Refactoring candidates** — Are there shell scripts exceeding 200 lines, duplicated patterns across scripts, or overly complex template logic?
+
+            ## Process
+
+            1. Read CLAUDE.md, .claude/rules/*.md, dot_claude/commands/*.md, dot_claude/scripts/*, Makefile, and .github/workflows/*.yml
+            2. Check for stale references (file paths that no longer exist, outdated command examples)
+            3. Check for pattern violations against the rules themselves
+            4. List existing open issues with the harness-analysis label:
+               ```
+               gh issue list --label harness-analysis --state open --json number,title
+               ```
+            5. For each NEW finding (not already covered by an open issue):
+               - Only create an issue if the finding is actionable and specific
+               - Skip generic observations like "could be better documented"
+               - Each issue must name exact file paths and recommend a concrete action
+
+            ## Issue Creation
+
+            For each actionable finding, create an issue:
+            ```
+            gh issue create \
+              --label harness-analysis \
+              --title "[harness] <concise description>" \
+              --body "<structured body with: ## Problem, ## Files, ## Suggested Action>"
+            ```
+
+            ## Rules
+            - Maximum 5 issues per run to avoid noise
+            - Skip findings already covered by open harness-analysis issues
+            - Every issue must reference specific file paths
+            - If no actionable improvements are found, create no issues — this is a valid outcome
+          claude_args: '--allowedTools "Bash(git status),Bash(git log),Bash(git diff),Bash(gh issue *),Bash(gh label *),Bash(cat *),Bash(find *),Bash(wc *),Read,Glob,Grep"'

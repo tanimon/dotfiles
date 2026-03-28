@@ -20,6 +20,9 @@ chezmoi data                   # Show template data (profile, ghOrg, etc.)
 # Linting (mirrors CI — also runs on commit via prek)
 make lint                      # Run all checks (secretlint + shellcheck + shfmt + modify_ + script tests + templates)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
+
+# Harness analysis (scheduled weekly in CI, also manual)
+gh workflow run harness-analysis.yml  # Trigger harness analysis manually
 ```
 
 ## chezmoi Naming Conventions
@@ -55,6 +58,8 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
 **Claude Code sandbox** — The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` to run inside a macOS Seatbelt sandbox. Primary tool is [agent-safehouse](https://github.com/eugene1g/agent-safehouse) (Homebrew, deny-all default), with [cco](https://github.com/nikvdp/cco) as fallback. Sandbox configuration lives in `dot_config/safehouse/config.tmpl` (safehouse CLI flags, one per line) and `dot_config/cco/allow-paths.tmpl` (cco path allowlist). cco is still pulled via `.chezmoiexternal.toml` for Linux fallback; `run_onchange_after_link-cco.sh.tmpl` symlinks the binary. Use `command claude` or `\claude` to bypass sandboxing.
+
+**Scheduled harness analysis** — `.github/workflows/harness-analysis.yml` runs weekly (Sunday 00:00 UTC) via `claude-code-action` to detect harness improvements, stale rules, documentation drift, and refactoring candidates. Findings are created as GitHub Issues with the `harness-analysis` label. Can also be triggered manually via `gh workflow run harness-analysis.yml`.
 
 ### `.chezmoiignore`
 
