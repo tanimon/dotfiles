@@ -33,6 +33,17 @@ command -v pnpm >/dev/null 2>&1 || { echo "WARNING: pnpm not found, skipping"; e
 - Place in `scripts/` for repo-only helpers
 - Place in `.chezmoiscripts/` for chezmoi lifecycle scripts
 
+## CI Enforcement
+
+These rules are enforced automatically — not just advisory:
+
+- **CI** (`.github/workflows/lint.yml`): Runs shellcheck and shfmt on all `.sh`/`.bash` files (excluding `.tmpl`) on every push and PR
+- **Pre-commit** (`.pre-commit-config.yaml`): Runs the same shellcheck and shfmt checks locally before each commit via prek
+- **secretlint**: Also runs in both CI and pre-commit to prevent committing secrets
+
+`.tmpl` files are excluded from both because Go template syntax is incompatible with shell linters.
+
+
 ## Avoiding Recursion
 
 - Never call `chezmoi add` from `run_after_` scripts — this causes infinite recursion
