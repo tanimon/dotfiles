@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt test-modify check-templates
+.PHONY: lint secretlint shellcheck shfmt test-modify test-scripts check-templates
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -10,7 +10,7 @@ TMPL_FILES := $(shell find . -name '*.tmpl' \
 	! -name '.chezmoi.toml.tmpl' 2>/dev/null)
 
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt test-modify check-templates
+lint: secretlint shellcheck shfmt test-modify test-scripts check-templates
 
 ## Scan for leaked secrets
 secretlint:
@@ -63,6 +63,44 @@ test-modify:
 		echo "FAIL: missing source file should passthrough stdin"; exit 1; \
 	fi; \
 	echo "PASS: missing source file passes through stdin"
+
+## Smoke test harness-activator script
+test-scripts:
+	@if ! command -v jq >/dev/null 2>&1; then echo "WARNING: jq not found, skipping"; exit 0; fi
+	@echo "Testing harness-activator.sh..."
+	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-activator.sh"; \
+	TEST_SID="test-harness-$$$$-$$(date +%s)"; \
+	cleanup() { rm -f "/tmp/claude-harness-checked-$$TEST_SID"; }; \
+	cleanup; \
+	echo "  Test 1: normal execution inside git repo..."; \
+	output=$$(printf '{"session_id":"%s"}' "$$TEST_SID" | bash "$$SCRIPT" 2>/dev/null); \
+	if echo "$$output" | grep -q "HARNESS EVALUATION REMINDER"; then \
+		echo "  PASS: stdout contains HARNESS EVALUATION REMINDER"; \
+	else \
+		echo "  FAIL: expected HARNESS EVALUATION REMINDER in stdout"; cleanup; exit 1; \
+	fi; \
+	cleanup; \
+	echo "  Test 2: HOME guard suppresses output..."; \
+	TEST_SID2="test-harness-$$$$-$$(date +%s)-home"; \
+	output=$$(cd "$$HOME" && printf '{"session_id":"%s"}' "$$TEST_SID2" | bash "$$SCRIPT" 2>/dev/null); \
+	if [ -z "$$output" ]; then \
+		echo "  PASS: stdout is empty when PWD is HOME"; \
+	else \
+		echo "  FAIL: expected empty stdout when PWD is HOME"; rm -f "/tmp/claude-harness-checked-$$TEST_SID2"; cleanup; exit 1; \
+	fi; \
+	rm -f "/tmp/claude-harness-checked-$$TEST_SID2"; \
+	echo "  Test 3: duplicate session_id produces empty output..."; \
+	TEST_SID3="test-harness-$$$$-$$(date +%s)-dup"; \
+	rm -f "/tmp/claude-harness-checked-$$TEST_SID3"; \
+	printf '{"session_id":"%s"}' "$$TEST_SID3" | bash "$$SCRIPT" > /dev/null 2>&1; \
+	output=$$(printf '{"session_id":"%s"}' "$$TEST_SID3" | bash "$$SCRIPT" 2>/dev/null); \
+	if [ -z "$$output" ]; then \
+		echo "  PASS: second run with same session_id produces empty stdout"; \
+	else \
+		echo "  FAIL: expected empty stdout on duplicate session_id"; rm -f "/tmp/claude-harness-checked-$$TEST_SID3"; cleanup; exit 1; \
+	fi; \
+	rm -f "/tmp/claude-harness-checked-$$TEST_SID3"; \
+	cleanup
 
 ## Validate chezmoi templates
 check-templates:
