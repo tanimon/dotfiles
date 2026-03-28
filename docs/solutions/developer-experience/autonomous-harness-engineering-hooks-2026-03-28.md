@@ -1,6 +1,7 @@
 ---
 title: Autonomous Harness Engineering via Claude Code Hooks
 date: 2026-03-28
+last_updated: 2026-03-28
 problem_type: developer_experience
 component: tooling
 symptoms:
@@ -61,9 +62,11 @@ echo "$FINDINGS" > "/tmp/claude-harness-feedback-${PROJECT_ENCODED}.md"
 ### 2. UserPromptSubmit Hook: Session Start Check (`harness-check.sh`)
 
 ```bash
-# Read session_id from stdin JSON — stable across all hook invocations in a session
-INPUT=$(cat) || exit 0
-SESSION_ID=$(echo "$INPUT" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//')
+# Require jq for JSON parsing
+command -v jq >/dev/null 2>&1 || { echo "jq not found" >&2; exit 1; }
+
+# Extract session_id from stdin JSON — stable across all hook invocations in a session
+SESSION_ID=$(jq -r '.session_id // empty')
 FLAG_FILE="/tmp/claude-harness-checked-${SESSION_ID}"
 
 # Check 1: Read previous session's feedback file
@@ -86,7 +89,7 @@ fi
     "matcher": "clear",
     "hooks": [{
       "type": "command",
-      "command": "bash -c 'SID=$(jq -r .session_id 2>/dev/null); [ -n \"$SID\" ] && rm -f \"/tmp/claude-harness-checked-$SID\" || true'"
+      "command": "bash -c 'command -v jq >/dev/null || { echo \"jq not found\" >&2; exit 1; }; SID=$(jq -r \".session_id // empty\"); [ -n \"$SID\" ] && rm -f \"/tmp/claude-harness-checked-$SID\" || true'"
     }]
   }]
 }
@@ -116,7 +119,7 @@ Both scripts must use the same key to find the feedback file. The collector extr
 
 ### Session ID Strategy
 
-All hook scripts use `session_id` from the stdin JSON payload for per-session identification. This field is stable across all hook invocations within the same session. Previous approaches using `$PPID` or `$CLAUDE_SESSION_ID` (env var) were unreliable because hooks run in `bash -c` subprocesses with unique PIDs, and `CLAUDE_SESSION_ID` is not set as an environment variable.
+All hook scripts use `jq -r '.session_id // empty'` to extract the session identifier from the stdin JSON payload. The `// empty` filter ensures JSON `null` or missing fields produce an empty string (not the literal `"null"`). Previous approaches using `$PPID` or `$CLAUDE_SESSION_ID` (env var) were unreliable because hooks run in `bash -c` subprocesses with unique PIDs, and `CLAUDE_SESSION_ID` is not set as an environment variable. jq is required — scripts fail explicitly with `exit 1` + stderr message if jq is missing.
 
 ## Why This Works
 
@@ -131,7 +134,9 @@ All hook scripts use `session_id` from the stdin JSON payload for per-session id
 
 - When adding new hook scripts, always use `|| true` wrapping in settings.json to prevent hook failures from blocking Claude Code
 - Use `exit 0` for intentional skips, `exit 1 + stderr` only for genuine errors (see `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`)
-- For session-scoped flags, extract `session_id` from the stdin JSON payload — do NOT use `$PPID` or `$$` (both change per hook invocation due to `bash -c` wrapper)
+- For session-scoped flags, use `jq -r '.session_id // empty'` to extract from stdin JSON — do NOT use `$PPID` or `$$` (both change per hook invocation due to `bash -c` wrapper). Use `// empty` to avoid jq returning the literal string `"null"` for missing/null fields
+- Always add a `command -v jq` guard in hook scripts — fail explicitly (`exit 1` + stderr) rather than silently degrading
+- Redirect hook stderr to log files (`2>>$HOME/.claude/logs/harness-errors.log`) for observability when wrapping with `|| true`
 - Include Japanese keywords in transcript analysis patterns when `"language": "japanese"` is configured
 
 ## Related
