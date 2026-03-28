@@ -43,6 +43,7 @@ Agents working in the chezmoi dotfiles repository had no project-specific rules 
 - **Attempting to commit `docs/plans/` files** — `.gitignore` excludes `docs/*` with only `!docs/solutions/` as exception. Modifying `.gitignore` to add `!docs/plans/` exposed 30+ old untracked plan files, polluting the PR scope. Reverted and left plans as local working documents.
 - **Using `chezmoi apply --dry-run` in CI** — Requires `.chezmoi.toml` with template variables (`.profile`, `.ghOrg`) that are environment-specific. Setup cost too high for CI; lint checks provide sufficient validation.
 - **`chezmoi execute-template --init` without `--source`** — Templates using `include` (e.g., `{{ include "darwin/Brewfile" | sha256sum }}`) fail silently because `execute-template --init` doesn't know the source directory. The `--source "$(pwd)"` flag is required.
+- **`chezmoi execute-template --init --promptString` does not populate `.data` namespace** — `--promptString 'ghOrg=test-org'` answers `promptStringOnce` prompts during config initialization, but does NOT set template data variables (`.ghOrg`, `.profile`). Templates referencing `.ghOrg` fail with `map has no entry for key "ghOrg"`. The fix is to use a test `chezmoi.toml` with `[data]` section and `--config` flag instead of `--init --promptString`.
 
 ## Solution
 
@@ -74,9 +75,10 @@ Four parallel jobs: secretlint (via pnpm), shellcheck (Ubuntu pre-installed), sh
 
 **Critical pattern:** Both shellcheck and shfmt `find` commands exclude `.tmpl` files — Go template syntax is incompatible with shell linters. This mirrors the existing `.pre-commit-config.yaml` exclusion pattern.
 
-**chezmoi template validation** uses `chezmoi execute-template --init --source "$(pwd)"` to validate Go template syntax in all `.tmpl` files. Key details:
-- `--init` mode provides dummy template variables via `--promptString 'profile=personal' --promptString 'ghOrg=test-org'`
+**chezmoi template validation** uses `chezmoi execute-template --config <test-config> --source "$(pwd)"` to validate Go template syntax in all `.tmpl` files. Key details:
+- A test `chezmoi.toml` is created with `[data]` section providing dummy values for `profile` and `ghOrg`. This is required because `--init --promptString` only answers `promptStringOnce` prompts — it does NOT populate the `.data` namespace that templates reference via `.ghOrg` / `.profile`
 - `--source "$(pwd)"` is **required** for templates that use `include` — without it, `execute-template` cannot resolve file paths for hash computation
+- `.chezmoi.toml.tmpl` is excluded from validation because it uses `promptStringOnce` which requires interactive input
 - Validates syntax only (output goes to `/dev/null`); does not test rendered correctness
 
 Added `.github/` to `.chezmoiignore` to prevent CI files from deploying to `~/`.
@@ -99,7 +101,7 @@ Added `.github/` to `.chezmoiignore` to prevent CI files from deploying to `~/`.
 - When adding project-specific agent rules to a chezmoi repo, always use `.claude/rules/` at the repo root — never add to `dot_claude/rules/` unless the rule should apply globally across all projects
 - When adding new repo-only directories (`.github/`, `scripts/`), always add them to `.chezmoiignore`
 - When setting up shell linting in CI for chezmoi repos, always exclude `.tmpl` files — reference `.pre-commit-config.yaml` for the established exclusion patterns
-- When using `chezmoi execute-template` in CI, always pass `--source` to the source directory — `include` template functions need it to resolve file paths
+- When using `chezmoi execute-template` in CI, use `--config` with a test `chezmoi.toml` containing `[data]` section — `--init --promptString` does NOT populate the data namespace. Also pass `--source` for `include` resolution. Exclude `.chezmoi.toml.tmpl` from validation
 - When adding project rules, include concrete file path references to real repository examples — agents follow patterns better when they can read the actual implementation
 - Remember that `docs/plans/` is gitignored — don't attempt to commit plan files
 
