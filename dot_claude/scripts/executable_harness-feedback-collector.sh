@@ -61,7 +61,7 @@ FINDINGS=""
 
 # --- Pattern 1: Repeated tool failures ---
 # Look for "error" or "failed" in tool results
-ERROR_COUNT=$(echo "$CHUNK" | grep -ci '"error"\|"failed"\|"EPERM"\|"ENOENT"\|"permission denied"' 2>/dev/null || echo 0)
+ERROR_COUNT=$(echo "$CHUNK" | grep -ci '"error"\|"failed"\|"EPERM"\|"ENOENT"\|"permission denied"\|エラー\|失敗\|拒否\|権限' 2>/dev/null || echo 0)
 if [[ "$ERROR_COUNT" -ge 5 ]]; then
     FINDINGS+="- High error rate detected ($ERROR_COUNT error indicators). Consider adding rules to prevent common failures."$'\n'
 fi
@@ -84,7 +84,7 @@ fi
 # --- Pattern 4: Problem-solving activity (suggests ce:compound value) ---
 # Detect investigation/debugging patterns that produce documentable knowledge
 SUGGEST_COMPOUND=false
-INVESTIGATION_SIGNALS=$(echo "$CHUNK" | grep -ci '"root.cause\|"workaround\|"the fix\|"the issue was\|"discovered that\|"turns out\|"the problem\|"solution"' 2>/dev/null || echo 0)
+INVESTIGATION_SIGNALS=$(echo "$CHUNK" | grep -ci '"root.cause\|"workaround\|"the fix\|"the issue was\|"discovered that\|"turns out\|"the problem\|"solution"\|原因\|回避策\|修正\|問題は\|判明\|分かった\|解決' 2>/dev/null || echo 0)
 if [[ "$INVESTIGATION_SIGNALS" -ge 2 ]]; then
     SUGGEST_COMPOUND=true
 fi
