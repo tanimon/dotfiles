@@ -39,10 +39,51 @@ These rules are enforced automatically — not just advisory:
 
 - **CI** (`.github/workflows/lint.yml`): Each CI job calls `Makefile` targets directly — local and CI run the exact same commands
 - **Pre-commit** (`.pre-commit-config.yaml`): Runs shellcheck, shfmt, and secretlint automatically before each commit via prek
-- **Local** (`Makefile`): `make lint` runs all checks. Individual targets: `make shellcheck`, `make shfmt`, `make secretlint`, `make test-modify`, `make check-templates`
+- **Local** (`Makefile`): `make lint` runs all checks. Individual targets: `make shellcheck`, `make shfmt`, `make secretlint`, `make test-modify`, `make test-scripts`, `make check-templates`
 
 `.tmpl` files are excluded from shell linting because Go template syntax is incompatible with shell linters.
 
+
+## Hook Scripts
+
+Rules for Claude Code hook scripts (`dot_claude/scripts/`).
+
+### Exit Code Contract
+
+- `exit 0` — intentional skip (tool guard missing, non-project context, already ran)
+- `exit 1` + stderr message — actionable error
+- Never `exit 1` without stderr — produces confusing "No stderr output" message in Claude Code
+
+### Session Identity
+
+Extract session ID from stdin JSON (stable across all hook invocations in a session):
+
+```bash
+SESSION_ID=$(jq -r '.session_id // empty') || exit 0
+[[ -z "$SESSION_ID" ]] && exit 0
+```
+
+Do not use `$PPID` or `$$` — these are unreliable in `bash -c` hook wrappers.
+
+### One-Shot Flag Pattern
+
+For hooks that should fire only once per session:
+
+```bash
+FLAG_FILE="/tmp/claude-<hook-name>-${SESSION_ID}"
+[[ -f "$FLAG_FILE" ]] && exit 0
+
+# ... context guards (directory exclusions, git checks) ...
+
+# Set flag AFTER guards, not before — otherwise a non-project context
+# consumes the flag and the hook silently skips in project contexts later.
+touch "$FLAG_FILE"
+```
+
+### Reference
+
+- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`
+- `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`
 
 ## Avoiding Recursion
 

@@ -18,7 +18,7 @@ chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
 # Linting (mirrors CI — also runs on commit via prek)
-make lint                      # Run all checks (secretlint + shellcheck + shfmt + modify_ tests + templates)
+make lint                      # Run all checks (secretlint + shellcheck + shfmt + modify_ + script tests + templates)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 ```
 
@@ -90,6 +90,7 @@ make secretlint                # Scan for leaked secrets
 make shellcheck                # Lint non-.tmpl shell scripts
 make shfmt                     # Check shell script formatting (indent=4)
 make test-modify               # Smoke test modify_ scripts
+make test-scripts              # Smoke test harness scripts
 make check-templates           # Validate chezmoi .tmpl files
 ```
 
@@ -97,17 +98,28 @@ Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is inco
 
 ## Known Pitfalls
 
+### chezmoi CLI & ファイル管理
+
 - **`chezmoi add --autotemplate` breaks JSON** — `:` and `/` get over-substituted. Use `chezmoi add --template` + manual `sed` for homeDir substitution instead.
 - **`run_after_` scripts calling `chezmoi add` cause recursion** — Use `cp` + `sed` to write directly to the source directory.
 - **`.chezmoiignore` silently skips** — If `chezmoi add` does nothing, check `.chezmoiignore`.
 - **`.chezmoiignore` `*.txt` is root-level only** — `*.txt` does NOT match nested paths like `.config/gh/extensions.txt`. Use `**/*.txt` for recursive matching, or add explicit entries for nested files. Always verify with `chezmoi managed | grep <pattern>`.
-- **Template escaping** — To output literal `{{ .chezmoi.homeDir }}` in a `.tmpl` file, use `{{ "{{ .chezmoi.homeDir }}" }}`.
-- **Git commit signing** — Requires 1Password SSH agent (`op-ssh-sign`). Commits will fail without it running.
 - **Repo-only files need `.chezmoiignore`** — Files like `CLAUDE.md`, `README.md` at repo root are excluded via `.chezmoiignore` so they don't deploy to `~/`. New repo-only files must be added there.
-- **`modify_` scripts: empty stdout = target deletion** — Never use OS guards (`{{ if eq .chezmoi.os "darwin" }}`); on non-matching OS the script outputs nothing and chezmoi zeros the file. Always include `set -e`. Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`.
 - **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.
-- **`chezmoi execute-template` in CI needs config + source** — `--init --promptString` only answers `promptStringOnce` prompts; it does NOT populate the `.data` namespace (`.ghOrg`, `.profile`) that templates reference. Use a test `chezmoi.toml` with `[data]` section and pass `--config <path> --source "$(pwd)"`. Also exclude `.chezmoi.toml.tmpl` itself since it uses `promptStringOnce` (interactive).
-- **`docs/plans/` is gitignored** — `.gitignore` excludes `docs/*` with only `!docs/solutions/` as exception. Plan files created by `ce:plan` are local working documents and cannot be committed. Do not attempt to `git add` files under `docs/plans/` or modify `.gitignore` to include them without explicit user approval.
 - **Never edit deployed targets directly** — Always edit the chezmoi source file (under `~/.local/share/chezmoi/`), never the deployed target (under `~/`). For example, edit `dot_claude/scripts/executable_harness-activator.sh`, not `~/.claude/scripts/harness-activator.sh`. Changes to deployed targets are overwritten on next `chezmoi apply` and are not version-controlled. Use `chezmoi source-path <target>` to find the source file for any managed target.
-- **Inline hook commands: keep simple or use jq** — Inline `bash -c` hook commands in `settings.json.tmpl` have two layers of escaping (JSON `\"` + shell quoting) that are extremely error-prone. Avoid complex grep/sed patterns; use `jq` (already a dependency) or extract logic into external script files.
+- **`docs/plans/` is gitignored** — `.gitignore` excludes `docs/*` with only `!docs/solutions/` as exception. Plan files created by `ce:plan` are local working documents and cannot be committed. Do not attempt to `git add` files under `docs/plans/` or modify `.gitignore` to include them without explicit user approval.
+
+### テンプレート構文
+
+- **Template escaping** — To output literal `{{ .chezmoi.homeDir }}` in a `.tmpl` file, use `{{ "{{ .chezmoi.homeDir }}" }}`.
+- **`chezmoi execute-template` in CI needs config + source** — `--init --promptString` only answers `promptStringOnce` prompts; it does NOT populate the `.data` namespace (`.ghOrg`, `.profile`) that templates reference. Use a test `chezmoi.toml` with `[data]` section and pass `--config <path> --source "$(pwd)"`. Also exclude `.chezmoi.toml.tmpl` itself since it uses `promptStringOnce` (interactive).
+
+### スクリプト安全性
+
+- **`modify_` scripts: empty stdout = target deletion** — Never use OS guards (`{{ if eq .chezmoi.os "darwin" }}`); on non-matching OS the script outputs nothing and chezmoi zeros the file. Always include `set -e`. Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`.
 - **Hook scripts: set one-shot flags after guards, not before** — When using `/tmp` flag files for "run once per session" behavior, place the `touch` **after** context guards (directory exclusions, git checks), not before. If the flag is set before guards, a non-project context (e.g., `$HOME`) consumes the one-shot flag, and navigating to a project later in the same session silently skips the hook.
+
+### 外部制約 & ツール連携
+
+- **Git commit signing** — Requires 1Password SSH agent (`op-ssh-sign`). Commits will fail without it running.
+- **Inline hook commands: keep simple or use jq** — Inline `bash -c` hook commands in `settings.json.tmpl` have two layers of escaping (JSON `\"` + shell quoting) that are extremely error-prone. Avoid complex grep/sed patterns; use `jq` (already a dependency) or extract logic into external script files.

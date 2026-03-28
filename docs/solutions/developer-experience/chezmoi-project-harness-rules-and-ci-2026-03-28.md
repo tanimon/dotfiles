@@ -2,7 +2,7 @@
 title: "Project-Specific Harness Rules and CI for chezmoi Dotfiles Repository"
 date: 2026-03-28
 last_updated: 2026-03-29
-updated_reason: "Added mktemp .toml extension pitfall and Makefile single-source-of-truth pattern"
+updated_reason: "Added harness-activator smoke tests, hook guidance rules, Known Pitfalls categorization"
 problem_type: developer_experience
 component: tooling
 symptoms:
@@ -106,6 +106,17 @@ Key details:
 - **CI Enforcement section in `.claude/rules/shell-scripts.md`** — Explicitly states that shell script rules are enforced by CI (`.github/workflows/lint.yml`) and pre-commit (`.pre-commit-config.yaml`), not advisory.
 - **`verify` script in `package.json`** — `pnpm run verify` runs secretlint as a single entry point for validation.
 
+### 6. Harness-activator smoke tests and hook guidance (2026-03-29)
+
+**`test-scripts` Makefile target** — Tests `dot_claude/scripts/executable_harness-activator.sh` with three scenarios: (1) normal execution in a git repo produces "HARNESS EVALUATION REMINDER" output, (2) HOME directory guard suppresses output (exit 0), (3) duplicate session_id produces empty output (flag file prevents re-firing). Includes a `jq` tool guard matching the `shellcheck`/`shfmt` pattern. CI job `harness-scripts` added to `lint.yml`.
+
+**Hook Scripts section in `.claude/rules/shell-scripts.md`** — Promotes three hard-won patterns from `docs/solutions/` into project rules:
+- Exit code contract: `exit 0` for intentional skip, `exit 1` + stderr for errors, never `exit 1` without stderr
+- Session identity: `jq -r '.session_id // empty'` is the stable identifier; `$PPID`/`$$` are unreliable in `bash -c` wrappers
+- One-shot flag pattern: flag file must be set AFTER context guards to prevent non-project contexts from consuming the one-shot
+
+**CLAUDE.md Known Pitfalls categorization** — 14 items reorganized into 4 categories with `###` subheaders (chezmoi CLI & ファイル管理, テンプレート構文, スクリプト安全性, 外部制約 & ツール連携). No content changes — structure only.
+
 ## Why This Works
 
 - **Project rules vs global rules separation** prevents agents from conflating `dot_claude/rules/` (what gets deployed everywhere) with `.claude/rules/` (guidance for working in this specific repo)
@@ -124,6 +135,8 @@ Key details:
 - When adding project rules, include concrete file path references to real repository examples — agents follow patterns better when they can read the actual implementation
 - When creating temp files for tools that infer format from extension (chezmoi, viper-based CLIs), always use `mktemp <dir>/prefix-XXXXXX.ext` with the correct extension — plain `mktemp` produces extensionless files that cause "unknown format" errors
 - When CI and local development run the same checks, consolidate the check logic into a `Makefile` (or equivalent) and have CI call the same targets — this eliminates drift between CI inline commands and local developer invocations
+- **Mirror contract enforcement:** When adding a new `make` target to the `lint` dependency, always add a corresponding CI job in `.github/workflows/lint.yml` — the contract is "if it passes locally, CI will pass too" and the converse must also hold
+- When testing hook scripts in Makefile, pipe JSON to stdin (`printf '{"session_id":"%s"}' "$SID" | bash "$SCRIPT"`), manage `/tmp` flag files for cleanup, and test context guards by running from different directories in subshells
 - Remember that `docs/plans/` is gitignored — don't attempt to commit plan files
 
 ## Related Issues
