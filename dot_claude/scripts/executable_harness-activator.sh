@@ -59,8 +59,8 @@ harness improvements are needed:
 2. Did a repeated failure pattern emerge (same error 3+ times)?
    → Run /capture-harness-feedback to create preventive rules
 
-3. Was significant debugging or investigation required?
-   → The solution may be worth documenting in docs/solutions/
+3. Was a non-trivial problem solved during this session?
+   → Run /ce:compound to document the solution in docs/solutions/
 
 Only act if improvements are clearly warranted. No action needed
 for routine, successful sessions.
