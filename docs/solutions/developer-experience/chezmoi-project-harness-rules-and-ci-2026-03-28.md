@@ -1,7 +1,7 @@
 ---
 title: "Project-Specific Harness Rules and CI for chezmoi Dotfiles Repository"
 date: 2026-03-28
-last_updated: 2026-03-28
+last_updated: 2026-03-29
 problem_type: developer_experience
 component: tooling
 symptoms:
@@ -75,6 +75,10 @@ Four parallel jobs: secretlint (via pnpm), shellcheck (Ubuntu pre-installed), sh
 
 **Critical pattern:** Both shellcheck and shfmt `find` commands exclude `.tmpl` files — Go template syntax is incompatible with shell linters. This mirrors the existing `.pre-commit-config.yaml` exclusion pattern.
 
+**`executable_*` coverage (2026-03-29):** The original CI `find` only matched `*.sh` and `*.bash`, missing chezmoi `executable_*` prefix files without extensions (e.g., `executable_git-clean-squashed`). Pre-commit caught these via regex `executable_` in `files:`, but CI silently skipped them. Fixed by adding `-name 'executable_*'` to both shellcheck and shfmt `find` commands, with additional exclusions for `.mts`, `.ts`, `.mjs` (TypeScript files that also use the `executable_` prefix).
+
+**`modify_` script smoke tests (2026-03-29):** Added a `modify-scripts` CI job that exercises `modify_dot_claude.json` with three test cases: (1) existing JSON with mcpServers replacement verified by checking for a known key from `mcp-servers.json`, (2) empty stdin producing valid JSON with mcpServers, (3) missing source file triggering passthrough of stdin unchanged. This catches regressions that could zero out `~/.claude.json` on `chezmoi apply`.
+
 **chezmoi template validation** uses `chezmoi execute-template --config <test-config> --source "$(pwd)"` to validate Go template syntax in all `.tmpl` files. Key details:
 - A test `chezmoi.toml` is created with `[data]` section providing dummy values for `profile` and `ghOrg`. This is required because `--init --promptString` only answers `promptStringOnce` prompts — it does NOT populate the `.data` namespace that templates reference via `.ghOrg` / `.profile`
 - `--source "$(pwd)"` is **required** for templates that use `include` — without it, `execute-template` cannot resolve file paths for hash computation
@@ -101,6 +105,8 @@ Added `.github/` to `.chezmoiignore` to prevent CI files from deploying to `~/`.
 - When adding project-specific agent rules to a chezmoi repo, always use `.claude/rules/` at the repo root — never add to `dot_claude/rules/` unless the rule should apply globally across all projects
 - When adding new repo-only directories (`.github/`, `scripts/`), always add them to `.chezmoiignore`
 - When setting up shell linting in CI for chezmoi repos, always exclude `.tmpl` files — reference `.pre-commit-config.yaml` for the established exclusion patterns
+- When aligning CI `find` with pre-commit regex patterns, watch for chezmoi `executable_*` prefix files — `find -name` and pre-commit `files:` regex use different matching semantics. Verify both produce the same file set with a local `find` command
+- Add smoke tests for `modify_` scripts in CI — a broken modify\_ script can silently zero out the target file on `chezmoi apply`. Test with sample input, empty stdin, and missing source file scenarios
 - When using `chezmoi execute-template` in CI, use `--config` with a test `chezmoi.toml` containing `[data]` section — `--init --promptString` does NOT populate the data namespace. Also pass `--source` for `include` resolution. Exclude `.chezmoi.toml.tmpl` from validation
 - When adding project rules, include concrete file path references to real repository examples — agents follow patterns better when they can read the actual implementation
 - Remember that `docs/plans/` is gitignored — don't attempt to commit plan files
