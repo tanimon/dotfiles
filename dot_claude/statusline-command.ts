@@ -26,9 +26,7 @@ interface UsageResponse {
   seven_day?: UsageBucket;
 }
 
-type FetchResult =
-  | { ok: true; data: UsageResponse }
-  | { ok: false; authError: boolean };
+type FetchResult = { ok: true; data: UsageResponse } | { ok: false; authError: boolean };
 
 // --- Constants ---
 
@@ -102,7 +100,9 @@ async function getLineChanges(cwd: string): Promise<{ added: number; deleted: nu
       const cached = JSON.parse(readFileSync(DIFF_CACHE_FILE, "utf8"));
       if (cached.cwd === cwd) return { added: cached.added, deleted: cached.deleted };
     }
-  } catch { /* cache miss — proceed to git */ }
+  } catch {
+    /* cache miss — proceed to git */
+  }
 
   try {
     const { stdout } = await execFileAsync("git", ["diff", "--numstat", "--no-renames", "HEAD"], {
@@ -120,7 +120,9 @@ async function getLineChanges(cwd: string): Promise<{ added: number; deleted: nu
     try {
       mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
       writeFileSync(DIFF_CACHE_FILE, JSON.stringify({ cwd, added, deleted }), { mode: 0o600 });
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
     return { added, deleted };
   } catch {
     return { added: 0, deleted: 0 };
@@ -156,7 +158,11 @@ function readCache(): UsageResponse | null {
     if ((Date.now() - st.mtimeMs) / 1000 > CACHE_TTL) return null;
     return JSON.parse(readFileSync(CACHE_FILE, "utf8")) as UsageResponse;
   } catch {
-    try { unlinkSync(CACHE_FILE); } catch { /* file may not exist */ }
+    try {
+      unlinkSync(CACHE_FILE);
+    } catch {
+      /* file may not exist */
+    }
     return null;
   }
 }
@@ -166,7 +172,9 @@ function writeCache(data: UsageResponse): void {
     mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
     writeFileSync(CACHE_FILE, JSON.stringify(data), { mode: 0o600 });
   } catch (err: unknown) {
-    process.stderr.write(`[statusline] Cache write failed: ${err instanceof Error ? err.message : err}\n`);
+    process.stderr.write(
+      `[statusline] Cache write failed: ${err instanceof Error ? err.message : err}\n`,
+    );
   }
 }
 
@@ -183,7 +191,9 @@ function writeNegCache(authError: boolean): void {
   try {
     mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
     writeFileSync(NEG_CACHE_FILE, JSON.stringify({ authError }), { mode: 0o600 });
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 }
 
 async function fetchUsage(): Promise<FetchResult> {
@@ -214,7 +224,9 @@ async function fetchUsage(): Promise<FetchResult> {
     if (!resp.ok) {
       const authError = resp.status === 401 || resp.status === 403;
       if (authError) {
-        process.stderr.write(`[statusline] Usage API returned ${resp.status}: token may be expired\n`);
+        process.stderr.write(
+          `[statusline] Usage API returned ${resp.status}: token may be expired\n`,
+        );
       }
       writeNegCache(authError);
       return { ok: false, authError };

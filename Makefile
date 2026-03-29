@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt test-modify test-scripts check-templates
+.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt test-modify test-scripts check-templates
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -9,8 +9,17 @@ TMPL_FILES := $(shell find . -name '*.tmpl' \
 	! -path './node_modules/*' \
 	! -name '.chezmoi.toml.tmpl' 2>/dev/null)
 
+JS_TS_FILES := $(shell find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.mts' -o -name '*.ts' \) \
+	! -name '*.tmpl' \
+	! -path './node_modules/*' 2>/dev/null)
+
+JSON_FILES := $(shell find . -type f -name '*.json' \
+	! -path './node_modules/*' \
+	! -name 'pnpm-lock.yaml' \
+	! -name 'modify_*' 2>/dev/null)
+
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt test-modify test-scripts check-templates
+lint: secretlint shellcheck shfmt oxlint oxfmt test-modify test-scripts check-templates
 
 ## Scan for leaked secrets
 secretlint:
@@ -40,6 +49,24 @@ shfmt:
 		fi; \
 	else \
 		echo "WARNING: shfmt not found, skipping"; \
+	fi
+
+## Lint JS/TS files
+oxlint:
+	@if [ -n "$(JS_TS_FILES)" ]; then \
+		echo "Running oxlint..."; \
+		pnpm exec oxlint $(JS_TS_FILES); \
+	else \
+		echo "No JS/TS files found"; \
+	fi
+
+## Check JS/TS and JSON formatting
+oxfmt:
+	@if [ -n "$(JS_TS_FILES)$(JSON_FILES)" ]; then \
+		echo "Running oxfmt..."; \
+		pnpm exec oxfmt --check $(JS_TS_FILES) $(JSON_FILES); \
+	else \
+		echo "No JS/TS or JSON files found"; \
 	fi
 
 ## Smoke test modify_ scripts
