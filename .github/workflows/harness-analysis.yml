@@ -19,7 +19,18 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Snapshot existing issues
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label harness-analysis --state open \
+            --json number --jq '.[].number' \
+            --limit 100 | sort > /tmp/issues-before.txt
+
       - name: Run Harness Analysis
+        id: analysis
         uses: anthropics/claude-code-action@aee99972d0cfa0c47a4563e6fca42d7a5a0cb9bd # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -67,3 +78,45 @@ jobs:
             - Every issue must reference specific file paths
             - If no actionable improvements are found, create no issues — this is a valid outcome
           claude_args: '--allowedTools "Bash(git status),Bash(git log),Bash(git diff),Bash(gh issue *),Bash(gh label *),Bash(cat *),Bash(find *),Bash(wc *),Read,Glob,Grep"'
+
+      - name: Generate summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get current open issues
+          gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label harness-analysis --state open \
+            --json number,title,url \
+            --limit 100 > /tmp/issues-after.json
+
+          # Extract numbers from after-snapshot (lexicographic sort for comm)
+          jq -r '.[].number' /tmp/issues-after.json | sort > /tmp/issues-after-numbers.txt
+
+          # Ensure before-snapshot exists (may be missing if prior step failed)
+          touch /tmp/issues-before.txt
+
+          # Find newly created issues (in after but not in before)
+          new_numbers=$(comm -23 /tmp/issues-after-numbers.txt /tmp/issues-before.txt)
+          new_count=$(echo "$new_numbers" | grep -c '[0-9]' || true)
+
+          # Write summary
+          {
+            echo "## Harness Analysis Results"
+            echo ""
+            if [ "$new_count" -eq 0 ]; then
+              echo "> No new issues found — harness is healthy."
+            else
+              echo "**${new_count} new issue(s) created:**"
+              echo ""
+              for num in $new_numbers; do
+                title=$(jq -r --argjson n "$num" '.[] | select(.number == $n) | .title' /tmp/issues-after.json)
+                url=$(jq -r --argjson n "$num" '.[] | select(.number == $n) | .url' /tmp/issues-after.json)
+                echo "- [#${num} ${title}](${url})"
+              done
+            fi
+            echo ""
+            total=$(jq length /tmp/issues-after.json)
+            echo "---"
+            echo "_Total open harness-analysis issues: ${total}_"
+          } >> "$GITHUB_STEP_SUMMARY"
