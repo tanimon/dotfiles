@@ -48,6 +48,7 @@ windows/
 .claude/skills/swarm-planner
 
 # repo-only files (not deployed to home)
+.node-version
 .github/
 docs/
 scripts/
