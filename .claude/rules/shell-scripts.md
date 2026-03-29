@@ -54,6 +54,15 @@ Rules for Claude Code hook scripts (`dot_claude/scripts/`).
 - `exit 1` + stderr message — actionable error
 - Never `exit 1` without stderr — produces confusing "No stderr output" message in Claude Code
 
+### PostToolUse Hook Environment Variables
+
+Claude Code sets `$CLAUDE_FILE` to the affected file path for `PostToolUse` hooks (e.g., after `Edit` or `Write` tool use). Use it to conditionally run formatters or linters based on file extension:
+
+```bash
+FILE="$CLAUDE_FILE"
+case "$FILE" in *.go) gofmt -w "$FILE" ;; esac
+```
+
 ### Session Identity
 
 Extract session ID from stdin JSON (stable across all hook invocations in a session):

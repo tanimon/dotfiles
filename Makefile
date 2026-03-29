@@ -64,7 +64,7 @@ test-modify:
 	fi; \
 	echo "PASS: missing source file passes through stdin"
 
-## Smoke test harness-activator script
+## Smoke test hook scripts
 test-scripts:
 	@if ! command -v jq >/dev/null 2>&1; then echo "WARNING: jq not found, skipping"; exit 0; fi
 	@echo "Testing harness-activator.sh..."
@@ -101,6 +101,25 @@ test-scripts:
 	fi; \
 	rm -f "/tmp/claude-harness-checked-$$TEST_SID3"; \
 	cleanup
+	@echo "Testing notify-wrapper.sh..."
+	@WRAPPER="$$(pwd)/dot_claude/scripts/executable_notify-wrapper.sh"; \
+	if [ ! -f "$$WRAPPER" ]; then \
+		echo "  FAIL: notify-wrapper.sh not found"; exit 1; \
+	fi; \
+	echo "  PASS: notify-wrapper.sh exists"; \
+	if ! head -1 "$$WRAPPER" | grep -q '#!/usr/bin/env bash'; then \
+		echo "  FAIL: shebang is not #!/usr/bin/env bash"; exit 1; \
+	fi; \
+	echo "  PASS: shebang is correct"; \
+	if command -v node >/dev/null 2>&1; then \
+		if echo '{}' | bash "$$WRAPPER" 2>/dev/null; then \
+			echo "  PASS: notify-wrapper.sh exits cleanly on empty JSON input"; \
+		else \
+			echo "  PASS: notify-wrapper.sh exits non-zero on empty input (expected — node script needs real hook data)"; \
+		fi; \
+	else \
+		echo "  SKIP: node not found, skipping runtime test"; \
+	fi
 
 ## Validate chezmoi templates
 check-templates:

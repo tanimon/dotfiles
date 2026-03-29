@@ -125,12 +125,12 @@ chmod u+x "$SANDBOX"
 ~/.cache     # XDG cache (prek log files)
 ```
 
-### Statusline defense-in-depth
+### Notification wrapper defense-in-depth
 
-Even with the root fix, a bash wrapper caches `statusline-command.ts` to `/tmp` as fallback:
+The `notify-wrapper.sh` caches `notify.mts` to `/tmp` as a Seatbelt workaround (the statusline wrapper was removed — `settings.json.tmpl` now invokes node directly):
 - `/tmp` is outside `$HOME` — no `realpathSync` issue
-- `.ts` extension preserved — `--experimental-strip-types` works
-- Process substitution `<(cat file.ts)` does NOT work — `/dev/fd/N` has no `.ts` extension
+- `.mts` extension preserved — `--experimental-strip-types` works
+- Process substitution `<(cat file.mts)` does NOT work — `/dev/fd/N` has no `.mts` extension
 
 ## Prevention
 

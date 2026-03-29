@@ -84,6 +84,6 @@ The `notify.mts` script (invoked via `notify-wrapper.sh`) is used for both `Stop
 
 ## Related
 
-- Settings template: `dot_claude/settings.json.tmpl` (Stop hook at line 169, Notification hook at line 147)
+- Settings template: `dot_claude/settings.json.tmpl` (Notification hook in `hooks.Notification`, Stop hook in `hooks.Stop`)
 - MCP config learning: `docs/solutions/integration-issues/claude-code-mcp-server-config-location.md`
 - PR: https://github.com/tanimon/dotfiles/pull/17
