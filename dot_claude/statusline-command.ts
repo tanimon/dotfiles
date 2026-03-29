@@ -125,7 +125,11 @@ function formatUsageLine(
   bucket: RateLimitBucket | undefined,
   resetLabel: "5h" | "7d",
 ): string {
-  if (bucket && typeof bucket.used_percentage === "number" && typeof bucket.resets_at === "number") {
+  if (
+    bucket &&
+    typeof bucket.used_percentage === "number" &&
+    typeof bucket.resets_at === "number"
+  ) {
     const pct = Math.round(bucket.used_percentage);
     const col = colorForPct(pct);
     const bar = progressBar(pct);
@@ -160,10 +164,7 @@ async function main(): Promise<void> {
     const contextPct = Math.max(0, 100 - remaining);
 
     // Run git commands in parallel
-    const [branch, changes] = await Promise.all([
-      getGitBranch(cwd),
-      getLineChanges(cwd),
-    ]);
+    const [branch, changes] = await Promise.all([getGitBranch(cwd), getLineChanges(cwd)]);
 
     const { added, deleted } = changes;
     const rateLimits = data.rate_limits;
