@@ -116,6 +116,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 - **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.
 - **Never edit deployed targets directly** — Always edit the chezmoi source file (under `~/.local/share/chezmoi/`), never the deployed target (under `~/`). For example, edit `dot_claude/scripts/executable_harness-activator.sh`, not `~/.claude/scripts/harness-activator.sh`. Changes to deployed targets are overwritten on next `chezmoi apply` and are not version-controlled. Use `chezmoi source-path <target>` to find the source file for any managed target.
 - **`docs/plans/` is gitignored** — `.gitignore` excludes `docs/*` with only `!docs/solutions/` as exception. Plan files created by `ce:plan` are local working documents and cannot be committed. Do not attempt to `git add` files under `docs/plans/` or modify `.gitignore` to include them without explicit user approval.
+- **`modify_*` ファイルはファイル拡張子で判断してはいけない** — `modify_dot_claude.json` は `.json` 拡張子だが bash スクリプト。ファイルタイプベースの linter/formatter の glob（`*.json`, `*.yaml` 等）に `! -name 'modify_*'` 除外を追加すること。pre-commit の exclude にも `modify_` パターンを含めること。
 
 ### テンプレート構文
 
