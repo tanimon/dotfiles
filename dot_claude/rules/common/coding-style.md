@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent mutates objects or writes oversized files without proper error handling"
+---
+
 # Coding Style
 
 ## Immutability (CRITICAL)

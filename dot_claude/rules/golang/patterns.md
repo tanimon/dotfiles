@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent writes Go code without idiomatic patterns like functional options or small interfaces"
+---
+
 # Go Patterns
 
 > This file extends [common/patterns.md](../common/patterns.md) with Go specific content.

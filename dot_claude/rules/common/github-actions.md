@@ -1,3 +1,8 @@
+---
+date: 2026-03-29
+trigger: "Agent used invalid in operator or wrong permissions in GitHub Actions workflows"
+---
+
 # GitHub Actions Expressions
 
 ## Critical: `in` operator does not exist

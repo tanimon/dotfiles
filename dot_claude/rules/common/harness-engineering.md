@@ -1,3 +1,8 @@
+---
+date: 2026-03-28
+trigger: "Agent made a repeatable mistake without creating a preventive rule"
+---
+
 # Harness Engineering
 
 ## Core Principle

@@ -1,3 +1,8 @@
+---
+date: 2026-03-29
+trigger: "Agent breaks Renovate adjacency contract in .chezmoiexternal.toml"
+---
+
 # Renovate + .chezmoiexternal.toml
 
 Rules for managing external dependencies in `.chezmoiexternal.toml` with Renovate auto-updates.

@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent commits code without security checks or hardcodes secrets"
+---
+
 # Security Guidelines
 
 ## Mandatory Security Checks

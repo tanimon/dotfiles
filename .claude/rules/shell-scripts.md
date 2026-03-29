@@ -1,3 +1,8 @@
+---
+date: 2026-03-28
+trigger: "Agent writes shell scripts without proper headers or safety patterns"
+---
+
 # Shell Scripts
 
 Rules for `.chezmoiscripts/` and other shell scripts in this repository.

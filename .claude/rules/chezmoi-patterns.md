@@ -1,3 +1,8 @@
+---
+date: 2026-03-28
+trigger: "Agent uses wrong chezmoi file pattern or mishandles modify_ scripts"
+---
+
 # chezmoi Patterns
 
 Project-specific rules for working in this chezmoi dotfiles repository.

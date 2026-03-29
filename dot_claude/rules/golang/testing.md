@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent writes Go tests without table-driven patterns or race detection"
+---
+
 # Go Testing
 
 > This file extends [common/testing.md](../common/testing.md) with Go specific content.
