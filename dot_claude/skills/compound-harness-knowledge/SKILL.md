@@ -15,8 +15,6 @@ allowed-tools:
   - Edit
   - Grep
   - Glob
-  - Bash
-  - Skill
 ---
 
 # Harness Knowledge Compounder

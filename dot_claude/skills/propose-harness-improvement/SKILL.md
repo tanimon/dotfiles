@@ -52,17 +52,15 @@ rather than generating a vague rule. Good proposals require concrete examples.
 
 Before proposing anything new, check existing harness infrastructure:
 
-```bash
-# Search existing rules for related content
-rg -l "<relevant keywords>" ~/.claude/rules/ .claude/rules/ 2>/dev/null
-rg -l "<relevant keywords>" CLAUDE.md 2>/dev/null
+Use the Grep tool (not `rg` or `grep` commands) to search:
 
-# Search existing solutions for related problems
-rg -l "<relevant keywords>" docs/solutions/ 2>/dev/null
+- `dot_claude/rules/` and `.claude/rules/` for related rule content
+- `CLAUDE.md` for related Known Pitfalls entries
+- `docs/solutions/` for related problem resolutions
+- `dot_claude/skills/` for related skill knowledge
 
-# Search existing skills for related knowledge
-rg -l "<relevant keywords>" ~/.claude/skills/ .claude/skills/ 2>/dev/null
-```
+When running inside the chezmoi repository, always search chezmoi source paths
+(`dot_claude/`), not deployed target paths (`~/.claude/`).
 
 If a related rule, solution, or skill already exists:
 - **Exact duplicate**: Stop. Report that this is already covered and cite the source.
