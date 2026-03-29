@@ -48,16 +48,23 @@ jobs:
             5. **Documentation drift** — Do docs/solutions/ entries reference files or patterns that no longer exist? Does CLAUDE.md match current repo state?
             6. **Refactoring candidates** — Are there shell scripts exceeding 200 lines, duplicated patterns across scripts, or overly complex template logic?
 
+            7. **Rule effectiveness** — Scan rule files in `dot_claude/rules/` and `.claude/rules/` for optional YAML frontmatter with `date` and `trigger` fields. Flag rules older than 90 days (by frontmatter `date` or git creation date) that have no related recent issues or commits as "potentially stale". Include a rule health summary in the GitHub Step Summary output via `$GITHUB_STEP_SUMMARY`.
+
             ## Process
 
             1. Read CLAUDE.md, .claude/rules/*.md, dot_claude/commands/*.md, dot_claude/scripts/*, Makefile, and .github/workflows/*.yml
             2. Check for stale references (file paths that no longer exist, outdated command examples)
             3. Check for pattern violations against the rules themselves
-            4. List existing open issues with the harness-analysis label:
+            4. Scan rule files in `dot_claude/rules/**/*.md` and `.claude/rules/*.md`:
+               - Check for YAML frontmatter (`date`, `trigger` fields)
+               - Determine rule age from frontmatter `date` or `git log --diff-filter=A`
+               - Flag rules older than 90 days with no recent related commits as "potentially stale"
+               - Write a "Rule Health" section to `$GITHUB_STEP_SUMMARY` with counts of active, stale, and untracked rules
+            5. List existing open issues with the harness-analysis label:
                ```
                gh issue list --label harness-analysis --state open --json number,title
                ```
-            5. For each NEW finding (not already covered by an open issue):
+            6. For each NEW finding (not already covered by an open issue):
                - Only create an issue if the finding is actionable and specific
                - Skip generic observations like "could be better documented"
                - Each issue must name exact file paths and recommend a concrete action

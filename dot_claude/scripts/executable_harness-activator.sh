@@ -53,14 +53,21 @@ ${CLAUDE_MD_MSG}
 After completing this session's work, evaluate whether any
 harness improvements are needed:
 
-1. Did the agent make a mistake that a CLAUDE.md rule could prevent?
-   → Add the rule to CLAUDE.md or .claude/rules/
+1. Did the agent make a preventable mistake?
+   → Use Skill(propose-harness-improvement) with a description of:
+     - What happened (concrete bad behavior)
+     - Root cause (why it happened)
+     - Suggested fix category (rule / hook / skill / solution doc)
 
 2. Did a repeated failure pattern emerge (same error 3+ times)?
    → Run /capture-harness-feedback to create preventive rules
 
 3. Was a non-trivial problem solved during this session?
-   → Run /ce:compound to document the solution in docs/solutions/
+   → Use Skill(compound-harness-knowledge) to document the solution
+     OR run /ce:compound for the compound-engineering workflow
+
+4. Check docs/solutions/ before proposing — the problem may already
+   be documented with a known fix.
 
 Only act if improvements are clearly warranted. No action needed
 for routine, successful sessions.
