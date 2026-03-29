@@ -33,6 +33,7 @@ jobs:
           allowed_bots: 'renovate[bot],dependabot[bot]'
           show_full_output: true
           classify_inline_comments: false
+          claude_args: '--allowedTools "Bash(gh *),WebFetch"'
           additional_permissions: |
             actions: read
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
