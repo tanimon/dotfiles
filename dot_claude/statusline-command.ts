@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { readFileSync, writeFileSync, statSync, mkdirSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, statSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { basename, join } from "path";
 import { promisify } from "util";
@@ -8,38 +8,28 @@ const execFileAsync = promisify(execFile);
 
 // --- Types ---
 
+interface RateLimitBucket {
+  used_percentage: number;
+  resets_at: number; // Unix epoch seconds
+}
+
 interface StatusLineInput {
   model?: { display_name?: string };
   workspace?: { current_dir?: string; added_dirs?: string[] };
   session_id?: string;
   context_window?: { remaining_percentage?: number };
   transcript_path?: string;
+  rate_limits?: {
+    five_hour?: RateLimitBucket;
+    seven_day?: RateLimitBucket;
+  };
 }
-
-interface UsageBucket {
-  utilization: number;
-  resets_at: string;
-}
-
-interface UsageResponse {
-  five_hour?: UsageBucket;
-  seven_day?: UsageBucket;
-}
-
-type FetchResult = { ok: true; data: UsageResponse } | { ok: false; authError: boolean };
 
 // --- Constants ---
 
 const CACHE_DIR = join(homedir(), ".claude", "cache");
-const CACHE_FILE = join(CACHE_DIR, "usage.json");
-const CACHE_TTL = 360; // 6 minutes
-const NEG_CACHE_FILE = join(CACHE_DIR, "usage-neg.json");
-const NEG_CACHE_TTL = 30; // 30 seconds — avoid retry storms on API failure
 const DIFF_CACHE_FILE = join(CACHE_DIR, "git-diff.json");
 const DIFF_CACHE_TTL = 10; // 10 seconds — avoid repeated git diff on heavy repos
-const KEYCHAIN_SERVICE = "Claude Code-credentials";
-const USAGE_API = "https://api.anthropic.com/api/oauth/usage";
-const BETA_HEADER = "oauth-2025-04-20";
 const TZ = "Asia/Tokyo";
 
 // Colors (true-color ANSI)
@@ -62,8 +52,8 @@ function progressBar(pct: number): string {
   return "▰".repeat(filled) + "▱".repeat(10 - filled);
 }
 
-function formatResetTime(isoStr: string, label: "5h" | "7d"): string {
-  const d = new Date(isoStr);
+function formatResetTime(epochSec: number, label: "5h" | "7d"): string {
+  const d = new Date(epochSec * 1000);
   const opts: Intl.DateTimeFormatOptions = { timeZone: TZ };
 
   if (label === "5h") {
@@ -129,136 +119,18 @@ async function getLineChanges(cwd: string): Promise<{ added: number; deleted: nu
   }
 }
 
-async function getOAuthToken(): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(
-      "security",
-      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
-      { timeout: 1000 },
-    );
-    let creds: unknown;
-    try {
-      creds = JSON.parse(stdout.trim());
-    } catch {
-      process.stderr.write(`[statusline] Keychain entry contains invalid JSON\n`);
-      return null;
-    }
-    const tok = (creds as Record<string, unknown>)?.claudeAiOauth;
-    const accessToken = (tok as Record<string, unknown>)?.accessToken;
-    return typeof accessToken === "string" ? accessToken : null;
-  } catch {
-    // Keychain item not found — expected when not authenticated
-    return null;
-  }
-}
-
-function readCache(): UsageResponse | null {
-  try {
-    const st = statSync(CACHE_FILE);
-    if ((Date.now() - st.mtimeMs) / 1000 > CACHE_TTL) return null;
-    return JSON.parse(readFileSync(CACHE_FILE, "utf8")) as UsageResponse;
-  } catch {
-    try {
-      unlinkSync(CACHE_FILE);
-    } catch {
-      /* file may not exist */
-    }
-    return null;
-  }
-}
-
-function writeCache(data: UsageResponse): void {
-  try {
-    mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
-    writeFileSync(CACHE_FILE, JSON.stringify(data), { mode: 0o600 });
-  } catch (err: unknown) {
-    process.stderr.write(
-      `[statusline] Cache write failed: ${err instanceof Error ? err.message : err}\n`,
-    );
-  }
-}
-
-function isNegCached(): boolean {
-  try {
-    const st = statSync(NEG_CACHE_FILE);
-    return (Date.now() - st.mtimeMs) / 1000 <= NEG_CACHE_TTL;
-  } catch {
-    return false;
-  }
-}
-
-function writeNegCache(authError: boolean): void {
-  try {
-    mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
-    writeFileSync(NEG_CACHE_FILE, JSON.stringify({ authError }), { mode: 0o600 });
-  } catch {
-    /* best effort */
-  }
-}
-
-async function fetchUsage(): Promise<FetchResult> {
-  const cached = readCache();
-  if (cached) return { ok: true, data: cached };
-
-  // Negative cache: skip API call if recent failure
-  if (isNegCached()) {
-    try {
-      const neg = JSON.parse(readFileSync(NEG_CACHE_FILE, "utf8"));
-      return { ok: false, authError: !!neg.authError };
-    } catch {
-      return { ok: false, authError: false };
-    }
-  }
-
-  const token = await getOAuthToken();
-  if (!token) return { ok: false, authError: false };
-
-  try {
-    const resp = await fetch(USAGE_API, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "anthropic-beta": BETA_HEADER,
-      },
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!resp.ok) {
-      const authError = resp.status === 401 || resp.status === 403;
-      if (authError) {
-        process.stderr.write(
-          `[statusline] Usage API returned ${resp.status}: token may be expired\n`,
-        );
-      }
-      writeNegCache(authError);
-      return { ok: false, authError };
-    }
-    const data = (await resp.json()) as UsageResponse;
-    if (data.five_hour || data.seven_day) writeCache(data);
-    return { ok: true, data };
-  } catch (err: unknown) {
-    if (err instanceof SyntaxError) {
-      process.stderr.write(`[statusline] Usage API returned invalid JSON\n`);
-    }
-    writeNegCache(false);
-    return { ok: false, authError: false };
-  }
-}
-
 function formatUsageLine(
   icon: string,
   label: string,
-  bucket: UsageBucket | undefined,
+  bucket: RateLimitBucket | undefined,
   resetLabel: "5h" | "7d",
-  authError: boolean,
 ): string {
-  if (bucket) {
-    const pct = Math.round(bucket.utilization);
+  if (bucket && typeof bucket.used_percentage === "number" && typeof bucket.resets_at === "number") {
+    const pct = Math.round(bucket.used_percentage);
     const col = colorForPct(pct);
     const bar = progressBar(pct);
-    const reset = formatResetTime(bucket.resets_at, resetLabel);
-    return `${icon} ${label}  ${col}${bar}  ${pct}%${RESET}  ${reset}`;
-  }
-  if (authError) {
-    return `${icon} ${label}  ${RED}${progressBar(0)}  ⚠ Auth${RESET}`;
+    const reset = bucket.resets_at > 0 ? formatResetTime(bucket.resets_at, resetLabel) : "";
+    return `${icon} ${label}  ${col}${bar}  ${pct}%${RESET}${reset ? `  ${reset}` : ""}`;
   }
   return `${icon} ${label}  ${GREY}${progressBar(0)}  N/A${RESET}`;
 }
@@ -287,16 +159,14 @@ async function main(): Promise<void> {
     const remaining = data.context_window?.remaining_percentage ?? 100;
     const contextPct = Math.max(0, 100 - remaining);
 
-    // Run git commands and usage fetch in parallel
-    const [branch, changes, usageResult] = await Promise.all([
+    // Run git commands in parallel
+    const [branch, changes] = await Promise.all([
       getGitBranch(cwd),
       getLineChanges(cwd),
-      fetchUsage(),
     ]);
 
     const { added, deleted } = changes;
-    const usage = usageResult.ok ? usageResult.data : undefined;
-    const authError = !usageResult.ok && usageResult.authError;
+    const rateLimits = data.rate_limits;
 
     // --- Build Lines ---
     const sep = `${GREY} │ ${RESET}`;
@@ -312,8 +182,8 @@ async function main(): Promise<void> {
       line1 += `${sep}🔀 ${branch}`;
     }
 
-    const line2 = formatUsageLine("⏱", "5h", usage?.five_hour, "5h", authError);
-    const line3 = formatUsageLine("📅", "7d", usage?.seven_day, "7d", authError);
+    const line2 = formatUsageLine("⏱", "5h", rateLimits?.five_hour, "5h");
+    const line3 = formatUsageLine("📅", "7d", rateLimits?.seven_day, "7d");
 
     console.log(`${line1}\n${line2}\n${line3}`);
     clearTimeout(timeout);
