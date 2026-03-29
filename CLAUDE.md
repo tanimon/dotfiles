@@ -23,6 +23,7 @@ pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
 # Harness analysis (scheduled weekly in CI, also manual)
 gh workflow run harness-analysis.yml  # Trigger harness analysis manually
+/resolve-harness-issues              # Fix open harness-analysis issues (creates branch + PR)
 ```
 
 ## chezmoi Naming Conventions
