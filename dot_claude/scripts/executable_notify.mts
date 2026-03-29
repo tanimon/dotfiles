@@ -1,14 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import {
-  readFileSync,
-  existsSync,
-  openSync,
-  readSync,
-  statSync,
-  closeSync,
-} from "node:fs";
+import { readFileSync, existsSync, openSync, readSync, statSync, closeSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -41,9 +34,7 @@ try {
   const resolvedPath = path.resolve(transcriptPath);
 
   if (!resolvedPath.startsWith(allowedBase)) {
-    console.error(
-      "notify: transcript path outside allowed directory, skipping"
-    );
+    console.error("notify: transcript path outside allowed directory, skipping");
     process.exit(0);
   }
 
@@ -100,13 +91,9 @@ try {
             end try
           end run
         `;
-    execFileSync(
-      "osascript",
-      ["-e", script, "Claude Code", lastMessageContent],
-      {
-        stdio: "ignore",
-      }
-    );
+    execFileSync("osascript", ["-e", script, "Claude Code", lastMessageContent], {
+      stdio: "ignore",
+    });
   }
 } catch (error) {
   // Notification is best-effort — log for debugging but never block Claude Code

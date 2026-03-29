@@ -20,3 +20,17 @@ repos:
         files: '(\.sh$|\.bash$|\.chezmoiscripts/|executable_)'
         exclude: '(\.tmpl$|\.mts$|\.ts$|\.mjs$)'
         types: [file]
+      - id: oxlint
+        name: oxlint
+        entry: pnpm exec oxlint
+        language: system
+        files: '\.(js|mjs|mts|ts)$'
+        exclude: '\.tmpl$'
+        types: [file]
+      - id: oxfmt
+        name: oxfmt
+        entry: pnpm exec oxfmt --check
+        language: system
+        files: '\.(js|mjs|mts|ts|json)$'
+        exclude: '(\.tmpl$|modify_)'
+        types: [file]

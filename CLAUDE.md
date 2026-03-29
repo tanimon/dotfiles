@@ -18,7 +18,7 @@ chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
 # Linting (mirrors CI — also runs on commit via prek)
-make lint                      # Run all checks (secretlint + shellcheck + shfmt + modify_ + script tests + templates)
+make lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + modify_ + script tests + templates)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
 # Harness analysis (scheduled weekly in CI, also manual)
@@ -95,12 +95,14 @@ chezmoi apply --dry-run        # Preview changes before applying
 make secretlint                # Scan for leaked secrets
 make shellcheck                # Lint non-.tmpl shell scripts
 make shfmt                     # Check shell script formatting (indent=4)
+make oxlint                    # Lint JS/TS files (.js, .mjs, .mts, .ts)
+make oxfmt                     # Check JS/TS and JSON formatting
 make test-modify               # Smoke test modify_ scripts
 make test-scripts              # Smoke test harness scripts
 make check-templates           # Validate chezmoi .tmpl files
 ```
 
-Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `make` targets — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
+Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `make` targets — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
 
 ## Known Pitfalls
 
@@ -114,6 +116,7 @@ Note: shellcheck and shfmt cannot lint `.tmpl` files (Go template syntax is inco
 - **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.
 - **Never edit deployed targets directly** — Always edit the chezmoi source file (under `~/.local/share/chezmoi/`), never the deployed target (under `~/`). For example, edit `dot_claude/scripts/executable_harness-activator.sh`, not `~/.claude/scripts/harness-activator.sh`. Changes to deployed targets are overwritten on next `chezmoi apply` and are not version-controlled. Use `chezmoi source-path <target>` to find the source file for any managed target.
 - **`docs/plans/` is gitignored** — `.gitignore` excludes `docs/*` with only `!docs/solutions/` as exception. Plan files created by `ce:plan` are local working documents and cannot be committed. Do not attempt to `git add` files under `docs/plans/` or modify `.gitignore` to include them without explicit user approval.
+- **`modify_*` ファイルはファイル拡張子で判断してはいけない** — `modify_dot_claude.json` は `.json` 拡張子だが bash スクリプト。ファイルタイプベースの linter/formatter の glob（`*.json`, `*.yaml` 等）に `! -name 'modify_*'` 除外を追加すること。pre-commit の exclude にも `modify_` パターンを含めること。
 
 ### テンプレート構文
 
