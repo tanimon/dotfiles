@@ -16,8 +16,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'issues' &&
-       github.event.label.name == 'harness-analysis' &&
-       contains(fromJSON('["OWNER", "MEMBER"]'), github.event.sender.login != '' && 'OWNER'))
+       github.event.label.name == 'harness-analysis')
     runs-on: ubuntu-latest
     permissions:
       contents: write
