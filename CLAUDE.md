@@ -24,6 +24,13 @@ pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 # Harness analysis (scheduled weekly in CI, also manual)
 gh workflow run harness-analysis.yml  # Trigger harness analysis manually
 /resolve-harness-issues              # Fix open harness-analysis issues (creates branch + PR)
+
+# Harness improvement pipeline (propose → validate → apply)
+/propose-harness-improvement         # Generate structured improvement proposal from a failure
+/validate-harness-proposal           # Quality-gate a proposal (generator-evaluator separation)
+/apply-harness-proposal              # Apply a validated proposal (auto-apply or PR)
+/harness-rule-lifecycle              # Inventory rules, detect staleness, deprecate/merge
+/compound-harness-knowledge          # Document resolved issue via /ce:compound with harness context
 ```
 
 ## chezmoi Naming Conventions
@@ -60,7 +67,9 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **Claude Code sandbox** — The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` to run inside a macOS Seatbelt sandbox. Primary tool is [agent-safehouse](https://github.com/eugene1g/agent-safehouse) (Homebrew, deny-all default), with [cco](https://github.com/nikvdp/cco) as fallback. Sandbox configuration lives in `dot_config/safehouse/config.tmpl` (safehouse CLI flags, one per line) and `dot_config/cco/allow-paths.tmpl` (cco path allowlist). cco is still pulled via `.chezmoiexternal.toml` for Linux fallback; `run_onchange_after_link-cco.sh.tmpl` symlinks the binary. Use `command claude` or `\claude` to bypass sandboxing.
 
-**Scheduled harness analysis** — `.github/workflows/harness-analysis.yml` runs weekly (Sunday 00:00 UTC) via `claude-code-action` to detect harness improvements, stale rules, documentation drift, and refactoring candidates. Findings are created as GitHub Issues with the `harness-analysis` label. Can also be triggered manually via `gh workflow run harness-analysis.yml`.
+**Scheduled harness analysis** — `.github/workflows/harness-analysis.yml` runs weekly (Sunday 00:00 UTC) via `claude-code-action` to detect harness improvements, stale rules, documentation drift, refactoring candidates, and rule effectiveness. Findings are created as GitHub Issues with the `harness-analysis` label. Can also be triggered manually via `gh workflow run harness-analysis.yml`.
+
+**Autonomous harness improvement pipeline** — Three skills form a generator-evaluator pipeline: `propose-harness-improvement` (generates structured proposals from failures), `validate-harness-proposal` (quality gates with generator-evaluator separation), and `compound-harness-knowledge` (thin wrapper delegating to `/ce:compound`). Two commands handle application: `apply-harness-proposal` (low-risk auto-apply or high-risk PR) and `harness-rule-lifecycle` (rule inventory, staleness detection, deprecation). The CI workflow `harness-auto-remediate.yml` triggers on `harness-analysis` labeled issues, running the proposal/validation pipeline via `claude-code-action` and auto-creating PRs for low-risk fixes.
 
 ### `.chezmoiignore`
 
