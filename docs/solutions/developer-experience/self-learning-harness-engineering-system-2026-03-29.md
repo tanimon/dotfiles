@@ -8,8 +8,8 @@ symptoms:
   - "Session-level learning relies on non-deterministic prompt injection"
   - "No automated pipeline from failure detection to rule creation"
   - "Rule effectiveness is not tracked — stale rules accumulate silently"
-root_cause: missing_tooling
-resolution_type: tooling_addition
+root_cause: missing_workflow_step
+resolution_type: workflow_improvement
 severity: medium
 tags:
   - harness-engineering
