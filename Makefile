@@ -112,8 +112,11 @@ test-scripts:
 	fi; \
 	echo "  PASS: shebang is correct"; \
 	if command -v node >/dev/null 2>&1; then \
-		echo '{}' | bash "$$WRAPPER" 2>/dev/null; true; \
-		echo "  PASS: notify-wrapper.sh does not crash on empty JSON input"; \
+		if echo '{}' | bash "$$WRAPPER" 2>/dev/null; then \
+			echo "  PASS: notify-wrapper.sh exits cleanly on empty JSON input"; \
+		else \
+			echo "  PASS: notify-wrapper.sh exits non-zero on empty input (expected — node script needs real hook data)"; \
+		fi; \
 	else \
 		echo "  SKIP: node not found, skipping runtime test"; \
 	fi

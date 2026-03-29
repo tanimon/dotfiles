@@ -55,7 +55,7 @@ The `.mts` extension is the TypeScript equivalent of `.mjs` — it explicitly si
 `executable_notify-wrapper.sh` — `/tmp` cache pattern for Seatbelt sandbox compatibility:
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 src="$HOME/.claude/scripts/notify.mts"
 cached="/tmp/claude-notify-${UID}.mts"
 
