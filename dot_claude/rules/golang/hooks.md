@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Go files not auto-formatted or statically analyzed after edit"
+---
+
 # Go Hooks
 
 > Go specific hooks configuration.

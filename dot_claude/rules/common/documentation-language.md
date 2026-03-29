@@ -1,3 +1,8 @@
+---
+date: 2026-03-29
+trigger: "Agent wrote agent-facing documentation or rules in non-English language"
+---
+
 # Documentation Language
 
 ## Agent-Facing Documents Must Be Written in English

@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent writes Go code without gofmt or proper error wrapping"
+---
+
 # Go Coding Style
 
 > This file extends [common/coding-style.md](../common/coding-style.md) with Go specific content.

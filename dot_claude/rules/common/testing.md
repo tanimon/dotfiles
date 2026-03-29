@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent writes implementation before tests or skips coverage verification"
+---
+
 # Testing Requirements
 
 ## Minimum Test Coverage: 80%

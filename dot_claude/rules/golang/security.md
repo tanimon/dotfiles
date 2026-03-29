@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent hardcodes secrets or omits context timeouts in Go code"
+---
+
 # Go Security
 
 > This file extends [common/security.md](../common/security.md) with Go specific content.

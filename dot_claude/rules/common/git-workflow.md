@@ -1,3 +1,8 @@
+---
+date: 2026-03-06
+trigger: "Agent commits or creates PRs without following conventional commit format"
+---
+
 # Git Workflow
 
 ## Commit Message Format
