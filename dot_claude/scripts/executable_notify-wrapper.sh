@@ -1,7 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Wrapper for notify.mts that works inside cco Seatbelt sandbox.
 #
-# Same pattern as statusline-wrapper.sh:
 # Node.js realpathSync calls lstat($HOME) during module loading with
 # --experimental-strip-types, which fails under Seatbelt's deny rule.
 # Caching to /tmp avoids the issue since /tmp is outside $HOME.

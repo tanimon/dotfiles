@@ -37,7 +37,7 @@ The pre-commit issue stems from `.pre-commit-config.yaml` using `files: '(\.sh$|
 1. Renamed `.mjs` → `.ts`, added TypeScript interfaces (`HookInput`, `TranscriptEntry`, `TranscriptMessage`), typed error catch clause as `(error as Error).message`
 2. Ran with `node --experimental-strip-types` → got `MODULE_TYPELESS_PACKAGE_JSON` warning
 3. Tested `.mts` extension → warning eliminated. `.mts` signals ESM via filename (like `.mjs` for JS)
-4. Created wrapper script following `statusline-wrapper.sh` pattern for Seatbelt compatibility
+4. Created wrapper script using `/tmp` cache pattern for Seatbelt compatibility
 5. First commit failed: shellcheck parsed `.mts` as shell → added exclusion pattern
 
 ## Solution
@@ -52,7 +52,7 @@ The `.mts` extension is the TypeScript equivalent of `.mjs` — it explicitly si
 
 ### 2. Wrapper script for Seatbelt sandbox
 
-`executable_notify-wrapper.sh` — same `/tmp` cache pattern as `statusline-wrapper.sh`:
+`executable_notify-wrapper.sh` — `/tmp` cache pattern for Seatbelt sandbox compatibility:
 
 ```bash
 #!/bin/bash
