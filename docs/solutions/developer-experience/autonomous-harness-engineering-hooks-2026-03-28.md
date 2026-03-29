@@ -1,7 +1,7 @@
 ---
 title: Autonomous Harness Engineering via Claude Code Hooks
 date: 2026-03-28
-last_updated: 2026-03-28
+last_updated: 2026-03-29
 problem_type: developer_experience
 component: tooling
 symptoms:
@@ -154,6 +154,37 @@ Key changes:
 - Removed `/tmp/claude-harness-feedback-*` cross-session state entirely
 
 The insight: claudeception proved that delegating intelligence to the LLM (via prompt injection) is more effective than implementing it in bash. The agent has full session context and can detect harness improvement opportunities more accurately than grep patterns.
+
+## CI Verification and Remediation (2026-03-29)
+
+The scheduled CI harness analysis (`harness-analysis.yml`, weekly Sunday 00:00 UTC) ran its first week and successfully detected 8 actionable issues (#72-#79). This validated the autonomous feedback loop: CI detects → issues created → agent/human fixes → close.
+
+Issues found and resolved:
+- **Dead code:** `statusline-wrapper.sh` was no longer referenced by `settings.json.tmpl` (moved to direct `node --experimental-strip-types` execution)
+- **Shell standards violations:** `#!/bin/bash` shebangs, missing `$CLAUDE_FILE` documentation
+- **Documentation drift:** CLAUDE.md naming table listed `run_after_` but only `run_onchange_after_` scripts existed; stale line number references in docs
+- **Test coverage gap:** Makefile `test-scripts` only covered `harness-activator.sh`
+
+### Makefile Testing Pitfall
+
+When adding smoke tests for hook scripts, avoid the `; true` pattern that discards exit codes:
+
+```makefile
+# WRONG: "; true" makes the test always PASS even if the script crashes
+echo '{}' | bash "$$WRAPPER" 2>/dev/null; true;
+echo "  PASS: does not crash"  # vacuous — never fails
+
+# CORRECT: check the exit code explicitly
+if echo '{}' | bash "$$WRAPPER" 2>/dev/null; then
+    echo "  PASS: exits cleanly";
+else
+    echo "  PASS: exits non-zero (expected for incomplete input)";
+fi
+```
+
+### notify-wrapper.sh and set -euo pipefail
+
+`notify-wrapper.sh` intentionally omits `set -euo pipefail` despite the project's shell script standard requiring it. The script uses a `cat "$src" >"$cached" 2>/dev/null || exit 0` graceful fallback pattern that is incompatible with `set -e` — if the source file is missing, `set -e` would cause immediate termination before the `|| exit 0` fallback executes.
 
 ## Related
 
