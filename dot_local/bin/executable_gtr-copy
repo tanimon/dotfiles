@@ -30,19 +30,21 @@ selected_files=$(
         fzf --multi --header 'Select files to copy (Tab: toggle, Enter: confirm)' --preview 'f={}; bat --color=always -- "$f" 2>/dev/null || cat -- "$f"'
 ) || exit 0
 
-dest_line=$(printf '%s\n' "$destinations" | fzf --header 'Select destination worktree') || exit 0
-dest_worktree=$(printf '%s\n' "$dest_line" | awk '{print $1}')
+selected_destinations=$(printf '%s\n' "$destinations" | fzf --multi --header 'Select destination worktrees (Tab: toggle, Enter: confirm)') || exit 0
 
-copied=0
+while IFS= read -r dest_line; do
+    dest_worktree=$(printf '%s\n' "$dest_line" | awk '{print $1}')
+    copied=0
 
-while IFS= read -r file; do
-    if [[ "$file" == ../* || "$file" == *../* ]]; then
-        echo "gtr-copy: skipping unsafe path: $file" >&2
-        continue
-    fi
-    mkdir -p "${dest_worktree}/$(dirname "$file")"
-    cp "$file" "${dest_worktree}/${file}"
-    copied=$((copied + 1))
-done <<<"$selected_files"
+    while IFS= read -r file; do
+        if [[ "$file" == ../* || "$file" == *../* ]]; then
+            echo "gtr-copy: skipping unsafe path: $file" >&2
+            continue
+        fi
+        mkdir -p "${dest_worktree}/$(dirname "$file")"
+        cp "$file" "${dest_worktree}/${file}"
+        copied=$((copied + 1))
+    done <<<"$selected_files"
 
-echo "gtr-copy: copied ${copied} file(s) to ${dest_worktree}"
+    echo "gtr-copy: copied ${copied} file(s) to ${dest_worktree}"
+done <<<"$selected_destinations"
