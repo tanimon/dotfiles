@@ -27,6 +27,7 @@ jobs:
   dependabot:
     if: github.event_name == 'dependabot_alert'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
@@ -127,6 +128,7 @@ jobs:
   code-scanning:
     if: github.event_name == 'code_scanning_alert'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
@@ -217,6 +219,7 @@ jobs:
   secret-scanning:
     if: github.event_name == 'secret_scanning_alert'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       issues: write
       id-token: write
@@ -281,6 +284,7 @@ jobs:
   sweep:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
