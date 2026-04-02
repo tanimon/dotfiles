@@ -32,8 +32,6 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
-      security-events: write
     concurrency:
       group: security-dependabot
       cancel-in-progress: false
@@ -133,8 +131,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
-      security-events: write
+      security-events: read
     concurrency:
       group: security-code-scanning
       cancel-in-progress: false
@@ -222,7 +219,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       issues: write
-      id-token: write
     concurrency:
       group: security-secret-scanning
       cancel-in-progress: false
@@ -289,8 +285,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
-      security-events: write
+      security-events: read
     concurrency:
       group: security-sweep
       cancel-in-progress: false
