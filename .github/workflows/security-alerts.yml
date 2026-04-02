@@ -1,0 +1,409 @@
+name: Security Alerts
+
+on:
+  dependabot_alert:
+    types: [created, reopened]
+  code_scanning_alert:
+    types: [created, reopened]
+  secret_scanning_alert:
+    types: [created]
+  schedule:
+    # Weekly: Saturday 00:00 UTC (Saturday 09:00 JST)
+    - cron: "0 0 * * 6"
+  workflow_dispatch:
+    inputs:
+      alert_type:
+        description: "Alert type to process (dependabot, code-scanning, secret-scanning, all)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - dependabot
+          - code-scanning
+          - secret-scanning
+
+jobs:
+  dependabot:
+    if: github.event_name == 'dependabot_alert'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      security-events: write
+    concurrency:
+      group: security-dependabot
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Handle Dependabot alert
+        uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            A new Dependabot security alert has been created or reopened in this repository.
+
+            ## Instructions
+
+            1. List the current open Dependabot alerts:
+               ```bash
+               gh api repos/${{ github.repository }}/dependabot/alerts --jq '.[] | select(.state == "open") | {number, package: .security_advisory.summary, severity: .security_vulnerability.severity, ecosystem: .dependency.package.ecosystem, package_name: .dependency.package.name}'
+               ```
+
+            2. For each open alert, analyze:
+               - Is this a direct or transitive dependency?
+               - Is there a patched version available?
+               - Does Renovate already have an open PR for this dependency?
+                 ```bash
+                 gh pr list --search "<package-name>" --json number,title,state
+                 ```
+
+            3. For direct dependencies with available patches:
+               - Check if Renovate already covers this update (skip if so)
+               - Update the dependency in the appropriate file (package.json, etc.)
+               - Run `pnpm install` if applicable
+               - Run `make lint` to verify
+               - Create a PR:
+                 ```bash
+                 git checkout -b fix/security-alert-<alert-number>
+                 git add <changed-files>
+                 git commit -m "fix(deps): update <package> to fix security vulnerability"
+                 git push -u origin HEAD
+                 gh pr create --title "fix(deps): update <package> to address security alert" \
+                   --body "## Security Fix
+
+                   Addresses Dependabot alert #<number>: <summary>
+
+                   **Severity:** <severity>
+                   **Package:** <package>
+                   **Fix:** Updated to version <version>
+
+                   ## Validation
+                   - [x] make lint passes
+                   - [x] Patched version resolves the vulnerability"
+                 ```
+
+            4. For transitive dependencies or alerts without simple fixes:
+               - Create an issue for human review:
+                 ```bash
+                 gh issue create --label security \
+                   --title "security: <package> vulnerability requires manual review" \
+                   --body "## Dependabot Alert
+
+                   **Alert:** #<number>
+                   **Severity:** <severity>
+                   **Package:** <package>
+                   **Type:** <direct/transitive>
+
+                   ## Analysis
+                   <why this cannot be auto-fixed>
+
+                   ## Suggested Action
+                   <recommended approach>"
+                 ```
+
+            5. For alerts that are false positives or not applicable to this project:
+               - Dismiss with a clear rationale:
+                 ```bash
+                 gh api -X PATCH repos/${{ github.repository }}/dependabot/alerts/<number> \
+                   -f state=dismissed -f dismissed_reason=<reason> -f dismissed_comment="<explanation>"
+                 ```
+
+            ## Rules
+            - Never dismiss alerts without clear justification
+            - Prefer fixing over dismissing
+            - Check for existing Renovate PRs before creating duplicate fixes
+            - Run `make lint` before committing
+            - Maximum 3 PRs per run to avoid noise
+          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(make *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
+
+  code-scanning:
+    if: github.event_name == 'code_scanning_alert'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      security-events: write
+    concurrency:
+      group: security-code-scanning
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Handle code scanning alert
+        uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            A new code scanning alert has been created or reopened in this repository.
+
+            ## Instructions
+
+            1. List the current open code scanning alerts:
+               ```bash
+               gh api repos/${{ github.repository }}/code-scanning/alerts --jq '.[] | select(.state == "open") | {number, rule: .rule.description, severity: .rule.security_severity_level, tool: .tool.name, location: .most_recent_instance.location}'
+               ```
+
+            2. For each open alert, analyze the flagged code:
+               - Read the file at the reported location
+               - Understand the vulnerability type and the rule that triggered it
+               - Determine if the fix is straightforward (e.g., adding permissions, fixing a pattern)
+
+            3. For low-risk fixes (pattern changes, permission additions, lint-like fixes):
+               - Apply the fix
+               - Run `make lint` to verify
+               - Create a PR:
+                 ```bash
+                 git checkout -b fix/code-scanning-<alert-number>
+                 git add <changed-files>
+                 git commit -m "fix: address code scanning alert #<number>"
+                 git push -u origin HEAD
+                 gh pr create --title "fix: address code scanning alert (<rule>)" \
+                   --body "## Code Scanning Fix
+
+                   Addresses code scanning alert #<number>
+
+                   **Rule:** <rule description>
+                   **Severity:** <severity>
+                   **Tool:** <tool>
+                   **File:** <file path>
+
+                   ## Change
+                   <description of fix>
+
+                   ## Validation
+                   - [x] make lint passes"
+                 ```
+
+            4. For high-risk or complex fixes:
+               - Create an issue for human review:
+                 ```bash
+                 gh issue create --label security \
+                   --title "security: code scanning alert requires review (<rule>)" \
+                   --body "## Code Scanning Alert
+
+                   **Alert:** #<number>
+                   **Rule:** <rule>
+                   **Severity:** <severity>
+                   **File:** <file>:<line>
+
+                   ## Analysis
+                   <what the alert found and why auto-fix is risky>
+
+                   ## Suggested Fix
+                   <recommended approach>"
+                 ```
+
+            ## Rules
+            - Read the actual code before attempting a fix
+            - Never suppress alerts without fixing the underlying issue
+            - Run `make lint` before committing
+            - Maximum 3 PRs per run
+          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(make *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
+
+  secret-scanning:
+    if: github.event_name == 'secret_scanning_alert'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      id-token: write
+    concurrency:
+      group: security-secret-scanning
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Handle secret scanning alert
+        uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            A new secret scanning alert has been created in this repository. This is always treated as HIGH PRIORITY.
+
+            ## Instructions
+
+            1. List the current open secret scanning alerts:
+               ```bash
+               gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '.[] | select(.state == "open") | {number, secret_type, created_at}'
+               ```
+
+            2. For each open alert, create a high-priority issue for human review:
+               ```bash
+               gh issue create --label security --label "priority:high" \
+                 --title "URGENT: secret scanning alert - <secret_type> detected" \
+                 --body "## Secret Scanning Alert
+
+                 **Alert:** #<number>
+                 **Secret Type:** <secret_type>
+                 **Created:** <created_at>
+
+                 ## Immediate Actions Required
+
+                 1. **Rotate the exposed secret immediately**
+                 2. Review git history for the commit that introduced this secret
+                 3. Check if the secret was used in any unauthorized way
+                 4. Update the secret in all environments that use it
+                 5. Consider adding the pattern to secretlint configuration
+
+                 ## Prevention
+
+                 - Ensure secretlint pre-commit hook is active
+                 - Use environment variables or secret managers instead of hardcoded values
+
+                 ---
+                 _Auto-generated by security-alerts workflow. This requires immediate human attention._"
+               ```
+
+            ## Rules
+            - NEVER attempt to fix secret scanning alerts automatically
+            - NEVER log, print, or display the actual secret value
+            - Always create an issue for human review
+            - Mark as high priority
+          claude_args: '--allowedTools "Bash(gh *),Read,Glob,Grep"'
+
+  sweep:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      security-events: write
+    concurrency:
+      group: security-sweep
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 1
+
+      - name: Snapshot existing issues
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label security --state open \
+            --json number --jq '.[].number' \
+            --limit 100 | sort > /tmp/issues-before.txt
+
+      - name: Determine alert scope
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "alert_type=${{ inputs.alert_type }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "alert_type=all" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sweep security alerts
+        uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Run a sweep of all open security alerts in this repository. Process alert type: ${{ steps.scope.outputs.alert_type }}
+
+            ## Instructions
+
+            1. Gather all open alerts based on the scope (${{ steps.scope.outputs.alert_type }}):
+
+               If scope is "all" or "dependabot":
+               ```bash
+               gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0"
+               gh api repos/${{ github.repository }}/dependabot/alerts --jq '.[] | select(.state == "open") | {number, type: "dependabot", package: .dependency.package.name, severity: .security_vulnerability.severity}'
+               ```
+
+               If scope is "all" or "code-scanning":
+               ```bash
+               gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0"
+               gh api repos/${{ github.repository }}/code-scanning/alerts --jq '.[] | select(.state == "open") | {number, type: "code-scanning", rule: .rule.description, severity: .rule.security_severity_level}'
+               ```
+
+               If scope is "all" or "secret-scanning":
+               ```bash
+               gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0"
+               gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '.[] | select(.state == "open") | {number, type: "secret-scanning", secret_type}'
+               ```
+
+            2. Check which alerts already have associated PRs or issues:
+               ```bash
+               gh pr list --search "security" --json number,title --limit 50
+               gh issue list --label security --state open --json number,title --limit 50
+               ```
+
+            3. For each unhandled alert, follow the same logic as the individual handlers:
+               - **Dependabot**: Check for Renovate PRs, attempt fix or create issue
+               - **Code scanning**: Analyze and fix if low-risk, create issue if high-risk
+               - **Secret scanning**: Always create high-priority issue
+
+            4. Write a summary of actions taken.
+
+            ## Rules
+            - Skip alerts that already have associated PRs or issues
+            - Maximum 5 alerts processed per sweep run
+            - Run `make lint` before any commits
+            - NEVER log or display actual secret values
+            - For secret scanning alerts, ONLY create issues — never attempt fixes
+          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(make *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
+
+      - name: Generate summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label security --state open \
+            --json number,title,url \
+            --limit 100 > /tmp/issues-after.json
+
+          jq -r '.[].number' /tmp/issues-after.json | sort > /tmp/issues-after-numbers.txt
+
+          touch /tmp/issues-before.txt
+
+          new_numbers=$(comm -23 /tmp/issues-after-numbers.txt /tmp/issues-before.txt)
+          new_count=$(echo "$new_numbers" | grep -c '[0-9]' || true)
+
+          {
+            echo "## Security Alerts Sweep Results"
+            echo ""
+            if [ "$new_count" -eq 0 ]; then
+              echo "> No new security issues created — all alerts handled or already tracked."
+            else
+              echo "**${new_count} new issue(s) created:**"
+              echo ""
+              for num in $new_numbers; do
+                title=$(jq -r --argjson n "$num" '.[] | select(.number == $n) | .title' /tmp/issues-after.json)
+                url=$(jq -r --argjson n "$num" '.[] | select(.number == $n) | .url' /tmp/issues-after.json)
+                echo "- [#${num} ${title}](${url})"
+              done
+            fi
+            echo ""
+
+            echo "### Alert Summary"
+            dep_count=$(gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+            cs_count=$(gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+            ss_count=$(gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+            echo "- Dependabot: ${dep_count} open"
+            echo "- Code scanning: ${cs_count} open"
+            echo "- Secret scanning: ${ss_count} open"
+          } >> "$GITHUB_STEP_SUMMARY"

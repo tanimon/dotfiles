@@ -25,6 +25,9 @@ pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 gh workflow run harness-analysis.yml  # Trigger harness analysis manually
 /resolve-harness-issues              # Fix open harness-analysis issues (creates branch + PR)
 
+# Security alerts (scheduled weekly in CI, also manual)
+gh workflow run security-alerts.yml  # Trigger security alert sweep manually
+
 # Harness improvement pipeline (propose → validate → apply)
 /propose-harness-improvement         # Generate structured improvement proposal from a failure
 /validate-harness-proposal           # Quality-gate a proposal (generator-evaluator separation)
@@ -66,6 +69,8 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
 **Claude Code sandbox** — The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` to run inside a macOS Seatbelt sandbox. Primary tool is [agent-safehouse](https://github.com/eugene1g/agent-safehouse) (Homebrew, deny-all default), with [cco](https://github.com/nikvdp/cco) as fallback. Sandbox configuration lives in `dot_config/safehouse/config.tmpl` (safehouse CLI flags, one per line) and `dot_config/cco/allow-paths.tmpl` (cco path allowlist). cco is still pulled via `.chezmoiexternal.toml` for Linux fallback; `run_onchange_after_link-cco.sh.tmpl` symlinks the binary. Use `command claude` or `\claude` to bypass sandboxing.
+
+**Automated security alert handling** — `.github/workflows/security-alerts.yml` triggers on `dependabot_alert`, `code_scanning_alert`, and `secret_scanning_alert` events, plus a weekly Saturday sweep. Uses `claude-code-action` to analyze alerts and either auto-fix (low-risk Dependabot/code scanning → PR) or escalate (high-risk/secret scanning → issue with `security` label). Manual trigger: `gh workflow run security-alerts.yml`.
 
 **Scheduled harness analysis** — `.github/workflows/harness-analysis.yml` runs weekly (Sunday 00:00 UTC) via `claude-code-action` to detect harness improvements, stale rules, documentation drift, refactoring candidates, and rule effectiveness. Findings are created as GitHub Issues with the `harness-analysis` label. Can also be triggered manually via `gh workflow run harness-analysis.yml`.
 
