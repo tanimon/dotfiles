@@ -86,7 +86,7 @@ Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree 
 | `darwin/` | macOS-specific resources: `Brewfile`, `DefaultKeyBinding.dict`, `defaults.sh` |
 | `windows/` | Windows-specific resources: `alacritty.yml`, `chocolatey` |
 | `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
-| `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), MCP servers (`mcp-servers.json`), rules, agents, commands, plugins, scripts (hooks), keybindings |
+| `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), MCP servers (`mcp-servers.json`), rules, commands, plugins, scripts (hooks), keybindings |
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-marketplaces.sh`, `update-gh-extensions.sh`) |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
 
