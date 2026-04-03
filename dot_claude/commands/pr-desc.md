@@ -1,0 +1,2 @@
+現在のgit branchでの対応内容に対するPull Requestの本文を考えてMarkdown形式でファイル出力して。
+--think
