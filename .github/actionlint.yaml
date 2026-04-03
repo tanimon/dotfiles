@@ -3,11 +3,4 @@ self-hosted-runner:
 
 config-variables: null
 
-paths:
-  .github/workflows/security-alerts.yml:
-    # These are valid GitHub webhook events for security features,
-    # but actionlint does not recognize them yet.
-    ignore:
-      - 'unknown Webhook event "dependabot_alert"'
-      - 'unknown Webhook event "code_scanning_alert"'
-      - 'unknown Webhook event "secret_scanning_alert"'
+paths: {}
