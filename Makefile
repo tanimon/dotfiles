@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates
+.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -18,8 +18,10 @@ JSON_FILES := $(shell find . -type f -name '*.json' \
 	! -name 'pnpm-lock.yaml' \
 	! -name 'modify_*' 2>/dev/null)
 
+DOCS_MD_FILES := $(shell find ./docs -type f -name '*.md' 2>/dev/null)
+
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive
 
 ## Scan for leaked secrets
 secretlint:
@@ -185,3 +187,49 @@ check-templates:
 	else \
 		echo "WARNING: chezmoi not found, skipping template validation"; \
 	fi
+
+## Scan docs for sensitive information (PII, credentials, absolute paths)
+scan-sensitive:
+	@if [ -n "$(DOCS_MD_FILES)" ]; then \
+		echo "Running scan-sensitive-info..."; \
+		bash scripts/scan-sensitive-info.sh $(DOCS_MD_FILES); \
+	else \
+		echo "No docs files found"; \
+	fi
+
+## Smoke test scan-sensitive-info.sh
+test-sensitive:
+	@echo "Testing scan-sensitive-info.sh..."
+	@SCRIPT="$$(pwd)/scripts/scan-sensitive-info.sh"; \
+	tmpdir=$$(mktemp -d /tmp/test-sensitive-XXXXXX); \
+	cleanup() { rm -rf "$$tmpdir"; }; \
+	echo "  Test 1: clean file exits 0..."; \
+	printf 'No sensitive data here\n' > "$$tmpdir/clean.md"; \
+	if bash "$$SCRIPT" "$$tmpdir/clean.md" > /dev/null 2>&1; then \
+		echo "  PASS: exit 0 on clean file"; \
+	else \
+		echo "  FAIL: expected exit 0 on clean file"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 2: file with absolute path exits 1..."; \
+	printf '/Users/realname/some/path\n' > "$$tmpdir/pii.md"; \
+	if bash "$$SCRIPT" "$$tmpdir/pii.md" > /dev/null 2>&1; then \
+		echo "  FAIL: expected exit 1 on PII file"; cleanup; exit 1; \
+	else \
+		echo "  PASS: exit 1 on PII file"; \
+	fi; \
+	echo "  Test 3: file with SSH key exits 1..."; \
+	printf 'signingkey = ssh-ed25519 AAAAC3Nza\n' > "$$tmpdir/sshkey.md"; \
+	if bash "$$SCRIPT" "$$tmpdir/sshkey.md" > /dev/null 2>&1; then \
+		echo "  FAIL: expected exit 1 on SSH key"; cleanup; exit 1; \
+	else \
+		echo "  PASS: exit 1 on SSH key"; \
+	fi; \
+	echo "  Test 4: multiple files with mixed content..."; \
+	printf 'Safe content only\n' > "$$tmpdir/safe.md"; \
+	printf '12345+user@users.noreply.github.com\n' > "$$tmpdir/email.md"; \
+	if bash "$$SCRIPT" "$$tmpdir/safe.md" "$$tmpdir/email.md" > /dev/null 2>&1; then \
+		echo "  FAIL: expected exit 1 on mixed files"; cleanup; exit 1; \
+	else \
+		echo "  PASS: exit 1 when any file has PII"; \
+	fi; \
+	cleanup

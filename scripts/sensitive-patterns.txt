@@ -1,0 +1,19 @@
+# Sensitive information patterns for scan-sensitive-info.sh
+# Each non-comment, non-empty line is a grep extended regex.
+# Lines starting with # are comments.
+
+# Absolute paths with real usernames (macOS/Linux)
+/Users/[a-zA-Z][a-zA-Z0-9._-]+/
+/home/[a-zA-Z][a-zA-Z0-9._-]+/
+
+# Windows user paths
+C:\\Users\\[a-zA-Z][a-zA-Z0-9._-]+
+
+# GitHub noreply email with numeric user ID
+[0-9]+\+[a-zA-Z0-9_-]+@users\.noreply\.github\.com
+
+# SSH key material
+ssh-(rsa|ed25519|ecdsa|dsa) AAAA
+
+# Private key markers
+BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY

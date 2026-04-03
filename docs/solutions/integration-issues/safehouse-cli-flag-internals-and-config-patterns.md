@@ -68,8 +68,8 @@ CLI フラグは Phase 4 で適用。`--append-profile` が最終レイヤーの
 # ~/.config/safehouse/config
 --enable=ssh
 --enable=1password
---add-dirs=/Users/akito/ghq
---add-dirs-ro=/Users/akito/.local/bin
+--add-dirs=$HOME/ghq
+--add-dirs-ro=$HOME/.local/bin
 ```
 
 `--append-profile` は deny オーバーライドが必要な場合のみ追加。

@@ -89,7 +89,7 @@ claude() {
 ```
 # Paths to allow read-write access in cco sandbox (one per line)
 # Append :ro for read-only access (default is :rw)
-/Users/username/ghq
+$HOME/ghq
 ```
 
 This approach:

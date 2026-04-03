@@ -46,3 +46,9 @@ repos:
         language: system
         files: '\.github/workflows/.*\.yml$'
         types: [file]
+      - id: scan-sensitive
+        name: scan-sensitive
+        entry: bash scripts/scan-sensitive-info.sh
+        language: system
+        files: '\.md$'
+        types: [file]
