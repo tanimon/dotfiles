@@ -18,7 +18,7 @@ chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
 # Linting (mirrors CI — also runs on commit via prek)
-make lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates)
+make lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
 # Harness analysis (scheduled weekly in CI, also manual)
@@ -116,6 +116,7 @@ make zizmor                    # Security audit GitHub Actions workflows
 make test-modify               # Smoke test modify_ scripts
 make test-scripts              # Smoke test harness scripts
 make check-templates           # Validate chezmoi .tmpl files
+make scan-sensitive            # Scan docs for PII and sensitive info
 ```
 
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `make` targets — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.

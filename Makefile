@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates
+.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -18,8 +18,10 @@ JSON_FILES := $(shell find . -type f -name '*.json' \
 	! -name 'pnpm-lock.yaml' \
 	! -name 'modify_*' 2>/dev/null)
 
+DOCS_MD_FILES := $(shell find ./docs -type f -name '*.md' 2>/dev/null)
+
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive
 
 ## Scan for leaked secrets
 secretlint:
@@ -184,4 +186,13 @@ check-templates:
 		echo "PASS: all templates valid"; \
 	else \
 		echo "WARNING: chezmoi not found, skipping template validation"; \
+	fi
+
+## Scan docs for sensitive information (PII, credentials, absolute paths)
+scan-sensitive:
+	@if [ -n "$(DOCS_MD_FILES)" ]; then \
+		echo "Running scan-sensitive-info..."; \
+		bash scripts/scan-sensitive-info.sh $(DOCS_MD_FILES); \
+	else \
+		echo "No docs files found"; \
 	fi
