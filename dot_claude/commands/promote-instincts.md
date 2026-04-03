@@ -55,10 +55,10 @@ Ask the user which instincts to promote. Options:
 ### Step 4: Generate harness proposals
 
 For each selected instinct, create a structured proposal:
-- **Scope**: Determine from instinct scope and domain
-  - Global instincts with domain `security`, `git`, `workflow` → Global rule (`dot_claude/rules/common/`)
-  - Project instincts → Project rule (`.claude/rules/`)
-  - Instincts about code style for a specific language → Language-specific rule directory
+- **Scope**: Determine from instinct scope and domain. Note: this command modifies **chezmoi source files** (under `~/.local/share/chezmoi/`), never deployed targets directly.
+  - Global instincts with domain `security`, `git`, `workflow` → Global rule (chezmoi source: `dot_claude/rules/common/`)
+  - Project instincts → Project rule (chezmoi source: `.claude/rules/` in the chezmoi source tree)
+  - Instincts about code style for a specific language → Language-specific rule directory in chezmoi source
 - **Risk tier**: Low (documentation, style rules) or High (hooks, CI, security)
 - **Target file**: Choose appropriate rule file (create new or amend existing)
 - **Content**: Transform instinct into rule format:
@@ -78,7 +78,7 @@ For each proposal:
 3. If REJECTED: report the rejection reason and skip
 4. If REVISE: show the revision suggestions and let the user decide
 
-After all promotions are applied, run `make lint` to verify.
+After all promotions are applied, if you are in the chezmoi source repo and it defines a `make lint` target, run `make lint` to verify; otherwise, run the repo's standard validation/lint command instead.
 
 ## Constraints
 

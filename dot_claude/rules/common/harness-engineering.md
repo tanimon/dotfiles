@@ -41,7 +41,7 @@ Bad rules:
 
 1. **Hooks** (automatic, immediate): Format, lint, secret detection — fires on every tool use
 2. **Instincts** (automatic, confidence-scored): ECC observer detects patterns from tool-use observations, creates atomic instincts with confidence decay. Low-friction, high-volume learning
-3. **Rules** (contextual, session-scoped): Read at session start, guides all decisions. Validated and permanent
+3. **Rules** (contextual, persistent): Read at session start and guide decisions throughout the session. Validated and permanent
 4. **CLAUDE.md** (project-scoped): Project architecture, commands, pitfalls
 5. **docs/solutions/** (historical): Past problems and their resolutions — referenced when similar issues arise
 

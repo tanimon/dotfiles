@@ -55,8 +55,13 @@ if [[ -d "$HOMUNCULUS_DIR/projects" ]]; then
         REMOTE_URL=$(printf '%s' "$REMOTE_URL" | sed -E 's|://[^@]+@|://|')
     fi
     HASH_INPUT="${REMOTE_URL:-$PROJECT_ROOT}"
-    PROJECT_ID=$(printf '%s' "$HASH_INPUT" | shasum -a 256 2>/dev/null | cut -c1-12)
+    # Use shasum (macOS) or sha256sum (Linux) with graceful fallback
+    PROJECT_ID=$(printf '%s' "$HASH_INPUT" | shasum -a 256 2>/dev/null | cut -c1-12) ||
+        PROJECT_ID=$(printf '%s' "$HASH_INPUT" | sha256sum 2>/dev/null | cut -c1-12) || true
+    [[ -z "$PROJECT_ID" ]] && PROJECT_ID=""
 
+    # Skip if project ID could not be computed
+    [[ -z "$PROJECT_ID" ]] && PROJECT_ID=""
     INSTINCT_DIR="$HOMUNCULUS_DIR/projects/$PROJECT_ID/instincts/personal"
     if [[ -d "$INSTINCT_DIR" ]]; then
         # Read high-confidence instincts (>= 0.7) from YAML frontmatter
@@ -67,8 +72,10 @@ if [[ -d "$HOMUNCULUS_DIR/projects" ]]; then
             # Extract confidence from frontmatter
             CONFIDENCE=$(grep -m1 '^confidence:' "$f" 2>/dev/null | awk '{print $2}' || true)
             [[ -z "$CONFIDENCE" ]] && continue
-            # Compare confidence >= 0.7 using awk
-            IS_HIGH=$(awk "BEGIN {print ($CONFIDENCE >= 0.7) ? 1 : 0}" 2>/dev/null || echo "0")
+            # Validate confidence is numeric to prevent code injection
+            [[ "$CONFIDENCE" =~ ^[0-9]*\.?[0-9]+$ ]] || continue
+            # Compare confidence >= 0.7 using awk (pass as variable, not code)
+            IS_HIGH=$(awk -v c="$CONFIDENCE" 'BEGIN {print (c+0 >= 0.7) ? 1 : 0}' 2>/dev/null || echo "0")
             [[ "$IS_HIGH" != "1" ]] && continue
 
             TRIGGER=$(grep -m1 '^trigger:' "$f" 2>/dev/null | sed 's/^trigger: *//' | sed 's/^"//' | sed 's/"$//' || true)
