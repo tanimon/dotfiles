@@ -30,7 +30,7 @@ related:
 After migrating the Claude Code sandbox from cco to agent-safehouse (commit `48c4ebf`), `chezmoi diff` failed inside the sandbox:
 
 ```
-chezmoi: lstat /Users/akito.tanikado/.local/share/cco: operation not permitted
+chezmoi: lstat $HOME/.local/share/cco: operation not permitted
 ```
 
 `~/.local/share/cco` is a git repo pulled by `.chezmoiexternal.toml` (Linux fallback). chezmoi needs to `lstat` it during diff operations, but the path was absent from the safehouse allowlist.

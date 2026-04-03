@@ -29,7 +29,7 @@ Node.js tools (secretlint, hooks, statusline) fail with `EPERM` inside `cco --sa
 Any tool calling `lstat()` on a path under `$HOME` that is NOT a CWD ancestor fails:
 
 ```
-Error: EPERM: operation not permitted, lstat '/Users/akito/.local/share/mise/...'
+Error: EPERM: operation not permitted, lstat '$HOME/.local/share/mise/...'
 ```
 
 ## Root Cause
