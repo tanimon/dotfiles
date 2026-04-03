@@ -26,6 +26,6 @@ Template-generated workflows (e.g., from `claude-code-action`) default to read-o
 
 When adding workflows to public repositories:
 
-- Pin actions to full commit SHAs (`action@<sha> # vN`), not mutable tags
+- Pin actions to full commit SHAs (`action@<sha> # vN.N.N`), not mutable tags
 - Add `author_association` guards to `@mention` triggers
 - Add fork PR exclusion guards: `github.event.pull_request.head.repo.full_name == github.repository`
