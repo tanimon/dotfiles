@@ -34,3 +34,15 @@ repos:
         files: '\.(js|mjs|mts|ts|json)$'
         exclude: '(\.tmpl$|modify_)'
         types: [file]
+      - id: actionlint
+        name: actionlint
+        entry: bash -c 'if command -v actionlint &>/dev/null; then actionlint "$@"; else echo "actionlint not found, skipping"; fi' --
+        language: system
+        files: '\.github/workflows/.*\.yml$'
+        types: [file]
+      - id: zizmor
+        name: zizmor
+        entry: bash -c 'if command -v zizmor &>/dev/null; then zizmor "$@"; else echo "zizmor not found, skipping"; fi' --
+        language: system
+        files: '\.github/workflows/.*\.yml$'
+        types: [file]

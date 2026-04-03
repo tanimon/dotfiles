@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt test-modify test-scripts check-templates
+.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -19,7 +19,7 @@ JSON_FILES := $(shell find . -type f -name '*.json' \
 	! -name 'modify_*' 2>/dev/null)
 
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt test-modify test-scripts check-templates
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates
 
 ## Scan for leaked secrets
 secretlint:
@@ -67,6 +67,24 @@ oxfmt:
 		pnpm exec oxfmt --check $(JS_TS_FILES) $(JSON_FILES); \
 	else \
 		echo "No JS/TS or JSON files found"; \
+	fi
+
+## Lint GitHub Actions workflows (syntax + types)
+actionlint:
+	@if command -v actionlint >/dev/null 2>&1; then \
+		echo "Running actionlint..."; \
+		actionlint; \
+	else \
+		echo "WARNING: actionlint not found, skipping"; \
+	fi
+
+## Security audit GitHub Actions workflows
+zizmor:
+	@if command -v zizmor >/dev/null 2>&1; then \
+		echo "Running zizmor..."; \
+		zizmor .github/workflows/; \
+	else \
+		echo "WARNING: zizmor not found, skipping"; \
 	fi
 
 ## Smoke test modify_ scripts
