@@ -100,15 +100,15 @@ zizmor:
 
 ### Suppression Patterns
 
-**actionlint** — Use `.github/actionlint.yaml` for per-file suppression of valid but unrecognized events:
+**actionlint** — Use `.github/actionlint.yaml` for per-file suppression of **verified** false positives only. Do NOT suppress `unknown Webhook event` warnings without confirming the event name is a valid GitHub Actions workflow trigger — GitHub webhook event names and Actions trigger event names are different namespaces. See `docs/solutions/integration-issues/github-actions-invalid-webhook-event-triggers-2026-04-03.md` for a case where suppressions masked real errors.
 
 ```yaml
+# Example: suppress only when you've verified the event IS a valid Actions trigger
+# that actionlint doesn't recognize yet
 paths:
-  .github/workflows/security-alerts.yml:
+  .github/workflows/example.yml:
     ignore:
-      - 'unknown Webhook event "dependabot_alert"'
-      - 'unknown Webhook event "code_scanning_alert"'
-      - 'unknown Webhook event "secret_scanning_alert"'
+      - 'verified false positive pattern here'
 ```
 
 **zizmor** — Use inline comments for accepted patterns:
