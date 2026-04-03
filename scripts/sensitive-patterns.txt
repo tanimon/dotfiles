@@ -7,7 +7,7 @@
 /home/[a-zA-Z][a-zA-Z0-9._-]+/
 
 # Windows user paths
-C:\\Users\\[a-zA-Z]
+C:\\Users\\[a-zA-Z][a-zA-Z0-9._-]+
 
 # GitHub noreply email with numeric user ID
 [0-9]+\+[a-zA-Z0-9_-]+@users\.noreply\.github\.com

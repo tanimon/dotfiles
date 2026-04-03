@@ -117,6 +117,7 @@ make test-modify               # Smoke test modify_ scripts
 make test-scripts              # Smoke test harness scripts
 make check-templates           # Validate chezmoi .tmpl files
 make scan-sensitive            # Scan docs for PII and sensitive info
+make test-sensitive            # Smoke test sensitive info scanner
 ```
 
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `make` targets — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
