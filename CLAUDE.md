@@ -18,7 +18,7 @@ chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
 # Linting (mirrors CI — also runs on commit via prek)
-make lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + modify_ + script tests + templates)
+make lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
 # Harness analysis (scheduled weekly in CI, also manual)
@@ -111,6 +111,8 @@ make shellcheck                # Lint non-.tmpl shell scripts
 make shfmt                     # Check shell script formatting (indent=4)
 make oxlint                    # Lint JS/TS files (.js, .mjs, .mts, .ts)
 make oxfmt                     # Check JS/TS and JSON formatting
+make actionlint                # Lint GitHub Actions workflows (syntax + types)
+make zizmor                    # Security audit GitHub Actions workflows
 make test-modify               # Smoke test modify_ scripts
 make test-scripts              # Smoke test harness scripts
 make check-templates           # Validate chezmoi .tmpl files

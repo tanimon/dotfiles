@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Determine issue number
         id: issue
@@ -50,8 +51,9 @@ jobs:
         id: fetch
         env:
           GH_TOKEN: ${{ github.token }}
+          STEPS_ISSUE_OUTPUTS_NUMBER: ${{ steps.issue.outputs.number }}
         run: |
-          gh issue view "${{ steps.issue.outputs.number }}" \
+          gh issue view "${STEPS_ISSUE_OUTPUTS_NUMBER}" \
             --repo "$GITHUB_REPOSITORY" \
             --json title,body > /tmp/issue.json
 
@@ -65,7 +67,7 @@ jobs:
         id: remediate
         uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
           prompt: |
             You are a harness engineering remediation agent. A harness-analysis issue has been filed and you need to propose and validate a fix.
 
@@ -159,17 +161,19 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          STEPS_ISSUE_OUTPUTS_NUMBER: ${{ steps.issue.outputs.number }}
+          STEPS_FETCH_OUTPUTS_TITLE: ${{ steps.fetch.outputs.title }}
         run: |
           {
             echo "## Harness Auto-Remediation Results"
             echo ""
-            echo "**Issue:** #${{ steps.issue.outputs.number }}"
-            echo "**Title:** ${{ steps.fetch.outputs.title }}"
+            echo "**Issue:** #${STEPS_ISSUE_OUTPUTS_NUMBER}"
+            echo "**Title:** ${STEPS_FETCH_OUTPUTS_TITLE}"
             echo ""
 
             # Check if a PR was created
             pr_url=$(gh pr list --repo "$GITHUB_REPOSITORY" \
-              --search "fixes #${{ steps.issue.outputs.number }}" \
+              --search "fixes #${STEPS_ISSUE_OUTPUTS_NUMBER}" \
               --json url --jq '.[0].url' 2>/dev/null || true)
 
             if [ -n "$pr_url" ]; then
