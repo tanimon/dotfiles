@@ -1,0 +1,27 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ecc-rules-languages hash: {{ include "dot_claude/ecc-rules-languages.txt" | sha256sum }}
+
+ECC_MARKETPLACE_DIR="{{ .chezmoi.homeDir }}/.claude/plugins/marketplaces/everything-claude-code"
+
+if [ ! -d "$ECC_MARKETPLACE_DIR/rules" ]; then
+  echo "WARNING: ECC marketplace not found at $ECC_MARKETPLACE_DIR, skipping rules installation"
+  exit 0
+fi
+
+RULES_SRC="$ECC_MARKETPLACE_DIR/rules"
+RULES_DST="{{ .chezmoi.homeDir }}/.claude/rules"
+
+while IFS= read -r lang || [ -n "$lang" ]; do
+  [[ -z "$lang" || "$lang" == \#* ]] && continue
+  if [ ! -d "$RULES_SRC/$lang" ]; then
+    echo "WARNING: ECC rules directory not found: $RULES_SRC/$lang"
+    continue
+  fi
+  mkdir -p "$RULES_DST/$lang"
+  cp -r "$RULES_SRC/$lang/"* "$RULES_DST/$lang/"
+  echo "Installed ECC rules: $lang ($(ls "$RULES_SRC/$lang/" | wc -l | tr -d ' ') files)"
+done < "{{ .chezmoi.sourceDir }}/dot_claude/ecc-rules-languages.txt"
+{{ end -}}
