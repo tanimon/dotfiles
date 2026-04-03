@@ -69,7 +69,9 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
           allowed_bots: 'renovate[bot],dependabot[bot]'
-          show_full_output: true
+          # classify_inline_comments: false bypasses the post-session classification
+          # pipeline which silently drops all code-review plugin comments (see #83, #94).
+          # Revert to default (true) only after upstream fix is confirmed.
           classify_inline_comments: false
           claude_args: '--allowedTools "Bash(gh *),WebFetch"'
           additional_permissions: |
