@@ -45,6 +45,7 @@ windows/
 .claude/plugins/marketplaces.txt
 .claude/docs
 .claude/hooks
+.claude/homunculus
 .claude/skills/learned
 .claude/skills/find-skills
 .claude/skills/gemini-api-dev

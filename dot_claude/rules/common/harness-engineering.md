@@ -40,9 +40,23 @@ Bad rules:
 ## Feedback Loop Hierarchy
 
 1. **Hooks** (automatic, immediate): Format, lint, secret detection — fires on every tool use
-2. **Rules** (contextual, session-scoped): Read at session start, guides all decisions
-3. **CLAUDE.md** (project-scoped): Project architecture, commands, pitfalls
-4. **docs/solutions/** (historical): Past problems and their resolutions — referenced when similar issues arise
+2. **Instincts** (automatic, confidence-scored): ECC observer detects patterns from tool-use observations, creates atomic instincts with confidence decay. Low-friction, high-volume learning
+3. **Rules** (contextual, session-scoped): Read at session start, guides all decisions. Validated and permanent
+4. **CLAUDE.md** (project-scoped): Project architecture, commands, pitfalls
+5. **docs/solutions/** (historical): Past problems and their resolutions — referenced when similar issues arise
+
+## Instinct-Rule Relationship
+
+Instincts and rules serve different purposes in the learning pipeline:
+- **Instincts** are automatic, low-friction observations with confidence scores (0.3-0.9). They are created by the ECC observer without agent initiative and decay over time without confirming observations
+- **Rules** are validated, permanent, high-quality guidelines. They are created through the propose/validate/apply pipeline with generator-evaluator separation
+
+When an agent detects a pattern:
+- **Prefer letting the observer capture it as an instinct first** — this is deterministic and low-cost
+- **Escalate to propose-harness-improvement only for clear, immediate rule-worthy fixes** — e.g., a bug that will definitely recur without a rule
+- **Use `/promote-instincts` to bridge** — when instincts reach high confidence (>= 0.7), they can be promoted to rules through the quality-gated pipeline
+
+Do not create rules for patterns the observer can learn automatically. Do not bypass the observer for patterns that need confidence building through repeated observation.
 
 ## Anti-Patterns
 
