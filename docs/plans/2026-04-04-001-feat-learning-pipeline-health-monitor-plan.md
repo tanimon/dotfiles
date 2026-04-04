@@ -139,7 +139,7 @@ Falls back to globbing `~/.claude/homunculus/projects/*/` if no git remote.
 
 **Files:**
 - Modify: `scripts/pipeline-health.sh`
-- Modify: `tests/test-pipeline-health.sh`
+- Test: `Makefile` target `test-pipeline-health`
 
 **Approach:**
 - Parse `--json` flag from `$1`
@@ -173,10 +173,11 @@ Falls back to globbing `~/.claude/homunculus/projects/*/` if no git remote.
 
 **Files:**
 - Modify: `Makefile` (add `test-pipeline-health` target)
-- Modify: `tests/test-pipeline-health.sh`
+- Modify: `.github/workflows/lint.yml` (add CI job)
 
 **Approach:**
 - Add `test-pipeline-health` target to Makefile, following the pattern of `test-modify` and `test-scripts`
+- Add `pipeline-health` CI job to `lint.yml`, following the pattern of `harness-scripts` job
 - Smoke test: verify script is executable, `--help` works, `--json` produces valid JSON structure
 - Note: full integration tests require `~/.claude/homunculus/` data, so CI smoke tests focus on script syntax and argument handling, not live data checks
 - Ensure `scripts/pipeline-health.sh` passes existing `make shellcheck` and `make shfmt` targets (no new Makefile entries needed for these — the glob patterns already cover `scripts/`)
@@ -194,7 +195,7 @@ Falls back to globbing `~/.claude/homunculus/projects/*/` if no git remote.
 ## System-Wide Impact
 
 - **Interaction graph:** Script reads ECC runtime data (read-only). No writes to `~/.claude/homunculus/`. No interaction with Claude Code hooks or sessions.
-- **Error propagation:** Script always exits 0 (diagnostic tool). Broken pipeline status is reported in output, not via exit code. This prevents CI jobs from failing when the pipeline is unhealthy — the gate logic in #1 decides how to act.
+- **Error propagation:** Broken/unhealthy pipeline status is reported in output, not via exit code, so diagnostic results do not fail CI by themselves — the gate logic in #1 decides how to act. The script does exit non-zero for actual invocation/runtime errors, including invalid/unknown flags and `--json` when `jq` is unavailable.
 - **Unchanged invariants:** `.chezmoiignore` already excludes `~/.claude/homunculus/` — no change needed. Existing `make lint` glob patterns already cover `scripts/`.
 
 ## Risks & Dependencies

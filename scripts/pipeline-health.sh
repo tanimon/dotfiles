@@ -67,9 +67,28 @@ discover_project_dir() {
         fi
     fi
 
-    # Method 2: glob fallback (use first project found)
+    # Method 2: hash from git worktree root (no remote, but inside a git repo)
+    local repo_root
+    repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$repo_root" ]]; then
+        local project_id=""
+        if command -v shasum >/dev/null 2>&1; then
+            project_id="$(printf '%s' "$repo_root" | shasum -a 256 | cut -c1-12)"
+        elif command -v sha256sum >/dev/null 2>&1; then
+            project_id="$(printf '%s' "$repo_root" | sha256sum | cut -c1-12)"
+        fi
+        if [[ -n "$project_id" ]]; then
+            local candidate="${HOMUNCULUS_DIR}/projects/${project_id}"
+            if [[ -d "$candidate" ]]; then
+                printf '%s' "$candidate"
+                return 0
+            fi
+        fi
+    fi
+
+    # Method 3: deterministic glob fallback (sorted, first project)
     local first_project
-    first_project="$(find "${HOMUNCULUS_DIR}/projects" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)"
+    first_project="$(find "${HOMUNCULUS_DIR}/projects" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | head -n 1 || true)"
     if [[ -n "$first_project" ]]; then
         printf '%s' "$first_project"
         return 0
@@ -157,10 +176,12 @@ check_observer_analysis() {
     # Strategy: find the last "Analyzing" line number, then check if any failure/skip
     # marker appears at a higher line number.
     local last_analyzing
-    last_analyzing="$(grep -n "Analyzing" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1 || echo "0")"
+    last_analyzing="$(grep -n "Analyzing" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1)"
+    last_analyzing="${last_analyzing:-0}"
 
     local last_failure
-    last_failure="$(grep -n -E "Claude analysis failed|Observer cycle skipped" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1 || echo "0")"
+    last_failure="$(grep -n -E "Claude analysis failed|Observer cycle skipped" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1)"
+    last_failure="${last_failure:-0}"
 
     if [[ "$last_failure" -ge "$last_analyzing" ]]; then
         echo "broken"
@@ -180,10 +201,12 @@ get_observer_last_result() {
     fi
 
     local last_analyzing
-    last_analyzing="$(grep -n "Analyzing" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1 || echo "0")"
+    last_analyzing="$(grep -n "Analyzing" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1)"
+    last_analyzing="${last_analyzing:-0}"
 
     local last_failure
-    last_failure="$(grep -n -E "Claude analysis failed|Observer cycle skipped" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1 || echo "0")"
+    last_failure="$(grep -n -E "Claude analysis failed|Observer cycle skipped" "$log_file" 2>/dev/null | tail -1 | cut -d: -f1)"
+    last_failure="${last_failure:-0}"
 
     if [[ "$last_analyzing" == "0" ]]; then
         echo "unknown"
