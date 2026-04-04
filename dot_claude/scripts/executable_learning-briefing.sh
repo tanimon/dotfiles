@@ -93,11 +93,11 @@ if [[ -d "$HOMUNCULUS_DIR/projects" ]]; then
                 IS_HIGH=$(LC_NUMERIC=C awk -v c="$CONFIDENCE" 'BEGIN {print (c+0 >= 0.6) ? 1 : 0}' 2>/dev/null || echo "0")
                 [[ "$IS_HIGH" != "1" ]] && continue
 
-                TOTAL=$((TOTAL + 1))
-
                 TRIGGER=$(grep -m1 '^trigger:' "$f" 2>/dev/null | sed 's/^trigger: *//' | sed 's/^"//' | sed 's/"$//' || true)
                 DOMAIN=$(grep -m1 '^domain:' "$f" 2>/dev/null | awk '{print $2}' || true)
                 [[ -z "$TRIGGER" ]] && continue
+
+                TOTAL=$((TOTAL + 1))
 
                 # Extract first non-empty body line as action summary
                 ACTION=""
