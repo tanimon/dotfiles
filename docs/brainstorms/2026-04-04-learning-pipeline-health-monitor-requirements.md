@@ -39,7 +39,7 @@ Pipeline stages and health check points:
 
 - R3. Overall pipeline status: `healthy` (all stages ok), `broken` (any stage broken).
 - R4. Human-readable output with actionable next steps for each broken stage (e.g., "Observer analysis: BROKEN — last 3 attempts failed with exit 1. Check observer.log").
-- R5. Machine-readable output mode (`--json`) that writes a `pipeline-health.json` with: overall status, per-stage status, timestamps, observation count, instinct count. This file is included in the instinct snapshot for CI consumption by #1.
+- R5. Machine-readable output mode (`--json`) that writes JSON to stdout with: overall status, per-stage status, timestamps, observation count, instinct count. CI consumers can redirect to a file (`scripts/pipeline-health.sh --json > pipeline-health.json`) for inclusion in the instinct snapshot.
 
 **Graduated Health Criteria (Tier 2 — deferred)**
 

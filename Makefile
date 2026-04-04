@@ -172,28 +172,39 @@ test-scripts:
 test-pipeline-health:
 	@echo "Testing pipeline-health.sh..."
 	@SCRIPT="$$(pwd)/scripts/pipeline-health.sh"; \
-	echo "  Test 1: script is executable and has correct shebang..."; \
+	echo "  Test 1: script is executable..."; \
+	if test -x "$$SCRIPT"; then \
+		echo "  PASS: script is executable"; \
+	else \
+		echo "  FAIL: script is not executable"; exit 1; \
+	fi; \
 	if head -1 "$$SCRIPT" | grep -q '#!/usr/bin/env bash'; then \
 		echo "  PASS: shebang is correct"; \
 	else \
 		echo "  FAIL: expected #!/usr/bin/env bash shebang"; exit 1; \
 	fi; \
 	echo "  Test 2: --help exits 0 and shows usage..."; \
-	if bash "$$SCRIPT" --help 2>/dev/null | grep -q "Usage:"; then \
-		echo "  PASS: --help shows usage"; \
+	help_output=$$(bash "$$SCRIPT" --help 2>/dev/null); \
+	help_status=$$?; \
+	if [ "$$help_status" -ne 0 ]; then \
+		echo "  FAIL: --help exited with status $$help_status"; exit 1; \
+	elif echo "$$help_output" | grep -q "Usage:"; then \
+		echo "  PASS: --help exits 0 and shows usage"; \
 	else \
 		echo "  FAIL: --help did not show usage"; exit 1; \
 	fi; \
-	echo "  Test 3: human-readable output contains expected sections..."; \
-	output=$$(bash "$$SCRIPT" 2>/dev/null); \
+	echo "  Test 3: human-readable output contains expected sections or reports missing project data..."; \
+	output=$$(bash "$$SCRIPT" 2>&1); \
 	if echo "$$output" | grep -q "ECC Learning Pipeline Health" && \
 	   echo "$$output" | grep -q "Observation Capture:" && \
 	   echo "$$output" | grep -q "Observer Analysis:" && \
 	   echo "$$output" | grep -q "Instinct Creation:" && \
 	   echo "$$output" | grep -q "Overall:"; then \
 		echo "  PASS: human output contains all expected sections"; \
+	elif echo "$$output" | grep -q "No project data found"; then \
+		echo "  PASS: human output reports missing project data"; \
 	else \
-		echo "  FAIL: human output missing expected sections"; exit 1; \
+		echo "  FAIL: human output missing expected sections and did not report missing project data"; exit 1; \
 	fi; \
 	echo "  Test 4: --json produces valid JSON..."; \
 	if command -v jq >/dev/null 2>&1; then \

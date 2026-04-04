@@ -14,35 +14,35 @@ The closed-loop lifecycle transforms the instinct-to-rule bridge from a manual, 
 **Current state caveat:** The ECC observer has not yet produced instincts in this project (observer failures observed). Prerequisite #5 (Learning Pipeline Health Monitor) must confirm the observer is healthy before this system can operate. All requirements below assume a functioning instinct pipeline.
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                    Closed-Loop Lifecycle                       │
-│                                                               │
-│  ┌────────────┐                      ┌──────────────────┐     │
-│  │  Instinct  │   auto-promote       │ Provisional Rule │     ��
-│  │ (ECC obs.) │   (weekly CI,        │ (auto-promoted)  │     │
-│  │            │   confidence≥0.7)    │                  │     ���
-│  │            │ ─────────────���─────► │  origin: auto    │     │
-│  │            │                      │  instinct_id: X  │     │
-│  └────────────┘ ◄─────────────────── └─────────────────��┘     │
-│       ▲          auto-demote               │                  │
-│       │          (90 days ineffective,     │ effectiveness    │
-│       │          revert to instinct 0.4)   │ monitoring       │
-│       │                                    ▼                  │
-│       │                             ┌──────────────┐          │
-│       │  same pattern re-appears    │  ECC Observer │          │
-│       └─────────────────────────────│  (instinct    ��          │
-│          = rule ineffective         │   re-creation │          │
-│                                     │   signals)    │          │
-│                                     ���──────────────┘          │
-│                                                               │
-│  Data flow: local instincts → snapshot commit → CI pipeline   │
-│                                                               │
-│  ┌──────────────────────────────���─────────────────────────┐   │
-│  │ Manual Rules (CLAUDE.md, ~/.claude/rules/)             │   │
-│  │ → NOT subject to auto-demotion                         │   │
-│  │ → staleness detection only (existing lifecycle)        │   │
-│  └───────────────────────��────────────────────────────────┘   │
-└──────────────────��────────────────────────────────���───────────┘
++---------------------------------------------------------------+
+|                    Closed-Loop Lifecycle                       |
+|                                                               |
+|  +------------+                      +------------------+     |
+|  |  Instinct  |   auto-promote       | Provisional Rule |     |
+|  | (ECC obs.) |   (weekly CI,        | (auto-promoted)  |     |
+|  |            |   confidence>=0.7)   |                  |     |
+|  |            | -------------------> |  origin: auto    |     |
+|  |            |                      |  instinct_id: X  |     |
+|  +------------+ <------------------- +------------------+     |
+|       ^          auto-demote               |                  |
+|       |          (90 days ineffective,     | effectiveness    |
+|       |          revert to instinct 0.4)   | monitoring       |
+|       |                                    v                  |
+|       |                             +--------------+          |
+|       |  same pattern re-appears    | ECC Observer |          |
+|       +-----------------------------|  (instinct   |          |
+|          = rule ineffective         |   re-creation|          |
+|                                     |   signals)   |          |
+|                                     +--------------+          |
+|                                                               |
+|  Data flow: local instincts -> snapshot commit -> CI pipeline |
+|                                                               |
+|  +---------------------------------------------------------+  |
+|  | Manual Rules (CLAUDE.md, ~/.claude/rules/)              |  |
+|  | -> NOT subject to auto-demotion                         |  |
+|  | -> staleness detection only (existing lifecycle)        |  |
+|  +---------------------------------------------------------+  |
++---------------------------------------------------------------+
 ```
 
 ## Requirements

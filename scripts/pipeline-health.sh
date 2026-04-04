@@ -50,11 +50,20 @@ discover_project_dir() {
         # Strip credentials from URL
         remote_url="$(printf '%s' "$remote_url" | sed -E 's|://[^@]+@|://|')"
         local project_id
-        project_id="$(printf '%s' "$remote_url" | shasum -a 256 | cut -c1-12)"
-        local candidate="${HOMUNCULUS_DIR}/projects/${project_id}"
-        if [[ -d "$candidate" ]]; then
-            printf '%s' "$candidate"
-            return 0
+        if command -v shasum >/dev/null 2>&1; then
+            project_id="$(printf '%s' "$remote_url" | shasum -a 256 | cut -c1-12)"
+        elif command -v sha256sum >/dev/null 2>&1; then
+            project_id="$(printf '%s' "$remote_url" | sha256sum | cut -c1-12)"
+        else
+            project_id=""
+        fi
+
+        if [[ -n "$project_id" ]]; then
+            local candidate="${HOMUNCULUS_DIR}/projects/${project_id}"
+            if [[ -d "$candidate" ]]; then
+                printf '%s' "$candidate"
+                return 0
+            fi
         fi
     fi
 
@@ -189,13 +198,10 @@ check_instinct_creation() {
     local project_dir="$1"
     local instinct_dir="${project_dir}/instincts/personal"
 
-    if [[ ! -d "$instinct_dir" ]]; then
-        echo "broken"
-        return
+    local count=0
+    if [[ -d "$instinct_dir" ]]; then
+        count="$(find "$instinct_dir" -maxdepth 1 -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.yml' \) 2>/dev/null | wc -l | tr -d ' ')"
     fi
-
-    local count
-    count="$(find "$instinct_dir" -maxdepth 1 -type f \( -name '*.md' -o -name '*.yaml' -o -name '*.yml' \) 2>/dev/null | wc -l | tr -d ' ')"
 
     if [[ "$count" -eq 0 ]]; then
         # Only broken if observations exist (pipeline has input but no output)
@@ -226,7 +232,7 @@ main() {
     local project_dir
     if ! project_dir="$(discover_project_dir)"; then
         if [[ "$OUTPUT_FORMAT" == "json" ]]; then
-            emit_json "broken" "broken" "broken" "unknown" "0" "-1" "unknown" "0" ""
+            emit_json "broken" "broken" "broken" "broken" "0" "-1" "unknown" "0" ""
         else
             echo "=== ECC Learning Pipeline Health ==="
             echo ""

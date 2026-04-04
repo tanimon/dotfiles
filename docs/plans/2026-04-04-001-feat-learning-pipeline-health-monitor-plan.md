@@ -97,7 +97,7 @@ Falls back to globbing `~/.claude/homunculus/projects/*/` if no git remote.
 
 **Files:**
 - Create: `scripts/pipeline-health.sh`
-- Test: `tests/test-pipeline-health.sh`
+- Test: `Makefile` target `test-pipeline-health`
 
 **Approach:**
 - Script header: `#!/usr/bin/env bash` + `set -euo pipefail`
@@ -107,7 +107,7 @@ Falls back to globbing `~/.claude/homunculus/projects/*/` if no git remote.
 - Check stage 3 (instinct creation): count files in `instincts/personal/`
 - Aggregate: overall `healthy` if all ok, `broken` if any broken
 - Print human-readable summary with per-stage status and actionable messages
-- Exit 0 always (diagnostic tool, not a gate — the gate logic is in #1)
+- Exit 0 for health states (diagnostic tool, not a gate — the gate logic is in #1); exit non-zero for usage errors (unknown flags) and missing dependencies (jq)
 
 **Patterns to follow:**
 - `scripts/update-brewfile.sh` for script structure and header
