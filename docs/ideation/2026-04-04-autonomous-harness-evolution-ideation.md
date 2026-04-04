@@ -79,7 +79,7 @@ focus: Improve the autonomous evolution harness engineering system, leveraging E
 
 **Confidence:** 90%
 **Complexity:** Medium
-**Status:** Unexplored
+**Status:** Explored (brainstorm: `docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md`)
 
 ### 4. Evolve-Driven Skill Crystallization Pipeline
 
@@ -157,3 +157,5 @@ focus: Improve the autonomous evolution harness engineering system, leveraging E
 - 2026-04-04: Initial ideation — 48 raw ideas generated (6 agents x 8), ~25 unique after dedupe, 7 survivors. User interest in #1 (Closed-Loop Rule Lifecycle), #3 (Session-Start Deterministic Learning Injection), #5 (Learning Pipeline Health Monitor).
 - 2026-04-04: Brainstormed #1 (Closed-Loop Rule Lifecycle). Key decisions: snapshot commit for CI data access, auto-promoted rules only for demotion, instinct re-creation rate as effectiveness metric, 30-day rolling window, 90-day demotion threshold. Hard prerequisite on #5 (Health Monitor). Requirements doc: `docs/brainstorms/2026-04-04-closed-loop-rule-lifecycle-requirements.md`.
 - 2026-04-04: Brainstormed #5 (Learning Pipeline Health Monitor). Key finding: ECC observer is broken (prompt file deleted before use). Key decisions: shell script (not command), binary ok/broken for v1 (graduated thresholds deferred), CI gate data produced here but gate logic lives in #1. Requirements doc: `docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md`.
+- 2026-04-04: Implemented #5 (Learning Pipeline Health Monitor). PR #125 merged. Script originally added at `scripts/pipeline-health.sh`; source of truth later migrated to `dot_claude/scripts/executable_pipeline-health.sh` (deployed as `~/.claude/scripts/pipeline-health.sh`). Supports human + JSON output modes, with CI smoke tests in Makefile.
+- 2026-04-04: Brainstormed #3 (Session-Start Deterministic Learning Injection). Key decisions: full replacement of harness-activator.sh with learning-briefing.sh, inject instincts >= 0.6 (not raw observations), ~600 token budget, pipeline-health.sh --json integration. Requirements doc: `docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md`.
