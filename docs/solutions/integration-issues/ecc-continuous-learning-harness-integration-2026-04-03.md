@@ -80,7 +80,8 @@ Enhance the existing harness-activator.sh (UserPromptSubmit hook, one-shot per s
 for f in "$INSTINCT_DIR"/*.md "$INSTINCT_DIR"/*.yaml "$INSTINCT_DIR"/*.yml; do
     [[ -f "$f" ]] || continue
     CONFIDENCE=$(grep -m1 '^confidence:' "$f" 2>/dev/null | awk '{print $2}' || true)
-    IS_HIGH=$(awk "BEGIN {print ($CONFIDENCE >= 0.7) ? 1 : 0}" 2>/dev/null || echo "0")
+    [[ "$CONFIDENCE" =~ ^[0-9]*\.?[0-9]+$ ]] || continue
+    IS_HIGH=$(awk -v c="$CONFIDENCE" 'BEGIN {print (c+0 >= 0.7) ? 1 : 0}' 2>/dev/null || echo "0")
     [[ "$IS_HIGH" != "1" ]] && continue
     # Extract trigger, domain and display
 done

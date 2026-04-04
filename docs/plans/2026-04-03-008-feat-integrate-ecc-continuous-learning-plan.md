@@ -265,7 +265,7 @@ The bridge command (`/promote-instincts`) connects the deterministic path to the
   **Test scenarios:**
   - Happy path: With 3 instincts at confidence >= 0.7, all 3 are surfaced in the reminder
   - Edge case: No instincts exist yet — reminder outputs normally without instinct section
-  - Edge case: More than 10 high-confidence instincts — only top 10 by confidence shown
+  - Edge case: More than 10 high-confidence instincts — only first 10 encountered shown (glob order, not sorted by confidence)
   - Error path: homunculus directory does not exist — skip instinct loading gracefully (exit 0)
   - Integration: Instinct context appears in harness-activator output alongside the existing evaluation reminder
 

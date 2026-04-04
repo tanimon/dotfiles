@@ -23,8 +23,8 @@ If no instincts exist, report "No instincts found. The ECC continuous learning o
 
 For each instinct, check:
 - **Confidence >= 0.7** (strong confidence threshold)
-- **Not already covered by an existing rule**: Search `dot_claude/rules/`, `.claude/rules/`, and CLAUDE.md for matching patterns using the instinct's trigger and action text
-- **Not contradicting an existing rule**: Check that the instinct's action does not conflict with established rules
+- **Not already covered by an existing rule**: Search the chezmoi source tree — `dot_claude/rules/`, `.claude/rules/`, and `CLAUDE.md` — for matching patterns using the instinct's trigger and action text
+- **Not contradicting an existing rule**: Check that the instinct's action does not conflict with established rules in those same chezmoi source-tree files
 
 Report:
 - Total instincts scanned
