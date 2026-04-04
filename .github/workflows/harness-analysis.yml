@@ -51,6 +51,11 @@ jobs:
 
             7. **Rule effectiveness** — Scan rule files in `dot_claude/rules/` and `.claude/rules/` for optional YAML frontmatter with `date` and `trigger` fields. Flag rules older than 90 days (by frontmatter `date` or git creation date) that have no related recent issues or commits as "potentially stale". Include a rule health summary in the GitHub Step Summary output via `$GITHUB_STEP_SUMMARY`.
 
+            8. **Instinct health** (ECC continuous learning) — This analysis area applies only when instinct data is available in the workspace (e.g., via exported snapshots or artifacts from a prior step). CI runners do not have local `~/.claude/homunculus/` state. If no instinct data is present in the workspace, skip this area entirely without creating an issue. When data is available:
+               - Flag instincts with decaying confidence (< 0.3) as candidates for pruning
+               - Flag contradicting instincts (same trigger text, different actions) as needing resolution
+               - Flag instincts with confidence >= 0.8 appearing in 2+ projects as promotion candidates (project → global)
+
             ## Process
 
             1. Read CLAUDE.md, .claude/rules/*.md, dot_claude/commands/*.md, dot_claude/scripts/*, Makefile, and .github/workflows/*.yml

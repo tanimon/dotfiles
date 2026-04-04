@@ -6,6 +6,7 @@
     "HOME": "{{ .chezmoi.homeDir }}",
     "LANG": "ja_JP.UTF-8",
     {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
+    "CLV2_CONFIG": "{{ .chezmoi.homeDir }}/.claude/continuous-learning-config.json",
     "_ZO_DOCTOR": "0"
   },
   "permissions": {
