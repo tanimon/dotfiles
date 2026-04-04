@@ -153,7 +153,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'find /tmp -maxdepth 1 -name \"claude-harness-checked-*\" -mtime +0 -delete 2>/dev/null; true'"
+            "command": "bash -c 'find /tmp -maxdepth 1 \\( -name \"claude-learning-briefing-*\" -o -name \"claude-harness-checked-*\" \\) -mtime +0 -delete 2>/dev/null; true'"
           }
         ]
       }
@@ -213,7 +213,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c '\"$HOME/.claude/scripts/harness-activator.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
+            "command": "bash -c '\"$HOME/.claude/scripts/learning-briefing.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
           }
         ]
       }

@@ -90,7 +90,7 @@ if [[ -d "$HOMUNCULUS_DIR/projects" ]]; then
                 CONFIDENCE=$(grep -m1 '^confidence:' "$f" 2>/dev/null | awk '{print $2}' || true)
                 [[ -z "$CONFIDENCE" ]] && continue
                 [[ "$CONFIDENCE" =~ ^[0-9]*\.?[0-9]+$ ]] || continue
-                IS_HIGH=$(awk -v c="$CONFIDENCE" 'BEGIN {print (c+0 >= 0.6) ? 1 : 0}' 2>/dev/null || echo "0")
+                IS_HIGH=$(LC_NUMERIC=C awk -v c="$CONFIDENCE" 'BEGIN {print (c+0 >= 0.6) ? 1 : 0}' 2>/dev/null || echo "0")
                 [[ "$IS_HIGH" != "1" ]] && continue
 
                 TOTAL=$((TOTAL + 1))
@@ -101,15 +101,15 @@ if [[ -d "$HOMUNCULUS_DIR/projects" ]]; then
 
                 # Extract first non-empty body line as action summary
                 ACTION=""
-                IN_BODY=0
+                FRONTMATTER_DELIMITERS=0
                 while IFS= read -r line; do
-                    if [[ $IN_BODY -eq 0 ]]; then
-                        # Skip until second --- (end of frontmatter)
+                    if [[ $FRONTMATTER_DELIMITERS -lt 2 ]]; then
+                        # Count --- delimiters: first opens frontmatter, second closes it
                         if [[ "$line" == "---" ]]; then
-                            IN_BODY=1
+                            FRONTMATTER_DELIMITERS=$((FRONTMATTER_DELIMITERS + 1))
                         fi
                     else
-                        # First non-empty line after frontmatter
+                        # First non-empty line after frontmatter closing ---
                         line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
                         if [[ -n "$line" ]]; then
                             ACTION="$line"
