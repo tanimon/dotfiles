@@ -62,9 +62,9 @@ Two key chezmoi behaviors explain the root cause:
 
 1. **`.chezmoiignore` evaluates target paths, not source paths.** The entry `.gitignore` matches the target `~/.gitignore`, which is exactly what `dot_gitignore` deploys to. So the ignore rule blocked the legitimate managed file.
 
-2. **The entry was unnecessary in this repo.** While chezmoi can manage non-prefixed files as sources (a file named `foo` in the source directory deploys as `~/foo`), this repository's `.chezmoiignore` already excludes repo-only files broadly. The repo-root `.gitignore` was not at risk of deployment. However, the `.gitignore` ignore entry matched the **target path** `~/.gitignore` -- the same target that `dot_gitignore` deploys to.
+2. **The entry was unnecessary for the repo-root `.gitignore`.** chezmoi ignores source files that start with `.` (they are treated as repository metadata, not chezmoi sources). The repo-root `.gitignore` was never at risk of deployment because chezmoi does not recognize it as a source file — only `dot_gitignore` (which uses the `dot_` mapping convention) produces the target `~/.gitignore`. However, the `.chezmoiignore` entry `.gitignore` matched the **target path** `~/.gitignore`, blocking the legitimate `dot_gitignore` deployment.
 
-The combination means the `.gitignore` entry had no useful effect (the repo `.gitignore` was already excluded by other means) but did have a harmful side effect (blocking `dot_gitignore` → `~/.gitignore` deployment).
+The combination means the `.gitignore` entry had no useful effect (the repo `.gitignore` is invisible to chezmoi as a source) but did have a harmful side effect (blocking `dot_gitignore` → `~/.gitignore` deployment).
 
 ## Prevention
 
