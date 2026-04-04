@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive
+.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health check-templates scan-sensitive test-sensitive
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -21,7 +21,7 @@ JSON_FILES := $(shell find . -type f -name '*.json' \
 DOCS_MD_FILES := $(shell find ./docs -type f -name '*.md' 2>/dev/null)
 
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health check-templates scan-sensitive test-sensitive
 
 ## Scan for leaked secrets
 secretlint:
@@ -166,6 +166,65 @@ test-scripts:
 		fi; \
 	else \
 		echo "  SKIP: node not found, skipping runtime test"; \
+	fi
+
+## Test pipeline-health.sh
+test-pipeline-health:
+	@echo "Testing pipeline-health.sh..."
+	@SCRIPT="$$(pwd)/scripts/pipeline-health.sh"; \
+	echo "  Test 1: script is executable..."; \
+	if test -x "$$SCRIPT"; then \
+		echo "  PASS: script is executable"; \
+	else \
+		echo "  FAIL: script is not executable"; exit 1; \
+	fi; \
+	if head -1 "$$SCRIPT" | grep -q '#!/usr/bin/env bash'; then \
+		echo "  PASS: shebang is correct"; \
+	else \
+		echo "  FAIL: expected #!/usr/bin/env bash shebang"; exit 1; \
+	fi; \
+	echo "  Test 2: --help exits 0 and shows usage..."; \
+	help_output=$$(bash "$$SCRIPT" --help 2>/dev/null); \
+	help_status=$$?; \
+	if [ "$$help_status" -ne 0 ]; then \
+		echo "  FAIL: --help exited with status $$help_status"; exit 1; \
+	elif echo "$$help_output" | grep -q "Usage:"; then \
+		echo "  PASS: --help exits 0 and shows usage"; \
+	else \
+		echo "  FAIL: --help did not show usage"; exit 1; \
+	fi; \
+	echo "  Test 3: human-readable output contains expected sections or reports missing project data..."; \
+	output=$$(bash "$$SCRIPT" 2>&1); \
+	if echo "$$output" | grep -q "ECC Learning Pipeline Health" && \
+	   echo "$$output" | grep -q "Observation Capture:" && \
+	   echo "$$output" | grep -q "Observer Analysis:" && \
+	   echo "$$output" | grep -q "Instinct Creation:" && \
+	   echo "$$output" | grep -q "Overall:"; then \
+		echo "  PASS: human output contains all expected sections"; \
+	elif echo "$$output" | grep -q "No project data found"; then \
+		echo "  PASS: human output reports missing project data"; \
+	else \
+		echo "  FAIL: human output missing expected sections and did not report missing project data"; exit 1; \
+	fi; \
+	echo "  Test 4: --json produces valid JSON..."; \
+	if command -v jq >/dev/null 2>&1; then \
+		json_output=$$(bash "$$SCRIPT" --json 2>/dev/null); \
+		if echo "$$json_output" | jq -e '.overall_status' >/dev/null 2>&1 && \
+		   echo "$$json_output" | jq -e '.stages.observation_capture.status' >/dev/null 2>&1 && \
+		   echo "$$json_output" | jq -e '.stages.observer_analysis.status' >/dev/null 2>&1 && \
+		   echo "$$json_output" | jq -e '.stages.instinct_creation.status' >/dev/null 2>&1; then \
+			echo "  PASS: --json produces valid JSON with all required fields"; \
+		else \
+			echo "  FAIL: --json output missing required fields"; exit 1; \
+		fi; \
+	else \
+		echo "  SKIP: jq not found, skipping JSON validation"; \
+	fi; \
+	echo "  Test 5: unknown flag exits non-zero..."; \
+	if bash "$$SCRIPT" --bogus >/dev/null 2>&1; then \
+		echo "  FAIL: expected non-zero exit for unknown flag"; exit 1; \
+	else \
+		echo "  PASS: unknown flag exits non-zero"; \
 	fi
 
 ## Validate chezmoi templates
