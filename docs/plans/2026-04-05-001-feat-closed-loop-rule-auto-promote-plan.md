@@ -23,7 +23,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 - R3. Weekly CI identifies candidates (confidence >= 0.7, population >= 5)
 - R4. Dedup against existing rules + domain filtering (exclude debugging meta-instincts)
 - R5. Candidates go through propose→validate→apply pipeline (non-interactive CI)
-- R6. Risk tiering: `code-style`/`file-patterns` auto-apply; others create PR
+- R6. Risk tiering: `code-style`/`file-patterns`/`naming`/`documentation` auto-apply; others create PR
 - R7. Rule format: `## <trigger>` section with `_Promoted from ECC instinct <id>_` metadata
 - R16. `$GITHUB_STEP_SUMMARY` with promotion stats
 - R18. Health gate on snapshot data (freshness, count >= 5, format validation)
@@ -252,7 +252,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
   2. Filter: confidence >= 0.7, exclude domain=debugging with observer-referencing triggers
   3. Read existing rules in `.claude/rules/` and `dot_claude/rules/` for dedup
   4. For each candidate: assess similarity to existing rules (LLM judgment, not keyword matching)
-  5. Classify risk: domain `code-style` or `file-patterns` → low-risk (auto-apply); others → high-risk (PR)
+  5. Classify risk: domain `code-style`, `file-patterns`, `naming`, or `documentation` → low-risk (auto-apply); others → high-risk (PR)
   6. Format promoted rule: `## <trigger>` section with metadata comment (R7 format)
   7. Write to appropriate rule file (project `.claude/rules/` or global `dot_claude/rules/common/`)
   8. Collect all promotion results (rule text, target file, risk tier) without committing yet

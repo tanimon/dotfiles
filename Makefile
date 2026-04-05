@@ -239,7 +239,13 @@ test-snapshot-instincts:
 	cp "$$SCRIPT" "$$mock_repo/scripts/snapshot-instincts.sh"; \
 	git init -q "$$mock_repo"; \
 	(cd "$$mock_repo" && git remote add origin "https://github.com/test/repo.git"); \
-	expected_hash=$$(printf 'https://github.com/test/repo.git' | shasum -a 256 | cut -c1-12); \
+	if command -v shasum >/dev/null 2>&1; then \
+		expected_hash=$$(printf 'https://github.com/test/repo.git' | shasum -a 256 | cut -c1-12); \
+	elif command -v sha256sum >/dev/null 2>&1; then \
+		expected_hash=$$(printf 'https://github.com/test/repo.git' | sha256sum | cut -c1-12); \
+	else \
+		echo "  FAIL: neither shasum nor sha256sum found"; cleanup; exit 1; \
+	fi; \
 	mv "$$tmpdir/.claude/homunculus/projects/testproject12" "$$tmpdir/.claude/homunculus/projects/$$expected_hash"; \
 	HOME="$$tmpdir" bash "$$mock_repo/scripts/snapshot-instincts.sh" > /dev/null 2>&1; \
 	count=$$(find "$$mock_repo/dot_claude/instinct-snapshots" -name '*.md' | wc -l | tr -d ' '); \
@@ -308,7 +314,7 @@ test-validate-snapshot:
 		echo "  FAIL: unexpected reason: $$result"; cleanup; exit 1; \
 	fi; \
 	echo "  Test 4: count < 5 fails..."; \
-	rm -f "$$mock_repo/dot_claude/instinct-snapshots"/inst-{4,5}.md; \
+	rm -f "$$mock_repo/dot_claude/instinct-snapshots/inst-4.md" "$$mock_repo/dot_claude/instinct-snapshots/inst-5.md"; \
 	printf '{"timestamp":"%s","project_id":"abc","project_name":"test","instinct_count":3}' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$$mock_repo/dot_claude/instinct-snapshots/metadata.json"; \
 	result=$$(bash "$$mock_repo/scripts/validate-instinct-snapshot.sh" 2>&1) && { echo "  FAIL: expected non-zero exit"; cleanup; exit 1; } || true; \
 	if echo "$$result" | grep -q "insufficient instincts"; then \

@@ -34,6 +34,9 @@ if [[ -z "$timestamp" ]]; then
 fi
 
 meta_count="$(jq -r '.instinct_count // 0' "$METADATA")"
+if ! [[ "$meta_count" =~ ^[0-9]+$ ]]; then
+    fail "instinct_count is not an integer: ${meta_count}"
+fi
 
 # --- Validate timestamp format and check freshness ---
 
@@ -42,12 +45,16 @@ if ! [[ "$timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$
 fi
 
 snapshot_epoch="$(printf '%s' "$timestamp" | jq -R 'fromdate' 2>/dev/null)" || true
-if [[ -z "$snapshot_epoch" || "$snapshot_epoch" == "null" ]]; then
-    fail "failed to parse timestamp: ${timestamp}"
+if [[ -z "$snapshot_epoch" || "$snapshot_epoch" == "null" || "$snapshot_epoch" -le 0 ]]; then
+    fail "invalid timestamp: ${timestamp}"
 fi
 
 now_epoch="$(date +%s)"
 age_days=$(((now_epoch - snapshot_epoch) / 86400))
+
+if [[ $age_days -lt 0 ]]; then
+    fail "timestamp in the future"
+fi
 
 if [[ $age_days -gt $MAX_AGE_DAYS ]]; then
     fail "snapshot stale (${age_days} days old, max ${MAX_AGE_DAYS})"
