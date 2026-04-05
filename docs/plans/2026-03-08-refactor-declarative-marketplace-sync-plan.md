@@ -32,11 +32,11 @@ A unidirectional, declarative approach (see brainstorm: `docs/brainstorms/2026-0
 - **Remove** all `modify_`, `.data`, and reverse-sync files for both `known_marketplaces.json` and `installed_plugins.json`
 - **Add** `installed_plugins.json` and `known_marketplaces.json` to `.chezmoiignore`
 
-Key insight: `*.txt` is already in `.chezmoiignore`, so `marketplaces.txt` won't deploy to `~/` but is readable via `{{ include }}` for hash tracking. `claude plugin marketplace add` is idempotent — adding an already-registered marketplace is a no-op.
+Key insight: `dot_claude/plugins/marketplaces.txt` is ignored via an explicit `.claude/plugins/marketplaces.txt` entry in `.chezmoiignore` (note: root-level `*.txt` does not match nested paths), so it won't deploy to `~/` but is readable via `{{ include }}` for hash tracking. `claude plugin marketplace add` is idempotent — adding an already-registered marketplace is a no-op.
 
 ## Acceptance Criteria
 
-- [x] `marketplaces.txt` lists all 6 marketplaces (deduplicated — GitHub form only for EveryInc)
+- [x] `marketplaces.txt` lists all marketplaces at time of implementation (deduplicated — GitHub form only for EveryInc)
 - [x] `scripts/update-marketplaces.sh` generates `marketplaces.txt` from current CLI state
 - [x] `run_onchange_` script adds marketplaces when list changes
 - [x] `chezmoi apply` on a fresh machine registers all listed marketplaces
@@ -126,7 +126,7 @@ done < "{{ .chezmoi.sourceDir }}/dot_claude/plugins/marketplaces.txt"
 | `.chezmoiscripts/run_after_10-ensure-marketplaces.sh.tmpl` | Delete (replaced by `run_onchange_`) |
 | `.chezmoiscripts/run_after_20-sync-plugins.sh.tmpl` | Delete (reverse sync no longer needed) |
 
-### Phase 3: Update `.chezmoiignore`
+### Phase 3: Update `.chezmoiignore` *(already applied)*
 
 Add to the `.claude/plugins/` section (after line 37):
 

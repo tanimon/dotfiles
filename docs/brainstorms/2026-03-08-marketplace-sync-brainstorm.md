@@ -1,7 +1,7 @@
 # Brainstorm: Declarative Marketplace Sync via chezmoi
 
 **Date:** 2026-03-08
-**Status:** Ready for planning
+**Status:** Completed
 
 ## What We're Building
 
@@ -62,7 +62,7 @@ The new approach is **unidirectional and declarative**: the source list is the s
 - `.chezmoiignore` — add `known_marketplaces.json` and `installed_plugins.json`
 - `CLAUDE.md` — update architecture documentation
 
-### Marketplace list content
+### Marketplace list content (as of 2026-03-08)
 
 ```
 anthropics/skills
@@ -72,6 +72,8 @@ OthmanAdi/planning-with-files
 affaan-m/everything-claude-code
 EveryInc/compound-engineering-plugin
 ```
+
+> Note: The current list in `dot_claude/plugins/marketplaces.txt` may include additional entries added after this brainstorm.
 
 ## Open Questions
 
