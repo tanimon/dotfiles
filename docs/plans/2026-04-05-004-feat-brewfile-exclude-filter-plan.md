@@ -1,82 +1,58 @@
 ---
-title: "feat: Add exclude filter to update-brewfile.sh"
+title: "feat: Exclude vscode extensions and go packages from Brewfile dump"
 type: feat
 status: completed
 date: 2026-04-05
 ---
 
-# feat: Add exclude filter to update-brewfile.sh
+# feat: Exclude vscode extensions and go packages from Brewfile dump
 
 ## Overview
 
-Add a post-dump filtering step to `scripts/update-brewfile.sh` that removes unwanted packages from the generated Brewfile. The user wants to exclude `vscode` (all VSCode-related lines including cask and extensions) and `go` (brew formula) from being tracked.
+Add `--no-vscode` and `--no-go` flags to `brew bundle dump` in `scripts/update-brewfile.sh` to prevent VSCode extensions and Go packages from being tracked in the Brewfile.
 
 ## Problem Frame
 
-`brew bundle dump` captures the entire Homebrew state including packages the user does not want version-controlled (e.g., VSCode extensions managed separately, language runtimes managed by mise). The script currently has no filtering capability.
+`brew bundle dump` captures the entire Homebrew state including package types the user does not want version-controlled (e.g., VSCode extensions managed separately, Go packages managed by mise). The script currently dumps everything without filtering.
 
 ## Requirements Trace
 
-- R1. Lines matching `vscode` entries (type `vscode "..."`) must be removed from the dumped Brewfile
-- R2. The `cask "visual-studio-code"` line must be removed from the dumped Brewfile
-- R3. The `brew "go"` line must be removed from the dumped Brewfile
-- R4. The exclusion list must be easily extensible for future packages
-- R5. Existing non-excluded Brewfile content must be preserved exactly
+- R1. VSCode extensions (`vscode "..."` lines) must not appear in the dumped Brewfile
+- R2. Go packages (`go "..."` lines) must not appear in the dumped Brewfile
+- R3. Existing non-excluded Brewfile content (formulae, casks, taps, mas) must be preserved exactly
 
 ## Scope Boundaries
 
 - Only modifies `scripts/update-brewfile.sh` — no changes to chezmoi templates or run_onchange scripts
+- Does not exclude `cask "visual-studio-code"` or `brew "go"` (the formula) — only the `vscode` and `go` package types
 - Does not affect `brew bundle install` behavior (Brewfile consumers)
-- Removal is post-dump filtering, not a `brew bundle dump` flag (no such flag exists)
 
 ## Key Technical Decisions
 
-- **Exclude list as array variable at top of script**: Easy to read, extend, and grep for. Preferable over a separate config file for this scale.
-- **`grep -v` pipeline for filtering**: Simple, portable, and fits the existing script style. Each exclude pattern is applied via `grep -vE`.
-- **Pattern matching strategy**: Use `^vscode ` to match all VSCode extension lines, `^cask "visual-studio-code"` for the cask, and `^brew "go"$` for the exact go formula (avoid matching `brew "gojq"` etc.).
+- **Use `brew bundle dump` built-in flags (`--no-vscode`, `--no-go`)**: Discovered that `brew bundle dump` natively supports excluding package types via `--no-vscode` and `--no-go` flags. This is cleaner than post-dump `grep` filtering — no regex edge cases, no `set -e` compatibility issues, and the exclusion happens at dump time.
 
 ## Implementation Units
 
-- [ ] **Unit 1: Add exclude filter to update-brewfile.sh**
+- [x] **Unit 1: Add --no-vscode --no-go flags to brew bundle dump**
 
-**Goal:** Filter out unwanted packages after `brew bundle dump`
+**Goal:** Exclude VSCode extensions and Go packages at dump time
 
-**Requirements:** R1, R2, R3, R4, R5
-
-**Dependencies:** None
+**Requirements:** R1, R2, R3
 
 **Files:**
 - Modify: `scripts/update-brewfile.sh`
-- Test: `scripts/tests/test-update-brewfile.sh` (if test infrastructure exists, otherwise verify manually)
 
 **Approach:**
-- Define an array of grep patterns to exclude at the top of the script
-- After `brew bundle dump`, apply `grep -vE` with combined patterns to filter the file in-place
-- Use a temporary file or `sed -i` to avoid partial write issues
-
-**Patterns to follow:**
-- Existing script style: `set -euo pipefail`, `SCRIPT_DIR`/`REPO_ROOT` variables
-- Keep the entry count output accurate (count after filtering)
-
-**Test scenarios:**
-- Happy path: Run script → Brewfile contains no `vscode` lines, no `cask "visual-studio-code"`, no `brew "go"`
-- Happy path: Run script → Brewfile still contains all other packages (e.g., `brew "gh"`, `cask "1password"`)
-- Edge case: `brew "go"` pattern does not match `brew "gojq"`, `brew "go-task"`, or similar prefixed packages
-- Edge case: Entry count in output message reflects post-filter line count
+- Add `--no-vscode --no-go` to the existing `brew bundle dump` command
+- No post-processing needed — flags handle exclusion natively
 
 **Verification:**
-- `grep -c '^vscode ' darwin/Brewfile` returns 0
-- `grep -c 'visual-studio-code' darwin/Brewfile` returns 0
-- `grep -c '^brew "go"$' darwin/Brewfile` returns 0
-- Other brew/cask entries remain intact
-
-## Risks & Dependencies
-
-| Risk | Mitigation |
-|------|------------|
-| Overly broad pattern matches unintended packages | Use exact patterns: `^brew "go"$` not `go` |
+- `grep -c '^vscode ' darwin/Brewfile` returns 0 after running the script
+- `grep -c '^go ' darwin/Brewfile` returns 0 after running the script
+- Other brew/cask/tap/mas entries remain intact
 
 ## Sources & References
 
 - Related code: `scripts/update-brewfile.sh`
 - Related code: `darwin/Brewfile`
+- `brew bundle dump --help` — documents `--no-vscode`, `--no-go` flags
