@@ -47,6 +47,7 @@ windows/
 .claude/docs
 .claude/hooks
 .claude/homunculus
+.claude/instinct-snapshots
 .claude/skills/learned
 .claude/skills/find-skills
 .claude/skills/gemini-api-dev
