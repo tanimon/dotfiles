@@ -4,9 +4,21 @@
   "app": {
     "language": "system",
     "appearance": "system",
+    "reorderOnNotification": false,
     "sendAnonymousTelemetry": false
   },
   "automation": {
     "claudeCodeIntegration": true
+  },
+  "browser": {
+    "urlsToAlwaysOpenExternally": [
+      "github.com"
+    ]
+  },
+  "notifications": {
+    "sound": "Blow"
+  },
+  "sidebar": {
+    "openPullRequestLinksInCmuxBrowser": false
   }
 }
