@@ -128,7 +128,7 @@ make zizmor                    # Security audit GitHub Actions workflows
 make test-modify               # Smoke test modify_ scripts
 make test-scripts              # Smoke test harness scripts
 make check-templates           # Validate chezmoi .tmpl files
-make scan-sensitive            # Scan docs for PII and sensitive info
+make scan-sensitive            # Scan all .md files for PII and sensitive info
 make test-sensitive            # Smoke test sensitive info scanner
 ```
 
@@ -146,7 +146,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 - **`.chezmoiignore` bare filenames match target paths** — `.chezmoiignore` evaluates target paths, not source filenames. Adding `.gitignore` blocks `dot_gitignore` → `~/.gitignore` deployment because the target path is `.gitignore`. Likewise, regular non-prefixed source files (e.g., `README.md`, `LICENSE`) are still managed by chezmoi and need explicit `.chezmoiignore` entries to prevent deployment to `~/`. `dot_`, `private_`, etc. are mapping conventions for how source names translate to targets, not a gate for whether chezmoi considers a file a source.
 - **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.
 - **Never edit deployed targets directly** — Always edit the chezmoi source file (under `~/.local/share/chezmoi/`), never the deployed target (under `~/`). For example, edit `dot_claude/scripts/executable_harness-activator.sh`, not `~/.claude/scripts/harness-activator.sh`. Changes to deployed targets are overwritten on next `chezmoi apply` and are not version-controlled. Use `chezmoi source-path <target>` to find the source file for any managed target.
-- **`docs/` is tracked** — Both `docs/plans/` and `docs/solutions/` are committed. Plan files created by `ce:plan` and solution documents are version-controlled. Ensure no PII or sensitive information is included — `make scan-sensitive` checks all `docs/**/*.md` files.
+- **`docs/` is tracked** — Both `docs/plans/` and `docs/solutions/` are committed. Plan files created by `ce:plan` and solution documents are version-controlled. Ensure no PII or sensitive information is included — `make scan-sensitive` checks all `.md` files in the repo.
 - **Do not judge `modify_*` files by extension** — `modify_dot_claude.json` has a `.json` extension but is a bash script. Add `! -name 'modify_*'` exclusions to file-type-based linter/formatter globs (`*.json`, `*.yaml`, etc.). Also include `modify_` patterns in pre-commit excludes.
 
 ### Template Syntax
