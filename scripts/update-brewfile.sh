@@ -10,6 +10,6 @@ if ! command -v brew &>/dev/null; then
     exit 1
 fi
 
-brew bundle dump --force --file="$TARGET"
+brew bundle dump --force --no-vscode --no-go --file="$TARGET"
 
 echo "Updated ${TARGET} ($(wc -l <"$TARGET" | tr -d ' ') entries)"
