@@ -38,8 +38,10 @@ gh workflow run security-alerts.yml  # Trigger security alert sweep manually
 # Continuous learning (ECC instinct system)
 /instinct-status                     # View learned instincts with confidence bars
 /evolve                              # Cluster instincts into skills/commands/agents
-/promote-instincts                   # Promote high-confidence instincts to harness rules
+/promote-instincts                   # Promote high-confidence instincts to harness rules (manual)
 /prune                               # Delete expired pending instincts (30-day TTL)
+scripts/snapshot-instincts.sh        # Snapshot instincts to source tree (run before push for CI)
+gh workflow run auto-promote.yml     # Trigger auto-promotion manually (weekly schedule)
 ```
 
 ## chezmoi Naming Conventions
@@ -83,6 +85,8 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 **Autonomous harness improvement pipeline** — Three skills form a generator-evaluator pipeline: `propose-harness-improvement` (generates structured proposals from failures), `validate-harness-proposal` (quality gates with generator-evaluator separation), and `compound-harness-knowledge` (thin wrapper delegating to `/ce:compound`). Two commands handle application: `apply-harness-proposal` (low-risk auto-apply or high-risk PR) and `harness-rule-lifecycle` (rule inventory, staleness detection, deprecation). The CI workflow `harness-auto-remediate.yml` triggers on `harness-analysis` labeled issues, running the proposal/validation pipeline via `claude-code-action` and auto-creating PRs for low-risk fixes.
 
 **Continuous learning (ECC integration)** — Two learning paths operate in parallel. The **deterministic path** uses ECC plugin hooks (`pre:observe`/`post:observe`) to capture every tool call to `~/.claude/homunculus/projects/<hash>/observations.jsonl`. A background observer (Haiku model) analyzes observations and creates confidence-scored "instincts" (atomic learned behaviors). The **initiative path** uses the harness-activator hook to prompt agent self-evaluation. The bridge command `/promote-instincts` connects the two: high-confidence instincts (>= 0.7) can be promoted to permanent harness rules through the existing propose/validate/apply pipeline. Observer configuration is managed via the `CLV2_CONFIG` env var in `settings.json.tmpl`, which resolves at runtime to `~/.claude/continuous-learning-config.json` (chezmoi source: `dot_claude/continuous-learning-config.json`). Runtime state in `~/.claude/homunculus/` is excluded via `.chezmoiignore`.
+
+**Auto-promotion (Closed-Loop v1)** — `.github/workflows/auto-promote.yml` runs weekly (Sunday 01:00 UTC) to automatically promote high-confidence instincts to rules. Requires a local snapshot: run `scripts/snapshot-instincts.sh` to copy instinct files to `dot_claude/instinct-snapshots/` (excluded from deployment via `.chezmoiignore`). The CI health gate (`scripts/validate-instinct-snapshot.sh`) checks freshness (14 days), count (>= 5), and format validity before `claude-code-action` processes candidates. All promotions create PRs (main branch is protected). Low-risk domains (code-style, file-patterns, naming, documentation) create auto-merge eligible PRs; high-risk domains create PRs requiring human review.
 
 ### `.chezmoiignore`
 
