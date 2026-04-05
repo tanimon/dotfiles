@@ -127,6 +127,9 @@ make actionlint                # Lint GitHub Actions workflows (syntax + types)
 make zizmor                    # Security audit GitHub Actions workflows
 make test-modify               # Smoke test modify_ scripts
 make test-scripts              # Smoke test harness scripts
+make test-pipeline-health      # Smoke test pipeline-health.sh
+make test-snapshot-instincts   # Smoke test snapshot-instincts.sh
+make test-validate-snapshot    # Smoke test validate-instinct-snapshot.sh
 make check-templates           # Validate chezmoi .tmpl files
 make scan-sensitive            # Scan all .md files for PII and sensitive info
 make test-sensitive            # Smoke test sensitive info scanner
