@@ -18,8 +18,8 @@ JSON_FILES := $(shell find . -type f -name '*.json' \
 	! -name 'pnpm-lock.yaml' \
 	! -name 'modify_*' 2>/dev/null)
 
-ALL_MD_FILES := $(shell find . -type f -name '*.md' \
-	! -path './node_modules/*' ! -path './.git/*' 2>/dev/null)
+ALL_MD_FILES := $(shell find . \( -path './node_modules' -o -path './.git' \) -prune -o \
+	-type f -name '*.md' -print 2>/dev/null)
 
 ## Run all checks (mirrors CI)
 lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health test-snapshot-instincts test-validate-snapshot check-templates scan-sensitive test-sensitive
