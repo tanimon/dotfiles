@@ -11,9 +11,7 @@
     "claudeCodeIntegration": true
   },
   "browser": {
-    "urlsToAlwaysOpenExternally": [
-      "github.com"
-    ]
+    "urlsToAlwaysOpenExternally": ["github.com"]
   },
   "notifications": {
     "sound": "Blow"
