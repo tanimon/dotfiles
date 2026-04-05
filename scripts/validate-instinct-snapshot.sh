@@ -35,14 +35,15 @@ fi
 
 meta_count="$(jq -r '.instinct_count // 0' "$METADATA")"
 
-# --- Check freshness ---
+# --- Validate timestamp format and check freshness ---
 
-if date -d "2000-01-01" >/dev/null 2>&1; then
-    # GNU date
-    snapshot_epoch="$(date -d "$timestamp" +%s 2>/dev/null || echo 0)"
-else
-    # macOS date
-    snapshot_epoch="$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$timestamp" +%s 2>/dev/null || echo 0)"
+if ! [[ "$timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+    fail "invalid timestamp format: ${timestamp}"
+fi
+
+snapshot_epoch="$(printf '%s' "$timestamp" | jq -R 'fromdate' 2>/dev/null)" || true
+if [[ -z "$snapshot_epoch" || "$snapshot_epoch" == "null" ]]; then
+    fail "failed to parse timestamp: ${timestamp}"
 fi
 
 now_epoch="$(date +%s)"
@@ -91,10 +92,10 @@ for instinct_file in "$SNAPSHOT_DIR"/*.md; do
             fi
         fi
         if $in_frontmatter; then
-            [[ "$line" =~ ^id: ]] && has_id=true
-            [[ "$line" =~ ^trigger: ]] && has_trigger=true
-            [[ "$line" =~ ^confidence: ]] && has_confidence=true
-            [[ "$line" =~ ^domain: ]] && has_domain=true
+            [[ "$line" =~ ^id:\ +.+ ]] && has_id=true
+            [[ "$line" =~ ^trigger:\ +.+ ]] && has_trigger=true
+            [[ "$line" =~ ^confidence:\ +.+ ]] && has_confidence=true
+            [[ "$line" =~ ^domain:\ +.+ ]] && has_domain=true
         fi
     done <"$instinct_file"
 

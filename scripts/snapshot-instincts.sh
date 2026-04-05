@@ -85,10 +85,10 @@ has_required_frontmatter() {
             fi
         fi
         if $in_frontmatter; then
-            [[ "$line" =~ ^id: ]] && has_id=true
-            [[ "$line" =~ ^trigger: ]] && has_trigger=true
-            [[ "$line" =~ ^confidence: ]] && has_confidence=true
-            [[ "$line" =~ ^domain: ]] && has_domain=true
+            [[ "$line" =~ ^id:\ +.+ ]] && has_id=true
+            [[ "$line" =~ ^trigger:\ +.+ ]] && has_trigger=true
+            [[ "$line" =~ ^confidence:\ +.+ ]] && has_confidence=true
+            [[ "$line" =~ ^domain:\ +.+ ]] && has_domain=true
         fi
     done <"$file"
 

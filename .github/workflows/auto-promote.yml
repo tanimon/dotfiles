@@ -29,17 +29,17 @@ jobs:
       - name: Validate instinct snapshot
         id: health
         run: |
-          if bash scripts/validate-instinct-snapshot.sh > /tmp/health-result.json 2>&1; then
+          if bash scripts/validate-instinct-snapshot.sh > /tmp/health-result.json 2>/tmp/health-errors.log; then
             echo "gate=pass" >> "$GITHUB_OUTPUT"
             cat /tmp/health-result.json
           else
             echo "gate=fail" >> "$GITHUB_OUTPUT"
-            cat /tmp/health-result.json
+            cat /tmp/health-errors.log >&2 || true
             {
               echo "## Auto-Promote: Health Gate Failed"
               echo ""
               echo '```json'
-              cat /tmp/health-result.json
+              cat /tmp/health-result.json 2>/dev/null || echo '{"status":"failed","reason":"no output"}'
               echo '```'
               echo ""
               echo "Promotion skipped. Run \`scripts/snapshot-instincts.sh\` locally and push."
@@ -108,14 +108,16 @@ jobs:
 
             ### For low-risk promotions:
             1. Write all rule additions to their target files
-            2. Stage all changed files with `git add`
-            3. Create ONE atomic commit: `chore(harness): auto-promote instincts [<comma-separated ids>]`
-            4. Push to main: `git push origin main`
+            2. Run `make lint` — if it fails, fix the issue and re-run. Do NOT proceed to git operations until lint passes.
+            3. Stage all changed files with `git add`
+            4. Create ONE atomic commit: `chore(harness): auto-promote instincts [<comma-separated ids>]`
+            5. Push to main: `git push origin main`
 
             ### For high-risk promotions:
             1. Create a new branch: `git checkout -b feat/auto-promote-<first-id>`
             2. Write rule additions
-            3. Stage and commit: `chore(harness): auto-promote instincts [<ids>] (review required)`
+            3. Run `make lint` — if it fails, fix the issue and re-run. Do NOT proceed to git operations until lint passes.
+            4. Stage and commit: `chore(harness): auto-promote instincts [<ids>] (review required)`
             4. Push: `git push -u origin HEAD`
             5. Create PR:
                ```
@@ -154,7 +156,7 @@ jobs:
             - Always run `make lint` after writing rules to verify no formatting issues
             - If `make lint` fails, fix the issue before committing
             - Project instincts only — do NOT look for global instincts outside the snapshot
-          claude_args: '--allowedTools "Read,Write,Edit,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(gh pr create:*),Bash(cat *),Bash(find *),Bash(make lint*),Glob,Grep"'
+          claude_args: '--allowedTools "Read,Write,Edit,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(gh pr create:*),Bash(cat dot_claude/instinct-snapshots/*),Bash(find dot_claude/instinct-snapshots*),Bash(make lint),Glob,Grep"'
 
       - name: Generate summary
         if: always() && steps.health.outputs.gate == 'pass'
