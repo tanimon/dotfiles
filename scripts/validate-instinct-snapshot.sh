@@ -12,7 +12,7 @@ MAX_AGE_DAYS=14
 MIN_COUNT=5
 
 fail() {
-    printf '{"status":"failed","reason":"%s"}\n' "$1"
+    jq -n --arg reason "$1" '{"status":"failed","reason":$reason}'
     exit 1
 }
 

@@ -62,7 +62,7 @@ The system is delivered in two phases to reduce risk and validate assumptions wi
 
 **Instinct Data Sync**
 
-- R1. A local helper script (`scripts/update-instinct-snapshot.sh`) copies instinct data from `~/.claude/homunculus/projects/<hash>/instincts/personal/` to the chezmoi source tree (e.g., `dot_claude/instinct-snapshots/`), making it available to CI workflows via committed data.
+- R1. A local helper script (`scripts/snapshot-instincts.sh`) copies instinct data from `~/.claude/homunculus/projects/<hash>/instincts/personal/` to the chezmoi source tree (e.g., `dot_claude/instinct-snapshots/`), making it available to CI workflows via committed data.
 - R2. The snapshot is committed manually or via a pre-CI step (not via `run_onchange_`, which flows source→target and does not apply to runtime→source data capture). The snapshot location is excluded from chezmoi deployment via `.chezmoiignore` to prevent deploying snapshot data to `~/`.
 
 **Auto-Promotion**
