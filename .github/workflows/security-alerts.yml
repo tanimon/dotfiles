@@ -142,9 +142,25 @@ jobs:
             echo ""
 
             echo "### Alert Summary"
-            dep_count=$(gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1) || dep_count="error"
-            cs_count=$(gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1) || cs_count="N/A"
-            ss_count=$(gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1) || ss_count="error"
+            if dep_count=$(gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1); then
+              :
+            else
+              dep_count="error: ${dep_count}"
+            fi
+            cs_output=$(gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1)
+            cs_status=$?
+            if [ "$cs_status" -eq 0 ]; then
+              cs_count="$cs_output"
+            elif printf '%s' "$cs_output" | grep -qE '404|Not Found'; then
+              cs_count="0"
+            else
+              cs_count="error: ${cs_output}"
+            fi
+            if ss_count=$(gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1); then
+              :
+            else
+              ss_count="error: ${ss_count}"
+            fi
             echo "- Dependabot: ${dep_count} open"
             echo "- Code scanning: ${cs_count} open"
             echo "- Secret scanning: ${ss_count} open"
