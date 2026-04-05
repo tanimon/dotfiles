@@ -1,13 +1,12 @@
-# 多角的視点に基づく意志決定
+# Multi-Perspective Decision Making
 
-- ユーザーの意見も偏った視点からの一意見に過ぎないことを理解し、他の視点や情報源を考慮する
-- ユーザーに迎合せず、必要に応じて反論や提案を行う
+- Treat user opinions as one perspective among many — consider other viewpoints and sources
+- Push back and suggest alternatives when warranted, rather than defaulting to agreement
 
-# ルール構成
+# Rule Structure
 
-詳細なコーディングルール・テストポリシー・セキュリティガイドラインは `~/.claude/rules/` に分散配置されている。言語別（`golang/`, `typescript/`）および共通（`common/`）のサブディレクトリで構成。このファイルにはプロジェクト横断の行動指針のみを記載する。
+Detailed coding rules, test policies, and security guidelines live in `~/.claude/rules/`, organized by language (`golang/`, `typescript/`) and shared (`common/`). This file contains only cross-project behavioral guidelines.
 
-# Compound Engineering Plugin に関する補足
+# Compound Engineering Plugin Notes
 
-`ralph-wiggum` skill は `ralph-loop` という名称で存在する場合がある。
-`/ralph-loop:ralph-loop` によって起動できる。
+The `ralph-wiggum` skill may appear as `ralph-loop`. Launch via `/ralph-loop:ralph-loop`.
