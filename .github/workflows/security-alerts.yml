@@ -57,7 +57,73 @@ jobs:
             echo "alert_type=all" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate security alerts token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.SECURITY_APP_ID }} # zizmor: ignore[secrets-outside-env]
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env]
+          permissions: >-
+            {"dependabot_alerts": "read", "secret_scanning_alerts": "read"}
+
+      - name: Gather security alerts
+        id: alerts
+        env:
+          # GitHub App token for Dependabot/Secret Scanning (GITHUB_TOKEN cannot access these)
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          # GITHUB_TOKEN works for code-scanning with security-events: read
+          GH_DEFAULT_TOKEN: ${{ github.token }}
+          ALERT_SCOPE: ${{ steps.scope.outputs.alert_type }}
+        run: |
+          scope="$ALERT_SCOPE"
+          errors=""
+
+          gather_alerts() {
+            local type="$1" endpoint="$2" jq_filter="$3" token="$4"
+            if [ "$scope" = "all" ] || [ "$scope" = "$type" ]; then
+              local result
+              if result=$(GH_TOKEN="$token" gh api "repos/$GITHUB_REPOSITORY/$endpoint" 2>&1); then
+                echo "$result" | jq -c "[.[] | select(.state == \"open\") | $jq_filter]"
+              else
+                echo "::warning::Failed to fetch $type alerts: $result"
+                errors="${errors}${type}: ${result}\n"
+                echo "[]"
+              fi
+            else
+              echo "[]"
+            fi
+          }
+
+          dep=$(gather_alerts dependabot dependabot/alerts \
+            '{number, type: "dependabot", package: .dependency.package.name, severity: .security_vulnerability.severity}' \
+            "$APP_TOKEN")
+          cs=$(gather_alerts code-scanning code-scanning/alerts \
+            '{number, type: "code-scanning", rule: .rule.description, severity: .rule.security_severity_level}' \
+            "$GH_DEFAULT_TOKEN")
+          ss=$(gather_alerts secret-scanning secret-scanning/alerts \
+            '{number, type: "secret-scanning", secret_type}' \
+            "$APP_TOKEN")
+
+          jq -n --argjson dep "$dep" --argjson cs "$cs" --argjson ss "$ss" \
+            '{dependabot: $dep, code_scanning: $cs, secret_scanning: $ss}' > /tmp/security-alerts.json
+
+          # Summary for logging
+          echo "Dependabot: $(echo "$dep" | jq length) open"
+          echo "Code scanning: $(echo "$cs" | jq length) open"
+          echo "Secret scanning: $(echo "$ss" | jq length) open"
+          if [ -n "$errors" ]; then
+            echo "::warning::Some alert APIs returned errors (see above)"
+          fi
+
+          total=$(jq '(.dependabot | length) + (.code_scanning | length) + (.secret_scanning | length)' /tmp/security-alerts.json 2>/dev/null || echo 0)
+          if [ "$total" -gt 0 ]; then
+            echo "has_alerts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_alerts=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sweep security alerts
+        if: steps.alerts.outputs.has_alerts == 'true'
         uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1.0.85
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
@@ -67,24 +133,11 @@ jobs:
 
             ## Instructions
 
-            1. Gather all open alerts based on the scope (${{ steps.scope.outputs.alert_type }}).
-               Run each command separately and check for errors. If an API returns an error (e.g., 403 or 404), report it — do NOT silently skip.
-
-               If scope is "all" or "dependabot":
+            1. Read pre-fetched alert data from `/tmp/security-alerts.json`:
                ```bash
-               gh api repos/${{ github.repository }}/dependabot/alerts --jq '.[] | select(.state == "open") | {number, type: "dependabot", package: .dependency.package.name, severity: .security_vulnerability.severity}'
+               cat /tmp/security-alerts.json
                ```
-
-               If scope is "all" or "code-scanning":
-               ```bash
-               gh api repos/${{ github.repository }}/code-scanning/alerts --jq '.[] | select(.state == "open") | {number, type: "code-scanning", rule: .rule.description, severity: .rule.security_severity_level}'
-               ```
-               Note: A 404 for code-scanning means the feature is not enabled — treat as 0 alerts.
-
-               If scope is "all" or "secret-scanning":
-               ```bash
-               gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '.[] | select(.state == "open") | {number, type: "secret-scanning", secret_type}'
-               ```
+               This file contains JSON with `dependabot`, `code_scanning`, and `secret_scanning` arrays of open alerts.
 
             2. Check which alerts already have associated PRs or issues:
                ```bash
@@ -97,7 +150,7 @@ jobs:
                - **Code scanning**: Analyze and fix if low-risk, create issue if high-risk
                - **Secret scanning**: Always create high-priority issue
 
-            4. Write a summary of actions taken. If any API calls returned permission errors, include that in the summary.
+            4. Write a summary of actions taken.
 
             ## Rules
             - Skip alerts that already have associated PRs or issues
@@ -105,7 +158,6 @@ jobs:
             - Run `make lint` before any commits
             - NEVER log or display actual secret values
             - For secret scanning alerts, ONLY create issues — never attempt fixes
-            - If a security alert API returns a permission error, report it clearly — do not treat it as "0 alerts"
           claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(make *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
 
       - name: Generate summary
@@ -142,24 +194,15 @@ jobs:
             echo ""
 
             echo "### Alert Summary"
-            if dep_count=$(gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1); then
-              :
+            # Read counts from pre-fetched data (avoids GITHUB_TOKEN permission issues)
+            if [ -f /tmp/security-alerts.json ]; then
+              dep_count=$(jq '.dependabot | length' /tmp/security-alerts.json)
+              cs_count=$(jq '.code_scanning | length' /tmp/security-alerts.json)
+              ss_count=$(jq '.secret_scanning | length' /tmp/security-alerts.json)
             else
-              dep_count="error: ${dep_count}"
-            fi
-            cs_output=$(gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1)
-            cs_status=$?
-            if [ "$cs_status" -eq 0 ]; then
-              cs_count="$cs_output"
-            elif printf '%s' "$cs_output" | grep -qE '404|Not Found'; then
-              cs_count="0"
-            else
-              cs_count="error: ${cs_output}"
-            fi
-            if ss_count=$(gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1); then
-              :
-            else
-              ss_count="error: ${ss_count}"
+              dep_count="N/A"
+              cs_count="N/A"
+              ss_count="N/A"
             fi
             echo "- Dependabot: ${dep_count} open"
             echo "- Code scanning: ${cs_count} open"

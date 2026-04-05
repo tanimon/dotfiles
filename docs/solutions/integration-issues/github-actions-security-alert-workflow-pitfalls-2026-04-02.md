@@ -47,17 +47,45 @@ When building a GitHub Actions workflow to automatically handle security alerts 
 
 ## Solution
 
-**For GITHUB_TOKEN limitation:**
+**For GITHUB_TOKEN limitation (updated 2026-04-06):**
 
-For full functionality, create a fine-grained Personal Access Token (PAT) with "Dependabot alerts: Read and write" and "Secret scanning alerts: Read and write" permissions, scoped to the specific repository. Store as a repository secret (e.g., `SECURITY_PAT`).
+Use a dedicated **GitHub App** with `actions/create-github-app-token` to generate short-lived installation tokens with the required permissions. This is preferred over a fine-grained PAT because tokens auto-expire, don't depend on a personal account, and require no manual rotation.
 
-Note: `GITHUB_TOKEN` DOES work for code scanning alerts with `security-events: read/write`. When using `claude-code-action` with OIDC (`claude_code_oauth_token`), the OIDC-exchanged app token may also lack these permissions depending on the GitHub App's installation scope.
-
-| Alert Type | GITHUB_TOKEN works? | Required |
+| Alert Type | GITHUB_TOKEN works? | Recommended token |
 |---|---|---|
-| Dependabot alerts | No | Fine-grained PAT with "Dependabot alerts" permission |
-| Code scanning alerts | Yes | `security-events: read` in workflow permissions |
-| Secret scanning alerts | No | Fine-grained PAT with "Secret scanning alerts" permission |
+| Dependabot alerts | No | GitHub App with `dependabot_alerts: read` |
+| Code scanning alerts | Yes | `github.token` with `security-events: read` |
+| Secret scanning alerts | No | GitHub App with `secret_scanning_alerts: read` |
+
+**Pre-fetch pattern**: Gather alert data in a dedicated step before the `claude-code-action` agent, using the appropriate token per API:
+
+```yaml
+- name: Generate security alerts token
+  id: app-token
+  uses: actions/create-github-app-token@v2
+  with:
+    app-id: ${{ secrets.SECURITY_APP_ID }}
+    private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
+    permissions: >-
+      {"dependabot_alerts": "read", "secret_scanning_alerts": "read"}
+
+- name: Gather security alerts
+  env:
+    APP_TOKEN: ${{ steps.app-token.outputs.token }}
+    GH_DEFAULT_TOKEN: ${{ github.token }}
+  run: |
+    # Use App token for Dependabot/Secret Scanning, github.token for code-scanning
+    dep=$(GH_TOKEN="$APP_TOKEN" gh api repos/.../dependabot/alerts ...)
+    cs=$(GH_TOKEN="$GH_DEFAULT_TOKEN" gh api repos/.../code-scanning/alerts ...)
+    ss=$(GH_TOKEN="$APP_TOKEN" gh api repos/.../secret-scanning/alerts ...)
+    # Write to /tmp/security-alerts.json for the agent to read
+```
+
+The agent reads pre-fetched data from a file instead of calling APIs directly, avoiding token permission issues entirely. Skip the agent step if no alerts are found (cost savings).
+
+**Setup:** Create a GitHub App with `dependabot_alerts: read` + `secret_scanning_alerts: read`, install on the repository, and store App ID and private key as repository secrets (`SECURITY_APP_ID`, `SECURITY_APP_PRIVATE_KEY`).
+
+**Alternative (PAT):** A fine-grained Personal Access Token with "Dependabot alerts: Read" and "Secret scanning alerts: Read" also works but requires manual rotation and is tied to a personal account.
 
 **For silent error suppression (updated 2026-04-06):**
 
@@ -108,7 +136,7 @@ Use shorter timeouts for simpler jobs (e.g., `timeout-minutes: 15` for secret-sc
 
 ## Why This Works
 
-The `GITHUB_TOKEN` limitation is a known GitHub platform constraint (see [community discussion #60612](https://github.com/orgs/community/discussions/60612)). The GitHub Actions App that generates `GITHUB_TOKEN` does not include Dependabot alerts or secret scanning alerts in its permission set. A fine-grained PAT bypasses this by granting permissions directly to the user/app level.
+The `GITHUB_TOKEN` limitation is a known GitHub platform constraint (see [community discussion #60612](https://github.com/orgs/community/discussions/60612)). The GitHub Actions App that generates `GITHUB_TOKEN` does not include Dependabot alerts or secret scanning alerts in its permission set. A dedicated GitHub App bypasses this by providing its own installation token with the required permissions. The `claude-code-action` OIDC-exchanged token also lacks these permissions — the Claude Code GitHub App's installation scope does not include security alert access.
 
 The `2>/dev/null || echo "0"` pattern was originally designed to handle a legitimate case: the code-scanning API returns 404 when the feature is not enabled. However, applying the same pattern to all alert APIs also suppresses 403 (permission denied) errors. When the OIDC-exchanged token or `GITHUB_TOKEN` lacks sufficient permissions, every `gh api` call fails silently, and the `|| echo "0"` fallback makes all counts appear as zero. The agent or shell script sees "0 alerts" for every category and concludes nothing needs processing — a success state that masks complete failure. By removing error suppression from agent prompts and using `2>&1` capture in shell steps, permission problems become visible rather than masquerading as empty results.
 
@@ -117,7 +145,8 @@ The `timeout-minutes` fix prevents resource waste by ensuring jobs fail cleanly 
 ## Prevention
 
 - Always add `timeout-minutes` to jobs that call external AI services (`claude-code-action`, LLM APIs)
-- When designing workflows that access security-related GitHub APIs, verify which endpoints work with `GITHUB_TOKEN` vs require a PAT
+- When designing workflows that access security-related GitHub APIs, verify which endpoints work with `GITHUB_TOKEN` vs require a dedicated GitHub App token
+- **Pre-fetch data with the right token** before the agent step — agents should read from files, not call restricted APIs directly. Use per-API token selection: `github.token` for code-scanning, App token for Dependabot/Secret Scanning
 - **Never use `2>/dev/null || echo "0"` as a universal fallback for API calls** — distinguish between "feature not enabled" (expected 404) and "permission denied" (unexpected 403). Use explicit error reporting so failures are visible to both agents and human reviewers
 - In agent prompts, let API commands run without error suppression and instruct the agent to check for and report errors. Agents are better at handling errors when they can see them
 - In shell scripts (summary steps, diagnostics), capture stderr with `2>&1` and set error state variables rather than discarding errors to `/dev/null`
@@ -132,3 +161,4 @@ The `timeout-minutes` fix prevents resource waste by ensuring jobs fail cleanly 
 - [github-actions-invalid-webhook-event-triggers](./github-actions-invalid-webhook-event-triggers-2026-04-03.md) -- Prior silent failure in the same workflow (invalid triggers)
 - [chezmoi-scripts-deployment-gap-repo-only-vs-deployed](./chezmoi-scripts-deployment-gap-repo-only-vs-deployed-2026-04-04.md) -- Analogous `|| true` error suppression anti-pattern
 - [PR #145](https://github.com/tanimon/dotfiles/pull/145) -- Fix that removed silent error suppression from security-alerts.yml
+- [PR #147](https://github.com/tanimon/dotfiles/pull/147) -- Pre-fetch alerts with GitHub App token to bypass GITHUB_TOKEN limitation
