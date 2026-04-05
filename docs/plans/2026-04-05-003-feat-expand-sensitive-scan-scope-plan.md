@@ -1,7 +1,7 @@
 ---
 title: "feat: Expand sensitive info scan to all repo .md files"
 type: feat
-status: active
+status: completed
 date: 2026-04-05
 ---
 
@@ -36,7 +36,7 @@ Currently, `scan-sensitive-info.sh` defaults to scanning only `docs/**/*.md`. Ma
 
 ## Implementation Units
 
-- [ ] **Unit 1: Expand scan scope in script and Makefile**
+- [x] **Unit 1: Expand scan scope in script and Makefile**
 
 **Goal:** Change default find path from `docs/` to repo root with exclusions
 
@@ -63,7 +63,7 @@ Currently, `scan-sensitive-info.sh` defaults to scanning only `docs/**/*.md`. Ma
 - `make scan-sensitive` runs successfully
 - `make lint` passes
 
-- [ ] **Unit 2: Update documentation**
+- [x] **Unit 2: Update documentation**
 
 **Goal:** Update CLAUDE.md to reflect new scan scope
 
