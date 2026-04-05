@@ -18,7 +18,8 @@ JSON_FILES := $(shell find . -type f -name '*.json' \
 	! -name 'pnpm-lock.yaml' \
 	! -name 'modify_*' 2>/dev/null)
 
-DOCS_MD_FILES := $(shell find ./docs -type f -name '*.md' 2>/dev/null)
+ALL_MD_FILES := $(shell find . \( -path './node_modules' -o -path './.git' \) -prune -o \
+	-type f -name '*.md' -print 2>/dev/null)
 
 ## Run all checks (mirrors CI)
 lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health test-snapshot-instincts test-validate-snapshot check-templates scan-sensitive test-sensitive
@@ -352,13 +353,13 @@ check-templates:
 		echo "WARNING: chezmoi not found, skipping template validation"; \
 	fi
 
-## Scan docs for sensitive information (PII, credentials, absolute paths)
+## Scan all .md files for sensitive information (PII, credentials, absolute paths)
 scan-sensitive:
-	@if [ -n "$(DOCS_MD_FILES)" ]; then \
+	@if [ -n "$(ALL_MD_FILES)" ]; then \
 		echo "Running scan-sensitive-info..."; \
-		bash scripts/scan-sensitive-info.sh $(DOCS_MD_FILES); \
+		bash scripts/scan-sensitive-info.sh $(ALL_MD_FILES); \
 	else \
-		echo "No docs files found"; \
+		echo "No .md files found"; \
 	fi
 
 ## Smoke test scan-sensitive-info.sh

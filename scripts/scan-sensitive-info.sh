@@ -17,7 +17,9 @@ else
     REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
     while IFS= read -r -d '' f; do
         files+=("$f")
-    done < <(find "$REPO_ROOT/docs" -type f -name '*.md' -print0 2>/dev/null)
+    done < <(find "$REPO_ROOT" \
+        \( -type d \( -name node_modules -o -name .git \) -prune \) -o \
+        \( -type f -name '*.md' -print0 \) 2>/dev/null)
 fi
 
 if [[ ${#files[@]} -eq 0 ]]; then
