@@ -1,7 +1,7 @@
 ---
 title: "feat: Auto-promote ECC instincts to harness rules (Closed-Loop v1)"
 type: feat
-status: active
+status: completed
 date: 2026-04-05
 origin: docs/brainstorms/2026-04-04-closed-loop-rule-lifecycle-requirements.md
 ---
@@ -88,7 +88,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 
 ## Implementation Units
 
-- [ ] **Unit 1: Snapshot Script**
+- [x] **Unit 1: Snapshot Script**
 
 **Goal:** Create `scripts/snapshot-instincts.sh` that copies instinct data from local ECC storage to the chezmoi source tree.
 
@@ -128,7 +128,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 
 ---
 
-- [ ] **Unit 2: .chezmoiignore + CI boilerplate**
+- [x] **Unit 2: .chezmoiignore + CI boilerplate**
 
 **Goal:** Exclude snapshot directory from deployment and set up the CI workflow skeleton.
 
@@ -165,7 +165,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 
 ---
 
-- [ ] **Unit 3: Health Gate Logic**
+- [x] **Unit 3: Health Gate Logic**
 
 **Goal:** Implement snapshot validation as a shell script that the CI workflow calls before promotion.
 
@@ -201,7 +201,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 
 ---
 
-- [ ] **Unit 4: Makefile Test Targets**
+- [x] **Unit 4: Makefile Test Targets**
 
 **Goal:** Add test targets for snapshot and validation scripts, integrated with `make lint`.
 
@@ -234,7 +234,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 
 ---
 
-- [ ] **Unit 5: CI Workflow Promotion Prompt**
+- [x] **Unit 5: CI Workflow Promotion Prompt**
 
 **Goal:** Implement the claude-code-action prompt that reads snapshots, filters candidates, and promotes instincts to rules.
 
@@ -285,7 +285,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 
 ---
 
-- [ ] **Unit 6: Documentation Updates**
+- [x] **Unit 6: Documentation Updates**
 
 **Goal:** Update ideation doc and CLAUDE.md with new feature documentation.
 
