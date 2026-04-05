@@ -48,18 +48,125 @@ jobs:
 
       - name: Promote instincts
         if: steps.health.outputs.gate == 'pass'
+        id: promote
         uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1.0.85
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
           prompt: |
-            PLACEHOLDER: promotion prompt will be added in Unit 5
-          claude_args: '--allowedTools "Read,Write,Edit,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(gh pr create:*),Bash(cat *),Bash(find *),Glob,Grep"'
+            You are an instinct-to-rule promotion agent. Your job is to read ECC instinct snapshots, identify promotion candidates, and convert them into permanent harness rules.
+
+            ## 1. Read Instinct Snapshot
+
+            Read all `.md` files in `dot_claude/instinct-snapshots/`. Each file has YAML frontmatter with fields: `id`, `trigger`, `confidence`, `domain`, `scope`, `project_id`, `project_name`. The body contains `## Action` and `## Evidence` sections.
+
+            Also read `dot_claude/instinct-snapshots/metadata.json` for snapshot metadata.
+
+            ## 2. Filter Candidates
+
+            An instinct is a promotion candidate if ALL of these are true:
+            - `confidence >= 0.7`
+            - `domain` is NOT `debugging` (meta-instincts about the observer itself are excluded)
+            - The trigger does not reference "observer", "ECC", or "homunculus" (these are system meta-patterns)
+
+            If no candidates pass, write a step summary saying "0 candidates met promotion threshold" and exit.
+
+            ## 3. Deduplicate Against Existing Rules
+
+            Read all existing rule files:
+            - `.claude/rules/` (project rules in source tree)
+            - `dot_claude/rules/` (global rules deployed to `~/.claude/rules/`)
+            - `CLAUDE.md` (project-level documentation that may contain rule-like guidance)
+
+            For each candidate, assess whether the instinct's trigger and action are **already substantially covered** by an existing rule. Use semantic similarity, not keyword matching. An instinct that says "always validate JSON with jq before piping" is covered if a rule already says "use jq to validate JSON output". Mark covered instincts as "duplicate" and skip them.
+
+            ## 4. Classify Risk Tier
+
+            For each remaining candidate:
+            - **Low-risk** (auto-commit): `domain` is `code-style`, `file-patterns`, `naming`, or `documentation`
+            - **High-risk** (PR required): everything else (`workflow`, `security`, `hooks`, `ci`, `testing`, etc.)
+
+            ## 5. Format Promoted Rule
+
+            Convert each candidate to a rule section. The rule should be appended to the most appropriate existing rule file based on domain:
+            - `code-style` → `.claude/rules/chezmoi-patterns.md` or appropriate file
+            - `file-patterns` → `.claude/rules/chezmoi-patterns.md`
+            - `shell` or `scripts` → `.claude/rules/shell-scripts.md`
+            - Other domains → create new section in the most relevant file, or create a new file if no existing file fits
+
+            Rule format:
+            ```markdown
+            ## <trigger text>
+
+            <action text, expanded into clear actionable guidance>
+
+            _Promoted from ECC instinct `<id>` on <today's date> (confidence: <score>)_
+            ```
+
+            ## 6. Apply Changes
+
+            **IMPORTANT: Collect all changes first, then commit atomically.**
+
+            ### For low-risk promotions:
+            1. Write all rule additions to their target files
+            2. Stage all changed files with `git add`
+            3. Create ONE atomic commit: `chore(harness): auto-promote instincts [<comma-separated ids>]`
+            4. Push to main: `git push origin main`
+
+            ### For high-risk promotions:
+            1. Create a new branch: `git checkout -b feat/auto-promote-<first-id>`
+            2. Write rule additions
+            3. Stage and commit: `chore(harness): auto-promote instincts [<ids>] (review required)`
+            4. Push: `git push -u origin HEAD`
+            5. Create PR:
+               ```
+               gh pr create \
+                 --title "chore(harness): auto-promote high-risk instincts" \
+                 --body "## Promoted Instincts\n\n<list each instinct id, trigger, domain, confidence>\n\n## Risk Assessment\n\nThese instincts touch high-risk domains and require human review.\n\n## Rules Added\n\n<list each new rule section and target file>"
+               ```
+
+            If there are both low-risk and high-risk candidates in the same run:
+            - Apply low-risk first (direct commit to main)
+            - Then create a separate branch and PR for high-risk
+
+            ## 7. Write Step Summary
+
+            Write to `$GITHUB_STEP_SUMMARY`:
+            ```markdown
+            ## Auto-Promote Instincts Results
+
+            **Snapshot:** <instinct_count> instincts, <age> days old
+            **Candidates:** <N> met threshold (confidence >= 0.7)
+            **Duplicates:** <N> already covered by existing rules
+            **Promoted:** <N> (<low-risk count> auto-committed, <high-risk count> via PR)
+            **Skipped:** <N> (reasons)
+
+            ### Promoted Rules
+            | Instinct ID | Domain | Confidence | Target File | Risk |
+            |-------------|--------|------------|-------------|------|
+            | ... | ... | ... | ... | low/high |
+            ```
+
+            ## Rules
+
+            - NEVER modify existing rule content — only APPEND new sections
+            - NEVER edit CLAUDE.md
+            - NEVER delete or modify instinct snapshot files
+            - Always run `make lint` after writing rules to verify no formatting issues
+            - If `make lint` fails, fix the issue before committing
+            - Project instincts only — do NOT look for global instincts outside the snapshot
+          claude_args: '--allowedTools "Read,Write,Edit,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(gh pr create:*),Bash(cat *),Bash(find *),Bash(make lint*),Glob,Grep"'
 
       - name: Generate summary
         if: always() && steps.health.outputs.gate == 'pass'
+        env:
+          PROMOTE_RESULT: ${{ steps.promote.outcome }}
         run: |
-          {
-            echo "## Auto-Promote Instincts Results"
-            echo ""
-            echo "Promotion workflow completed. Check git log for promoted rules."
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PROMOTE_RESULT" = "success" ]; then
+            echo "Auto-promote step completed successfully." >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo ""
+              echo "---"
+              echo "**Note:** Promotion step did not complete successfully (outcome: ${PROMOTE_RESULT})."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -55,7 +55,7 @@ focus: Improve the autonomous evolution harness engineering system, leveraging E
 
 **Confidence:** 85%
 **Complexity:** High
-**Status:** Explored (brainstorm: `docs/brainstorms/2026-04-04-closed-loop-rule-lifecycle-requirements.md`)
+**Status:** Partially implemented (v1) — Plan: `docs/plans/2026-04-05-001-feat-closed-loop-rule-auto-promote-plan.md`
 
 ### 2. Cross-Project Instinct Federation
 
@@ -159,3 +159,4 @@ focus: Improve the autonomous evolution harness engineering system, leveraging E
 - 2026-04-04: Brainstormed #5 (Learning Pipeline Health Monitor). Key finding: ECC observer is broken (prompt file deleted before use). Key decisions: shell script (not command), binary ok/broken for v1 (graduated thresholds deferred), CI gate data produced here but gate logic lives in #1. Requirements doc: `docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md`.
 - 2026-04-04: Implemented #5 (Learning Pipeline Health Monitor). PR #125 merged. Script originally added at `scripts/pipeline-health.sh`; source of truth later migrated to `dot_claude/scripts/executable_pipeline-health.sh` (deployed as `~/.claude/scripts/pipeline-health.sh`). Supports human + JSON output modes, with CI smoke tests in Makefile.
 - 2026-04-04: Brainstormed #3 (Session-Start Deterministic Learning Injection). Key decisions: full replacement of harness-activator.sh with learning-briefing.sh, inject instincts >= 0.6 (not raw observations), ~600 token budget, pipeline-health.sh --json integration. Requirements doc: `docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md`.
+- 2026-04-05: Implemented #1 Phase 1 (Auto-promote). Snapshot script (`scripts/snapshot-instincts.sh`), health gate (`scripts/validate-instinct-snapshot.sh`), weekly CI workflow (`auto-promote.yml`), Makefile test targets. Phase 2 (effectiveness measurement, auto-demotion) deferred until 10+ auto-promoted rules exist. Plan: `docs/plans/2026-04-05-001-feat-closed-loop-rule-auto-promote-plan.md`.
