@@ -14,9 +14,15 @@ claude() {
 _claude_safehouse() {
   local -a args=()
   local config="${XDG_CONFIG_HOME:-$HOME/.config}/safehouse/config"
+  local dir_path
   if [[ -f "$config" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -z "$line" || "$line" == \#* ]] && continue
+      # Skip --add-dirs / --add-dirs-ro entries whose path does not exist
+      if [[ "$line" == --add-dirs=* || "$line" == --add-dirs-ro=* ]]; then
+        dir_path="${line#*=}"
+        [[ ! -e "$dir_path" ]] && continue
+      fi
       args+=("$line")
     done < "$config"
   fi
