@@ -1,8 +1,6 @@
 tap "aws/tap"
 tap "coderabbitai/tap"
 tap "eugene1g/safehouse"
-tap "homebrew/bundle"
-tap "homebrew/services"
 tap "k1low/tap"
 tap "manaflow-ai/cmux"
 tap "theboredteam/boring-notch"
