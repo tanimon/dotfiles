@@ -57,12 +57,21 @@ jobs:
             echo "alert_type=all" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate security alerts token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.SECURITY_APP_ID }} # zizmor: ignore[secrets-outside-env]
+          private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env]
+          permissions: >-
+            {"dependabot_alerts": "read", "secret_scanning_alerts": "read"}
+
       - name: Gather security alerts
         id: alerts
         env:
-          # Fine-grained PAT with "Dependabot alerts: Read" and "Secret scanning alerts: Read"
+          # GitHub App token with dependabot_alerts + secret_scanning_alerts read permissions
           # GITHUB_TOKEN cannot access these APIs (known platform limitation)
-          GH_TOKEN: ${{ secrets.SECURITY_ALERTS_TOKEN || github.token }} # zizmor: ignore[secrets-outside-env]
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ALERT_SCOPE: ${{ steps.scope.outputs.alert_type }}
         run: |
           scope="$ALERT_SCOPE"
