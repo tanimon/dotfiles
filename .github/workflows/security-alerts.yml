@@ -67,23 +67,22 @@ jobs:
 
             ## Instructions
 
-            1. Gather all open alerts based on the scope (${{ steps.scope.outputs.alert_type }}):
+            1. Gather all open alerts based on the scope (${{ steps.scope.outputs.alert_type }}).
+               Run each command separately and check for errors. If an API returns an error (e.g., 403 or 404), report it — do NOT silently skip.
 
                If scope is "all" or "dependabot":
                ```bash
-               gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0"
                gh api repos/${{ github.repository }}/dependabot/alerts --jq '.[] | select(.state == "open") | {number, type: "dependabot", package: .dependency.package.name, severity: .security_vulnerability.severity}'
                ```
 
                If scope is "all" or "code-scanning":
                ```bash
-               gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0"
                gh api repos/${{ github.repository }}/code-scanning/alerts --jq '.[] | select(.state == "open") | {number, type: "code-scanning", rule: .rule.description, severity: .rule.security_severity_level}'
                ```
+               Note: A 404 for code-scanning means the feature is not enabled — treat as 0 alerts.
 
                If scope is "all" or "secret-scanning":
                ```bash
-               gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0"
                gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '.[] | select(.state == "open") | {number, type: "secret-scanning", secret_type}'
                ```
 
@@ -98,7 +97,7 @@ jobs:
                - **Code scanning**: Analyze and fix if low-risk, create issue if high-risk
                - **Secret scanning**: Always create high-priority issue
 
-            4. Write a summary of actions taken.
+            4. Write a summary of actions taken. If any API calls returned permission errors, include that in the summary.
 
             ## Rules
             - Skip alerts that already have associated PRs or issues
@@ -106,6 +105,7 @@ jobs:
             - Run `make lint` before any commits
             - NEVER log or display actual secret values
             - For secret scanning alerts, ONLY create issues — never attempt fixes
+            - If a security alert API returns a permission error, report it clearly — do not treat it as "0 alerts"
           claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(make *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
 
       - name: Generate summary
@@ -142,9 +142,9 @@ jobs:
             echo ""
 
             echo "### Alert Summary"
-            dep_count=$(gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
-            cs_count=$(gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
-            ss_count=$(gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+            dep_count=$(gh api repos/${{ github.repository }}/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1) || dep_count="error"
+            cs_count=$(gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1) || cs_count="N/A"
+            ss_count=$(gh api repos/${{ github.repository }}/secret-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>&1) || ss_count="error"
             echo "- Dependabot: ${dep_count} open"
             echo "- Code scanning: ${cs_count} open"
             echo "- Secret scanning: ${ss_count} open"
