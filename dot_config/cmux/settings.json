@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+  "schemaVersion": 1,
+  "app": {
+    "language": "system",
+    "appearance": "system",
+    "reorderOnNotification": false,
+    "sendAnonymousTelemetry": false
+  },
+  "automation": {
+    "claudeCodeIntegration": true
+  },
+  "browser": {
+    "urlsToAlwaysOpenExternally": ["github.com"]
+  },
+  "notifications": {
+    "sound": "Blow"
+  },
+  "sidebar": {
+    "openPullRequestLinksInCmuxBrowser": false
+  }
+}
