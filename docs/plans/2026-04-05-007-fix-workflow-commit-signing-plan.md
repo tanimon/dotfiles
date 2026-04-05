@@ -78,7 +78,7 @@ The `harness-auto-remediate.yml` workflow successfully creates PRs (e.g., #139),
 - `harness-auto-remediate.yml`: 1 step (line 68)
 - `auto-promote.yml`: 1 step (line 51)
 - `security-alerts.yml`: 1 step (line 60)
-- `claude.yml`: 2 steps — both review and non-review modes (lines 59, 68). Review mode doesn't create commits but adding signing is harmless and keeps consistency
+- `claude.yml`: 1 step — non-review mode only (line 59). Review mode only posts comments and does not create commits, so signing is not needed
 
 **Patterns to follow:**
 - Existing `with:` block parameter style in each workflow
@@ -90,7 +90,7 @@ The `harness-auto-remediate.yml` workflow successfully creates PRs (e.g., #139),
 
 **Verification:**
 - `make actionlint` passes
-- All 4 workflow files include `use_commit_signing: true` in their `claude-code-action` steps
+- All 4 workflow files include `use_commit_signing: true` in their commit-creating `claude-code-action` steps (claude.yml review step excluded — it only posts comments)
 
 ## System-Wide Impact
 
