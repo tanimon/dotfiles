@@ -82,8 +82,8 @@ jobs:
             ## 4. Classify Risk Tier
 
             For each remaining candidate:
-            - **Low-risk** (auto-commit): `domain` is `code-style`, `file-patterns`, `naming`, or `documentation`
-            - **High-risk** (PR required): everything else (`workflow`, `security`, `hooks`, `ci`, `testing`, etc.)
+            - **Low-risk** (auto-merge PR): `domain` is `code-style`, `file-patterns`, `naming`, or `documentation`
+            - **High-risk** (PR with review required): everything else (`workflow`, `security`, `hooks`, `ci`, `testing`, etc.)
 
             ## 5. Format Promoted Rule
 
@@ -106,29 +106,37 @@ jobs:
 
             **IMPORTANT: Collect all changes first, then commit atomically.**
 
+            **All promotions go through PRs** (direct push to main is not allowed).
+
             ### For low-risk promotions:
-            1. Write all rule additions to their target files
-            2. Run `make lint` — if it fails, fix the issue and re-run. Do NOT proceed to git operations until lint passes.
-            3. Stage all changed files with `git add`
-            4. Create ONE atomic commit: `chore(harness): auto-promote instincts [<comma-separated ids>]`
-            5. Push to main: `git push origin main`
+            1. Create a branch: `git checkout -b chore/auto-promote-low-risk-<first-id>`
+            2. Write all rule additions to their target files
+            3. Run `make lint` — if it fails, fix the issue and re-run. Do NOT proceed to git operations until lint passes.
+            4. Stage and commit: `chore(harness): auto-promote instincts [<comma-separated ids>]`
+            5. Push: `git push -u origin HEAD`
+            6. Create PR with auto-merge label:
+               ```
+               gh pr create \
+                 --title "chore(harness): auto-promote low-risk instincts" \
+                 --body "## Promoted Instincts\n\n<list each instinct id, trigger, domain, confidence>\n\n## Risk Assessment\n\nLow-risk domains (code-style, file-patterns, naming, documentation). Auto-merge eligible.\n\n## Rules Added\n\n<list each new rule section and target file>"
+               ```
 
             ### For high-risk promotions:
-            1. Create a new branch: `git checkout -b feat/auto-promote-<first-id>`
+            1. Create a branch: `git checkout -b feat/auto-promote-<first-id>`
             2. Write rule additions
             3. Run `make lint` — if it fails, fix the issue and re-run. Do NOT proceed to git operations until lint passes.
             4. Stage and commit: `chore(harness): auto-promote instincts [<ids>] (review required)`
-            4. Push: `git push -u origin HEAD`
-            5. Create PR:
+            5. Push: `git push -u origin HEAD`
+            6. Create PR:
                ```
                gh pr create \
                  --title "chore(harness): auto-promote high-risk instincts" \
-                 --body "## Promoted Instincts\n\n<list each instinct id, trigger, domain, confidence>\n\n## Risk Assessment\n\nThese instincts touch high-risk domains and require human review.\n\n## Rules Added\n\n<list each new rule section and target file>"
+                 --body "## Promoted Instincts\n\n<list each instinct id, trigger, domain, confidence>\n\n## Risk Assessment\n\nHigh-risk domains require human review before merge.\n\n## Rules Added\n\n<list each new rule section and target file>"
                ```
 
             If there are both low-risk and high-risk candidates in the same run:
-            - Apply low-risk first (direct commit to main)
-            - Then create a separate branch and PR for high-risk
+            - Create one PR for low-risk promotions
+            - Create a separate PR for high-risk promotions
 
             ## 7. Write Step Summary
 
@@ -139,7 +147,7 @@ jobs:
             **Snapshot:** <instinct_count> instincts, <age> days old
             **Candidates:** <N> met threshold (confidence >= 0.7)
             **Duplicates:** <N> already covered by existing rules
-            **Promoted:** <N> (<low-risk count> auto-committed, <high-risk count> via PR)
+            **Promoted:** <N> (<low-risk count> via low-risk PR, <high-risk count> via high-risk PR)
             **Skipped:** <N> (reasons)
 
             ### Promoted Rules
@@ -155,6 +163,7 @@ jobs:
             - NEVER delete or modify instinct snapshot files
             - Always run `make lint` after writing rules to verify no formatting issues
             - If `make lint` fails, fix the issue before committing
+            - NEVER push directly to main — main branch is protected. Always create a feature branch and PR.
             - Project instincts only — do NOT look for global instincts outside the snapshot
           claude_args: '--allowedTools "Read,Write,Edit,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git checkout:*),Bash(gh pr create:*),Bash(cat dot_claude/instinct-snapshots/*),Bash(find dot_claude/instinct-snapshots*),Bash(make lint),Glob,Grep"'
 

@@ -23,7 +23,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 - R3. Weekly CI identifies candidates (confidence >= 0.7, population >= 5)
 - R4. Dedup against existing rules + domain filtering (exclude debugging meta-instincts)
 - R5. Candidates go through propose→validate→apply pipeline (non-interactive CI)
-- R6. Risk tiering: `code-style`/`file-patterns`/`naming`/`documentation` auto-apply; others create PR
+- R6. Risk tiering: all promotions via PR. `code-style`/`file-patterns`/`naming`/`documentation` → low-risk PR (auto-merge eligible); others → high-risk PR (review required)
 - R7. Rule format: `## <trigger>` section with `_Promoted from ECC instinct <id>_` metadata
 - R16. `$GITHUB_STEP_SUMMARY` with promotion stats
 - R18. Health gate on snapshot data (freshness, count >= 5, format validation)
@@ -65,7 +65,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 - **New workflow (not extending harness-analysis.yml)** — Different permission requirements (`contents: write` vs `read`), different trigger semantics (schedule + manual dispatch, not issue-labeled). Follows separation of concerns.
 - **LLM-based dedup via claude-code-action** — Instinct triggers are free-text natural language; rules are markdown sections. Deterministic keyword matching would be fragile. The claude-code-action prompt reads both snapshot and existing rules, then judges similarity. This mirrors the manual `/promote-instincts` approach (Step 2: search for matching patterns).
 - **claude-code-action inline prompt** — Same pattern as `harness-auto-remediate.yml`. The entire promotion pipeline (filter → dedup → classify risk → format rule → apply) is embedded as a structured prompt. **Generator-evaluator compromise**: true separation (two independent LLM sessions) is ideal but impractical in a single workflow step. The v1 compromise: the LLM validates its own proposals within the session, with high-risk promotions always going through PR review as the real human-in-the-loop gate. This is acknowledged as weaker than true separation but acceptable for a system that only adds rules (never modifies existing behavior).
-- **Atomic commit for promoted rules** — All promotions within a single CI run are collected first, then committed in one atomic operation. This prevents partial state if claude-code-action fails mid-execution.
+- **All promotions via PR (no direct push to main)** — Main branch is protected with a ruleset. Both low-risk and high-risk promotions create PRs. Low-risk PRs are auto-merge eligible; high-risk PRs require human approval. All promotions within a single CI run are collected first, then committed atomically to prevent partial state.
 - **Snapshot location: `dot_claude/instinct-snapshots/`** — Under `dot_claude/` for consistency with other Claude-related config. Added to `.chezmoiignore` (target path `.claude/instinct-snapshots`) to prevent deployment to `~/`.
 - **Snapshot is a manual local step** — The snapshot script must be run locally before CI can process instincts. This is intentional (same as marketplace/extension sync), documented in CLAUDE.md, and bounded by the 14-day freshness gate. A stale snapshot causes CI to skip (not produce wrong results).
 - **Project instincts only in v1** — Global instincts at `~/.claude/homunculus/instincts/personal/` are not included in the snapshot. Manual `/promote-instincts` continues to handle global instincts.
@@ -252,7 +252,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
   2. Filter: confidence >= 0.7, exclude domain=debugging with observer-referencing triggers
   3. Read existing rules in `.claude/rules/` and `dot_claude/rules/` for dedup
   4. For each candidate: assess similarity to existing rules (LLM judgment, not keyword matching)
-  5. Classify risk: domain `code-style`, `file-patterns`, `naming`, or `documentation` → low-risk (auto-apply); others → high-risk (PR)
+  5. Classify risk: domain `code-style`, `file-patterns`, `naming`, or `documentation` → low-risk PR (auto-merge eligible); others → high-risk PR (review required)
   6. Format promoted rule: `## <trigger>` section with metadata comment (R7 format)
   7. Write to appropriate rule file (project `.claude/rules/` or global `dot_claude/rules/common/`)
   8. Collect all promotion results (rule text, target file, risk tier) without committing yet
@@ -326,7 +326,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 | LLM-based dedup is non-deterministic | Prompt includes explicit dedup criteria; high-risk candidates always go through PR review |
 | Snapshot becomes stale (user forgets to update) | 14-day freshness check; workflow logs warning in step summary |
 | claude-code-action hangs or produces unexpected output | 30-minute timeout; concurrency group prevents parallel runs |
-| Auto-promoted rule is low quality | High-risk promotions go through PR review (human gate); low-risk auto-commits are identifiable by commit message for revert if needed |
+| Auto-promoted rule is low quality | All promotions go through PR review; high-risk PRs require explicit approval; low-risk PRs are auto-merge eligible but still visible for review |
 | Partial state on claude-code-action failure | Atomic commit pattern: all promotions collected first, committed once at end |
 
 ## Sources & References

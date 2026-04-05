@@ -70,7 +70,7 @@ The system is delivered in two phases to reduce risk and validate assumptions wi
 - R3. A weekly CI workflow reads the instinct snapshot and identifies candidates with confidence >= 0.7. A minimum population gate of 5+ distinct instincts is required before any promotion runs (prevents premature promotion from sparse data).
 - R4. Each candidate is checked for duplication against existing rules before entering the proposal pipeline. Domain-based filtering excludes meta/debugging instincts (domain `debugging` with triggers referencing the observer itself) from promotion candidates.
 - R5. Candidates that pass deduplication are fed into the existing propose→validate→apply pipeline, preserving generator-evaluator separation. The pipeline must support non-interactive batch invocation from CI (confirm during planning).
-- R6. Risk tiering is preserved: documentation-like rules auto-apply; behavioral rules create a PR for review. Classification criteria: instincts with domain `code-style` or `file-patterns` are documentation-like; all others are behavioral.
+- R6. Risk tiering is preserved: all promotions create PRs (main branch is protected). Documentation-like rules (`code-style`, `file-patterns`, `naming`, `documentation`) create auto-merge eligible PRs; behavioral rules create PRs requiring human review.
 - R7. Promoted rules follow the existing rule format: a `## <trigger>` section within the appropriate rule file (project: `.claude/rules/`, global: `dot_claude/rules/common/`), with metadata comment `_Promoted from ECC instinct <id> on <date> (confidence: <score>)_`. Structured YAML frontmatter is deferred until the system handles 10+ auto-promoted rules.
 
 **Observability (v1)**
