@@ -26,6 +26,7 @@ jobs:
       pull-requests: write
       issues: write
       security-events: read
+      id-token: write
     concurrency:
       group: security-sweep
       cancel-in-progress: false
@@ -60,6 +61,7 @@ jobs:
         uses: anthropics/claude-code-action@58dbe8ed6879f0d3b02ac295b20d5fdfe7733e0c # v1.0.85
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
+          use_commit_signing: true
           prompt: |
             Run a sweep of all open security alerts in this repository. Process alert type: ${{ steps.scope.outputs.alert_type }}
 
