@@ -11,7 +11,7 @@ if [ ! -d "$GSTACK_DIR" ]; then
     exit 0
 fi
 
-command -v bun >/dev/null 2>&1 || { echo "WARNING: bun not found, skipping gstack setup"; exit 0; }
+command -v bun >/dev/null 2>&1 || { echo "WARNING: bun not found, skipping gstack setup. Run 'mise install && chezmoi apply' to enable."; exit 0; }
 
 echo "Running gstack setup..."
 cd "$GSTACK_DIR"
