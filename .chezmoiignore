@@ -10,6 +10,9 @@ windows/
 *.sh
 .config/gh/extensions.txt
 
+# gstack runtime state
+.gstack
+
 # ~/.claude/ auto-managed (safeguard against accidental bulk add)
 .claude/projects
 .claude/plans

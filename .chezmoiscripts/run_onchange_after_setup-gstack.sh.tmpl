@@ -1,0 +1,19 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# chezmoiexternal hash: {{ include ".chezmoiexternal.toml" | sha256sum }}
+
+GSTACK_DIR="{{ .chezmoi.homeDir }}/.claude/skills/gstack"
+
+if [ ! -d "$GSTACK_DIR" ]; then
+    echo "WARNING: gstack not found at $GSTACK_DIR, skipping"
+    exit 0
+fi
+
+command -v bun >/dev/null 2>&1 || { echo "WARNING: bun not found, skipping gstack setup"; exit 0; }
+
+echo "Running gstack setup..."
+cd "$GSTACK_DIR"
+./setup --no-team
+{{ end -}}
