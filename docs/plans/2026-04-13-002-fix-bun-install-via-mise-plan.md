@@ -23,14 +23,14 @@ PR #162 (gstack skills) added `brew "bun"` to the Brewfile, but bun has never be
 ## Scope Boundaries
 
 - The `~/.bun` sandbox allowlist in `dot_config/safehouse/config.tmpl` stays as-is — bun's runtime cache directory may still use `~/.bun` regardless of install method
-- No changes to `run_onchange_after_setup-gstack.sh.tmpl` — the `command -v bun` guard works with mise shims
+- The `command -v bun` guard in `run_onchange_after_setup-gstack.sh.tmpl` works with mise shims; the only change is improving the warning message with a remediation hint
 
 ## Context & Research
 
 ### Relevant Code and Patterns
 
 - `dot_config/mise/config.toml` — already manages `node = "24"`, `pnpm = "10.33.0"`, `prek = "latest"`
-- `darwin/Brewfile` — line 11 has `brew "bun"` (broken)
+- `darwin/Brewfile` — has `brew "bun"` (broken, not in Homebrew core)
 - `.chezmoiscripts/run_onchange_after_setup-gstack.sh.tmpl` — uses `command -v bun` guard (works with mise shims)
 - `dot_config/safehouse/config.tmpl` line 17 — `runtime-managers.sb` profile covers `~/.local/share/mise` (rw), so mise-installed bun is accessible in sandbox
 
