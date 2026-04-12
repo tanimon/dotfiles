@@ -71,7 +71,7 @@ For gstack specifically, use `./setup --no-team` to suppress the SessionStart au
 
 Complete pattern for adding a Claude Code skill repo that requires compilation:
 
-1. **Brewfile**: Add build dependency (e.g., `brew "bun"`)
+1. **mise config**: Add build dependency to `dot_config/mise/config.toml` (e.g., `bun = "latest"` under `[tools]`). JS runtimes/toolchains go in mise; macOS system tools not managed by a version manager go in `darwin/Brewfile`
 2. **`.chezmoiexternal.toml`**: Archive entry with SHA pin and Renovate comment
 
    ```toml
