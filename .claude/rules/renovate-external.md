@@ -9,7 +9,7 @@ Rules for managing external dependencies in `.chezmoiexternal.toml` with Renovat
 
 ## Renovate Contract
 
-All external entries use `type = "archive"` with SHA-embedded GitHub archive URLs. The regex custom manager in `renovate.json` requires these two lines to be **strictly adjacent in order** — no blank lines, no reordering:
+All external entries use `type = "archive"` with SHA-embedded GitHub archive URLs. The regex custom manager in `renovate.json` requires these two lines to appear **in order with no intervening keys or content** — only whitespace between them:
 
 ```toml
   url = "https://github.com/owner/repo/archive/full-sha-here.tar.gz"

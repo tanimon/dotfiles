@@ -112,7 +112,7 @@ Hash-tracking comments like `# hash: {{ include "file" | sha256sum }}` **only wo
 
 ### 2. Renovate regex requires strict line adjacency
 
-The TOML entries must keep the `url` line (containing the SHA) and `# renovate: branch=` comment strictly adjacent with no intervening blank lines or other keys. TOML doesn't mandate key ordering, so reordering silently breaks Renovate matching. Document this contract in CLAUDE.md.
+The TOML entries must keep the `url` line (containing the SHA) and `# renovate: branch=` comment in order with no intervening keys or content (the regex uses `\s+`, which tolerates blank lines but not interleaved TOML keys). TOML doesn't mandate key ordering, so reordering silently breaks Renovate matching. Document this contract in CLAUDE.md.
 
 ### 3. `refreshPeriod` + archive URL interaction
 
