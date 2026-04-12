@@ -27,11 +27,13 @@
 --enable=shell-init
 --enable=clipboard
 --enable=process-control
+--enable=playwright-chrome
 
 # --- Working directories (read-write) ---
 --add-dirs={{ .chezmoi.homeDir }}/ghq
 --add-dirs={{ .chezmoi.homeDir }}/.cache
 --add-dirs={{ .chezmoi.homeDir }}/.codex
+--add-dirs={{ .chezmoi.homeDir }}/.gstack
 
 # --- Binaries and tools (read-only) ---
 # ~/.local/bin has claude symlink (covered by claude-code.sb as literal)

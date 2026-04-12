@@ -28,6 +28,10 @@
 {{ .chezmoi.homeDir }}/.claude
 # Codex CLI config, credentials, skills, sessions, cache (codex MCP server)
 {{ .chezmoi.homeDir }}/.codex
+# gstack runtime state (browser data, caches, session artifacts)
+{{ .chezmoi.homeDir }}/.gstack
+# Playwright Chromium binary cache (needed for gstack /browse skill)
+{{ .chezmoi.homeDir }}/Library/Caches/ms-playwright:ro
 # chezmoi config and source directory (needed for chezmoi diff, managed, data, apply --dry-run)
 {{ .chezmoi.homeDir }}/.config/chezmoi:ro
 {{ .chezmoi.homeDir }}/.local/share/chezmoi:ro
