@@ -94,7 +94,7 @@ Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache
 
 ### `.chezmoiexternal.toml`
 
-Pulls external git repos (e.g., Claudeception skill, cco) into the managed tree with auto-refresh. Each entry is pinned to a commit SHA via `ref` for supply-chain safety. Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved.
+Pulls external archives (e.g., Claudeception skill, cco) into the managed tree with auto-refresh. Each entry uses `type = "archive"` with the commit SHA embedded in the GitHub archive URL for supply-chain safety. Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved.
 
 ### Directory Layout
 

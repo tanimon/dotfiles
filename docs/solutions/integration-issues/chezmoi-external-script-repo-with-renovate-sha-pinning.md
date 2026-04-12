@@ -47,14 +47,16 @@ The mise `github:` backend **only works with repos that have GitHub Releases wit
 
 ```toml
 [".local/share/cco"]
-  type = "git-repo"
-  url = "https://github.com/nikvdp/cco.git"
+  type = "archive"
+  url = "https://github.com/nikvdp/cco/archive/0b7265e4d629328a558364d86bb6a7f9a16b050b.tar.gz"
   # renovate: branch=master
-  ref = "0b7265e4d629328a558364d86bb6a7f9a16b050b"
+  stripComponents = 1
   refreshPeriod = "168h"
 ```
 
-The `ref` field pins to a specific commit SHA for supply-chain safety.
+The commit SHA is embedded in the archive URL for supply-chain safety. `stripComponents = 1` strips the archive's top-level directory so files land directly in the target path.
+
+> **Note:** An earlier version used `type = "git-repo"` with a `ref` field. The `ref` field was never a valid chezmoi field for `git-repo` entries — it was silently ignored. chezmoi v2.70.1 introduced strict TOML parsing that rejects unknown fields, breaking this pattern. `type = "archive"` is the correct approach for SHA pinning.
 
 ### 2. Symlink script: `run_onchange_after_link-cco.sh.tmpl`
 
@@ -87,7 +89,7 @@ ln -sf "$CCO_BIN" "$LINK"
     "customType": "regex",
     "managerFilePatterns": ["/\\.chezmoiexternal\\.toml$/"],
     "matchStrings": [
-      "url\\s*=\\s*\"https://github\\.com/(?<depName>[^\"]+?)(?:\\.git)?\"\\s+#\\s*renovate:\\s*branch=(?<currentValue>\\S+)\\s+ref\\s*=\\s*\"(?<currentDigest>[a-f0-9]{40})\""
+      "url\\s*=\\s*\"https://github\\.com/(?<depName>[^/]+/[^/]+)/archive/(?<currentDigest>[a-f0-9]{40})\\.tar\\.gz\"\\s+#\\s*renovate:\\s*branch=(?<currentValue>\\S+)"
     ],
     "datasourceTemplate": "git-refs",
     "packageNameTemplate": "https://github.com/{{{depName}}}"
@@ -96,9 +98,9 @@ ln -sf "$CCO_BIN" "$LINK"
 ```
 
 The regex extracts:
-- `depName` from the `url` field (e.g., `nikvdp/cco`)
+- `depName` from the archive URL path (e.g., `nikvdp/cco`)
+- `currentDigest` (commit SHA) from the archive URL path
 - `currentValue` (branch name) from the `# renovate: branch=` comment
-- `currentDigest` (commit SHA) from the `ref` field
 
 Per-entry `# renovate: branch=` comments handle repos with different default branches (e.g., `main` vs `master`).
 
@@ -110,11 +112,11 @@ Hash-tracking comments like `# hash: {{ include "file" | sha256sum }}` **only wo
 
 ### 2. Renovate regex requires strict line adjacency
 
-The TOML entries must keep `url`, `# renovate: branch=`, and `ref` lines strictly adjacent with no intervening blank lines or other keys. TOML doesn't mandate key ordering, so reordering silently breaks Renovate matching. Document this contract in CLAUDE.md.
+The TOML entries must keep the `url` line (containing the SHA) and `# renovate: branch=` comment strictly adjacent with no intervening blank lines or other keys. TOML doesn't mandate key ordering, so reordering silently breaks Renovate matching. Document this contract in CLAUDE.md.
 
-### 3. `refreshPeriod` + `ref` interaction
+### 3. `refreshPeriod` + archive URL interaction
 
-When `ref` is set, `refreshPeriod` still controls how often chezmoi fetches — but since the ref is fixed, fetches are effectively no-ops until Renovate updates the SHA.
+`refreshPeriod` controls how often chezmoi re-downloads the archive. Since the SHA is embedded in the URL, re-downloads are effectively no-ops until Renovate updates the SHA in the URL.
 
 ### 4. Shebang consistency matters
 
@@ -122,7 +124,7 @@ Use `#!/usr/bin/env bash` (not `#!/bin/bash`) to match the repo convention. Caug
 
 ## Prevention
 
-- When adding new entries to `.chezmoiexternal.toml`, always include `ref` and `# renovate: branch=` comment
+- When adding new entries to `.chezmoiexternal.toml`, use `type = "archive"` with SHA-embedded URL and `# renovate: branch=` comment
 - Always use `run_onchange_after_` (not `run_after_`) for hash-tracked scripts
 - Keep the Renovate contract documented in CLAUDE.md
 - Verify Renovate `automerge` is disabled to maintain human review of SHA updates
