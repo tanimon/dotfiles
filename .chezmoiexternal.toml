@@ -1,13 +1,13 @@
 [".claude/skills/claudeception"]
-  type = "git-repo"
-  url = "https://github.com/blader/Claudeception.git"
+  type = "archive"
+  url = "https://github.com/blader/Claudeception/archive/62dbb91d1183a866b5cf40079265c825b2695843.tar.gz"
   # renovate: branch=main
-  ref = "62dbb91d1183a866b5cf40079265c825b2695843"
+  stripComponents = 1
   refreshPeriod = "168h"
 
 [".local/share/cco"]
-  type = "git-repo"
-  url = "https://github.com/nikvdp/cco.git"
+  type = "archive"
+  url = "https://github.com/nikvdp/cco/archive/42fc44e5ecc0e26ef9068743b52485ebbcd54cf9.tar.gz"
   # renovate: branch=master
-  ref = "42fc44e5ecc0e26ef9068743b52485ebbcd54cf9"
+  stripComponents = 1
   refreshPeriod = "168h"

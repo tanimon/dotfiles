@@ -6,7 +6,7 @@
       "customType": "regex",
       "managerFilePatterns": ["/\\.chezmoiexternal\\.toml$/"],
       "matchStrings": [
-        "url\\s*=\\s*\"https://github\\.com/(?<depName>[^\"]+?)(?:\\.git)?\"\\s+#\\s*renovate:\\s*branch=(?<currentValue>\\S+)\\s+ref\\s*=\\s*\"(?<currentDigest>[a-f0-9]{40})\""
+        "url\\s*=\\s*\"https://github\\.com/(?<depName>[^/]+/[^/]+)/archive/(?<currentDigest>[a-f0-9]{40})\\.tar\\.gz\"\\s+#\\s*renovate:\\s*branch=(?<currentValue>\\S+)"
       ],
       "datasourceTemplate": "git-refs",
       "packageNameTemplate": "https://github.com/{{{depName}}}"

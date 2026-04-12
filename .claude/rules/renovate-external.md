@@ -1,5 +1,5 @@
 ---
-date: 2026-03-29
+date: 2026-04-12
 trigger: "Agent breaks Renovate adjacency contract in .chezmoiexternal.toml"
 ---
 
@@ -9,22 +9,25 @@ Rules for managing external dependencies in `.chezmoiexternal.toml` with Renovat
 
 ## Renovate Contract
 
-The regex custom manager in `renovate.json` requires these three lines to be **strictly adjacent in order** — no blank lines, no reordering:
+All external entries use `type = "archive"` with SHA-embedded GitHub archive URLs. The regex custom manager in `renovate.json` requires these two lines to appear **in order with no intervening keys or content** — only whitespace between them:
 
 ```toml
-  url = "https://github.com/owner/repo.git"
+  url = "https://github.com/owner/repo/archive/full-sha-here.tar.gz"
   # renovate: branch=main
-  ref = "full-sha-here"
 ```
 
 Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
+**Why archive, not git-repo:** chezmoi's `git-repo` type has no `ref` field — there is no way to pin a `git-repo` entry to a specific commit. `type = "archive"` embeds the SHA in the URL, achieving actual supply-chain pinning. chezmoi v2.70.1+ enforces strict TOML parsing and rejects unknown fields.
+
 ## Adding a New External Entry
 
-1. Add the TOML block with `url`, `# renovate: branch=<branch>`, and `ref` in order
-2. Pin `ref` to a full commit SHA (not a tag or branch name)
-3. Include `refreshPeriod` for chezmoi's own refresh cycle
-4. Verify Renovate detects the entry: check the Renovate dashboard or dry-run
+1. Add the TOML block with `type = "archive"`
+2. Use a GitHub archive URL embedding the full commit SHA: `https://github.com/owner/repo/archive/<sha>.tar.gz`
+3. Add `# renovate: branch=<branch>` immediately after the `url` line
+4. Add `stripComponents = 1` to strip the archive's top-level directory
+5. Include `refreshPeriod` for chezmoi's own refresh cycle
+6. Verify Renovate detects the entry: check the Renovate dashboard or dry-run
 
 ## Existing Entries
 
