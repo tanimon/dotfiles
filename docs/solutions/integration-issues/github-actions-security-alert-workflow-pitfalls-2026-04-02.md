@@ -1,7 +1,7 @@
 ---
 title: GitHub Actions security alert workflow pitfalls
 date: 2026-04-02
-last_updated: 2026-04-06
+last_updated: 2026-04-13
 category: integration-issues
 module: github-actions
 problem_type: integration_issue
@@ -60,14 +60,27 @@ Use a dedicated **GitHub App** with `actions/create-github-app-token` to generat
 **Pre-fetch pattern**: Gather alert data in a dedicated step before the `claude-code-action` agent, using the appropriate token per API:
 
 ```yaml
+- name: Check GitHub App availability
+  id: check-app
+  env:
+    APP_ID: ${{ secrets.SECURITY_APP_ID }}
+  run: |
+    if [ -n "$APP_ID" ]; then
+      echo "available=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "available=false" >> "$GITHUB_OUTPUT"
+    fi
+
 - name: Generate security alerts token
+  if: steps.check-app.outputs.available == 'true'
   id: app-token
-  uses: actions/create-github-app-token@v2
+  uses: actions/create-github-app-token@v3
   with:
     app-id: ${{ secrets.SECURITY_APP_ID }}
     private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
-    permissions: >-
-      {"dependabot_alerts": "read", "secret_scanning_alerts": "read"}
+    # v3 uses individual permission-* inputs (not a permissions JSON blob)
+    permission-vulnerability-alerts: read
+    permission-secret-scanning-alerts: read
 
 - name: Gather security alerts
   env:
@@ -75,11 +88,14 @@ Use a dedicated **GitHub App** with `actions/create-github-app-token` to generat
     GH_DEFAULT_TOKEN: ${{ github.token }}
   run: |
     # Use App token for Dependabot/Secret Scanning, github.token for code-scanning
+    # When APP_TOKEN is empty (secrets not configured), skip restricted APIs gracefully
     dep=$(GH_TOKEN="$APP_TOKEN" gh api repos/.../dependabot/alerts ...)
     cs=$(GH_TOKEN="$GH_DEFAULT_TOKEN" gh api repos/.../code-scanning/alerts ...)
     ss=$(GH_TOKEN="$APP_TOKEN" gh api repos/.../secret-scanning/alerts ...)
     # Write to /tmp/security-alerts.json for the agent to read
 ```
+
+**Note on `create-github-app-token` versions:** v2 accepted a `permissions` JSON input, but v3 replaced it with individual `permission-*` inputs (e.g., `permission-vulnerability-alerts: read`). Using the old `permissions` JSON in v3 produces a warning and the permissions are silently ignored.
 
 The agent reads pre-fetched data from a file instead of calling APIs directly, avoiding token permission issues entirely. Skip the agent step if no alerts are found (cost savings).
 

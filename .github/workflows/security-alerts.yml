@@ -57,19 +57,33 @@ jobs:
             echo "alert_type=all" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check GitHub App availability
+        id: check-app
+        env:
+          APP_ID: ${{ secrets.SECURITY_APP_ID }} # zizmor: ignore[secrets-outside-env]
+          APP_PRIVATE_KEY: ${{ secrets.SECURITY_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env]
+        run: |
+          if [ -n "$APP_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::SECURITY_APP_ID/SECURITY_APP_PRIVATE_KEY secrets not configured — Dependabot and secret-scanning alerts will be skipped"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate security alerts token
+        if: steps.check-app.outputs.available == 'true'
         id: app-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
           app-id: ${{ secrets.SECURITY_APP_ID }} # zizmor: ignore[secrets-outside-env]
           private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env]
-          permissions: >-
-            {"dependabot_alerts": "read", "secret_scanning_alerts": "read"}
+          permission-vulnerability-alerts: read
+          permission-secret-scanning-alerts: read
 
       - name: Gather security alerts
         id: alerts
         env:
-          # GitHub App token for Dependabot/Secret Scanning (GITHUB_TOKEN cannot access these)
+          # GitHub App token for Dependabot/Secret Scanning (empty when secrets are not configured)
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           # GITHUB_TOKEN works for code-scanning with security-events: read
           GH_DEFAULT_TOKEN: ${{ github.token }}
@@ -81,11 +95,16 @@ jobs:
           gather_alerts() {
             local type="$1" endpoint="$2" jq_filter="$3" token="$4"
             if [ "$scope" = "all" ] || [ "$scope" = "$type" ]; then
+              if [ -z "$token" ]; then
+                echo "::warning::Skipping $type alerts — GitHub App token not available (configure SECURITY_APP_ID and SECURITY_APP_PRIVATE_KEY secrets)" >&2
+                echo "[]"
+                return
+              fi
               local result
               if result=$(GH_TOKEN="$token" gh api "repos/$GITHUB_REPOSITORY/$endpoint" 2>&1); then
                 echo "$result" | jq -c "[.[] | select(.state == \"open\") | $jq_filter]"
               else
-                echo "::warning::Failed to fetch $type alerts: $result"
+                echo "::warning::Failed to fetch $type alerts: $result" >&2
                 errors="${errors}${type}: ${result}\n"
                 echo "[]"
               fi
