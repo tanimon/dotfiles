@@ -9,7 +9,7 @@ date: 2026-04-13
 
 ## Overview
 
-The `security-alerts.yml` workflow fails at the "Generate security alerts token" step because (1) the `SECURITY_APP_ID` / `SECURITY_APP_PRIVATE_KEY` repository secrets are not configured, and (2) the `permissions` input format is incompatible with `create-github-app-token@v2.2.2`. The fix makes the workflow degrade gracefully when the GitHub App is not configured, and corrects the permission input format for when it is.
+The `security-alerts.yml` workflow fails at the "Generate security alerts token" step because (1) the `SECURITY_APP_ID` / `SECURITY_APP_PRIVATE_KEY` repository secrets are not configured, and (2) the `permissions` input format is incompatible with `create-github-app-token@v3.1.1`. The fix makes the workflow degrade gracefully when the GitHub App is not configured, and corrects the permission input format for when it is.
 
 ## Problem Frame
 
@@ -47,13 +47,13 @@ Two root causes:
 ### Institutional Learnings
 
 - The `GITHUB_TOKEN` cannot access Dependabot or secret-scanning APIs (documented in the solution file above)
-- `create-github-app-token@v2.2.2` accepts individual `permission-<name>: <level>` inputs, not a `permissions` JSON blob (from the workflow warning output)
+- `create-github-app-token@v3.1.1` accepts individual `permission-<name>: <level>` inputs, not a `permissions` JSON blob (from the workflow warning output)
 
 ## Key Technical Decisions
 
 - **Conditional token generation via `if: secrets.SECURITY_APP_ID != ''`**: GitHub Actions evaluates `secrets.*` to empty string when the secret does not exist. This is the standard pattern for optional secret-dependent steps.
 - **Conditional alert gathering for Dependabot/secret-scanning**: When the app token is unavailable, these alert types are skipped entirely rather than failing. The `Gather security alerts` step checks whether `APP_TOKEN` is non-empty before calling restricted APIs.
-- **Individual `permission-*` inputs**: The `create-github-app-token@v2` action changed its input interface. Use `permission-vulnerability-alerts: read` and `permission-secret-scanning-alerts: read`.
+- **Individual `permission-*` inputs**: The `create-github-app-token@v3` action changed its input interface from v2's `permissions` JSON blob. Use `permission-vulnerability-alerts: read` and `permission-secret-scanning-alerts: read`.
 
 ## Open Questions
 

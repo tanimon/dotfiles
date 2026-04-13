@@ -66,8 +66,9 @@ Use a dedicated **GitHub App** with `actions/create-github-app-token` to generat
   id: check-app
   env:
     APP_ID: ${{ secrets.SECURITY_APP_ID }}
+    APP_PRIVATE_KEY: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
   run: |
-    if [ -n "$APP_ID" ]; then
+    if [ -n "$APP_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
       echo "available=true" >> "$GITHUB_OUTPUT"
     else
       echo "available=false" >> "$GITHUB_OUTPUT"
@@ -76,7 +77,7 @@ Use a dedicated **GitHub App** with `actions/create-github-app-token` to generat
 - name: Generate security alerts token
   if: steps.check-app.outputs.available == 'true'
   id: app-token
-  uses: actions/create-github-app-token@v3
+  uses: actions/create-github-app-token@<sha> # v3
   with:
     app-id: ${{ secrets.SECURITY_APP_ID }}
     private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
