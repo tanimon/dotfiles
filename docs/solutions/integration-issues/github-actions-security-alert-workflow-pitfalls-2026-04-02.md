@@ -1,7 +1,7 @@
 ---
 title: GitHub Actions security alert workflow pitfalls
 date: 2026-04-02
-last_updated: 2026-04-06
+last_updated: 2026-04-13
 category: integration-issues
 module: github-actions
 problem_type: integration_issue
@@ -10,6 +10,8 @@ symptoms:
   - "GITHUB_TOKEN cannot access Dependabot alerts or Secret Scanning alerts API endpoints"
   - "claude-code-action jobs with no timeout-minutes consume runners indefinitely on hang"
   - "Agent completes successfully but creates 0 issues despite open alerts due to silent error suppression"
+  - "create-github-app-token fails with appId option is required when secrets are not configured"
+  - "::warning:: annotations inside shell functions corrupt JSON variables captured via $()"
 root_cause: config_error
 resolution_type: config_change
 severity: high
@@ -60,14 +62,28 @@ Use a dedicated **GitHub App** with `actions/create-github-app-token` to generat
 **Pre-fetch pattern**: Gather alert data in a dedicated step before the `claude-code-action` agent, using the appropriate token per API:
 
 ```yaml
+- name: Check GitHub App availability
+  id: check-app
+  env:
+    APP_ID: ${{ secrets.SECURITY_APP_ID }}
+    APP_PRIVATE_KEY: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
+  run: |
+    if [ -n "$APP_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+      echo "available=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "available=false" >> "$GITHUB_OUTPUT"
+    fi
+
 - name: Generate security alerts token
+  if: steps.check-app.outputs.available == 'true'
   id: app-token
-  uses: actions/create-github-app-token@v2
+  uses: actions/create-github-app-token@<sha> # v3
   with:
     app-id: ${{ secrets.SECURITY_APP_ID }}
     private-key: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
-    permissions: >-
-      {"dependabot_alerts": "read", "secret_scanning_alerts": "read"}
+    # v3 uses individual permission-* inputs (not a permissions JSON blob)
+    permission-vulnerability-alerts: read
+    permission-secret-scanning-alerts: read
 
 - name: Gather security alerts
   env:
@@ -75,11 +91,14 @@ Use a dedicated **GitHub App** with `actions/create-github-app-token` to generat
     GH_DEFAULT_TOKEN: ${{ github.token }}
   run: |
     # Use App token for Dependabot/Secret Scanning, github.token for code-scanning
+    # When APP_TOKEN is empty (secrets not configured), skip restricted APIs gracefully
     dep=$(GH_TOKEN="$APP_TOKEN" gh api repos/.../dependabot/alerts ...)
     cs=$(GH_TOKEN="$GH_DEFAULT_TOKEN" gh api repos/.../code-scanning/alerts ...)
     ss=$(GH_TOKEN="$APP_TOKEN" gh api repos/.../secret-scanning/alerts ...)
     # Write to /tmp/security-alerts.json for the agent to read
 ```
+
+**Note on `create-github-app-token` versions:** v2 accepted a `permissions` JSON input, but v3 replaced it with individual `permission-*` inputs (e.g., `permission-vulnerability-alerts: read`). Using the old `permissions` JSON in v3 produces a warning and the permissions are silently ignored.
 
 The agent reads pre-fetched data from a file instead of calling APIs directly, avoiding token permission issues entirely. Skip the agent step if no alerts are found (cost savings).
 
@@ -134,6 +153,53 @@ jobs:
 
 Use shorter timeouts for simpler jobs (e.g., `timeout-minutes: 15` for secret-scanning which only creates issues).
 
+**For missing GitHub App secrets (added 2026-04-13):**
+
+When `SECURITY_APP_ID`/`SECURITY_APP_PRIVATE_KEY` secrets are not configured, `create-github-app-token` fails with `[@octokit/auth-app] appId option is required`. Add a pre-check step to gate token generation and degrade gracefully:
+
+```yaml
+- name: Check GitHub App availability
+  id: check-app
+  env:
+    APP_ID: ${{ secrets.SECURITY_APP_ID }}
+    APP_PRIVATE_KEY: ${{ secrets.SECURITY_APP_PRIVATE_KEY }}
+  run: |
+    if [ -n "$APP_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+      echo "available=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "::warning::GitHub App secrets not configured — restricted alerts will be skipped"
+      echo "available=false" >> "$GITHUB_OUTPUT"
+    fi
+
+- name: Generate security alerts token
+  if: steps.check-app.outputs.available == 'true'
+  # ...
+```
+
+Check **both** secrets — if only one is set, the token generation step runs but fails with a cryptic error rather than falling back gracefully. The `secrets` context is not available in step `if:` conditions, so use an env var check in a `run:` step instead.
+
+**For `::warning::` stdout corruption in shell function captures (added 2026-04-13):**
+
+When a shell function emits `echo "::warning::..."` and is called via `var=$(function_call)`, the warning text is captured into the variable alongside the intended output. This corrupts JSON variables and causes downstream `jq` parse failures:
+
+```bash
+# BAD: ::warning:: goes to stdout, captured into $dep along with []
+gather_alerts() {
+  echo "::warning::Skipping $type alerts"  # captured by $()!
+  echo "[]"
+}
+dep=$(gather_alerts ...)  # dep = "::warning::Skipping ...\n[]" — invalid JSON
+
+# GOOD: ::warning:: goes to stderr, only [] captured into $dep
+gather_alerts() {
+  echo "::warning::Skipping $type alerts" >&2  # bypasses $() capture
+  echo "[]"
+}
+dep=$(gather_alerts ...)  # dep = "[]" — valid JSON
+```
+
+GitHub Actions processes `::warning::` commands from the step's direct stdout/stderr streams, not from inside `$()` subshell captures. Redirecting to stderr (`>&2`) both fixes the variable corruption and ensures the annotation is rendered in the Actions UI.
+
 ## Why This Works
 
 The `GITHUB_TOKEN` limitation is a known GitHub platform constraint (see [community discussion #60612](https://github.com/orgs/community/discussions/60612)). The GitHub Actions App that generates `GITHUB_TOKEN` does not include Dependabot alerts or secret scanning alerts in its permission set. A dedicated GitHub App bypasses this by providing its own installation token with the required permissions. The `claude-code-action` OIDC-exchanged token also lacks these permissions — the Claude Code GitHub App's installation scope does not include security alert access.
@@ -152,6 +218,9 @@ The `timeout-minutes` fix prevents resource waste by ensuring jobs fail cleanly 
 - In shell scripts (summary steps, diagnostics), capture stderr with `2>&1` and set error state variables rather than discarding errors to `/dev/null`
 - Enable `show_full_output: true` during development of `claude-code-action` workflows to see the agent's reasoning; disable only after the workflow is proven stable
 - Consider a scheduled sweep job as a safety net for webhook events that may be missed
+- **Never emit `echo "::warning::..."` to stdout inside functions captured by `$()`** — redirect workflow annotations to stderr (`>&2`) so they bypass command substitution. This applies to any function whose output is assigned to a variable
+- **Gate optional action steps on secret availability** — use a dedicated check step that tests both required secrets via env vars, not `if: secrets.FOO != ''` (the `secrets` context is unavailable in step `if:` conditions). Check all related secrets together to prevent partial-configuration failures
+- **Verify action input format after version upgrades** — `create-github-app-token@v3` replaced the `permissions` JSON input with individual `permission-*` inputs. Unrecognized inputs are silently ignored, so the old format appears to work but produces a token without the requested permissions
 
 ## Related Issues
 
@@ -162,3 +231,4 @@ The `timeout-minutes` fix prevents resource waste by ensuring jobs fail cleanly 
 - [chezmoi-scripts-deployment-gap-repo-only-vs-deployed](./chezmoi-scripts-deployment-gap-repo-only-vs-deployed-2026-04-04.md) -- Analogous `|| true` error suppression anti-pattern
 - [PR #145](https://github.com/tanimon/dotfiles/pull/145) -- Fix that removed silent error suppression from security-alerts.yml
 - [PR #147](https://github.com/tanimon/dotfiles/pull/147) -- Pre-fetch alerts with GitHub App token to bypass GITHUB_TOKEN limitation
+- [PR #166](https://github.com/tanimon/dotfiles/pull/166) -- Fix missing secrets graceful degradation, v3 permission format, and stdout corruption
