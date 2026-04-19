@@ -2,10 +2,16 @@
 title: "Codex CLI nested Seatbelt sandbox conflict inside safehouse/cco"
 date: 2026-04-13
 category: integration-issues
-tags: [codex, sandbox, safehouse, cco, seatbelt, nested-sandbox, sandbox-exec, mktemp]
+problem_type: integration_issue
+component: tooling
+severity: high
 module: sandbox configuration, codex CLI
-symptom: "sandbox-exec: sandbox_apply: Operation not permitted when running codex from within sandboxed Claude Code"
-root_cause: "Codex CLI applies its own macOS Seatbelt sandbox, which fails inside an existing Seatbelt sandbox because macOS denies nested sandbox_apply syscalls"
+symptoms:
+  - "sandbox-exec: sandbox_apply: Operation not permitted when running codex from within sandboxed Claude Code"
+  - "All codex modes (interactive, exec, review) fail before processing input"
+root_cause: config_error
+resolution_type: config_change
+tags: [codex, sandbox, safehouse, cco, seatbelt, nested-sandbox, sandbox-exec, mktemp, harness-engineering]
 ---
 
 # Codex CLI nested Seatbelt sandbox conflict inside safehouse/cco
