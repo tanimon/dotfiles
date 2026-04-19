@@ -40,3 +40,15 @@ _claude_cco() {
   fi
   command cco "${cco_args[@]}" "$@"
 }
+
+# Bypass codex's internal Seatbelt sandbox when already inside an external sandbox.
+# macOS denies nested sandbox_apply syscalls — same root cause as the Claude Code
+# internal sandbox conflict. The outer sandbox (safehouse/cco) already provides isolation.
+# Use `command codex` to bypass this wrapper.
+codex() {
+  if [[ -n "$APP_SANDBOX_CONTAINER_ID" ]]; then
+    command codex --dangerously-bypass-approvals-and-sandbox "$@"
+  else
+    command codex "$@"
+  fi
+}
