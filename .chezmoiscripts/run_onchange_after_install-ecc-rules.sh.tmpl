@@ -4,6 +4,9 @@ set -euo pipefail
 
 # ecc-rules-languages hash: {{ include "dot_claude/ecc-rules-languages.txt" | sha256sum }}
 
+# ECC_ prefix is historical (from when the plugin was named "ecc"); the marketplace
+# directory "everything-claude-code" is the authoritative path and is unchanged by
+# the 2026-04-19 plugin rename. See docs/plans/2026-04-19-001-fix-ecc-plugin-rename-plan.md.
 ECC_MARKETPLACE_DIR="{{ .chezmoi.homeDir }}/.claude/plugins/marketplaces/everything-claude-code"
 
 if [ ! -d "$ECC_MARKETPLACE_DIR/rules" ]; then
