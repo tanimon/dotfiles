@@ -21,7 +21,7 @@ Update the chezmoi-managed `dot_claude/settings.json.tmpl` to enable the renamed
 
 ## Problem Frame
 
-`dot_claude/settings.json.tmpl` line 238 still has `"ecc@everything-claude-code": true` in `enabledPlugins`. The marketplace manifest (`~/.claude/plugins/marketplaces/everything-claude-code/.claude-plugin/marketplace.json`) now lists only `everything-claude-code` as an installable plugin name. Claude Code is therefore trying to enable a plugin that does not exist anymore.
+Before this fix, `dot_claude/settings.json.tmpl` line 238 had `"ecc@everything-claude-code": true` in `enabledPlugins`. The marketplace manifest (`~/.claude/plugins/marketplaces/everything-claude-code/.claude-plugin/marketplace.json`) now lists only `everything-claude-code` as an installable plugin name. Claude Code is therefore trying to enable a plugin that does not exist anymore.
 
 The runtime install state (`~/.claude/plugins/installed_plugins.json`) currently contains BOTH `ecc@everything-claude-code` (stale) and `everything-claude-code@everything-claude-code` (current, installed 2026-02-09, last-updated 2026-04-19). That file is intentionally NOT managed by chezmoi (per `CLAUDE.md` plugin install/enable state policy), so cleaning it up is a runtime user action, not part of the chezmoi diff.
 
@@ -92,7 +92,7 @@ The runtime install state (`~/.claude/plugins/installed_plugins.json`) currently
 
 **Test scenarios:**
 - Happy path: `make check-templates` succeeds — the template still parses with valid JSON output for all profiles.
-- Happy path: `chezmoi apply --dry-run` succeeds and shows the single expected diff for `~/.claude.json` (or whatever the deployed target is).
+- Happy path: `chezmoi apply --dry-run` succeeds and shows the single expected diff for `~/.claude/settings.json` (the deployed target of `dot_claude/settings.json.tmpl`).
 - Happy path: After `chezmoi apply`, opening Claude Code no longer prints the `Plugin "ecc" not found` warning, and the `everything-claude-code` plugin is listed as enabled by `claude plugin list`.
 - Edge case: `make lint` continues to pass (no new shellcheck/oxfmt/etc. regressions, since the change is JSON template content, not script logic).
 
@@ -106,7 +106,7 @@ The runtime install state (`~/.claude/plugins/installed_plugins.json`) currently
 - **State lifecycle risks:** None from chezmoi's side. However, `~/.claude/plugins/installed_plugins.json` retains a stale `ecc@everything-claude-code` entry. Until the user runs `claude plugin uninstall ecc@everything-claude-code` (or deletes the stale entry), Claude Code may continue to log the warning even after `chezmoi apply` because runtime install state and enable state are separate. Surface this in the PR description / runtime cleanup note.
 - **Unchanged invariants:**
   - `dot_claude/plugins/marketplaces.txt` is unchanged — `affaan-m/everything-claude-code` was and still is the correct marketplace.
-  - `.chezmoiscripts/run_onchange_after_install-ecc-rules.sh.tmpl` is unchanged — its hash remains stable, so it does not re-run; the rules directory layout is unaffected by the plugin rename.
+  - `.chezmoiscripts/run_onchange_after_install-ecc-rules.sh.tmpl` is touched by this PR for comment-only documentation (M1 fix from code review). The content-hash change will cause chezmoi to re-run the script once on the next `chezmoi apply`. The re-run is harmless — it copies the same ECC rules files into `~/.claude/rules/` idempotently, with no behavior change. The underlying rules-copy logic is unaffected by the plugin rename.
 
 ## Risks & Dependencies
 
