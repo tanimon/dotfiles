@@ -32,6 +32,8 @@
 {{ .chezmoi.homeDir }}/.gstack
 # Playwright Chromium binary cache (needed for gstack /browse skill)
 {{ .chezmoi.homeDir }}/Library/Caches/ms-playwright:ro
+# GateGuard fact-forcing hook session state (else hook blocks every Bash)
+{{ .chezmoi.homeDir }}/.gateguard
 # chezmoi config and source directory (needed for chezmoi diff, managed, data, apply --dry-run)
 {{ .chezmoi.homeDir }}/.config/chezmoi:ro
 {{ .chezmoi.homeDir }}/.local/share/chezmoi:ro
