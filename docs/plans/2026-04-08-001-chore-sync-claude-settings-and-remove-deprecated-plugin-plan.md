@@ -124,3 +124,7 @@ The active "Edit Source Files, Not Deployed Targets" instinct still applies — 
 - Source: `dot_claude/settings.json.tmpl`
 - Target: `~/.claude/settings.json`
 - Project rule: `CLAUDE.md` (chezmoi file pattern guidance)
+
+## Postscript (2026-04-19)
+
+The `everything-claude-code` marketplace reversed this rename: `ecc@everything-claude-code` no longer exists, and `everything-claude-code@everything-claude-code` is once again the authoritative plugin identifier. See `docs/plans/2026-04-19-001-fix-ecc-plugin-rename-plan.md` for the follow-up that re-adds the `everything-claude-code@everything-claude-code` enable entry. Treat the "deprecated" labels above as a snapshot of marketplace state on 2026-04-08, not a permanent classification.
