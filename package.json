@@ -6,11 +6,11 @@
     "verify": "pnpm run lint"
   },
   "devDependencies": {
-    "@secretlint/secretlint-rule-no-dotenv": "^11.0.0",
-    "@secretlint/secretlint-rule-preset-recommend": "^11.0.0",
+    "@secretlint/secretlint-rule-no-dotenv": "^12.0.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^12.0.0",
     "oxfmt": "^0.43.0",
     "oxlint": "^1.57.0",
-    "secretlint": "^11.0.0"
+    "secretlint": "^12.0.0"
   },
   "packageManager": "pnpm@10.33.0"
 }
