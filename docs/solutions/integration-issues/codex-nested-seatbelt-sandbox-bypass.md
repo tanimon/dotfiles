@@ -61,7 +61,7 @@ codex() {
 
 - **safehouse already provides comprehensive sandboxing** — deny-all default with granular allow rules
 - **The outer sandbox is strictly stronger** than codex's internal Seatbelt profile
-- **`command codex` or `\codex`** bypasses the wrapper for manual control when needed
+- **`command codex`** bypasses the wrapper for manual control when needed
 
 ## Prevention
 
