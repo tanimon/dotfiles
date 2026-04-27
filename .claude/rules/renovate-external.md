@@ -31,7 +31,7 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 ## Existing Entries
 
-See `.chezmoiexternal.toml` for current entries (Claudeception skill, cco).
+See `.chezmoiexternal.toml` for current entries (gstack skills, cco).
 
 ## Related
 

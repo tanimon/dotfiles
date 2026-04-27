@@ -4,8 +4,8 @@ description: |
   Thin wrapper around /ce:compound for harness-specific knowledge capture.
   Triggers: (1) /compound-harness-knowledge command, (2) After a harness improvement
   is successfully applied, (3) When a non-trivial debugging session resolves a problem.
-  Adds harness failure classification and Claudeception skill extraction evaluation,
-  then delegates actual documentation to Skill(ce:compound).
+  Adds harness failure classification, then delegates actual documentation to
+  Skill(ce:compound).
 author: Claude Code
 version: 2.0.0
 date: "2026-03-29"
@@ -59,33 +59,7 @@ Document a resolved harness engineering issue:
 
 Let `/ce:compound` handle the actual document creation, formatting, and cross-referencing.
 
-## Step 3: Evaluate Claudeception Skill Extraction
-
-After `/ce:compound` completes, evaluate whether the solution warrants a reusable skill:
-
-**Extract when** the solution involves:
-- A novel debugging technique applicable beyond this specific issue
-- A reusable workflow pattern (not just a config fix)
-- A tool integration workaround that documentation doesn't cover
-
-**Skip when** the solution is:
-- A one-off configuration fix
-- Already covered by an existing skill
-- Specific to a single file or version
-
-If extraction is warranted:
-
-```
-Consider: This solution involves [technique]. Extract as a Claudeception skill?
-- Skill name: <suggested-name>
-- Trigger: <when the skill would activate>
-- Reuse potential: <high|medium|low>
-```
-
-Then invoke `Skill(claudeception)` if the user agrees or if reuse potential is high.
-
 ## Output
 
 Report:
 1. Path to the document created by `/ce:compound`
-2. Skill extraction recommendation (if applicable)
