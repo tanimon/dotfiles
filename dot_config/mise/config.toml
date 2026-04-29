@@ -1,7 +1,7 @@
 [tools]
 bun = "latest"
 node = "24"
-pnpm = "10.33.0"
+pnpm = "10.33.2"
 prek = "latest"
 
 [settings]
