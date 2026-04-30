@@ -29,6 +29,8 @@ tags:
 
 # GateGuard fact-forcing hook blocks every tool call when sandbox denies ~/.gateguard writes
 
+> **Update (2026-04-30, status: superseded by hook disable):** Per issue [#188](https://github.com/tanimon/dotfiles/issues/188), the gateguard hook itself is now disabled via `ECC_DISABLED_HOOKS=pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force`. The allowlist additions and placeholder described in this document are no longer needed for new sessions — keep them only as reference for re-enabling. Details: [`docs/plans/2026-04-30-001-chore-disable-gateguard-skill-plan.md`](../../plans/2026-04-30-001-chore-disable-gateguard-skill-plan.md).
+
 ## Problem
 
 The `pre:bash:gateguard-fact-force` and `pre:edit-write:gateguard-fact-force` hooks from the `everything-claude-code` plugin are designed to fire once per session (Bash) or once per file (Edit/Write/MultiEdit). Under this repository's Seatbelt sandbox (`agent-safehouse` primary, `cco` fallback), the hooks fired on every single call — making Claude Code effectively unusable because any action triggered a "[Fact-Forcing Gate]" deny. The UI surfaces the deny as `"PreToolUse:Bash hook blocking error"`, masking the fact that it was a deliberate (but broken) gate rather than a crash.
@@ -74,7 +76,7 @@ mkdir -p ~/.gateguard
 # then restart claude (exit + re-launch sandboxed claude)
 ```
 
-> **Update (2026-04-30):** the manual `mkdir -p ~/.gateguard` above is load-bearing for a reason that wasn't obvious in the original investigation — `agent-safehouse` auto-detects "file (literal) vs directory (subpath)" Seatbelt rule type at LAUNCH TIME, and silently emits an ineffective rule when an `--add-dirs` target doesn't exist on disk. So the manual `mkdir` is what makes the allowlist line actually take effect on first launch. The current canonical fix replaces the manual step with a chezmoi-managed placeholder (`dot_gateguard/dot_keep`) so the directory exists before `chezmoi apply` even finishes. See [`safehouse-add-dirs-requires-existing-path-2026-04-30.md`](safehouse-add-dirs-requires-existing-path-2026-04-30.md) for the full path-existence-trap explanation.
+> **Update (2026-04-30):** the manual `mkdir -p ~/.gateguard` above is load-bearing for a reason that wasn't obvious in the original investigation — `agent-safehouse` auto-detects "file (literal) vs directory (subpath)" Seatbelt rule type at LAUNCH TIME, and silently emits an ineffective rule when an `--add-dirs` target doesn't exist on disk. So the manual `mkdir` is what makes the allowlist line actually take effect on first launch. A follow-up fix (PR #187) replaced the manual step with a chezmoi-managed placeholder (`dot_gateguard/dot_keep`) so the directory exists before `chezmoi apply` even finishes. See [`safehouse-add-dirs-requires-existing-path-2026-04-30.md`](safehouse-add-dirs-requires-existing-path-2026-04-30.md) for the full path-existence-trap explanation. **Both the manual `mkdir` and the `dot_gateguard/dot_keep` placeholder are now obsolete** — the gateguard hook itself is disabled (see top-of-doc supersession note).
 
 Verification after restart:
 
