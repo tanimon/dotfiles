@@ -1,6 +1,7 @@
 ---
 title: GateGuard fact-forcing hook blocks every tool call when sandbox denies ~/.gateguard writes
 date: 2026-04-19
+last_updated: 2026-04-30
 category: integration-issues
 module: claude-code-harness
 problem_type: integration_issue
@@ -73,6 +74,8 @@ mkdir -p ~/.gateguard
 # then restart claude (exit + re-launch sandboxed claude)
 ```
 
+> **Update (2026-04-30):** the manual `mkdir -p ~/.gateguard` above is load-bearing for a reason that wasn't obvious in the original investigation — `agent-safehouse` auto-detects "file (literal) vs directory (subpath)" Seatbelt rule type at LAUNCH TIME, and silently emits an ineffective rule when an `--add-dirs` target doesn't exist on disk. So the manual `mkdir` is what makes the allowlist line actually take effect on first launch. The current canonical fix replaces the manual step with a chezmoi-managed placeholder (`dot_gateguard/dot_keep`) so the directory exists before `chezmoi apply` even finishes. See [`safehouse-add-dirs-requires-existing-path-2026-04-30.md`](safehouse-add-dirs-requires-existing-path-2026-04-30.md) for the full path-existence-trap explanation.
+
 Verification after restart:
 
 ```sh
@@ -91,6 +94,7 @@ Allowing the directory in both sandbox backends makes `fs.mkdirSync`/`fs.writeFi
 ## Prevention
 
 - **Any plugin hook that persists state must have its state directory audited against the sandbox allowlist.** Other candidates worth checking: `~/.claude-*`, plugin-local `.state`, `~/.config/*` write paths.
+- **Any sandbox `--add-dirs` target must exist at safehouse launch time.** safehouse auto-detects "literal file rule" vs "subpath rule" by stat-ing the path during profile generation; a non-existent path produces a silently ineffective rule. Pre-materialise via chezmoi (`dot_<name>/dot_keep` placeholder) rather than relying on the tool to `mkdir` at first use. Full mechanism: [`safehouse-add-dirs-requires-existing-path-2026-04-30.md`](safehouse-add-dirs-requires-existing-path-2026-04-30.md).
 - **Silent `catch (_)` around state writes is a harness smell.** Prefer logging to stderr (via a bounded rate limiter) so sandbox-induced state loss is observable. File as a potential upstream fix in `everything-claude-code`.
 - **When adding a new sandboxed tool, grep its source for `process.env.HOME`/`os.homedir()` and explicitly enumerate the paths it writes** before updating `safehouse/config.tmpl` and `cco/allow-paths.tmpl`.
 - **cco's `allow-paths` parser is whitespace-sensitive** — never indent entries even when visually grouping them under comments.
@@ -98,6 +102,7 @@ Allowing the directory in both sandbox backends makes `fs.mkdirSync`/`fs.writeFi
 
 ## Related Issues
 
+- `docs/solutions/integration-issues/safehouse-add-dirs-requires-existing-path-2026-04-30.md` — successor on the same hook + state dir, covering the path-existence-trap upstream cause that survives even after the allowlist is in place. Supersedes the manual `mkdir` step in this doc with a chezmoi-managed `dot_gateguard/dot_keep` placeholder.
 - `docs/solutions/integration-issues/cco-sandbox-chezmoi-read-only-access.md` — adjacent pattern: missing rw access for chezmoi runtime state.
 - `docs/solutions/integration-issues/claude-code-internal-sandbox-nested-seatbelt-conflict.md` — related class of failure: Claude Code's own sandbox colliding with outer sandboxing.
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md` — related harness-hook diagnostic guidance.
