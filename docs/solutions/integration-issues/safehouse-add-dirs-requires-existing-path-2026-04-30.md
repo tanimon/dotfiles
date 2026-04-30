@@ -1,6 +1,7 @@
 ---
 title: "safehouse `--add-dirs` rule silently degrades when the path does not exist at sandbox launch"
 date: 2026-04-30
+last_updated: 2026-04-30
 category: integration-issues
 module: claude-code-harness
 problem_type: integration_issue
@@ -28,6 +29,8 @@ tags:
 ---
 
 # safehouse `--add-dirs` rule silently degrades when the path does not exist at sandbox launch
+
+> **Update (2026-04-30, status: superseded by hook disable for the gateguard-specific case):** Per same-day issue [#188](https://github.com/tanimon/dotfiles/issues/188), the gateguard hook itself is now disabled via `ECC_DISABLED_HOOKS=pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force`. The `dot_gateguard/dot_keep` placeholder and `--add-dirs=$HOME/.gateguard` line described here are no longer needed for new sessions — keep them only as reference for re-enabling. **The broader `--add-dirs` path-existence-trap lesson still applies to any future runtime directory** (use `dot_<dir>/dot_keep` whenever a `--add-dirs` target must exist before sandbox launch). Details: [`docs/plans/2026-04-30-001-chore-disable-gateguard-skill-plan.md`](../../plans/2026-04-30-001-chore-disable-gateguard-skill-plan.md).
 
 ## Problem
 
