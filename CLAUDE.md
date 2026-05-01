@@ -42,6 +42,11 @@ gh workflow run security-alerts.yml  # Trigger security alert sweep manually
 /prune                               # Delete expired pending instincts (30-day TTL)
 scripts/snapshot-instincts.sh        # Snapshot instincts to source tree (run before push for CI)
 gh workflow run auto-promote.yml     # Trigger auto-promotion manually (weekly schedule)
+
+# apm (Agent Package Manager) — manages plugins and marketplaces declaratively
+apm marketplace list                 # List registered marketplaces
+apm install -g --dry-run             # Preview global apm install from ~/.apm/apm.yml
+cd ~/.apm && apm install -g          # Install/refresh plugins declared in apm.yml
 ```
 
 ## chezmoi Naming Conventions
@@ -70,7 +75,9 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **`modify_dot_claude.json`** — Partially manages `~/.claude.json` (a large runtime file). Uses `jq` to replace only the `mcpServers` key from `dot_claude/mcp-servers.json`, preserving all other runtime state. This is the correct pattern for files where chezmoi should own a subset of keys.
 
-**Declarative marketplace sync** — `dot_claude/plugins/marketplaces.txt` lists marketplace sources (one per line: `owner/repo` or URL). `run_onchange_after_add-marketplaces.sh.tmpl` tracks the file hash and runs `claude plugin marketplace add` for each entry when it changes. To add a new marketplace: register it locally with `claude plugin marketplace add`, run `scripts/update-marketplaces.sh` to regenerate the list, then commit and push. To remove: run `claude plugin marketplace remove` manually on each machine — removing a line from `marketplaces.txt` does not unregister the marketplace. Plugin install/enable state (`installed_plugins.json`, `known_marketplaces.json`) is not managed by chezmoi — these files are in `.chezmoiignore`.
+**Declarative plugin sync via apm** — `dot_apm/apm.yml` is the declarative manifest of marketplaces and plugins, deployed to `~/.apm/apm.yml`. `.chezmoiscripts/run_onchange_after_apm-install.sh.tmpl` hash-tracks the manifest, registers each marketplace via `apm marketplace add` (idempotent), and runs `apm install -g` to deploy plugin primitives into `~/.claude/`. apm is installed via Brewfile (`microsoft/apm/apm`). To add a plugin: edit `dot_apm/apm.yml`, then `chezmoi apply`. The script tool-guards on `command -v apm` so a fresh-machine first-apply (before brew bundle finishes) exits cleanly with a "re-run after brew install" message. apm runtime state (`~/.apm/registries`, `~/.apm/apm_modules`, `~/.apm/cache`, `~/.apm/apm.lock.yaml`) is in `.chezmoiignore`. Plugins installed via apm deploy directly into `~/.claude/skills/`, `~/.claude/agents/`, etc., bypassing Claude Code's `installed_plugins.json` registry — they will not appear in `/plugin` list output but their commands and skills are loaded from disk.
+
+**Legacy marketplace sync (transitional, will be removed)** — `dot_claude/plugins/marketplaces.txt` + `run_onchange_after_add-marketplaces.sh.tmpl` + `scripts/update-marketplaces.sh` continue to register marketplaces via `claude plugin marketplace add`. This pattern coexists with the new apm-based sync during the migration period. The legacy files will be deleted in a follow-up PR once the apm migration is verified on real machines. Plugin install/enable state (`installed_plugins.json`, `known_marketplaces.json`) is not managed by chezmoi — these files are in `.chezmoiignore`.
 
 **Declarative gh extension sync** — `dot_config/gh/extensions.txt` lists gh extensions (one `owner/repo` per line). `run_onchange_after_install-gh-extensions.sh.tmpl` installs them when the list changes. `scripts/update-gh-extensions.sh` regenerates the list from `gh extension list`. Same pattern as marketplace sync. Note: `gh extension list` is tab-delimited — use `awk -F'\t'` to parse.
 
@@ -103,6 +110,7 @@ Pulls external archives (e.g., gstack skills, cco) into the managed tree with au
 | `darwin/` | macOS-specific resources: `Brewfile`, `DefaultKeyBinding.dict`, `defaults.sh` |
 | `windows/` | Windows-specific resources: `alacritty.yml`, `chocolatey` |
 | `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
+| `dot_apm/` | apm (Microsoft Agent Package Manager) user-scope manifest (`apm.yml`) deployed to `~/.apm/`, declares marketplaces and plugins for `apm install -g` |
 | `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), MCP servers (`mcp-servers.json`), rules, commands, plugins, scripts (hooks), keybindings |
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-marketplaces.sh`, `update-gh-extensions.sh`) |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |

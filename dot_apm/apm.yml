@@ -1,0 +1,34 @@
+name: dotfiles-user
+version: 1.0.0
+description: User-scope apm manifest managed by chezmoi
+target: claude
+
+dependencies:
+  apm:
+    # claude-plugins-official marketplace
+    - claude-code-setup@claude-plugins-official
+    - claude-md-management@claude-plugins-official
+    - code-review@claude-plugins-official
+    - commit-commands@claude-plugins-official
+    - feature-dev@claude-plugins-official
+    - github@claude-plugins-official
+    - gopls-lsp@claude-plugins-official
+    - playwright@claude-plugins-official
+    - plugin-dev@claude-plugins-official
+    - pr-review-toolkit@claude-plugins-official
+    - ralph-loop@claude-plugins-official
+    - superpowers@claude-plugins-official
+    - typescript-lsp@claude-plugins-official
+
+    # compound-engineering-plugin marketplace
+    - compound-engineering@compound-engineering-plugin
+
+    # everything-claude-code marketplace
+    - ecc@everything-claude-code
+    - everything-claude-code@everything-claude-code
+
+    # jarrodwatts/claude-delegator marketplace
+    - claude-delegator@jarrodwatts-claude-delegator
+
+    # planning-with-files marketplace
+    - planning-with-files@planning-with-files
