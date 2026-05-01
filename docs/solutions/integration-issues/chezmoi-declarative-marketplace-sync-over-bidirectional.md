@@ -13,6 +13,8 @@ component: Claude Code Plugin Management
 
 # Replace Bidirectional Plugin Sync with Declarative Marketplace Registration
 
+> **Superseded by [apm-claude-code-marketplace-semantics-mismatch-2026-05-01.md](apm-claude-code-marketplace-semantics-mismatch-2026-05-01.md) for plugin management.** The mechanism documented here (`marketplaces.txt` + `claude plugin marketplace add` via `run_onchange_after_add-marketplaces.sh.tmpl`) is being replaced by `apm install -g` with canonical `owner/repo[/subpath]` paths in `dot_apm/apm.yml` (PR #191, issue #178). The meta-rules in this doc — unidirectional sync, single source of truth, idempotent CLIs, the decision tree for selecting between `modify_` / `create_` / `run_onchange_` patterns — remain valid and are still cited by [chezmoi-gh-extension-declarative-management-gotchas.md](chezmoi-gh-extension-declarative-management-gotchas.md), [ecc-plugin-enablement-and-selective-rules-install-2026-04-03.md](ecc-plugin-enablement-and-selective-rules-install-2026-04-03.md), and [.claude/rules/chezmoi-patterns.md](../../../.claude/rules/chezmoi-patterns.md).
+
 ## Problem Symptom
 
 A chezmoi dotfiles repo accumulated a complex 3-layer bidirectional sync system (6 files, ~190 LOC) for Claude Code plugin files (`known_marketplaces.json`, `installed_plugins.json`):
