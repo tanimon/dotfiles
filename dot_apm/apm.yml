@@ -12,12 +12,15 @@ dependencies:
     - anthropics/claude-plugins-official/plugins/commit-commands
     - anthropics/claude-plugins-official/plugins/feature-dev
     - anthropics/claude-plugins-official/external_plugins/github
-    - anthropics/claude-plugins-official/plugins/gopls-lsp
     - anthropics/claude-plugins-official/external_plugins/playwright
     - anthropics/claude-plugins-official/plugins/plugin-dev
     - anthropics/claude-plugins-official/plugins/pr-review-toolkit
     - anthropics/claude-plugins-official/plugins/ralph-loop
-    - anthropics/claude-plugins-official/plugins/typescript-lsp
+    # NOTE: gopls-lsp and typescript-lsp are LSP-only plugins. Their plugin
+    # subdirs contain only LICENSE/README; the actual configuration lives in
+    # marketplace.json's `lspServers` field — a Claude Code-specific feature
+    # that apm does not understand. They are installed via the legacy
+    # `claude plugin install <name>@claude-plugins-official` path.
 
     # superpowers is a referenced URL source from claude-plugins-official's
     # marketplace.json, but lives in its own repo
