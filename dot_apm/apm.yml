@@ -5,30 +5,31 @@ target: claude
 
 dependencies:
   apm:
-    # claude-plugins-official marketplace
-    - claude-code-setup@claude-plugins-official
-    - claude-md-management@claude-plugins-official
-    - code-review@claude-plugins-official
-    - commit-commands@claude-plugins-official
-    - feature-dev@claude-plugins-official
-    - github@claude-plugins-official
-    - gopls-lsp@claude-plugins-official
-    - playwright@claude-plugins-official
-    - plugin-dev@claude-plugins-official
-    - pr-review-toolkit@claude-plugins-official
-    - ralph-loop@claude-plugins-official
-    - superpowers@claude-plugins-official
-    - typescript-lsp@claude-plugins-official
+    # anthropics/claude-plugins-official (subdir plugins)
+    - anthropics/claude-plugins-official/plugins/claude-code-setup
+    - anthropics/claude-plugins-official/plugins/claude-md-management
+    - anthropics/claude-plugins-official/plugins/code-review
+    - anthropics/claude-plugins-official/plugins/commit-commands
+    - anthropics/claude-plugins-official/plugins/feature-dev
+    - anthropics/claude-plugins-official/external_plugins/github
+    - anthropics/claude-plugins-official/plugins/gopls-lsp
+    - anthropics/claude-plugins-official/external_plugins/playwright
+    - anthropics/claude-plugins-official/plugins/plugin-dev
+    - anthropics/claude-plugins-official/plugins/pr-review-toolkit
+    - anthropics/claude-plugins-official/plugins/ralph-loop
+    - anthropics/claude-plugins-official/plugins/typescript-lsp
 
-    # compound-engineering-plugin marketplace
-    - compound-engineering@compound-engineering-plugin
+    # superpowers is a referenced URL source from claude-plugins-official's
+    # marketplace.json, but lives in its own repo
+    - obra/superpowers
 
-    # everything-claude-code marketplace
-    - ecc@everything-claude-code
-    - everything-claude-code@everything-claude-code
+    # EveryInc/compound-engineering-plugin (subdir plugins)
+    - EveryInc/compound-engineering-plugin/plugins/compound-engineering
 
-    # jarrodwatts/claude-delegator marketplace
-    - claude-delegator@jarrodwatts-claude-delegator
+    # Single-plugin repos (source: "./" — repo root is the plugin)
+    - affaan-m/everything-claude-code
+    - jarrodwatts/claude-delegator
 
-    # planning-with-files marketplace
-    - planning-with-files@planning-with-files
+    # OthmanAdi/planning-with-files has plugin.json but no marketplace.json,
+    # so apm consumes it as a direct plugin dependency rather than via marketplace
+    - OthmanAdi/planning-with-files
