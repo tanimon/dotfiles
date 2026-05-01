@@ -5,7 +5,7 @@
 
 # Rule Structure
 
-Detailed coding rules, test policies, and security guidelines live in `~/.claude/rules/`, organized by language (`golang/`, `typescript/`) and shared (`common/`). This file contains only cross-project behavioral guidelines.
+Detailed coding rules, test policies, and security guidelines live in `~/.claude/rules/`, organized by domain (`web/`) and shared (`common/`). This file contains only cross-project behavioral guidelines.
 
 # Compound Engineering Plugin Notes
 
