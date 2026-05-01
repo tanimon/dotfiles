@@ -2,8 +2,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# apm.yml hash:        {{ include "dot_apm/apm.yml" | sha256sum }}
-# marketplaces.txt:    {{ include "dot_apm/marketplaces.txt" | sha256sum }}
+# apm.yml hash: {{ include "dot_apm/apm.yml" | sha256sum }}
 
 if ! command -v apm >/dev/null 2>&1; then
   echo "apm not found, skipping (re-run chezmoi apply after brew install completes)"
@@ -17,22 +16,11 @@ if [ ! -d "$APM_HOME" ]; then
   exit 1
 fi
 
-# Marketplaces must be registered before plugins from them can resolve.
-# `apm marketplace add` is idempotent. Failures are warned but non-fatal so a
-# transient network issue on one marketplace does not abort the whole apply;
-# `apm install -g` below will surface a precise error if a referenced plugin
-# truly cannot resolve.
-while IFS= read -r marketplace || [ -n "$marketplace" ]; do
-  [[ -z "$marketplace" || "$marketplace" == \#* ]] && continue
-  echo "Ensuring marketplace: ${marketplace}"
-  if ! apm marketplace add "$marketplace"; then
-    echo "WARN: apm marketplace add failed for ${marketplace} (continuing)" >&2
-  fi
-done < "{{ .chezmoi.sourceDir }}/dot_apm/marketplaces.txt"
-
-# Strict on install: a failed plugin resolution should abort the apply so the
-# user is alerted rather than left with a half-installed plugin set. Re-running
-# `cd ~/.apm && apm install -g` retries.
+# apm.yml lists every plugin via canonical `owner/repo[/subpath]` form, so apm
+# resolves directly from GitHub without needing pre-registered marketplaces.
+# Failed plugin resolution aborts the apply (set -e) so the user is alerted
+# rather than left with a half-installed plugin set; re-run `cd ~/.apm && apm
+# install -g` to retry.
 echo "Running apm install -g from ${APM_HOME}"
 cd "$APM_HOME"
 apm install -g
