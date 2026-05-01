@@ -2,32 +2,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# apm.yml hash: {{ include "dot_apm/apm.yml" | sha256sum }}
+# apm.yml hash:        {{ include "dot_apm/apm.yml" | sha256sum }}
+# marketplaces.txt:    {{ include "dot_apm/marketplaces.txt" | sha256sum }}
 
 if ! command -v apm >/dev/null 2>&1; then
   echo "apm not found, skipping (re-run chezmoi apply after brew install completes)"
   exit 0
 fi
 
+APM_HOME="{{ .chezmoi.homeDir }}/.apm"
+
+if [ ! -d "$APM_HOME" ]; then
+  echo "ERROR: $APM_HOME not found — chezmoi did not deploy dot_apm/. Re-run chezmoi apply." >&2
+  exit 1
+fi
+
 # Marketplaces must be registered before plugins from them can resolve.
-# `apm marketplace add` is idempotent; failures are logged but non-fatal so a
-# transient network issue does not abort the rest of the apply.
-MARKETPLACES=(
-  "affaan-m/everything-claude-code"
-  "anthropics/claude-plugins-official"
-  "anthropics/skills"
-  "awslabs/agent-plugins"
-  "EveryInc/compound-engineering-plugin"
-  "jarrodwatts/claude-delegator"
-  "OthmanAdi/planning-with-files"
-)
-
-for marketplace in "${MARKETPLACES[@]}"; do
+# `apm marketplace add` is idempotent. Failures are warned but non-fatal so a
+# transient network issue on one marketplace does not abort the whole apply;
+# `apm install -g` below will surface a precise error if a referenced plugin
+# truly cannot resolve.
+while IFS= read -r marketplace || [ -n "$marketplace" ]; do
+  [[ -z "$marketplace" || "$marketplace" == \#* ]] && continue
   echo "Ensuring marketplace: ${marketplace}"
-  apm marketplace add "$marketplace" || true
-done
+  if ! apm marketplace add "$marketplace"; then
+    echo "WARN: apm marketplace add failed for ${marketplace} (continuing)" >&2
+  fi
+done < "{{ .chezmoi.sourceDir }}/dot_apm/marketplaces.txt"
 
-echo "Running apm install -g from {{ .chezmoi.homeDir }}/.apm"
-cd "{{ .chezmoi.homeDir }}/.apm"
+# Strict on install: a failed plugin resolution should abort the apply so the
+# user is alerted rather than left with a half-installed plugin set. Re-running
+# `cd ~/.apm && apm install -g` retries.
+echo "Running apm install -g from ${APM_HOME}"
+cd "$APM_HOME"
 apm install -g
 {{ end -}}
