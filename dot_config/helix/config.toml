@@ -1,2 +1,4 @@
+theme = "night_owl"
+
 [editor.soft-wrap]
 enable = true
