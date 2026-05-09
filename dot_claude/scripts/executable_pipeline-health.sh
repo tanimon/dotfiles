@@ -21,7 +21,8 @@ Options:
 EOF
 }
 
-# Parse arguments
+# --- CLI argument parsing ---
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
     --json)
@@ -298,6 +299,8 @@ main() {
             "$obs_count" "$obs_age" "$analysis_result" "$instinct_count" "$project_id"
     fi
 }
+
+# --- Output rendering ---
 
 emit_human() {
     local overall="$1" obs_status="$2" analysis_status="$3" instinct_status="$4"
