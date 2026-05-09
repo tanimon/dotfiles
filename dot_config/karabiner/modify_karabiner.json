@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Karabiner Elements complex modification rules source file
+RULES_SOURCE="${CHEZMOI_SOURCE_DIR}/dot_config/karabiner/complex_modifications.json"
+
+# Read current file from stdin
+CURRENT="$(cat)"
+
+# Guard: jq not installed
+if ! command -v jq >/dev/null 2>&1; then
+    echo "WARNING: jq not found, skipping Karabiner complex modifications merge" >&2
+    printf '%s\n' "${CURRENT}"
+    exit 0
+fi
+
+# Guard: source file missing, invalid JSON, or not a JSON array
+if [ ! -f "${RULES_SOURCE}" ] || ! jq -e 'type == "array"' "${RULES_SOURCE}" >/dev/null 2>&1; then
+    echo "WARNING: ${RULES_SOURCE} missing, invalid, or not a JSON array, skipping Karabiner complex modifications merge" >&2
+    printf '%s\n' "${CURRENT}"
+    exit 0
+fi
+
+# Bootstrap: if stdin is empty (new machine, Karabiner not yet launched), seed a
+# minimal Karabiner-readable shape so the merge has somewhere to write rules into.
+# machine_specific is intentionally omitted -- Karabiner generates its per-machine
+# UUID on first launch.
+if [ -z "${CURRENT}" ]; then
+    CURRENT='{"profiles":[{"complex_modifications":{"rules":[]},"name":"Default profile","selected":true,"virtual_hid_keyboard":{"keyboard_type_v2":"ansi"}}]}'
+fi
+
+# Merge: replace .complex_modifications.rules in every profile, preserve everything else.
+# Guard the merge so jq failures (e.g., CURRENT is valid JSON but lacks .profiles)
+# fall back to passthrough rather than aborting chezmoi apply.
+if MERGED=$(printf '%s' "${CURRENT}" | jq --slurpfile rules "${RULES_SOURCE}" '.profiles |= map(.complex_modifications.rules = $rules[0])' 2>/dev/null); then
+    printf '%s\n' "${MERGED}"
+else
+    echo "WARNING: jq merge failed (likely CURRENT lacks expected shape), passing through stdin" >&2
+    printf '%s\n' "${CURRENT}"
+    exit 0
+fi

@@ -57,6 +57,9 @@ windows/
 .claude/skills/parallel-task
 .claude/skills/swarm-planner
 
+# ~/.config/karabiner/ runtime artifacts (Karabiner Elements writes these on every save)
+.config/karabiner/automatic_backups
+
 # repo-only files (not deployed to home)
 .node-version
 .github/
