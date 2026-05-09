@@ -1,0 +1,53 @@
+[
+  {
+    "description": "日本語入力モードにおける全角スペースと半角スペースの入力を入れ替える",
+    "manipulators": [
+      {
+        "conditions": [
+          {
+            "input_sources": [
+              {
+                "language": "ja"
+              }
+            ],
+            "type": "input_source_if"
+          }
+        ],
+        "from": {
+          "key_code": "spacebar"
+        },
+        "to": [
+          {
+            "key_code": "spacebar",
+            "modifiers": ["left_shift"]
+          }
+        ],
+        "type": "basic"
+      },
+      {
+        "conditions": [
+          {
+            "input_sources": [
+              {
+                "language": "ja"
+              }
+            ],
+            "type": "input_source_if"
+          }
+        ],
+        "from": {
+          "key_code": "spacebar",
+          "modifiers": {
+            "mandatory": ["shift"]
+          }
+        },
+        "to": [
+          {
+            "key_code": "spacebar"
+          }
+        ],
+        "type": "basic"
+      }
+    ]
+  }
+]

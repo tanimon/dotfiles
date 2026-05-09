@@ -111,6 +111,38 @@ test-modify:
 		echo "FAIL: missing source file should passthrough stdin"; exit 1; \
 	fi; \
 	echo "PASS: missing source file passes through stdin"
+	@echo "Testing modify_karabiner.json..."
+	@export CHEZMOI_SOURCE_DIR="$$(pwd)"; \
+	input='{"machine_specific":{"krbn-test":{"external_editor_path":"/Applications/Code.app"}},"profiles":[{"complex_modifications":{"rules":[{"description":"old"}]},"name":"Default profile","selected":true,"virtual_hid_keyboard":{"keyboard_type_v2":"jis"}}]}'; \
+	output=$$(printf '%s' "$$input" | bash dot_config/karabiner/modify_karabiner.json); \
+	echo "$$output" | jq empty || { echo "FAIL: output is not valid JSON"; exit 1; }; \
+	echo "$$output" | jq -e '.machine_specific."krbn-test".external_editor_path == "/Applications/Code.app"' > /dev/null || { echo "FAIL: machine_specific not preserved"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles[0].name == "Default profile" and .profiles[0].selected == true' > /dev/null || { echo "FAIL: profile metadata not preserved"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles[0].virtual_hid_keyboard.keyboard_type_v2 == "jis"' > /dev/null || { echo "FAIL: virtual_hid_keyboard not preserved"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles[0].complex_modifications.rules | length >= 1' > /dev/null || { echo "FAIL: rules not replaced"; exit 1; }; \
+	echo "PASS: machine_specific + profile metadata preserved, rules replaced"
+	@export CHEZMOI_SOURCE_DIR="$$(pwd)"; \
+	input='{"profiles":[{"complex_modifications":{"rules":[]},"name":"P1","selected":true},{"complex_modifications":{"rules":[{"description":"old"}],"parameters":{"basic.simultaneous_threshold_milliseconds":100}},"name":"P2","selected":false}]}'; \
+	output=$$(printf '%s' "$$input" | bash dot_config/karabiner/modify_karabiner.json); \
+	echo "$$output" | jq -e '.profiles | length == 2' > /dev/null || { echo "FAIL: multi-profile dropped"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles[0].complex_modifications.rules | length >= 1' > /dev/null || { echo "FAIL: profile 1 rules not replaced"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles[1].complex_modifications.rules | length >= 1' > /dev/null || { echo "FAIL: profile 2 rules not replaced"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles[1].complex_modifications.parameters."basic.simultaneous_threshold_milliseconds" == 100' > /dev/null || { echo "FAIL: profile 2 parameters not preserved"; exit 1; }; \
+	echo "PASS: multi-profile rules replaced in both, sibling parameters preserved"
+	@export CHEZMOI_SOURCE_DIR="$$(pwd)"; \
+	output=$$(printf '' | bash dot_config/karabiner/modify_karabiner.json); \
+	echo "$$output" | jq empty || { echo "FAIL: empty stdin not valid JSON"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles | length >= 1' > /dev/null || { echo "FAIL: bootstrap missing profiles"; exit 1; }; \
+	echo "$$output" | jq -e '.profiles[0].complex_modifications.rules | length >= 1' > /dev/null || { echo "FAIL: bootstrap missing rules"; exit 1; }; \
+	echo "$$output" | jq -e 'has("machine_specific") | not' > /dev/null || { echo "FAIL: bootstrap should not fabricate machine_specific"; exit 1; }; \
+	echo "PASS: empty stdin produces valid JSON with rules and no machine_specific"
+	@export CHEZMOI_SOURCE_DIR="/tmp/nonexistent-dir"; \
+	input='{"profiles":[{"complex_modifications":{"rules":[]},"name":"Default profile","selected":true}]}'; \
+	output=$$(printf '%s' "$$input" | bash dot_config/karabiner/modify_karabiner.json 2>/dev/null); \
+	if ! echo "$$output" | jq -e --argjson i "$$input" '. == $$i' > /dev/null 2>&1; then \
+		echo "FAIL: missing source file should passthrough stdin (semantic equality)"; exit 1; \
+	fi; \
+	echo "PASS: missing source file passes through stdin"
 
 ## Smoke test hook scripts
 test-scripts:
