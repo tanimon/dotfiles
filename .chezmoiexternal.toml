@@ -7,7 +7,7 @@
 
 [".local/share/cco"]
   type = "archive"
-  url = "https://github.com/nikvdp/cco/archive/42fc44e5ecc0e26ef9068743b52485ebbcd54cf9.tar.gz"
+  url = "https://github.com/nikvdp/cco/archive/9744b9fce8f8db1deae20be4dfe430b7a05c2f53.tar.gz"
   # renovate: branch=master
   stripComponents = 1
   refreshPeriod = "168h"
