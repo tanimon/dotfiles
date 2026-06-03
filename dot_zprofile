@@ -1,1 +1,12 @@
 eval "$(/opt/homebrew/bin/brew shellenv)"
+
+# Route SSH agent requests to the 1Password agent.
+# OpenSSH CLI already uses it via ~/.ssh/config IdentityAgent, but tools built
+# on libgit2 (e.g. sheldon) ignore IdentityAgent and read SSH_AUTH_SOCK directly.
+# Without this they hit the empty macOS launchd agent and fail with
+# `class=Ssh (23); code=Auth (-16)` when insteadOf rewrites HTTPS to SSH.
+export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+
+# Added by OrbStack: command-line tools and integration
+# This won't be added again if you remove it.
+source ~/.orbstack/shell/init.zsh 2>/dev/null || :
