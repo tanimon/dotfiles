@@ -1,6 +1,7 @@
 # PATH settings
 source ~/.config/zsh/path.zsh
 source ~/.config/zsh/sandbox.zsh
+source ~/.config/zsh/aws.zsh
 
 
 # Environment variables
