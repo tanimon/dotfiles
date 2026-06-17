@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # SessionStart hook: Clean up stale session flag files from /tmp.
 # Deletes flag files older than 1 day for both current and legacy patterns.
 
