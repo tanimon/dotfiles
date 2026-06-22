@@ -281,6 +281,50 @@
   },
   "language": "japanese",
   "sandbox": {
-    "enabled": false
+    "enabled": true,
+    "failIfUnavailable": false,
+    "excludedCommands": [
+      "docker *",
+      "gcloud *",
+      "gh *",
+      "open *",
+      "osascript *",
+      "terraform *"
+    ],
+    "filesystem": {
+      "allowWrite": [
+        "~/.cache",
+        "~/.cargo",
+        "~/.local/share/mise",
+        "~/.local/share/pnpm",
+        "~/.npm",
+        "~/.rustup",
+        "~/go"
+      ],
+      "denyRead": [
+        "~/.aws/credentials",
+        "~/.config/gh",
+        "~/.git-credentials",
+        "~/.netrc",
+        "~/.ssh"
+      ],
+      "allowRead": [
+        "~/.ssh/config",
+        "~/.ssh/known_hosts"
+      ]
+    },
+    "network": {
+      "allowLocalBinding": true,
+      "allowedDomains": [
+        "*.githubusercontent.com",
+        "api.anthropic.com",
+        "api.github.com",
+        "codeload.github.com",
+        "formulae.brew.sh",
+        "github.com",
+        "registry.npmjs.org",
+        "registry.yarnpkg.com"
+      ]
+    }
   }
 }
