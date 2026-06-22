@@ -71,8 +71,5 @@ cask "meetingbar"
 cask "obsidian"
 cask "raycast"
 cask "visual-studio-code"
-mas "Keynote", id: 409183694
 mas "Menu Bar Calendar", id: 1558360383
-mas "Numbers", id: 361304891
-mas "Pages", id: 409201541
 mas "Portal", id: 1436994560
