@@ -12,9 +12,6 @@
 
 shell = "zsh"
 
-[plugins.wakatime]
-github = "sobolevn/wakatime-zsh-plugin"
-
 [plugins.zsh-completions]
 github = "zsh-users/zsh-completions"
 
