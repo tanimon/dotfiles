@@ -143,7 +143,7 @@
       "Write(/etc/shadow)",
       "Write(/etc/sudoers)"
     ],
-    "defaultMode": "default",
+    "defaultMode": "auto",
     "additionalDirectories": [
       "{{ .chezmoi.homeDir }}/ghq/github.com/{{ .ghOrg }}/**"
     ]
@@ -282,6 +282,5 @@
   "language": "japanese",
   "sandbox": {
     "enabled": false
-  },
-  "skipDangerousModePermissionPrompt": true
+  }
 }
