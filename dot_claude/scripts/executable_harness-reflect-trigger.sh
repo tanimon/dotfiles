@@ -44,7 +44,7 @@ TURNS=${TURNS:-0}
 [[ "$TURNS" -lt "$TURN_THRESHOLD" ]] && exit 0
 
 # Dedupe: a resumed session ends again under the same session_id.
-if [[ -f "$PENDING" ]] && grep -q "\"session_id\":\"$SESSION_ID\"" "$PENDING"; then
+if [[ -f "$PENDING" ]] && grep -qF "\"session_id\":\"$SESSION_ID\"" "$PENDING"; then
     exit 0
 fi
 
