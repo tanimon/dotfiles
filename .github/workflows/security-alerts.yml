@@ -227,3 +227,19 @@ jobs:
             echo "- Code scanning: ${cs_count} open"
             echo "- Secret scanning: ${ss_count} open"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Alert on workflow failure
+        if: failure()
+        uses: ./.github/actions/harness-issue-alert
+        with:
+          title: "[harness] Scheduled workflow failing: Security Alerts"
+          body: |
+            ## Problem
+            The scheduled `security-alerts.yml` workflow is failing. The weekly
+            security alert sweep is not running.
+
+            ## Suggested Action
+            Check the failed run logs. A common cause is an expired
+            `CLAUDE_CODE_OAUTH_TOKEN` secret (401 auth error) — regenerate with
+            `claude setup-token` and update via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
+          gh-token: ${{ github.token }}

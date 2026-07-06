@@ -40,6 +40,36 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# --- Plugin installation check ---
+
+# The whole pipeline depends on the ECC plugin's observer hooks. Upstream has
+# renamed the plugin (ecc <-> everything-claude-code) more than once, silently
+# orphaning the enabledPlugins entry — so check the runtime install state, not
+# the settings file.
+check_plugin_installed() {
+    local installed_file="${HOME}/.claude/plugins/installed_plugins.json"
+    if [[ ! -f "$installed_file" ]]; then
+        echo "missing"
+        return
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        if jq -e '(.plugins // {}) | keys[] | select(startswith("ecc@") or startswith("everything-claude-code@"))' \
+            "$installed_file" >/dev/null 2>&1; then
+            echo "ok"
+        else
+            echo "missing"
+        fi
+    elif grep -qE '"(ecc|everything-claude-code)@' "$installed_file" 2>/dev/null; then
+        echo "ok"
+    else
+        echo "missing"
+    fi
+}
+
+# Globals set in main(), read by emitters
+PLUGIN_STATUS="unknown"
+HINT=""
+
 # --- Project discovery ---
 
 discover_project_dir() {
@@ -251,6 +281,12 @@ get_instinct_count() {
 # --- Main ---
 
 main() {
+    # Stage 0: is the ECC plugin even installed?
+    PLUGIN_STATUS="$(check_plugin_installed)"
+    if [[ "$PLUGIN_STATUS" == "missing" ]]; then
+        HINT="ECC plugin not installed — run: claude plugin install ecc@ecc (then restart Claude Code)"
+    fi
+
     # Discover project directory
     local project_dir
     if ! project_dir="$(discover_project_dir)"; then
@@ -261,6 +297,9 @@ main() {
             echo ""
             echo "ERROR: No project data found at ${HOMUNCULUS_DIR}/projects/"
             echo "  The ECC observer may not be configured or has never run."
+            if [[ -n "$HINT" ]]; then
+                echo "  -> ${HINT}"
+            fi
             echo ""
             echo "Overall: BROKEN"
         fi
@@ -286,7 +325,7 @@ main() {
 
     # Compute overall status
     local overall="healthy"
-    if [[ "$obs_status" == "broken" ]] || [[ "$analysis_status" == "broken" ]] || [[ "$instinct_status" == "broken" ]]; then
+    if [[ "$PLUGIN_STATUS" == "missing" ]] || [[ "$obs_status" == "broken" ]] || [[ "$analysis_status" == "broken" ]] || [[ "$instinct_status" == "broken" ]]; then
         overall="broken"
     fi
 
@@ -313,6 +352,13 @@ emit_human() {
     echo "=== ECC Learning Pipeline Health ==="
     echo "Project: ${project_id}"
     echo ""
+
+    # Stage 0: Plugin installation
+    if [[ "$PLUGIN_STATUS" == "missing" ]]; then
+        echo "0. ECC Plugin: NOT INSTALLED"
+        echo "   -> ${HINT}"
+        echo ""
+    fi
 
     # Stage 1: Observation capture
     local obs_display
@@ -382,6 +428,8 @@ emit_json() {
         --arg overall "$overall" \
         --arg project_id "$project_id" \
         --arg timestamp "$timestamp" \
+        --arg plugin_status "$PLUGIN_STATUS" \
+        --arg hint "$HINT" \
         --arg obs_status "$obs_status" \
         --argjson obs_count "${obs_count}" \
         --argjson obs_age "${obs_age}" \
@@ -393,6 +441,8 @@ emit_json() {
             overall_status: $overall,
             project_id: $project_id,
             snapshot_timestamp: $timestamp,
+            plugin_status: $plugin_status,
+            hint: $hint,
             stages: {
                 observation_capture: {
                     status: $obs_status,

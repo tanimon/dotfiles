@@ -7,7 +7,7 @@
     "LANG": "ja_JP.UTF-8",
     {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
     "CLV2_CONFIG": "{{ .chezmoi.homeDir }}/.claude/continuous-learning-config.json",
-    {{/* ECC_DISABLED_HOOKS: disable everything-claude-code:gateguard hook (issue #188). Both Bash and Edit/Write IDs are registered in separate dispatchers, so both must be listed. */ -}}
+    {{/* ECC_DISABLED_HOOKS: disable ecc (everything-claude-code) gateguard hook (issue #188). Both Bash and Edit/Write IDs are registered in separate dispatchers, so both must be listed. Hook IDs are plugin-name-independent, so they survive upstream plugin renames. */ -}}
     "ECC_DISABLED_HOOKS": "pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force",
     "_ZO_DOCTOR": "0"
   },
@@ -229,7 +229,7 @@
     "compound-engineering@compound-engineering-plugin": true,
     "ralph-loop@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
-    "everything-claude-code@everything-claude-code": true
+    "ecc@ecc": true
   },
   "extraKnownMarketplaces": {
     "compound-engineering-plugin": {
@@ -239,7 +239,7 @@
       },
       "autoUpdate": true
     },
-    "everything-claude-code": {
+    "ecc": {
       "source": {
         "source": "github",
         "repo": "affaan-m/everything-claude-code"

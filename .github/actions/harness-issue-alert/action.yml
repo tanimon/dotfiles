@@ -1,0 +1,47 @@
+name: Harness Issue Alert
+description: >
+  Create or update a harness-analysis issue so scheduled harness workflow
+  failures surface in the existing remediation loop instead of failing
+  silently. Deduplicates by exact title: comments on an existing open issue,
+  creates a new one otherwise.
+
+inputs:
+  title:
+    description: Exact issue title (used as the deduplication key)
+    required: true
+  body:
+    description: Issue body used when creating a new issue
+    required: true
+  gh-token:
+    description: GitHub token with issues:write
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Create or update alert issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh-token }}
+        ALERT_TITLE: ${{ inputs.title }}
+        ALERT_BODY: ${{ inputs.body }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        existing=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+          --label harness-analysis --state open \
+          --json number,title --limit 100 |
+          jq -r --arg t "$ALERT_TITLE" '[.[] | select(.title == $t)][0].number // empty')
+        if [ -n "$existing" ]; then
+          gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+            --body "Still occurring. Latest run: ${RUN_URL}"
+          echo "Commented on existing issue #${existing}"
+        else
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --label harness-analysis \
+            --title "$ALERT_TITLE" \
+            --body "${ALERT_BODY}
+
+Latest run: ${RUN_URL}"
+          echo "Created new alert issue"
+        fi

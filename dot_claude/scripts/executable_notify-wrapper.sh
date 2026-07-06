@@ -6,6 +6,7 @@
 # Caching to /tmp avoids the issue since /tmp is outside $HOME.
 #
 # stdin (JSON from Claude Code hooks) flows through to node unchanged.
+set -euo pipefail
 
 src="$HOME/.claude/scripts/notify.mts"
 cached="/tmp/claude-notify-${UID}.mts"
