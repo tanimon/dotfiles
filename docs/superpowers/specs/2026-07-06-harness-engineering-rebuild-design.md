@@ -134,8 +134,11 @@ Deterministic liveness check, run by review and standalone:
 
 ### 6. Runtime state — `~/.claude/harness/` (chezmoi-ignored)
 
-- `state.json`: `last_reflect_attempt`, `last_reflect_ok`, `last_review`,
-  `consecutive_reflect_failures`.
+- `state.json`: `last_trigger_epoch` (SessionEnd hook ran), `last_reflect_epoch`,
+  `last_review_epoch`. Epoch seconds, not ISO strings — avoids macOS/Linux `date`
+  parsing divergence in the deterministic scripts. No failure counters: with the
+  deferred model, reflect failures happen inside interactive sessions where they
+  are directly visible.
 - `queue.md`: append-only Markdown, human-readable and hand-editable.
 - `pending.jsonl`, `queue-archive.md`.
 - Writes are append-only or atomic (temp file + rename) to tolerate concurrent sessions.
