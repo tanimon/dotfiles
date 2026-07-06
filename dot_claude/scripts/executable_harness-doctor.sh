@@ -17,6 +17,7 @@ check() { # <ok flag: 0 ok / nonzero fail> <label> <remedy>
 
 HARNESS_DIR="$HOME/.claude/harness"
 SETTINGS="$HOME/.claude/settings.json"
+TRIGGER_STALE_WARN_DAYS=7 # keep in sync with REVIEW_OVERDUE_DAYS in harness-briefing.sh
 
 ok=0
 command -v jq >/dev/null 2>&1 || ok=1
@@ -71,7 +72,7 @@ if [[ -f "$HARNESS_DIR/state.json" ]] && jq empty "$HARNESS_DIR/state.json" 2>/d
             printf 'WARN: state.json has a non-numeric last_trigger_epoch\n'
         else
             AGE_DAYS=$((($(date +%s) - LAST_TRIGGER) / 86400))
-            if [[ "$AGE_DAYS" -ge 7 ]]; then
+            if [[ "$AGE_DAYS" -ge "$TRIGGER_STALE_WARN_DAYS" ]]; then
                 printf 'WARN: SessionEnd trigger last ran %sd ago — if sessions ended since, the hook may be dead\n' "$AGE_DAYS"
             else
                 printf 'PASS: SessionEnd trigger ran %sd ago\n' "$AGE_DAYS"

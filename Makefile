@@ -274,7 +274,7 @@ test-harness-scripts:
 	tmphome=$$(mktemp -d "$${TMPDIR:-/tmp}/test-harness-trigger-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
 	transcript="$$tmphome/big.jsonl"; \
-	for i in $$(seq 1 12); do printf '{"type":"assistant","message":{}}\n' >> "$$transcript"; done; \
+	for i in $$(seq 1 12); do printf '{"type":"assistant","message":{"id":"msg_%s"}}\n' "$$i" >> "$$transcript"; done; \
 	echo "  Test 1: substantial session is recorded..."; \
 	printf '{"session_id":"sess-big","transcript_path":"%s","cwd":"/tmp"}' "$$transcript" | HOME="$$tmphome" bash "$$SCRIPT" || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
 	pending="$$tmphome/.claude/harness/pending.jsonl"; \

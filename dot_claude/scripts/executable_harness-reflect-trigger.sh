@@ -26,11 +26,12 @@ PENDING="$HARNESS_DIR/pending.jsonl"
 STATE="$HARNESS_DIR/state.json"
 mkdir -p "$HARNESS_DIR"
 
-# Record the trigger attempt (atomic tmp+rename; corrupt state resets to {}).
+# Record the trigger attempt (atomic tmp+rename; corrupt state resets to the
+# same seed the briefing bootstraps with, so .version survives repair).
 NOW_EPOCH=$(date +%s)
-STATE_JSON="{}"
-[[ -f "$STATE" ]] && STATE_JSON=$(cat "$STATE" 2>/dev/null || printf '{}')
-printf '%s' "$STATE_JSON" | jq empty 2>/dev/null || STATE_JSON="{}"
+STATE_JSON='{"version":1}'
+[[ -f "$STATE" ]] && STATE_JSON=$(cat "$STATE" 2>/dev/null || printf '{"version":1}')
+printf '%s' "$STATE_JSON" | jq empty 2>/dev/null || STATE_JSON='{"version":1}'
 TMP_STATE=$(mktemp "$HARNESS_DIR/.state.XXXXXX")
 printf '%s' "$STATE_JSON" | jq --argjson now "$NOW_EPOCH" '.last_trigger_epoch = $now' >"$TMP_STATE"
 mv "$TMP_STATE" "$STATE"
@@ -38,8 +39,15 @@ mv "$TMP_STATE" "$STATE"
 [[ -z "$TRANSCRIPT" || ! -f "$TRANSCRIPT" ]] && exit 0
 
 # Gate: only sessions with enough assistant turns plausibly contain learnings.
+# Transcripts write one JSONL line per assistant content block, so a plain
+# line count over-counts turns severalfold; count unique API message ids
+# instead (one per assistant response). fromjson? skips malformed lines and
+# top-level select ignores the substring inside embedded content; id-less
+# assistant lines each count once as a conservative fallback.
 TURN_THRESHOLD=10
-TURNS=$(grep -c '"type":"assistant"' "$TRANSCRIPT" 2>/dev/null || true)
+TURNS=$(jq -Rr 'fromjson? | select(.type=="assistant") | .message.id // "line-\(input_line_number)"' \
+    "$TRANSCRIPT" 2>/dev/null | sort -u | wc -l) || TURNS=0
+TURNS=${TURNS//[^0-9]/} # wc -l pads with spaces on macOS
 TURNS=${TURNS:-0}
 [[ "$TURNS" -lt "$TURN_THRESHOLD" ]] && exit 0
 
