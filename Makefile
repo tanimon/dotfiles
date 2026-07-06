@@ -18,7 +18,7 @@ JSON_FILES := $(shell find . -type f -name '*.json' \
 	! -name 'pnpm-lock.yaml' \
 	! -name 'modify_*' 2>/dev/null)
 
-ALL_MD_FILES := $(shell find . \( -path './node_modules' -o -path './.git' \) -prune -o \
+ALL_MD_FILES := $(shell find . \( -path './node_modules' -o -path './.git' -o -path './.superpowers' \) -prune -o \
 	-type f -name '*.md' -print 2>/dev/null)
 
 ## Run all checks (mirrors CI)
