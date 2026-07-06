@@ -592,3 +592,39 @@ test-harness-scripts:
 		echo "  FAIL: non-zero exit on malformed recorded_epoch"; cleanup; exit 1; \
 	fi; \
 	cleanup
+	@echo "Testing harness-doctor.sh..."
+	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-doctor.sh"; \
+	tmphome=$$(mktemp -d /tmp/test-harness-doctor-XXXXXX); \
+	cleanup() { rm -rf "$$tmphome"; }; \
+	mkdir -p "$$tmphome/.claude/scripts" "$$tmphome/.claude/skills/harness-reflect" "$$tmphome/.claude/skills/harness-review" "$$tmphome/.claude/harness"; \
+	printf '{"hooks":{"x":"harness-reflect-trigger.sh and harness-briefing.sh"}}' > "$$tmphome/.claude/settings.json"; \
+	printf '#!/usr/bin/env bash\n' > "$$tmphome/.claude/scripts/harness-reflect-trigger.sh"; \
+	printf '#!/usr/bin/env bash\n' > "$$tmphome/.claude/scripts/harness-briefing.sh"; \
+	chmod +x "$$tmphome/.claude/scripts/harness-reflect-trigger.sh" "$$tmphome/.claude/scripts/harness-briefing.sh"; \
+	printf -- '---\nname: harness-reflect\n---\n' > "$$tmphome/.claude/skills/harness-reflect/SKILL.md"; \
+	printf -- '---\nname: harness-review\n---\n' > "$$tmphome/.claude/skills/harness-review/SKILL.md"; \
+	printf '{"version":1,"last_trigger_epoch":%s}' "$$(date +%s)" > "$$tmphome/.claude/harness/state.json"; \
+	printf '{"session_id":"s1","transcript_path":"/tmp/t","cwd":"/tmp","recorded_epoch":1}\n' > "$$tmphome/.claude/harness/pending.jsonl"; \
+	printf '# Harness improvement queue\n' > "$$tmphome/.claude/harness/queue.md"; \
+	echo "  Test 1: healthy fixture passes..."; \
+	if output=$$(HOME="$$tmphome" bash "$$SCRIPT") && ! echo "$$output" | grep -q '^FAIL:'; then \
+		echo "  PASS: healthy fixture exits 0 with no FAIL lines"; \
+	else \
+		echo "  FAIL: expected all-pass, got: $$output"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 2: unwired hook is detected..."; \
+	printf '{"hooks":{}}' > "$$tmphome/.claude/settings.json"; \
+	if HOME="$$tmphome" bash "$$SCRIPT" >/dev/null 2>&1; then \
+		echo "  FAIL: expected non-zero exit for unwired hooks"; cleanup; exit 1; \
+	else \
+		echo "  PASS: unwired hooks exit non-zero"; \
+	fi; \
+	echo "  Test 3: corrupt pending.jsonl is detected..."; \
+	printf '{"hooks":{"x":"harness-reflect-trigger.sh and harness-briefing.sh"}}' > "$$tmphome/.claude/settings.json"; \
+	printf 'not json\n' >> "$$tmphome/.claude/harness/pending.jsonl"; \
+	if HOME="$$tmphome" bash "$$SCRIPT" >/dev/null 2>&1; then \
+		echo "  FAIL: expected non-zero exit for corrupt pending"; cleanup; exit 1; \
+	else \
+		echo "  PASS: corrupt pending exits non-zero"; \
+	fi; \
+	cleanup
