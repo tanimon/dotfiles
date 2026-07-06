@@ -155,10 +155,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c '\"$HOME/.claude/scripts/session-cleanup.sh\" 2>/dev/null || true'"
-          },
-          {
-            "type": "command",
             "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/harness-briefing.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
           }
         ]
