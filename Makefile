@@ -527,3 +527,51 @@ test-harness-scripts:
 		echo "  PASS: HARNESS_DISABLE respected"; \
 	fi; \
 	cleanup
+	@echo "Testing harness-briefing.sh..."
+	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-briefing.sh"; \
+	tmphome=$$(mktemp -d /tmp/test-harness-briefing-XXXXXX); \
+	cleanup() { rm -rf "$$tmphome"; }; \
+	hdir="$$tmphome/.claude/harness"; \
+	echo "  Test 1: fresh install bootstraps and prints OK..."; \
+	output=$$(HOME="$$tmphome" bash "$$SCRIPT") || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if echo "$$output" | grep -q '^Harness: OK' && [ -f "$$hdir/state.json" ] && [ -f "$$hdir/queue.md" ]; then \
+		echo "  PASS: bootstrapped, prints OK with 'last review: never'"; \
+	else \
+		echo "  FAIL: expected OK line and bootstrapped files, got: $$output"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 2: review overdue with queued work warns with remedy..."; \
+	old=$$(( $$(date +%s) - 30*86400 )); \
+	printf '{"version":1,"last_review_epoch":%s}' "$$old" > "$$hdir/state.json"; \
+	printf '## [2026-07-01] some candidate\n- **Status:** pending\n' >> "$$hdir/queue.md"; \
+	output=$$(HOME="$$tmphome" bash "$$SCRIPT"); \
+	if echo "$$output" | grep -q 'ATTENTION' && echo "$$output" | grep -q 'overdue' && echo "$$output" | grep -q '/harness-review'; then \
+		echo "  PASS: overdue warning with remediation command"; \
+	else \
+		echo "  FAIL: expected overdue warning, got: $$output"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 3: fresh review prints OK with queue count..."; \
+	now=$$(date +%s); \
+	printf '{"version":1,"last_review_epoch":%s}' "$$now" > "$$hdir/state.json"; \
+	output=$$(HOME="$$tmphome" bash "$$SCRIPT"); \
+	if echo "$$output" | grep -q '^Harness: OK | queue: 1 | pending: 0 | last review: 0d ago'; then \
+		echo "  PASS: OK line with counts"; \
+	else \
+		echo "  FAIL: expected OK line with counts, got: $$output"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 4: pending pile-up warns..."; \
+	for i in 1 2 3 4 5 6; do printf '{"session_id":"s%s","transcript_path":"/tmp/t","cwd":"/tmp","recorded_epoch":%s}\n' "$$i" "$$now" >> "$$hdir/pending.jsonl"; done; \
+	output=$$(HOME="$$tmphome" bash "$$SCRIPT"); \
+	if echo "$$output" | grep -q 'unreflected sessions' && echo "$$output" | grep -q '/harness-reflect'; then \
+		echo "  PASS: pending pile-up warning"; \
+	else \
+		echo "  FAIL: expected pending warning, got: $$output"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 5: corrupt state.json warns but exits 0..."; \
+	printf 'not json' > "$$hdir/state.json"; \
+	output=$$(HOME="$$tmphome" bash "$$SCRIPT") || { echo "  FAIL: non-zero exit on corrupt state"; cleanup; exit 1; }; \
+	if echo "$$output" | grep -q 'corrupt'; then \
+		echo "  PASS: corrupt state warned"; \
+	else \
+		echo "  FAIL: expected corrupt warning, got: $$output"; cleanup; exit 1; \
+	fi; \
+	cleanup
