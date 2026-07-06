@@ -49,7 +49,7 @@ jobs:
             5. **Documentation drift** — Do docs/solutions/ entries reference files or patterns that no longer exist? Does CLAUDE.md match current repo state?
             6. **Refactoring candidates** — Are there shell scripts exceeding 200 lines, duplicated patterns across scripts, or overly complex template logic?
 
-            7. **Rule effectiveness** — Scan rule files in `dot_claude/rules/` and `.claude/rules/` for optional YAML frontmatter with `date` and `trigger` fields. Flag rules older than 90 days (by frontmatter `date` or git creation date) that have no related recent issues or commits as "potentially stale". Include a rule health summary in the GitHub Step Summary output via `$GITHUB_STEP_SUMMARY`.
+            7. **Rule effectiveness** — Scan rule files in `dot_claude/rules/` and `.claude/rules/` for optional YAML frontmatter with `date` and `trigger` fields. Flag rules older than 90 days (by frontmatter `date` or git creation date) that have no related recent issues or commits as "potentially stale". Summarize rule health (counts of active, stale, and untracked rules) in your final response text.
 
             8. **Instinct health** (ECC continuous learning) — This analysis area applies only when instinct data is available in the workspace (e.g., via exported snapshots or artifacts from a prior step). CI runners do not have local `~/.claude/homunculus/` state. If no instinct data is present in the workspace, skip this area entirely without creating an issue. When data is available:
                - Flag instincts with decaying confidence (< 0.3) as candidates for pruning
@@ -65,7 +65,7 @@ jobs:
                - Check for YAML frontmatter (`date`, `trigger` fields)
                - Determine rule age from frontmatter `date` or `git log --diff-filter=A`
                - Flag rules older than 90 days with no recent related commits as "potentially stale"
-               - Write a "Rule Health" section to `$GITHUB_STEP_SUMMARY` with counts of active, stale, and untracked rules
+               - Include a "Rule Health" summary (counts of active, stale, and untracked rules) in your final response text — your tool allowlist does not permit writing to `$GITHUB_STEP_SUMMARY`
             5. List existing open issues with the harness-analysis label:
                ```
                gh issue list --label harness-analysis --state open --json number,title
@@ -133,3 +133,19 @@ jobs:
             echo "---"
             echo "_Total open harness-analysis issues: ${total}_"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Alert on workflow failure
+        if: failure()
+        uses: ./.github/actions/harness-issue-alert
+        with:
+          title: "[harness] Scheduled workflow failing: Harness Analysis"
+          body: |
+            ## Problem
+            The scheduled `harness-analysis.yml` workflow is failing. Weekly harness
+            analysis is not running, so no new findings are being created.
+
+            ## Suggested Action
+            Check the failed run logs. A common cause is an expired
+            `CLAUDE_CODE_OAUTH_TOKEN` secret (401 auth error) — regenerate with
+            `claude setup-token` and update via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
+          gh-token: ${{ github.token }}

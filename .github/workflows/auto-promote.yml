@@ -12,6 +12,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
       id-token: write
     concurrency:
       group: auto-promote
@@ -44,6 +45,27 @@ jobs:
               echo "Promotion skipped. Run \`scripts/snapshot-instincts.sh\` locally and push."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # A failed health gate exits green (skip), which hid a stale snapshot for
+      # months. Surface scheduled-run skips as a harness-analysis issue instead.
+      - name: Alert on stale snapshot
+        if: steps.health.outputs.gate == 'fail' && github.event_name == 'schedule'
+        uses: ./.github/actions/harness-issue-alert
+        with:
+          title: "[harness] Auto-promote skipped: instinct snapshot failed health gate"
+          body: |
+            ## Problem
+            The weekly `auto-promote.yml` run skipped promotion because
+            `scripts/validate-instinct-snapshot.sh` failed (stale snapshot,
+            too few instincts, or invalid format). Instinct promotion is
+            effectively disabled until the snapshot is refreshed.
+
+            ## Suggested Action
+            Run `scripts/snapshot-instincts.sh` locally, commit the refreshed
+            `dot_claude/instinct-snapshots/`, and push. If the local ECC
+            pipeline itself is broken, run `~/.claude/scripts/pipeline-health.sh`
+            first and fix the reported stage.
+          gh-token: ${{ github.token }}
 
       - name: Promote instincts
         if: steps.health.outputs.gate == 'pass'
@@ -181,3 +203,19 @@ jobs:
               echo "**Note:** Promotion step did not complete successfully (outcome: ${PROMOTE_RESULT})."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Alert on workflow failure
+        if: failure()
+        uses: ./.github/actions/harness-issue-alert
+        with:
+          title: "[harness] Scheduled workflow failing: Auto-Promote Instincts"
+          body: |
+            ## Problem
+            The scheduled `auto-promote.yml` workflow is failing. Instinct
+            promotion is not running.
+
+            ## Suggested Action
+            Check the failed run logs. A common cause is an expired
+            `CLAUDE_CODE_OAUTH_TOKEN` secret (401 auth error) — regenerate with
+            `claude setup-token` and update via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
+          gh-token: ${{ github.token }}

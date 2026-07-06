@@ -58,6 +58,12 @@ if [[ -x "$PIPELINE_HEALTH_SCRIPT" ]]; then
             [[ "$ANALYSIS_STATUS" == "broken" ]] && BROKEN_STAGES="${BROKEN_STAGES:+$BROKEN_STAGES, }observer_analysis"
             [[ "$INSTINCT_STATUS" == "broken" ]] && BROKEN_STAGES="${BROKEN_STAGES:+$BROKEN_STAGES, }instinct_creation"
             HEALTH_MSG="Pipeline: BROKEN (${BROKEN_STAGES})"
+            # Surface the actionable fix so BROKEN doesn't become permanent noise
+            HEALTH_HINT=$(printf '%s' "$HEALTH_JSON" | jq -r '.hint // empty' 2>/dev/null) || true
+            if [[ -n "$HEALTH_HINT" ]]; then
+                HEALTH_MSG="${HEALTH_MSG}
+Fix: ${HEALTH_HINT}"
+            fi
         fi
     fi
 fi
