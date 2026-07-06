@@ -147,7 +147,7 @@ test-modify:
 		echo "FAIL: missing source file should passthrough stdin (semantic equality)"; exit 1; \
 	fi; \
 	echo "PASS: missing source file passes through stdin"
-	@TMPDIR="$$(mktemp -d)"; \
+	@TMPDIR="$$(mktemp -d "$${TMPDIR:-/tmp}/test-karabiner-XXXXXX")" || { echo "FAIL: mktemp failed"; exit 1; }; \
 	export CHEZMOI_SOURCE_DIR="$$TMPDIR"; \
 	mkdir -p "$$TMPDIR/dot_config/karabiner"; \
 	printf '{"not": "an array"}' > "$$TMPDIR/dot_config/karabiner/complex_modifications.json"; \
@@ -158,7 +158,7 @@ test-modify:
 		echo "FAIL: non-array source should passthrough stdin (guards against silent rules-key corruption)"; exit 1; \
 	fi; \
 	echo "PASS: non-array source file passes through stdin"
-	@TMPDIR="$$(mktemp -d)"; \
+	@TMPDIR="$$(mktemp -d "$${TMPDIR:-/tmp}/test-karabiner-XXXXXX")" || { echo "FAIL: mktemp failed"; exit 1; }; \
 	export CHEZMOI_SOURCE_DIR="$$TMPDIR"; \
 	mkdir -p "$$TMPDIR/dot_config/karabiner"; \
 	printf '{not valid json' > "$$TMPDIR/dot_config/karabiner/complex_modifications.json"; \
@@ -204,7 +204,7 @@ test-scripts:
 check-templates:
 	@if command -v chezmoi >/dev/null 2>&1; then \
 		echo "Validating chezmoi templates..."; \
-		tmpconfig=$$(mktemp /tmp/chezmoi-test-XXXXXX.toml); \
+		tmpconfig=$$(mktemp "$${TMPDIR:-/tmp}/chezmoi-test-XXXXXX.toml") || { echo "FAIL: mktemp failed"; exit 1; }; \
 		printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' > "$$tmpconfig"; \
 		fail=0; \
 		for file in $(TMPL_FILES); do \
@@ -233,7 +233,7 @@ scan-sensitive:
 test-sensitive:
 	@echo "Testing scan-sensitive-info.sh..."
 	@SCRIPT="$$(pwd)/scripts/scan-sensitive-info.sh"; \
-	tmpdir=$$(mktemp -d /tmp/test-sensitive-XXXXXX); \
+	tmpdir=$$(mktemp -d "$${TMPDIR:-/tmp}/test-sensitive-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
 	cleanup() { rm -rf "$$tmpdir"; }; \
 	echo "  Test 1: clean file exits 0..."; \
 	printf 'No sensitive data here\n' > "$$tmpdir/clean.md"; \
@@ -271,7 +271,7 @@ test-harness-scripts:
 	@if ! command -v jq >/dev/null 2>&1; then echo "WARNING: jq not found, skipping"; exit 0; fi
 	@echo "Testing harness-reflect-trigger.sh..."
 	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-reflect-trigger.sh"; \
-	tmphome=$$(mktemp -d /tmp/test-harness-trigger-XXXXXX) || { echo "FAIL: mktemp -d"; exit 1; }; \
+	tmphome=$$(mktemp -d "$${TMPDIR:-/tmp}/test-harness-trigger-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
 	transcript="$$tmphome/big.jsonl"; \
 	for i in $$(seq 1 12); do printf '{"type":"assistant","message":{"id":"msg_%s"}}\n' "$$i" >> "$$transcript"; done; \
@@ -331,7 +331,7 @@ test-harness-scripts:
 	cleanup
 	@echo "Testing harness-briefing.sh..."
 	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-briefing.sh"; \
-	tmphome=$$(mktemp -d /tmp/test-harness-briefing-XXXXXX) || { echo "FAIL: mktemp -d"; exit 1; }; \
+	tmphome=$$(mktemp -d "$${TMPDIR:-/tmp}/test-harness-briefing-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
 	hdir="$$tmphome/.claude/harness"; \
 	echo "  Test 1: fresh install bootstraps and prints OK..."; \
@@ -396,7 +396,7 @@ test-harness-scripts:
 	cleanup
 	@echo "Testing harness-doctor.sh..."
 	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-doctor.sh"; \
-	tmphome=$$(mktemp -d /tmp/test-harness-doctor-XXXXXX) || { echo "FAIL: mktemp -d"; exit 1; }; \
+	tmphome=$$(mktemp -d "$${TMPDIR:-/tmp}/test-harness-doctor-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
 	mkdir -p "$$tmphome/.claude/scripts" "$$tmphome/.claude/skills/harness-reflect" "$$tmphome/.claude/skills/harness-review" "$$tmphome/.claude/harness"; \
 	printf '{"hooks":{"x":"harness-reflect-trigger.sh and harness-briefing.sh"}}' > "$$tmphome/.claude/settings.json"; \
