@@ -94,32 +94,14 @@ jobs:
           persist-credentials: false
       - run: make test-scripts
 
-  pipeline-health:
-    name: pipeline health smoke tests
+  harness-loop-scripts:
+    name: harness loop script smoke tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - run: make test-pipeline-health
-
-  snapshot-instincts:
-    name: snapshot instincts smoke tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - run: make test-snapshot-instincts
-
-  validate-snapshot:
-    name: validate snapshot smoke tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - run: make test-validate-snapshot
+      - run: make test-harness-scripts
 
   actionlint:
     name: actionlint
