@@ -156,6 +156,10 @@
           {
             "type": "command",
             "command": "bash -c '\"$HOME/.claude/scripts/session-cleanup.sh\" 2>/dev/null || true'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/harness-briefing.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
           }
         ]
       }
@@ -202,12 +206,13 @@
         ]
       }
     ],
-    "UserPromptSubmit": [
+    "SessionEnd": [
       {
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c '\"$HOME/.claude/scripts/learning-briefing.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/harness-reflect-trigger.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
           }
         ]
       }
