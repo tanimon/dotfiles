@@ -5,8 +5,9 @@
     "ENABLE_TOOL_SEARCH": "true",
     "HOME": "{{ .chezmoi.homeDir }}",
     "LANG": "ja_JP.UTF-8",
-    {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
+    {{/* CLV2_CONFIG: points the ecc plugin's continuous-learning observer at a config whose only live content is "enabled": false. Do NOT remove this env var or the config file — without them the plugin falls back to upstream defaults and the observer silently re-enables (the instinct pipeline was deliberately demolished in 2026-07). */ -}}
     "CLV2_CONFIG": "{{ .chezmoi.homeDir }}/.claude/continuous-learning-config.json",
+    {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
     {{/* ECC_DISABLED_HOOKS: disable ecc (everything-claude-code) gateguard hook (issue #188). Both Bash and Edit/Write IDs are registered in separate dispatchers, so both must be listed. Hook IDs are plugin-name-independent, so they survive upstream plugin renames. */ -}}
     "ECC_DISABLED_HOOKS": "pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force",
     "_ZO_DOCTOR": "0"
@@ -151,7 +152,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup",
+        "matcher": "startup|resume|clear",
         "hooks": [
           {
             "type": "command",

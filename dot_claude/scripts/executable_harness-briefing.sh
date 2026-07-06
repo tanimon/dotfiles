@@ -51,7 +51,10 @@ if [[ "$STATE_OK" -eq 1 ]]; then
     if [[ -n "$LAST_REVIEW" ]]; then
         DAYS=$(((NOW - LAST_REVIEW) / 86400))
         LAST_REVIEW_TEXT="${DAYS}d ago"
-        if [[ "$DAYS" -ge "$REVIEW_OVERDUE_DAYS" && $((QUEUE_COUNT + PENDING_COUNT)) -gt 0 ]]; then
+        # Warn even with an empty queue: /harness-review's staleness scan and
+        # doctor check are valuable on their own, and rule rot is exactly the
+        # silent decay this loop exists to catch.
+        if [[ "$DAYS" -ge "$REVIEW_OVERDUE_DAYS" ]]; then
             WARNINGS+=("harness review overdue (${DAYS}d, ${QUEUE_COUNT} queued / ${PENDING_COUNT} pending) — run /harness-review")
         fi
     elif [[ $((QUEUE_COUNT + PENDING_COUNT)) -gt 0 ]]; then
@@ -62,7 +65,11 @@ fi
 if [[ "$PENDING_COUNT" -gt "$PENDING_MAX" ]]; then
     WARNINGS+=("unreflected sessions piling up (${PENDING_COUNT}) — run /harness-reflect")
 elif [[ "$PENDING_COUNT" -gt 0 ]]; then
-    OLDEST=$(jq -rs 'map(.recorded_epoch) | min // empty' "$PENDING" 2>/dev/null) || OLDEST=""
+    # Per-line fromjson? so one malformed line or a missing/non-numeric
+    # recorded_epoch cannot null-poison the min and suppress the warning.
+    # sed (not head) so the sort side never sees SIGPIPE under pipefail.
+    OLDEST=$(jq -Rr 'fromjson? | .recorded_epoch | select(type=="number")' "$PENDING" 2>/dev/null |
+        sort -n | sed -n 1p) || OLDEST=""
     if [[ -n "$OLDEST" && "$OLDEST" =~ ^[0-9]+$ ]]; then
         OLDEST_DAYS=$(((NOW - OLDEST) / 86400))
         if [[ "$OLDEST_DAYS" -ge "$PENDING_OLDEST_MAX_DAYS" ]]; then

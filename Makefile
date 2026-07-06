@@ -271,10 +271,10 @@ test-harness-scripts:
 	@if ! command -v jq >/dev/null 2>&1; then echo "WARNING: jq not found, skipping"; exit 0; fi
 	@echo "Testing harness-reflect-trigger.sh..."
 	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-reflect-trigger.sh"; \
-	tmphome=$$(mktemp -d /tmp/test-harness-trigger-XXXXXX); \
+	tmphome=$$(mktemp -d /tmp/test-harness-trigger-XXXXXX) || { echo "FAIL: mktemp -d"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
 	transcript="$$tmphome/big.jsonl"; \
-	for i in $$(seq 1 12); do printf '{"type":"assistant","message":{}}\n' >> "$$transcript"; done; \
+	for i in $$(seq 1 12); do printf '{"type":"assistant","message":{"id":"msg_%s"}}\n' "$$i" >> "$$transcript"; done; \
 	echo "  Test 1: substantial session is recorded..."; \
 	printf '{"session_id":"sess-big","transcript_path":"%s","cwd":"/tmp"}' "$$transcript" | HOME="$$tmphome" bash "$$SCRIPT" || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
 	pending="$$tmphome/.claude/harness/pending.jsonl"; \
@@ -331,7 +331,7 @@ test-harness-scripts:
 	cleanup
 	@echo "Testing harness-briefing.sh..."
 	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-briefing.sh"; \
-	tmphome=$$(mktemp -d /tmp/test-harness-briefing-XXXXXX); \
+	tmphome=$$(mktemp -d /tmp/test-harness-briefing-XXXXXX) || { echo "FAIL: mktemp -d"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
 	hdir="$$tmphome/.claude/harness"; \
 	echo "  Test 1: fresh install bootstraps and prints OK..."; \
@@ -396,7 +396,7 @@ test-harness-scripts:
 	cleanup
 	@echo "Testing harness-doctor.sh..."
 	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-doctor.sh"; \
-	tmphome=$$(mktemp -d /tmp/test-harness-doctor-XXXXXX); \
+	tmphome=$$(mktemp -d /tmp/test-harness-doctor-XXXXXX) || { echo "FAIL: mktemp -d"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
 	mkdir -p "$$tmphome/.claude/scripts" "$$tmphome/.claude/skills/harness-reflect" "$$tmphome/.claude/skills/harness-review" "$$tmphome/.claude/harness"; \
 	printf '{"hooks":{"x":"harness-reflect-trigger.sh and harness-briefing.sh"}}' > "$$tmphome/.claude/settings.json"; \

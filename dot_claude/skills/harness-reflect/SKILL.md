@@ -63,8 +63,11 @@ Write entries in English (they feed English-language rules and docs).
 
 ## Bookkeeping (after appending)
 
-1. Remove processed lines from `pending.jsonl` (rewrite the file without
-   them; keep unprocessed lines intact).
+1. Remove processed lines from `pending.jsonl` by filtering the file **as it
+   exists now** — e.g. one `grep -vF '"session_id":"<sid>"'` per processed id
+   into a temp file, then `mv` over the original. Never write back a copy you
+   read earlier: the SessionEnd hook appends concurrently, and a stale
+   write-back silently drops sessions recorded in between.
 2. Update state: `jq '.last_reflect_epoch = now | .last_reflect_epoch |= floor'`
    on `~/.claude/harness/state.json` (write via temp file + `mv`).
 3. Report a summary: N sessions analyzed, M entries queued, dropped entries
