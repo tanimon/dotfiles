@@ -21,27 +21,13 @@ chezmoi data                   # Show template data (profile, ghOrg, etc.)
 make lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
-# Harness analysis (scheduled weekly in CI, also manual)
-gh workflow run harness-analysis.yml  # Trigger harness analysis manually
-/resolve-harness-issues              # Fix open harness-analysis issues (creates branch + PR)
-
 # Security alerts (scheduled weekly in CI, also manual)
 gh workflow run security-alerts.yml  # Trigger security alert sweep manually
 
-# Harness improvement pipeline (propose → validate → apply)
-/propose-harness-improvement         # Generate structured improvement proposal from a failure
-/validate-harness-proposal           # Quality-gate a proposal (generator-evaluator separation)
-/apply-harness-proposal              # Apply a validated proposal (auto-apply or PR)
-/harness-rule-lifecycle              # Inventory rules, detect staleness, deprecate/merge
-/compound-harness-knowledge          # Document resolved issue via /ce:compound with harness context
-
-# Continuous learning (ECC instinct system)
-/instinct-status                     # View learned instincts with confidence bars
-/evolve                              # Cluster instincts into skills/commands/agents
-/promote-instincts                   # Promote high-confidence instincts to harness rules (manual)
-/prune                               # Delete expired pending instincts (30-day TTL)
-scripts/snapshot-instincts.sh        # Snapshot instincts to source tree (run before push for CI)
-gh workflow run auto-promote.yml     # Trigger auto-promotion manually (weekly schedule)
+# Harness self-improvement loop (local, PR-gated)
+/harness-reflect                     # Extract session learnings into ~/.claude/harness/queue.md
+/harness-review                      # Health check + queue triage -> one PR (7-day cadence)
+bash ~/.claude/scripts/harness-doctor.sh  # Deterministic liveness check
 ```
 
 ## chezmoi Naming Conventions
@@ -84,15 +70,25 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **Automated security alert handling** — `.github/workflows/security-alerts.yml` runs a weekly Saturday sweep (schedule) and supports manual dispatch (`gh workflow run security-alerts.yml`). Uses `claude-code-action` to analyze all open security alerts (Dependabot, code scanning, secret scanning) and either auto-fix (low-risk Dependabot/code scanning → PR) or escalate (high-risk/secret scanning → issue with `security` label).
 
-**Scheduled harness analysis** — `.github/workflows/harness-analysis.yml` runs weekly (Sunday 00:00 UTC) via `claude-code-action` to detect harness improvements, stale rules, documentation drift, refactoring candidates, and rule effectiveness. Findings are created as GitHub Issues with the `harness-analysis` label. Can also be triggered manually via `gh workflow run harness-analysis.yml`.
+**Scheduled workflow failure alerting** — The scheduled workflow
+(`security-alerts.yml`) ends with an `if: failure()` step calling the local composite
+action `.github/actions/harness-issue-alert`, which creates (or comments on) an issue
+deduplicated by exact title. This prevents silent scheduled failures (an expired
+`CLAUDE_CODE_OAUTH_TOKEN` once caused 401 failures for a month unnoticed). Any new
+scheduled workflow must include the same step; the alerting steps need `issues: write`
+permission.
 
-**Autonomous harness improvement pipeline** — Three skills form a generator-evaluator pipeline: `propose-harness-improvement` (generates structured proposals from failures), `validate-harness-proposal` (quality gates with generator-evaluator separation), and `compound-harness-knowledge` (thin wrapper delegating to `/ce:compound`). Two commands handle application: `apply-harness-proposal` (low-risk auto-apply or high-risk PR) and `harness-rule-lifecycle` (rule inventory, staleness detection, deprecation). The CI workflow `harness-auto-remediate.yml` triggers on `harness-analysis` labeled issues, running the proposal/validation pipeline via `claude-code-action` and auto-creating PRs for low-risk fixes.
-
-**Continuous learning (ECC integration)** — Two learning paths operate in parallel. The **deterministic path** uses ECC plugin hooks (`pre:observe`/`post:observe`) to capture every tool call to `~/.claude/homunculus/projects/<hash>/observations.jsonl`. A background observer (Haiku model) analyzes observations and creates confidence-scored "instincts" (atomic learned behaviors). The **deterministic briefing path** uses `executable_learning-briefing.sh` (a `UserPromptSubmit` hook) to inject pipeline health and instincts with confidence >= 0.6 on the first prompt of each session. The bridge command `/promote-instincts` connects the two: high-confidence instincts (>= 0.7) can be promoted to permanent harness rules through the existing propose/validate/apply pipeline. Observer configuration is managed via the `CLV2_CONFIG` env var in `settings.json.tmpl`, which resolves at runtime to `~/.claude/continuous-learning-config.json` (chezmoi source: `dot_claude/continuous-learning-config.json`). Runtime state in `~/.claude/homunculus/` is excluded via `.chezmoiignore`.
-
-**Auto-promotion (Closed-Loop v1)** — `.github/workflows/auto-promote.yml` runs weekly (Sunday 01:00 UTC) to automatically promote high-confidence instincts to rules. Requires a local snapshot: run `scripts/snapshot-instincts.sh` to copy instinct files to `dot_claude/instinct-snapshots/` (excluded from deployment via `.chezmoiignore`). The CI health gate (`scripts/validate-instinct-snapshot.sh`) checks freshness (14 days), count (>= 5), and format validity before `claude-code-action` processes candidates. A scheduled run whose gate fails creates/updates a `harness-analysis` alert issue (a silent green skip previously hid a stale snapshot for months). All promotions create PRs (main branch is protected). Low-risk domains (code-style, file-patterns, naming, documentation) create auto-merge eligible PRs; high-risk domains create PRs requiring human review.
-
-**Scheduled workflow failure alerting** — All scheduled workflows (`harness-analysis.yml`, `auto-promote.yml`, `security-alerts.yml`) end with an `if: failure()` step calling the local composite action `.github/actions/harness-issue-alert`, which creates (or comments on) a `harness-analysis` issue deduplicated by exact title. This closes the meta-feedback loop: a broken harness automation surfaces as an issue in the same remediation queue it feeds, instead of failing silently (an expired `CLAUDE_CODE_OAUTH_TOKEN` once caused 401 failures for a month unnoticed). New scheduled workflows must include the same step; the alerting steps need `issues: write` permission.
+**Harness self-improvement loop** — Local-only, PR-gated. A SessionEnd hook
+(`harness-reflect-trigger.sh`) records substantial sessions (>= 10 assistant turns) to
+`~/.claude/harness/pending.jsonl` — deterministic, no LLM. `/harness-reflect` extracts
+learnings from the current session and pending transcripts into
+`~/.claude/harness/queue.md`. `/harness-review` (nudged by the SessionStart briefing when
+overdue >7 days) runs `harness-doctor.sh`, triages the queue against existing rules, and
+opens one PR per run; humans review and merge — no auto-apply. Runtime state in
+`~/.claude/harness/` is chezmoi-ignored; only rule changes are version-controlled. All
+monitoring is deterministic shell — the briefing prints a status line every session, so
+silence itself signals a dead hook. Design:
+`docs/superpowers/specs/2026-07-06-harness-engineering-rebuild-design.md`.
 
 ### `.chezmoiignore`
 
@@ -133,9 +129,7 @@ make actionlint                # Lint GitHub Actions workflows (syntax + types)
 make zizmor                    # Security audit GitHub Actions workflows
 make test-modify               # Smoke test modify_ scripts
 make test-scripts              # Smoke test harness scripts
-make test-pipeline-health      # Smoke test pipeline-health.sh
-make test-snapshot-instincts   # Smoke test snapshot-instincts.sh
-make test-validate-snapshot    # Smoke test validate-instinct-snapshot.sh
+make test-harness-scripts      # Smoke test harness loop scripts (trigger/briefing/doctor)
 make check-templates           # Validate chezmoi .tmpl files
 make scan-sensitive            # Scan all .md files for PII and sensitive info
 make test-sensitive            # Smoke test sensitive info scanner
@@ -171,7 +165,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 ### External Constraints & Tool Integration
 
 - **Git commit signing** — Requires 1Password SSH agent (`op-ssh-sign`). Commits will fail without it running.
-- **Plugin marketplace renames silently break `enabledPlugins`** — The ecc (everything-claude-code) plugin has been renamed upstream more than once (`ecc` ↔ `everything-claude-code`). When the `plugin@marketplace` key in `settings.json.tmpl` no longer matches the marketplace's current plugin name, the plugin silently stops loading — its hooks (e.g., the ECC observer) stop firing with no error, killing the learning pipeline. After marketplace auto-updates, verify `claude plugin list` output and check `~/.claude/plugins/installed_plugins.json` contains the expected key. `pipeline-health.sh` detects this as "ECC Plugin: NOT INSTALLED".
+- **Plugin marketplace renames silently break `enabledPlugins`** — The ecc (everything-claude-code) plugin has been renamed upstream more than once (`ecc` ↔ `everything-claude-code`). When the `plugin@marketplace` key in `settings.json.tmpl` no longer matches the marketplace's current plugin name, the plugin silently stops loading — its hooks and agents stop working with no error. After marketplace auto-updates, verify `claude plugin list` output and check `~/.claude/plugins/installed_plugins.json` contains the expected key.
 - **Inline hook commands: keep simple or use jq** — Inline `bash -c` hook commands in `settings.json.tmpl` have two layers of escaping (JSON `\"` + shell quoting) that are extremely error-prone. Avoid complex grep/sed patterns; use `jq` (already a dependency) or extract logic into external script files.
 - **Verify GitHub Actions template output** — Workflows generated from templates (e.g., `claude-code-action`) default to read-only permissions. Posting comments requires `pull-requests: write` / `issues: write`. Do not use template output as-is — verify permissions match the intended use. See `~/.claude/rules/common/github-actions.md` for expression syntax constraints.
 - **Never hardcode node/pnpm versions in CI** — All pnpm/node jobs in `lint.yml` must use `node-version-file: '.node-version'` and `packageManager` auto-detection. Direct `version:` or `node-version:` inputs are prohibited. Version sources: `.node-version` (node), `package.json` `packageManager` (pnpm).
