@@ -44,6 +44,10 @@ PENDING_COUNT=${PENDING_COUNT:-0}
 LAST_REVIEW_TEXT="never"
 if [[ "$STATE_OK" -eq 1 ]]; then
     LAST_REVIEW=$(jq -r '.last_review_epoch // empty' "$STATE" 2>/dev/null) || LAST_REVIEW=""
+    if [[ -n "$LAST_REVIEW" && ! "$LAST_REVIEW" =~ ^[0-9]+$ ]]; then
+        WARNINGS+=("state.json has a non-numeric last_review_epoch — delete $STATE and it will re-bootstrap")
+        LAST_REVIEW=""
+    fi
     if [[ -n "$LAST_REVIEW" ]]; then
         DAYS=$(((NOW - LAST_REVIEW) / 86400))
         LAST_REVIEW_TEXT="${DAYS}d ago"
@@ -59,7 +63,7 @@ if [[ "$PENDING_COUNT" -gt "$PENDING_MAX" ]]; then
     WARNINGS+=("unreflected sessions piling up (${PENDING_COUNT}) — run /harness-reflect")
 elif [[ "$PENDING_COUNT" -gt 0 ]]; then
     OLDEST=$(jq -rs 'map(.recorded_epoch) | min // empty' "$PENDING" 2>/dev/null) || OLDEST=""
-    if [[ -n "$OLDEST" && "$OLDEST" != "null" ]]; then
+    if [[ -n "$OLDEST" && "$OLDEST" =~ ^[0-9]+$ ]]; then
         OLDEST_DAYS=$(((NOW - OLDEST) / 86400))
         if [[ "$OLDEST_DAYS" -ge "$PENDING_OLDEST_MAX_DAYS" ]]; then
             WARNINGS+=("oldest unreflected session is ${OLDEST_DAYS}d old; its transcript may be auto-pruned soon — run /harness-reflect")

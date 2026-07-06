@@ -574,4 +574,21 @@ test-harness-scripts:
 	else \
 		echo "  FAIL: expected corrupt warning, got: $$output"; cleanup; exit 1; \
 	fi; \
+	echo "  Test 6: non-numeric last_review_epoch warns but exits 0..."; \
+	printf '{"version":1,"last_review_epoch":"not-a-number"}' > "$$hdir/state.json"; \
+	output=$$(HOME="$$tmphome" bash "$$SCRIPT") || { echo "  FAIL: non-zero exit on non-numeric epoch"; cleanup; exit 1; }; \
+	if echo "$$output" | grep -q 'non-numeric'; then \
+		echo "  PASS: non-numeric epoch warned, exit 0"; \
+	else \
+		echo "  FAIL: expected non-numeric warning, got: $$output"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 7: malformed recorded_epoch in pending exits 0..."; \
+	now2=$$(date +%s); \
+	printf '{"version":1,"last_review_epoch":%s}' "$$now2" > "$$hdir/state.json"; \
+	printf '{"session_id":"bad","transcript_path":"/tmp/t","cwd":"/tmp","recorded_epoch":"oops"}\n' > "$$hdir/pending.jsonl"; \
+	if HOME="$$tmphome" bash "$$SCRIPT" >/dev/null; then \
+		echo "  PASS: malformed recorded_epoch exits 0"; \
+	else \
+		echo "  FAIL: non-zero exit on malformed recorded_epoch"; cleanup; exit 1; \
+	fi; \
 	cleanup
