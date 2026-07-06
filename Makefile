@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health test-snapshot-instincts test-validate-snapshot check-templates scan-sensitive test-sensitive
+.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health test-snapshot-instincts test-validate-snapshot check-templates scan-sensitive test-sensitive test-harness-scripts
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -22,7 +22,7 @@ ALL_MD_FILES := $(shell find . \( -path './node_modules' -o -path './.git' \) -p
 	-type f -name '*.md' -print 2>/dev/null)
 
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health test-snapshot-instincts test-validate-snapshot check-templates scan-sensitive test-sensitive
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts test-pipeline-health test-snapshot-instincts test-validate-snapshot check-templates scan-sensitive test-sensitive test-harness-scripts
 
 ## Scan for leaked secrets
 secretlint:
@@ -461,5 +461,69 @@ test-sensitive:
 		echo "  FAIL: expected exit 1 on mixed files"; cleanup; exit 1; \
 	else \
 		echo "  PASS: exit 1 when any file has PII"; \
+	fi; \
+	cleanup
+
+## Smoke test harness loop scripts (reflect-trigger, briefing, doctor)
+test-harness-scripts:
+	@if ! command -v jq >/dev/null 2>&1; then echo "WARNING: jq not found, skipping"; exit 0; fi
+	@echo "Testing harness-reflect-trigger.sh..."
+	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_harness-reflect-trigger.sh"; \
+	tmphome=$$(mktemp -d /tmp/test-harness-trigger-XXXXXX); \
+	cleanup() { rm -rf "$$tmphome"; }; \
+	transcript="$$tmphome/big.jsonl"; \
+	for i in $$(seq 1 12); do printf '{"type":"assistant","message":{}}\n' >> "$$transcript"; done; \
+	echo "  Test 1: substantial session is recorded..."; \
+	printf '{"session_id":"sess-big","transcript_path":"%s","cwd":"/tmp"}' "$$transcript" | HOME="$$tmphome" bash "$$SCRIPT" || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	pending="$$tmphome/.claude/harness/pending.jsonl"; \
+	if [ -f "$$pending" ] && jq -e 'select(.session_id == "sess-big") | .transcript_path and .recorded_epoch' "$$pending" >/dev/null 2>&1; then \
+		echo "  PASS: pending.jsonl has sess-big entry"; \
+	else \
+		echo "  FAIL: expected sess-big in pending.jsonl"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 2: state.json records last_trigger_epoch..."; \
+	if jq -e '.last_trigger_epoch > 0' "$$tmphome/.claude/harness/state.json" >/dev/null 2>&1; then \
+		echo "  PASS: last_trigger_epoch set"; \
+	else \
+		echo "  FAIL: last_trigger_epoch missing"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 3: duplicate session_id is not appended twice..."; \
+	printf '{"session_id":"sess-big","transcript_path":"%s","cwd":"/tmp"}' "$$transcript" | HOME="$$tmphome" bash "$$SCRIPT"; \
+	count=$$(grep -c 'sess-big' "$$pending"); \
+	if [ "$$count" -eq 1 ]; then \
+		echo "  PASS: still exactly 1 entry"; \
+	else \
+		echo "  FAIL: expected 1 entry, got $$count"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 4: short session is skipped..."; \
+	shortt="$$tmphome/short.jsonl"; \
+	printf '{"type":"assistant","message":{}}\n' > "$$shortt"; \
+	printf '{"session_id":"sess-short","transcript_path":"%s","cwd":"/tmp"}' "$$shortt" | HOME="$$tmphome" bash "$$SCRIPT" || { echo "  FAIL: non-zero exit on short session"; cleanup; exit 1; }; \
+	if grep -q 'sess-short' "$$pending"; then \
+		echo "  FAIL: short session was recorded"; cleanup; exit 1; \
+	else \
+		echo "  PASS: short session skipped"; \
+	fi; \
+	echo "  Test 5: malformed stdin exits 0..."; \
+	if printf 'not json at all' | HOME="$$tmphome" bash "$$SCRIPT"; then \
+		echo "  PASS: exit 0 on malformed stdin"; \
+	else \
+		echo "  FAIL: expected exit 0 on malformed stdin"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 6: missing transcript file exits 0 without recording..."; \
+	before=$$(wc -l < "$$pending"); \
+	printf '{"session_id":"sess-gone","transcript_path":"%s/nonexistent.jsonl","cwd":"/tmp"}' "$$tmphome" | HOME="$$tmphome" bash "$$SCRIPT" || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	after=$$(wc -l < "$$pending"); \
+	if [ "$$before" -eq "$$after" ]; then \
+		echo "  PASS: nothing recorded for missing transcript"; \
+	else \
+		echo "  FAIL: entry recorded despite missing transcript"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 7: HARNESS_DISABLE=1 skips..."; \
+	printf '{"session_id":"sess-disabled","transcript_path":"%s","cwd":"/tmp"}' "$$transcript" | HOME="$$tmphome" HARNESS_DISABLE=1 bash "$$SCRIPT" || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if grep -q 'sess-disabled' "$$pending"; then \
+		echo "  FAIL: recorded despite HARNESS_DISABLE"; cleanup; exit 1; \
+	else \
+		echo "  PASS: HARNESS_DISABLE respected"; \
 	fi; \
 	cleanup
