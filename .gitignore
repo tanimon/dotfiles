@@ -1,2 +1,7 @@
 node_modules/
 .context/
+
+# docs/ is version-controlled in this repo. Override the global ~/.gitignore
+# (dot_gitignore) `docs/plans` entry so new files under docs/ are not ignored here.
+!docs/plans/
+!docs/plans/**
