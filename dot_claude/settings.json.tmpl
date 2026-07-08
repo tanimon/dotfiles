@@ -7,9 +7,11 @@
     "LANG": "ja_JP.UTF-8",
     {{/* CLV2_CONFIG: points the ecc plugin's continuous-learning observer at a config whose only live content is "enabled": false. Do NOT remove this env var or the config file — without them the plugin falls back to upstream defaults and the observer silently re-enables (the instinct pipeline was deliberately demolished in 2026-07). */ -}}
     "CLV2_CONFIG": "{{ .chezmoi.homeDir }}/.claude/continuous-learning-config.json",
-    {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
     {{/* ECC_DISABLED_HOOKS: disable ecc (everything-claude-code) gateguard hook (issue #188). Both Bash and Edit/Write IDs are registered in separate dispatchers, so both must be listed. Hook IDs are plugin-name-independent, so they survive upstream plugin renames. */ -}}
     "ECC_DISABLED_HOOKS": "pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force",
+    {{/* ECC_CONTEXT_MONITOR_COST_WARNINGS: silence the COST NOTICE/WARNING/CRITICAL messages the ecc post:ecc-context-monitor hook injects at $5/$10/$50 session spend. This is a granular switch inside that hook — context-exhaustion, scope-creep, and tool-loop warnings from the same monitor stay active. To disable the whole monitor instead, add post:ecc-context-monitor to ECC_DISABLED_HOOKS above. */ -}}
+    "ECC_CONTEXT_MONITOR_COST_WARNINGS": "0",
+    {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
     "_ZO_DOCTOR": "0"
   },
   "permissions": {
