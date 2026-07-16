@@ -97,7 +97,7 @@ test-modify:
 	output=$$(printf '{"existingKey":"value","mcpServers":{}}' | bash modify_dot_claude.json); \
 	echo "$$output" | jq empty || { echo "FAIL: output is not valid JSON"; exit 1; }; \
 	echo "$$output" | jq -e '.existingKey == "value"' > /dev/null || { echo "FAIL: existingKey not preserved"; exit 1; }; \
-	echo "$$output" | jq -e '.mcpServers | has("notion")' > /dev/null || { echo "FAIL: mcpServers not replaced"; exit 1; }; \
+	echo "$$output" | jq -e '.mcpServers | has("codex")' > /dev/null || { echo "FAIL: mcpServers not replaced"; exit 1; }; \
 	echo "PASS: existing data preserved, mcpServers replaced"
 	@export CHEZMOI_SOURCE_DIR="$$(pwd)"; \
 	output=$$(printf '' | bash modify_dot_claude.json); \
