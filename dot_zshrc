@@ -65,6 +65,7 @@ command -v fzf &>/dev/null && source <(fzf --zsh)
 _gtr_init="${XDG_CACHE_HOME:-$HOME/.cache}/gtr/init-gtr.zsh"
 [[ -f "$_gtr_init" ]] || eval "$(git gtr init zsh)" 2>/dev/null || true
 source "$_gtr_init" 2>/dev/null || true; unset _gtr_init
+command -v git-wt &>/dev/null && eval "$(git wt --init zsh)"
 command -v mise &>/dev/null && eval "$(mise activate zsh)"
 command -v sheldon &>/dev/null && eval "$(sheldon source)"
 command -v starship &>/dev/null && eval "$(starship init zsh)"
