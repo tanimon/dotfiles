@@ -57,6 +57,11 @@
 [gpg "ssh"]
   program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
 
+# git-wt
+[wt]
+  basedir = ".claude/worktrees"
+  copy = "docs/"
+
 {{ if eq .profile "work" -}}
 ### 会社用設定
 [url "git@github.com:"]

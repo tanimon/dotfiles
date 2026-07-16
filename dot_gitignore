@@ -110,7 +110,9 @@ tags
 .serena/
 claudedocs/
 .takt/
-docs/plans
+.gstack/
+docs/plans/
+docs/superpowers/
 
 **/.claude/.cc-writes/
 **/.claude/worktrees/
