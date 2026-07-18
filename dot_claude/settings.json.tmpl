@@ -432,7 +432,11 @@
       "terraform *"
     ],
     "filesystem": {
+      {{/* Low-risk OS-managed temp/scratch dirs. The default write boundary grants only the working dir and the specific session $TMPDIR, not these roots, so writes to them are silently denied. Safe to grant because none hold $PATH executables, system config, or shell rc — the escalation surface the sandbox docs warn about. /tmp + /private/tmp are the macOS symlink pair; /var/folders is the Darwin per-user temp (_CS_DARWIN_USER_TEMP_DIR) that a bare `mktemp -d` and TMPDIR-ignoring libc calls resolve to. Removes silent write-denial friction for tools that hardcode /tmp or bypass $TMPDIR. */ -}}
       "allowWrite": [
+        "/private/tmp",
+        "/tmp",
+        "/var/folders",
         "~/.cache",
         "~/.cargo",
         "~/.npm",
