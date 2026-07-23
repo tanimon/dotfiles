@@ -130,9 +130,10 @@ target's content. Adopt by hand, reconciling the change into the source's real
 shape:
 
 - **`.tmpl`:** re-insert template variables. If the drift added a line
-  containing `/Users/alice/...`, the source must use `{{ .chezmoi.homeDir }}`,
-  not the literal path. Preserve existing `{{ ... }}` regions. Read the file
-  first to match its templating style.
+  containing an absolute home path (e.g. a `<home-dir>/.cache/...` value), the
+  source must use `{{ .chezmoi.homeDir }}` instead of the literal path.
+  Preserve existing `{{ ... }}` regions. Read the file first to match its
+  templating style.
 - **`modify_`:** the source is a script that transforms the current target on
   stdin (see `modify_dot_claude.json`, which uses `jq` to own only a subset of
   keys). Drift here means the *managed* portion changed. Only reflect the
