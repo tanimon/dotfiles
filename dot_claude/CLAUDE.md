@@ -7,6 +7,6 @@
 
 Detailed coding rules, test policies, and security guidelines live in `~/.claude/rules/`, organized by domain (`web/`) and shared (`common/`). This file contains only cross-project behavioral guidelines.
 
-# Compound Engineering Plugin Notes
+# Asking the User
 
-The `ralph-wiggum` skill may appear as `ralph-loop`. Launch via `/ralph-loop:ralph-loop`.
+When you need the user to confirm a decision or choose between options, prefer the `AskUserQuestion` tool over free-form prose questions. It gives the user structured, selectable choices and keeps decisions explicit. Reserve free-form questions for cases the tool cannot express (e.g., open-ended input).
