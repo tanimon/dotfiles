@@ -56,6 +56,10 @@
       "Bash(mise:*)",
       "Bash(mkdir:*)",
       "Bash(mv:*)",
+      "Bash(nono profile guide)",
+      "Bash(nono profile show:*)",
+      "Bash(nono profile validate:*)",
+      "Bash(nono why:*)",
       "Bash(npm:*)",
       "Bash(pnpm:*)",
       "Bash(python3:*)",
@@ -362,7 +366,9 @@
     "type": "command",
     "command": "node --experimental-strip-types $HOME/.claude/statusline-command.ts"
   },
+  {{/* nono@nolabs-ai: the nono pack (nolabs-ai/claude) writes this key into ~/.claude/settings.json at install time. chezmoi fully owns this template, so without reflecting it here `chezmoi apply` wipes the key and the pack's sandbox-diagnostic hooks silently stop firing — same failure shape as #228 and the marketplace-rename pitfall in CLAUDE.md. If the pack namespace changes upstream, this key must be updated in lockstep. */ -}}
   "enabledPlugins": {
+    "nono@nolabs-ai": true,
     "superpowers@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": false,
@@ -471,5 +477,6 @@
       "osascript *",
       "terraform *"
     ]
-  }
+  },
+  "effortLevel": "high"
 }
