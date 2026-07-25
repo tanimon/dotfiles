@@ -1,6 +1,10 @@
 ---
 date: 2026-03-28
 trigger: "Agent writes shell scripts without proper headers or safety patterns"
+paths:
+  - ".chezmoiscripts/**"
+  - "scripts/**"
+  - "dot_claude/scripts/**"
 ---
 
 # Shell Scripts

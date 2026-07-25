@@ -1,6 +1,11 @@
 ---
 date: 2026-03-28
 trigger: "Agent uses wrong chezmoi file pattern or mishandles modify_ scripts"
+paths:
+  - "**/modify_*"
+  - "**/*.tmpl"
+  - ".chezmoiignore"
+  - ".chezmoiscripts/**"
 ---
 
 # chezmoi Patterns

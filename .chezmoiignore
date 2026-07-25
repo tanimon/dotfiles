@@ -74,6 +74,12 @@ scripts/
 renovate.json
 Makefile
 
+# repo-only nested CLAUDE.md context files (Check 4 migration, 2026-07-26) — unlike
+# dot_claude/CLAUDE.md (the user's real ~/.claude/CLAUDE.md, must stay deployed), these
+# exist only for Claude Code to load contextually when working in this repo
+.config/nono/CLAUDE.md
+.claude/scripts/CLAUDE.md
+
 # secretlint / prek
 package.json
 pnpm-lock.yaml
