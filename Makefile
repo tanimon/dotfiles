@@ -180,25 +180,106 @@ test-modify:
 ## Smoke test hook scripts
 test-scripts:
 	@if ! command -v jq >/dev/null 2>&1; then echo "WARNING: jq not found, skipping"; exit 0; fi
-	@echo "Testing notify-wrapper.sh..."
-	@WRAPPER="$$(pwd)/dot_claude/scripts/executable_notify-wrapper.sh"; \
-	if [ ! -f "$$WRAPPER" ]; then \
-		echo "  FAIL: notify-wrapper.sh not found"; exit 1; \
+	@echo "Testing notify.sh..."
+	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_notify.sh"; \
+	if [ ! -f "$$SCRIPT" ]; then \
+		echo "  FAIL: notify.sh not found"; exit 1; \
 	fi; \
-	echo "  PASS: notify-wrapper.sh exists"; \
-	if ! head -1 "$$WRAPPER" | grep -q '#!/usr/bin/env bash'; then \
+	if ! head -1 "$$SCRIPT" | grep -q '#!/usr/bin/env bash'; then \
 		echo "  FAIL: shebang is not #!/usr/bin/env bash"; exit 1; \
 	fi; \
-	echo "  PASS: shebang is correct"; \
-	if command -v node >/dev/null 2>&1; then \
-		if echo '{}' | bash "$$WRAPPER" 2>/dev/null; then \
-			echo "  PASS: notify-wrapper.sh exits cleanly on empty JSON input"; \
-		else \
-			echo "  PASS: notify-wrapper.sh exits non-zero on empty input (expected — node script needs real hook data)"; \
-		fi; \
+	echo "  PASS: exists with correct shebang"; \
+	tmphome=$$(mktemp -d "$${TMPDIR:-/tmp}/test-notify-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
+	cleanup() { rm -rf "$$tmphome"; }; \
+	run() { HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 bash "$$SCRIPT"; }; \
+	echo "  Test 1: all three orca env vars suppress the notification..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| ORCA_PANE_KEY=pane ORCA_AGENT_HOOK_PORT=1234 ORCA_AGENT_HOOK_TOKEN=tok run) \
+		|| { echo "  FAIL: non-zero exit inside orca"; cleanup; exit 1; }; \
+	if [ -z "$$out" ]; then \
+		echo "  PASS: silent inside orca"; \
 	else \
-		echo "  SKIP: node not found, skipping runtime test"; \
-	fi
+		echo "  FAIL: expected no output inside orca, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 2: ORCA_PANE_KEY alone does NOT suppress (orca cannot notify without port/token)..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| ORCA_PANE_KEY=pane run) || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if echo "$$out" | grep -q 'subtitle=許可待ち'; then \
+		echo "  PASS: notification still produced"; \
+	else \
+		echo "  FAIL: expected a notification, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 3: permission message classifies as 許可待ち with sound..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=許可待ち' && echo "$$out" | grep -q 'sound=Glass'; then \
+		echo "  PASS: 許可待ち + Glass"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 4: other message classifies as 入力待ち and is silent..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"Claude is waiting for your input","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=入力待ち' && echo "$$out" | grep -qx 'sound='; then \
+		echo "  PASS: 入力待ち + no sound"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 5: StopFailure classifies as エラー停止..."; \
+	out=$$(printf '{"hook_event_name":"StopFailure","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=エラー停止' && echo "$$out" | grep -q 'sound=Basso'; then \
+		echo "  PASS: エラー停止 + Basso"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 6: unknown event degrades to 入力待ち rather than silence..."; \
+	out=$$(printf '{"hook_event_name":"SomeFutureEvent","message":"whatever","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=入力待ち'; then \
+		echo "  PASS: degraded to 入力待ち"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 7: empty stdin exits 0 with no output..."; \
+	out=$$(printf '' | run) || { echo "  FAIL: non-zero exit on empty stdin"; cleanup; exit 1; }; \
+	if [ -z "$$out" ]; then \
+		echo "  PASS: silent on empty stdin"; \
+	else \
+		echo "  FAIL: expected no output, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 8: malformed JSON exits 0 with no output..."; \
+	out=$$(printf 'not json at all' | run) || { echo "  FAIL: non-zero exit on malformed stdin"; cleanup; exit 1; }; \
+	if [ -z "$$out" ]; then \
+		echo "  PASS: silent on malformed stdin"; \
+	else \
+		echo "  FAIL: expected no output, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 9: group carries the session_id..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"hi","session_id":"sess-abc","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -qx 'group=claude-sess-abc'; then \
+		echo "  PASS: group=claude-sess-abc"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 10: title carries the cwd basename..."; \
+	base=$$(basename "$$tmphome"); \
+	out=$$(printf '{"hook_event_name":"Notification","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q "title=.*$$base"; then \
+		echo "  PASS: title contains $$base"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 11: diagnostic log records the classification..."; \
+	if [ -f "$$tmphome/.claude/logs/notify.log" ] && grep -q 'kind=入力待ち' "$$tmphome/.claude/logs/notify.log"; then \
+		echo "  PASS: notify.log written"; \
+	else \
+		echo "  FAIL: expected notify.log with kind= entry"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 12: missing cwd falls back to \$$PWD..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"hi","session_id":"s1"}' | run); \
+	if echo "$$out" | grep -q 'title='; then \
+		echo "  PASS: title produced without cwd"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	cleanup
 
 ## Validate chezmoi templates
 check-templates:
