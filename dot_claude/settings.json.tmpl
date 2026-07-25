@@ -24,15 +24,20 @@
       "Bash(docker logs:*)",
       "Bash(docker ps:*)",
       "Bash(fd:*)",
+      "Bash(gh issue comment:*)",
+      "Bash(gh pr comment:*)",
       "Bash(gh pr reviews:*)",
       "Bash(gh pr view:*)",
       "Bash(git add:*)",
       "Bash(git checkout:*)",
+      "Bash(git commit:*)",
       "Bash(git diff:*)",
       "Bash(git fetch:*)",
       "Bash(git log:*)",
       "Bash(git ls-tree:*)",
+      "Bash(git merge:*)",
       "Bash(git pull:*)",
+      "Bash(git revert:*)",
       "Bash(git show:*)",
       "Bash(git status:*)",
       "Bash(git submodule:*)",
@@ -124,14 +129,13 @@
       "Edit(/etc/shadow)",
       "Edit(/etc/sudoers)"
     ],
-    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate commit/push + history-altering git behind explicit approval; routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. gh: gate state-changing subcommands (create/edit/merge/close/delete/comment/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh pr view is read, gh pr create is write), so a noun-level gh pr:* wildcard would over-gate reads. Read-only gh (pr view/reviews, and unlisted read verbs under defaultMode) stays frictionless. gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api is left unlisted: its read/write intent lives in --method, not a fixed prefix, so it can't be prefix-gated cleanly. */ -}}
+    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/merge/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh pr view is read, gh pr create is write), so a noun-level gh pr:* wildcard would over-gate reads. Read-only gh (pr view/reviews, and unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api is left unlisted: its read/write intent lives in --method, not a fixed prefix, so it can't be prefix-gated cleanly. */ -}}
     "ask": [
       "Bash(gh cache delete:*)",
       "Bash(gh gist create:*)",
       "Bash(gh gist delete:*)",
       "Bash(gh gist edit:*)",
       "Bash(gh issue close:*)",
-      "Bash(gh issue comment:*)",
       "Bash(gh issue create:*)",
       "Bash(gh issue delete:*)",
       "Bash(gh issue edit:*)",
@@ -141,7 +145,6 @@
       "Bash(gh label delete:*)",
       "Bash(gh label edit:*)",
       "Bash(gh pr close:*)",
-      "Bash(gh pr comment:*)",
       "Bash(gh pr create:*)",
       "Bash(gh pr edit:*)",
       "Bash(gh pr merge:*)",
@@ -168,13 +171,10 @@
       "Bash(gh workflow enable:*)",
       "Bash(gh workflow run:*)",
       "Bash(git cherry-pick:*)",
-      "Bash(git commit:*)",
       "Bash(git filter-branch:*)",
-      "Bash(git merge:*)",
       "Bash(git push:*)",
       "Bash(git rebase:*)",
-      "Bash(git reset:*)",
-      "Bash(git revert:*)"
+      "Bash(git reset:*)"
     ],
     "defaultMode": "auto",
     "additionalDirectories": [
@@ -461,7 +461,7 @@
         "~/.ssh/known_hosts"
       ]
     },
-    {{/* git commit/push run outside the sandbox so op-ssh-sign can reach the 1Password SSH agent Unix socket under `command claude` (native Seatbelt blocks the socket network-outbound; v2.1.205 has no Unix-socket allow key). Trade-off: excluded git runs repo hooks / SSH transports unsandboxed and push bypasses network.allowedDomains — accepted because these commands are ask-gated (see permissions.ask) and this repo's trusted prek/secretlint hooks must not be neutralized. */ -}}
+    {{/* git commit/push run outside the sandbox so op-ssh-sign can reach the 1Password SSH agent Unix socket under `command claude` (native Seatbelt blocks the socket network-outbound; v2.1.205 has no Unix-socket allow key). Trade-off, and it differs per command: push is ask-gated (see permissions.ask), so the unsandboxed SSH transport (GIT_SSH_COMMAND/ext::) and the network.allowedDomains bypass stay prompt-backstopped. commit is in allow, so it runs unsandboxed AND unprompted — a repo-controlled pre-commit hook executes outside the sandbox with nothing prompting. Accepted because this repo's trusted prek/secretlint hooks must not be neutralized. */ -}}
     "excludedCommands": [
       "docker *",
       "gcloud *",
