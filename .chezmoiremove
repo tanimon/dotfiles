@@ -16,3 +16,8 @@
 .claude/skills/propose-harness-improvement
 .claude/skills/validate-harness-proposal/**
 .claude/skills/validate-harness-proposal
+# The Node notify implementation and its Seatbelt wrapper were retired in favor
+# of notify.sh; notify.mjs is a leftover from the earlier mjs->mts migration.
+.claude/scripts/notify-wrapper.sh
+.claude/scripts/notify.mts
+.claude/scripts/notify.mjs

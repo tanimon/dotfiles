@@ -180,25 +180,233 @@ test-modify:
 ## Smoke test hook scripts
 test-scripts:
 	@if ! command -v jq >/dev/null 2>&1; then echo "WARNING: jq not found, skipping"; exit 0; fi
-	@echo "Testing notify-wrapper.sh..."
-	@WRAPPER="$$(pwd)/dot_claude/scripts/executable_notify-wrapper.sh"; \
-	if [ ! -f "$$WRAPPER" ]; then \
-		echo "  FAIL: notify-wrapper.sh not found"; exit 1; \
+	@echo "Testing notify.sh..."
+	@SCRIPT="$$(pwd)/dot_claude/scripts/executable_notify.sh"; \
+	if [ ! -f "$$SCRIPT" ]; then \
+		echo "  FAIL: notify.sh not found"; exit 1; \
 	fi; \
-	echo "  PASS: notify-wrapper.sh exists"; \
-	if ! head -1 "$$WRAPPER" | grep -q '#!/usr/bin/env bash'; then \
+	if ! head -1 "$$SCRIPT" | grep -q '#!/usr/bin/env bash'; then \
 		echo "  FAIL: shebang is not #!/usr/bin/env bash"; exit 1; \
 	fi; \
-	echo "  PASS: shebang is correct"; \
-	if command -v node >/dev/null 2>&1; then \
-		if echo '{}' | bash "$$WRAPPER" 2>/dev/null; then \
-			echo "  PASS: notify-wrapper.sh exits cleanly on empty JSON input"; \
-		else \
-			echo "  PASS: notify-wrapper.sh exits non-zero on empty input (expected — node script needs real hook data)"; \
-		fi; \
+	echo "  PASS: exists with correct shebang"; \
+	tmphome=$$(mktemp -d "$${TMPDIR:-/tmp}/test-notify-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
+	cleanup() { rm -rf "$$tmphome"; }; \
+	run() { HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= bash "$$SCRIPT"; }; \
+	echo "  Test 1: all three orca env vars suppress the notification..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 ORCA_PANE_KEY=pane ORCA_AGENT_HOOK_PORT=1234 ORCA_AGENT_HOOK_TOKEN=tok bash "$$SCRIPT") \
+		|| { echo "  FAIL: non-zero exit inside orca"; cleanup; exit 1; }; \
+	if [ -z "$$out" ]; then \
+		echo "  PASS: silent inside orca"; \
 	else \
-		echo "  SKIP: node not found, skipping runtime test"; \
-	fi
+		echo "  FAIL: expected no output inside orca, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 2: ORCA_PANE_KEY alone does NOT suppress (orca cannot notify without port/token)..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 ORCA_PANE_KEY=pane ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= bash "$$SCRIPT") \
+		|| { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if echo "$$out" | grep -q 'subtitle=許可待ち'; then \
+		echo "  PASS: notification still produced"; \
+	else \
+		echo "  FAIL: expected a notification, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 3: notification_type=permission_prompt classifies as 許可待ち with sound..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=許可待ち' && echo "$$out" | grep -q 'sound=Glass'; then \
+		echo "  PASS: 許可待ち + Glass"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 4: notification_type=worker_permission_prompt also classifies as 許可待ち..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"worker_permission_prompt","message":"worker needs network access to example.com","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=許可待ち' && echo "$$out" | grep -q 'sound=Glass'; then \
+		echo "  PASS: 許可待ち + Glass"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 5: notification_type=idle_prompt classifies as 入力待ち and is silent..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=入力待ち' && echo "$$out" | grep -qx 'sound='; then \
+		echo "  PASS: 入力待ち + no sound"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 6: notification_type=agent_needs_input classifies as 入力待ち and is silent..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"agent_needs_input","message":"reviewer needs your input","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=入力待ち' && echo "$$out" | grep -qx 'sound='; then \
+		echo "  PASS: 入力待ち + no sound"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 7: unrecognized notification_type degrades to 入力待ち rather than silence..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"future_unknown_type","message":"something new","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=入力待ち' && echo "$$out" | grep -qx 'sound='; then \
+		echo "  PASS: degraded to 入力待ち + no sound"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 8: absent notification_type falls back to the message regex..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=許可待ち' && echo "$$out" | grep -q 'sound=Glass'; then \
+		echo "  PASS: message-regex fallback still classifies 許可待ち"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 9: message-regex fallback matches \"approval\", not just \"permission\"..."; \
+	out=$$(printf '{"hook_event_name":"Notification","message":"Claude Code needs your approval for the plan","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=許可待ち' && echo "$$out" | grep -q 'sound=Glass'; then \
+		echo "  PASS: approval wording classifies 許可待ち"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 10: StopFailure without error classifies as エラー停止 with the fixed body..."; \
+	out=$$(printf '{"hook_event_name":"StopFailure","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=エラー停止' && echo "$$out" | grep -q 'sound=Basso' \
+		&& echo "$$out" | grep -qx 'message=ターンが異常終了しました'; then \
+		echo "  PASS: エラー停止 + Basso + fallback body"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 11: StopFailure surfaces its error in the body..."; \
+	out=$$(printf '{"hook_event_name":"StopFailure","error":"rate_limit","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=エラー停止' && echo "$$out" | grep '^message=' | grep -q 'rate_limit'; then \
+		echo "  PASS: body names the API failure"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 12: unknown event degrades to 入力待ち rather than silence..."; \
+	out=$$(printf '{"hook_event_name":"SomeFutureEvent","message":"whatever","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q 'subtitle=入力待ち'; then \
+		echo "  PASS: degraded to 入力待ち"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 13: empty stdin exits 0 with no output..."; \
+	out=$$(printf '' | run) || { echo "  FAIL: non-zero exit on empty stdin"; cleanup; exit 1; }; \
+	if [ -z "$$out" ]; then \
+		echo "  PASS: silent on empty stdin"; \
+	else \
+		echo "  FAIL: expected no output, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 14: malformed JSON exits 0 with no output..."; \
+	out=$$(printf 'not json at all' | run) || { echo "  FAIL: non-zero exit on malformed stdin"; cleanup; exit 1; }; \
+	if [ -z "$$out" ]; then \
+		echo "  PASS: silent on malformed stdin"; \
+	else \
+		echo "  FAIL: expected no output, got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 15: group carries the session_id..."; \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"hi","session_id":"sess-abc","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -qx 'group=claude-sess-abc'; then \
+		echo "  PASS: group=claude-sess-abc"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 16: title carries the cwd basename..."; \
+	base=$$(basename "$$tmphome"); \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" | run); \
+	if echo "$$out" | grep -q "title=.*$$base"; then \
+		echo "  PASS: title contains $$base"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 17: diagnostic log records kind, notification_type, and error..."; \
+	printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"logprobe","session_id":"s1","cwd":"%s"}' "$$tmphome" | run >/dev/null; \
+	printf '{"hook_event_name":"StopFailure","error":"rate_limit","session_id":"s1","cwd":"%s"}' "$$tmphome" | run >/dev/null; \
+	notifylog="$$tmphome/.claude/logs/notify.log"; \
+	if [ -f "$$notifylog" ] \
+		&& grep -q 'kind=入力待ち.*notification_type=idle_prompt.*message=logprobe' "$$notifylog" \
+		&& grep -q 'kind=エラー停止.*error=rate_limit' "$$notifylog"; then \
+		echo "  PASS: notify.log carries both discriminators"; \
+	else \
+		echo "  FAIL: notify.log missing expected fields"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 18: missing cwd falls back to \$$PWD..."; \
+	pwdbase=$$(basename "$$PWD"); \
+	out=$$(printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"hi","session_id":"s1"}' | run); \
+	if echo "$$out" | grep -q "title=.*$$pwdbase"; then \
+		echo "  PASS: title carries $$pwdbase from \$$PWD"; \
+	else \
+		echo "  FAIL: got: $$out"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 19: terminal-notifier receives group, subtitle, and sound..."; \
+	fakebin="$$tmphome/bin"; mkdir -p "$$fakebin"; \
+	{ echo '#!/bin/sh'; echo 'printf "%s\n" "$$@" > "$$TN_ARGS"'; } > "$$fakebin/terminal-notifier"; \
+	chmod +x "$$fakebin/terminal-notifier"; \
+	tnargs="$$tmphome/tn-args.txt"; \
+	printf '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash","session_id":"sess-xyz","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX= TMUX_PANE= bash "$$SCRIPT" \
+		|| { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if grep -qx -- '-group' "$$tnargs" \
+		&& grep -qx -- 'claude-sess-xyz' "$$tnargs" \
+		&& grep -qx -- '許可待ち' "$$tnargs" \
+		&& grep -qx -- 'Glass' "$$tnargs"; then \
+		echo "  PASS: terminal-notifier received group, subtitle, and sound"; \
+	else \
+		echo "  FAIL: argv was: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 20: ghostty click target activates the bundle id..."; \
+	: "No invocation of its own: asserts on the argv file left behind by Test 19,"; \
+	: "which runs with TERM_PROGRAM=ghostty TMUX= TMUX_PANE= and therefore drives"; \
+	: "the non-tmux branch of click_target. Editing or reordering Test 19 changes"; \
+	: "what this test proves."; \
+	if grep -q 'com.mitchellh.ghostty' "$$tnargs"; then \
+		echo "  PASS: click target present"; \
+	else \
+		echo "  FAIL: expected ghostty bundle id in argv: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 21: silent kinds omit -sound..."; \
+	printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX= TMUX_PANE= bash "$$SCRIPT"; \
+	if grep -qx -- '-sound' "$$tnargs"; then \
+		echo "  FAIL: -sound passed for a silent kind"; cleanup; exit 1; \
+	else \
+		echo "  PASS: no -sound for 入力待ち"; \
+	fi; \
+	echo "  Test 22: tmux click target jumps to the pane..."; \
+	printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX=/tmp/fake-tmux TMUX_PANE=%7 bash "$$SCRIPT"; \
+	if grep -q 'select-pane' "$$tnargs"; then \
+		echo "  PASS: tmux pane jump present"; \
+	else \
+		echo "  FAIL: expected select-pane in argv: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 23: CLAUDE_NOTIFY_BACKEND=osascript forces the fallback..."; \
+	{ echo '#!/bin/sh'; echo 'echo called > "$$OSA_MARKER"'; } > "$$fakebin/osascript"; \
+	chmod +x "$$fakebin/osascript"; \
+	rm -f "$$tnargs"; \
+	printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  OSA_MARKER="$$tmphome/osa-called.txt" CLAUDE_NOTIFY_BACKEND=osascript \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX= TMUX_PANE= bash "$$SCRIPT" \
+		|| { echo "  FAIL: non-zero exit on fallback"; cleanup; exit 1; }; \
+	if [ -f "$$tmphome/osa-called.txt" ] && [ ! -f "$$tnargs" ]; then \
+		echo "  PASS: osascript used, terminal-notifier skipped"; \
+	else \
+		echo "  FAIL: expected osascript only"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 24: malformed TMUX_PANE does not reach -execute (injection guard)..."; \
+	rm -f "$$tnargs"; \
+	printf '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX=/tmp/fake-tmux TMUX_PANE="%1'; touch $$tmphome/injected #" bash "$$SCRIPT" \
+		|| { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if grep -q 'select-pane' "$$tnargs"; then \
+		echo "  FAIL: malformed TMUX_PANE reached -execute: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	elif grep -q 'com.mitchellh.ghostty' "$$tnargs"; then \
+		echo "  PASS: malformed TMUX_PANE rejected, fell through to app activation"; \
+	else \
+		echo "  FAIL: expected ghostty bundle activation, got: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
+	cleanup
 
 ## Validate chezmoi templates
 check-templates:
