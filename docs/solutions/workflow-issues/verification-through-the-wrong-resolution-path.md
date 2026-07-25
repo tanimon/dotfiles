@@ -119,6 +119,18 @@ chezmoi apply --force --source "$(pwd)" -- "$HOME/.config/foo"
 Scoping is not tidiness. A full-tree apply re-triggers unrelated `run_onchange_` provisioning
 scripts — real installs and network fetches you did not ask for.
 
+**Reading vs deploying — two different decisions, and `CLAUDE.md` takes a stricter line on the
+second.** Everything above is about *reads*: `managed`, `ignored`, `diff`, `execute-template`
+must carry `--source` or they answer about the wrong tree, full stop. Whether to `apply` from an
+unmerged branch at all is a separate call, and `CLAUDE.md`'s Known Pitfalls entry
+("`chezmoi apply` deploys from `main`, not from your branch") says not to for routine work —
+verify by rendering, deploy after the branch merges. That is the right default: an apply from a
+branch puts unreviewed config into `~/`. The scoped-apply form above is for the case where you
+deliberately need the artifact live to test it — this session applied
+`~/.config/nono/profiles/claude-seal.json` that way because `nono run --profile` reads the
+*deployed* profile, not the source tree, so the policy could not be exercised any other way. If
+you are not in that situation, prefer rendering.
+
 **The rule that generalizes: make the check fail first.** A verification you have never observed
 failing has not been shown capable of detecting the thing it claims to detect. Before trusting a
 new check, break the input on purpose and confirm a non-zero exit. `Makefile:435`
@@ -163,6 +175,14 @@ downstream decisions.
   That proved nothing: the package had been installed by hand moments earlier and the script had
   never executed. What tested it was rendering and running it directly. Asserting on an end state
   that something *else* can also produce is the same trap in different clothes.
+- **`git diff | grep '^[+-]'` verifies nothing in this repo.** `diff.external = difft`
+  (difftastic) is configured globally, so `git diff` emits no `+`/`-` line prefixes at all. Any
+  check piping `git diff` into a `^[+-]` grep matches zero lines and *looks like it passed*.
+  This one caught the author of this document: while resolving a merge, a
+  `git diff <base> origin/main -- CLAUDE.md | grep -E '^[+-]'` returned empty and was briefly
+  read as "upstream did not touch this file" — when in fact upstream had changed it by 43 lines.
+  Use `git diff --no-ext-diff` when a command needs unified output. See the corresponding entry
+  in `CLAUDE.md`'s Known Pitfalls.
 
 ## When to Apply
 
@@ -240,14 +260,23 @@ fault injections.
 
 ## Related
 
-- `../integration-issues/check-templates-render-only-no-json-validation.md` — same silent-failure
+- [check-templates renders only, it does not validate JSON](../integration-issues/check-templates-render-only-no-json-validation.md) — same silent-failure
   family, and the doc whose Prevention section already carried the `--source` fix. Its framing is
   narrower (verification renders); this doc covers `apply`/`diff`/`managed`/`ignored` and the
   `--force`/TTY trap.
-- `../developer-experience/chezmoi-project-harness-rules-and-ci-2026-03-28.md` — states `--source`
+- [Project-specific harness rules and CI](../developer-experience/chezmoi-project-harness-rules-and-ci-2026-03-28.md) — states `--source`
   is needed for `include` resolution. That reason is real but incomplete: `--source` is required
   whenever the invoking worktree differs from the configured source dir, `include` or not.
-- `../integration-issues/nono-sandbox-migration-observations-2026-07-25.md` — source of the
+- [nono sandbox migration observations](../integration-issues/nono-sandbox-migration-observations-2026-07-25.md) — source of the
   `nono why` transport-modelling instance cited above.
-- `../integration-issues/chezmoiignore-blocking-dot-gitignore-deployment-2026-04-03.md` — origin of
+- [.chezmoiignore blocking dot_gitignore deployment](../integration-issues/chezmoiignore-blocking-dot-gitignore-deployment-2026-04-03.md) — origin of
   the `chezmoi managed | grep` verification idiom this doc shows failing vacuously.
+- `CLAUDE.md` Known Pitfalls carries two entries of this class, arrived at independently: the
+  chezmoi-source-worktree one (which states the stricter deploy-after-merge default reconciled
+  above) and the difftastic one. Both now point back here for the general shape; keep the three in
+  sync if any of them changes.
+- [Moving git push from ask to allow defeats the force-push deny prefix](../integration-issues/git-push-ask-to-allow-defeats-force-push-deny-prefix.md) — a neighbouring
+  species worth knowing: not a check that resolves the wrong thing, but a *control* that covers
+  less than it appears to, because permission rules match by prefix and write intent can migrate
+  into a flag position. Same lesson shape — enumerate what the guard does **not** match before
+  trusting it.
