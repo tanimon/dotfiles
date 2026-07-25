@@ -95,7 +95,8 @@
       "cdn.playwright.dev",
       "storage.googleapis.com",
       "code.claude.com",
-      "docs.anthropic.com"
+      "docs.anthropic.com",
+      "downloads.claude.ai"
     ],
     "open_port": [0]
   },
