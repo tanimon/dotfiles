@@ -108,6 +108,7 @@ Pulls external archives (e.g., gstack skills, cco) into the managed tree with au
 | `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), MCP servers (`mcp-servers.json`), rules, commands, plugins, scripts (hooks), keybindings |
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-marketplaces.sh`, `update-gh-extensions.sh`) |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
+| `CONCEPTS.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts |
 
 ### Pre-commit Hooks
 
