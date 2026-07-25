@@ -82,9 +82,11 @@ summary of Claude's last message — the transcript is never read. Delivery is
 `osascript`; **`terminal-notifier` fails silently until macOS notification permission is
 granted**, so on a new machine verify notifications actually arrive rather than assuming.
 orca's own notification granularity is GUI-only and not version-controlled. Every
-invocation appends one line to `~/.claude/logs/notify.log` (bounded to 500 lines) recording
-event, kind, and message — that log is how a misclassification gets diagnosed. Design:
-`docs/superpowers/specs/2026-07-25-notification-hook-redesign-design.md`.
+invocation that clears the suppression gates appends one line to `~/.claude/logs/notify.log`
+(bounded to 500 lines) recording event, kind, and message — that log is how a
+misclassification gets diagnosed. Suppressed invocations log nothing, so an empty log
+inside an orca workspace is the expected result rather than evidence the hook is broken.
+Design: `docs/superpowers/specs/2026-07-25-notification-hook-redesign-design.md`.
 
 **Automated security alert handling** — `.github/workflows/security-alerts.yml` runs a weekly Saturday sweep (schedule) and supports manual dispatch (`gh workflow run security-alerts.yml`). Uses `claude-code-action` to analyze all open security alerts (Dependabot, code scanning, secret scanning) and either auto-fix (low-risk Dependabot/code scanning → PR) or escalate (high-risk/secret scanning → issue with `security` label).
 
