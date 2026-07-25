@@ -23,12 +23,12 @@ permitted`), which contaminates every result. The first attempt hit exactly that
 
 | # | Item | What was probed | Verdict |
 |---|------|-----------------|---------|
-| 1 | `git commit` with 1Password signing | Throwaway repos under `~/.cache`; commit object inspected for a `gpgsig` header | **PASS** (after adding `filesystem.unix_socket`) |
-| 2 | `git push` / `git fetch` | `git ls-remote` over SSH and over HTTPS; `nono why --host github.com --port 22` | **FAIL** over SSH |
-| 3 | `gh` (keychain auth) | `gh auth status`, `gh issue list` | **FAIL** — left blocked deliberately |
+| 1 | `git commit` with 1Password signing | Throwaway repos under `~/.cache`; commit object inspected for a `gpgsig` header | **PASS** |
+| 2 | `git push` / `git fetch` | `git ls-remote` and `git fetch --dry-run` over SSH and over the HTTPS rewrite | **PARTIAL** — transport solved; a separate write-side blocker remains |
+| 3 | `gh` (keychain auth) | `gh auth status`, `gh issue list` | **PASS** |
 | 4 | `make lint` | Full `make lint` inside nono | **PASS** |
-| 5 | `chezmoi diff`, `chezmoi apply --dry-run` | Full-tree and scoped runs with `--source` | **FAIL** — one remaining blocker, see below |
-| 6 | MCP: codex | `codex --version`, `codex mcp-server </dev/null`, and a real `claude -p` session | **PASS** (after granting `CODEX_HOME`) |
+| 5 | `chezmoi diff`, `chezmoi apply --dry-run` | Full-tree runs with `--source` | **PASS** |
+| 6 | MCP: codex | `codex --version`, `codex mcp-server </dev/null`, and a real `claude -p` session | **PASS** |
 | 7 | MCP: deepwiki | Real MCP connection inside a `claude -p` session | **PASS** |
 | 8 | gstack `/browse` | not run | **UNVERIFIED** |
 | 9 | WebFetch / WebSearch | not run | **UNVERIFIED** |
@@ -36,7 +36,7 @@ permitted`), which contaminates every result. The first attempt hit exactly that
 | 11 | Plugin loading | Plugin/skill loading inside a real `claude -p` session | **PASS** |
 | 12 | `--settings` precedence | Contrast pair: `claude -p` with and without the settings override, each running a Bash tool call | **PASS** |
 
-**Totals: 7 PASS, 3 FAIL, 2 UNVERIFIED.**
+**Totals: 9 PASS, 1 PARTIAL, 2 UNVERIFIED.**
 
 ## The four load-bearing questions
 
@@ -83,43 +83,128 @@ The grant was also minimized: `filesystem.unix_socket` **alone** is sufficient. 
 `read_file` entry and the whole `bypass_protection` array were verified redundant and removed, which
 narrows the boundary — the profile no longer overrides a deny rule on a keychain-adjacent path.
 
-### Row 2 — SSH transport: FAIL, and it cannot be fixed in the profile
+Re-verified after `environment.set_vars` gained the `GIT_CONFIG_*` entries (below), since the signing
+path depends on nono's env handling: commit exit 0, `gpgsig` still present in the raw object, and
+`SSH_AUTH_SOCK` still resolves to the 1Password agent socket inside the sandbox. `set_vars` *adds* to
+the environment; it does not replace it wholesale.
+
+### Row 2 — SSH is impossible; the HTTPS rewrite works; one write-side blocker remains
+
+**SSH cannot be made to work under nono on macOS.** Confirmed four ways:
 
 ```
+$ nono run --profile claude-seal -- env GIT_SSH_COMMAND="ssh -v -o BatchMode=yes" git ls-remote <ssh-url>
 ssh: connect to host github.com port 22: Operation not permitted
 fatal: Could not read from remote repository.
 ```
 
-The repository's remote is SSH. Egress is restricted to the local filtering proxy, so raw TCP to
-port 22 is refused at the Seatbelt layer.
+- `--allow-connect-port 22` errors with `not supported on macOS: Seatbelt cannot filter by TCP port`.
+- SSH over 443 is also blocked (raw `network-outbound (remote:*:443)`), and `~/.ssh/config` is
+  permanently deny-listed on top.
+- `network.open_port` is localhost-only ("Localhost TCP IPC (connect+bind)"); `allow_port` and
+  `port_allow` are documented as legacy aliases for it.
+- Only `--allow-net` would work, which destroys the egress control that is the whole point.
 
-**There is no profile key that fixes this on macOS.** `network.open_port` is localhost-only
-("Localhost TCP IPC (connect+bind)"), `allow_port` / `port_allow` are documented as legacy aliases for
-it, and the CLI's `--allow-connect-port` is marked "Linux Landlock V4+ only". So the plan's fallback
-(b) — `network.open_port` — does not apply.
+**Chosen fix: rewrite SSH remotes to HTTPS inside nono only,** via `environment.set_vars`:
 
-**A trap worth recording:** `nono why` reports this connection as ALLOWED.
+```json
+"GIT_CONFIG_COUNT": "2",
+"GIT_CONFIG_KEY_0": "url.https://github.com/.insteadOf",
+"GIT_CONFIG_VALUE_0": "git@github.com:",
+"GIT_CONFIG_KEY_1": "credential.helper",
+"GIT_CONFIG_VALUE_1": "!gh auth git-credential"
+```
+
+**Why `set_vars` rather than gitconfig:** git reads `GIT_CONFIG_*` from the environment, so the
+rewrite exists only for processes nono launches. The user's global gitconfig and the repository's SSH
+remotes stay untouched — `git remote get-url origin` still returns the `git@github.com:` URL after all
+probes. Egress control is preserved because the rewritten HTTPS traffic still goes through nono's
+proxy subject to `allow_domain`. A gitconfig-based rewrite would leak into every unsandboxed git
+invocation as well.
+
+Verified with the profile carrying everything and **no ad-hoc flags**. The launching shell was checked
+first to confirm it was not supplying the values (see the collision note below):
 
 ```
-$ nono why --host github.com --port 22 --profile claude-seal
-ALLOWED
-  Reason: proxy_allowed
-  Source: domain allowlist
+$ nono run --profile claude-seal --allow-cwd -- git ls-remote origin
+...
+4ae1a018034c11678dc5169df2890a330a7a593e	refs/pull/98/head
+exit=0
 ```
 
-`nono why --host` models only the HTTP(S) proxy allowlist. It does **not** model the raw-TCP
-restriction, so it produces a false positive for non-HTTP ports. Trust it for HTTP(S) reachability
-only.
+And end-to-end in the actual cutover configuration — a Bash tool call inside a Claude Code session
+inside nono:
 
-**Fallback (a), an HTTPS remote, works for reads.** `git ls-remote https://github.com/...` returned
-`refs/heads/main` cleanly through the proxy. **Authenticated push over HTTPS is UNVERIFIED**: the
-configured credential helper is `osxkeychain`, and it returns no stored credential for
-`github.com` — including outside nono. So no HTTPS credential has ever been established here, and
-nothing was pushed to test it (out of scope by instruction).
+```
+$ ... -- claude --settings '{"sandbox":{"enabled":false}}' -p '... git ls-remote origin HEAD'
+74fe2080c9a8dbd985f42d3a58d2606a75a421c2	HEAD
+```
 
-**Recommendation:** fallback (a), an HTTPS remote, but note it is not a drop-in — it needs a working
-credential source first, and `gh auth setup-git` would make `gh` the helper, which runs into row 3.
-The repository's remote was deliberately left untouched.
+**A `GIT_CONFIG_*` collision to be aware of.** The namespace is numerically indexed, and Claude Code
+sets its own entries at indices 0 and 1 (`credential.interactive=false`, `credential.guiPrompt=false`,
+plus `GIT_CONFIG_PARAMETERS`). nono's `set_vars` **wins** over the launching shell's values — inside
+the sandbox only the profile's five variables are present and `credential.interactive` resolves to
+empty. This was verified not to break the nested case: inside a Claude Code Bash tool call inside nono,
+`url.https://github.com/.insteadOf` and `credential.helper` both still resolve to the profile's values,
+with exactly 5 `GIT_CONFIG*` variables present. Any future addition to `set_vars` must keep the indices
+contiguous and `GIT_CONFIG_COUNT` in sync, or git silently ignores the tail.
+
+**The remaining blocker is filesystem, not network.** `git fetch --dry-run origin` fails:
+
+```
+error: unable to create temporary file: Operation not permitted
+fatal: failed to write object
+fatal: unpack-objects failed
+```
+
+Note *where* it fails — after the transport and credential handshake, during object unpacking. The
+cause is that this repository is a **git worktree** whose object store lives outside it:
+
+```
+git-dir:        ~/.local/share/chezmoi/.git/worktrees/seal
+git-common-dir: ~/.local/share/chezmoi/.git
+```
+
+and the profile grants that path **read-only**:
+
+```
+$ nono why --path ~/.local/share/chezmoi --op write --profile claude-seal
+DENIED
+  Reason: insufficient_access
+  Details: Path is covered by '~/.local/share/chezmoi', which grants read access from profile
+           but write was requested
+```
+
+`--allow-cwd` grants the worktree directory readwrite, but the shared object store is elsewhere.
+Isolated confirmation, with no commit and no ref change:
+
+```
+$ ... -- sh -c 'echo probe | git hash-object -w --stdin'
+error: unable to create temporary file: Operation not permitted
+fatal: Unable to add (null) to database
+```
+
+**This affects every write-side git operation in this repository, not just fetch** — commit, pull,
+rebase and stash all need to write into the shared object store. Row 1 passed because its probes used
+throwaway repos under `~/.cache`, where the object store sits inside a granted path; it does **not**
+imply that committing in this worktree works under nono.
+
+The narrowest fix was verified but **deliberately not committed** — it widens a security boundary and
+is a decision to be ruled on, as `~/.config/gh` was. A `write` grant on the shared `.git` directory
+alone is sufficient, and is meaningfully narrower than granting `~/.local/share/chezmoi` as a whole
+(which would expose the dotfiles source in the main worktree):
+
+```
+$ ... --write ~/.local/share/chezmoi/.git -- sh -c 'echo probe | git hash-object -w --stdin'
+da0c4eb8d9a48d171a33574b380752e183286751
+
+$ ... --write ~/.local/share/chezmoi/.git -- git fetch --dry-run origin
+From https://github.com/<owner>/<repo>
+ + 900c6b6...f5cdde5 renovate/... -> origin/renovate/...  (forced update)
+exit=0
+```
+
+Nothing was pushed at any point.
 
 ### Row 6 — codex MCP under nested Seatbelt: PASS
 
@@ -165,29 +250,48 @@ discarded.
 
 So the flag is load-bearing, not cosmetic — without it, Bash tool calls inside nono break.
 
-**This corrects a claim in `CLAUDE.md`.** The current text says `failIfUnavailable: false` "degrades it
-to unsandboxed Bash" gracefully. Observed behaviour is a hard tool failure with exit 71.
-`failIfUnavailable: false` evidently covers *sandbox unavailability*, not a runtime `sandbox_apply`
-EPERM. The session did eventually recover, but only because the nono pack injects guidance on denial
-and the agent retried with `dangerouslyDisableSandbox: true` per-command — that is recovery by retry,
-not graceful degradation.
+**This corrects a claim in `CLAUDE.md`, and Task 7 should fix the text.** The current wording says
+`failIfUnavailable: false` "degrades it to unsandboxed Bash" gracefully. Observed behaviour is a **hard
+tool failure with exit 71**. `failIfUnavailable: false` evidently covers *sandbox unavailability*, not
+a runtime `sandbox_apply` EPERM. The session did eventually recover, but only because the nono pack
+injects `[NONO SANDBOX - PERMISSION DENIED]` guidance on denial and the agent retried with
+`dangerouslyDisableSandbox: true` per command — recovery by retry, not graceful degradation.
 
 ## Profile changes, each tied to an observed denial
 
 | Change | Motivating denial |
 |--------|-------------------|
-| `filesystem.unix_socket += 1Password agent socket` | `error: 1Password: Could not connect to socket. Is the agent running?` / `fatal: failed to write commit object` (row 1) |
+| `filesystem.unix_socket += 1Password agent socket` | `error: 1Password: Could not connect to socket` / `fatal: failed to write commit object` (row 1) |
 | Removed the socket's `read_file` entry and the whole `bypass_protection` array | Not a denial — verified redundant once `unix_socket` was present. Narrowing, not widening |
 | `filesystem.allow += $HOME/Library/Application Support/orca/codex-accounts` | `failed to read CODEX_HOME ".../codex-accounts/<uuid>/home": Operation not permitted` (row 6) |
 | `filesystem.read += $XDG_CONFIG_HOME/cco` | `chezmoi: .config/cco: lstat ...: operation not permitted` (row 5) |
 | `filesystem.read += $XDG_CONFIG_HOME/cmux` | `chezmoi: .config/cmux: lstat ...: operation not permitted` (row 5) |
-| `filesystem.read += $XDG_CONFIG_HOME/safehouse` | `chezmoi: .config/safehouse: lstat ...: operation not permitted` (row 5, observed via a scoped diff) |
+| `filesystem.read += $XDG_CONFIG_HOME/gh` | `failed to read configuration: open ~/.config/gh/config.yml: operation not permitted` (row 3), and `chezmoi: .config/gh: lstat ...: operation not permitted` (row 5) |
+| `filesystem.read += $XDG_CONFIG_HOME/safehouse` | `chezmoi: .config/safehouse: lstat ...: operation not permitted` (row 5, scoped diff) |
 | `filesystem.read_file += $HOME/.gitignore` | `chezmoi: .gitignore: lstat ...: operation not permitted` (row 5, scoped diff) |
+| `filesystem.read_file += $HOME/.local/state/gh/device-id` | residual non-fatal `gh` read denial |
 | `filesystem.read_file += $HOME/.zshrc`, `$HOME/.zprofile` and `filesystem.bypass_protection` for all four chezmoi-managed shell configs | `chezmoi: .bash_profile: open ...: operation not permitted`, and the same for `.bashrc`, `.zshrc`, `.zprofile` (row 5) |
+| `environment.set_vars += five GIT_CONFIG_* entries` | `ssh: connect to host github.com port 22: Operation not permitted` (row 2) |
 
-**No host was added to `network.allow_domain`.** Across every probe log — `make lint`, two full
+**No host was added to `network.allow_domain`.** Across every probe log — `make lint`, several full
 `claude -p` sessions, chezmoi, git, codex, gh — **not one `DENY CONNECT` line was emitted**. The
 existing allowlist plus the `developer` preset covered everything the probed work needed.
+
+### Why granting `~/.config/gh` read is not a contradiction
+
+`~/.config/gh` also appears in `sandbox.filesystem.denyRead` in `dot_claude/settings.json.tmpl`. That
+is **not** in conflict with granting it here, because the two settings govern two different boundaries:
+
+- Under the **native** Bash sandbox, `gh *` is in `excludedCommands` and runs *outside* the sandbox
+  entirely. Blocking the config there costs nothing, so denying it is free defence in depth.
+- Under **nono**, `gh` runs *inside* the boundary — there is no per-command exclusion — so it needs its
+  config to function at all.
+
+Two coherent policies for two different boundaries. The exposure is also smaller than it first looks:
+the GitHub token lives in the **macOS keyring**, not in `~/.config/gh/hosts.yml`, which contains zero
+token lines. Granting read exposes the account name and protocol preference only. Verified: with the
+grant, both `gh auth status` and `gh issue list` exit 0, and `gh auth status` self-reports its
+credential source as `(keyring)` — so keyring access is not blocked by nono either.
 
 ### Why the shell-config `bypass_protection` grant is defensible
 
@@ -201,67 +305,54 @@ secrets" premise does not hold for them. The grant is per-file; the group still 
 `~/.config/fish`, `~/.env`, `~/.envrc`. Read only — a real `chezmoi apply` writing these four files
 would additionally need write, which was not granted.
 
-## Left blocked, with consequences
+## Corrections to the design doc
 
-### `~/.config/gh` — the one grant deferred to a human decision
-
-This single path is the sole remaining blocker for **both** row 3 and row 5, and it is a security
-decision that should not be made unilaterally.
-
-- Row 3: `gh` cannot start at all. `failed to read configuration: open ~/.config/gh/config.yml:
-  operation not permitted`. Granting only `config.yml` moves the failure to `hosts.yml` — gh needs
-  both, and `hosts.yml` is the token store. So no narrow grant exists.
-- Row 5: chezmoi manages `.config/gh/config.yml` **and** `.config/gh/hosts.yml`, so a full-tree
-  `chezmoi diff` must stat that directory.
-
-**It was proven to be the last blocker.** With an ad-hoc `--read ~/.config/gh` (not committed to the
-profile), both `chezmoi diff` and `chezmoi apply --dry-run` exit 0 with no denials. Without it, both
-fail on that path alone.
-
-Granting it would contradict a deliberate existing decision: `~/.config/gh` sits in
-`sandbox.filesystem.denyRead` in `dot_claude/settings.json.tmpl`, specifically to keep the GitHub
-token unreadable by the agent. Under the native sandbox that costs nothing because `gh *` is in
-`excludedCommands`; nono has no equivalent per-command escape, so the same posture costs a working
-`gh` and a working full-tree `chezmoi diff`.
-
-**Recommended path (for the cutover task, not done here):** nono's credential injection rather than a
-filesystem grant. `network.credentials` with a `keyring://` credential key lets the supervisor read
-the token and inject it at the proxy, handing the sandboxed child only a phantom `nono_<64hex>` token.
-That preserves the `denyRead` intent *and* makes `gh` work, but it is a design change well beyond
-growing an allowlist.
-
-Aside: the brief's expectation that `chezmoi apply --dry-run` hits a TTY prompt on
-`.claude/settings.json` did **not** reproduce. With `~/.config/gh` granted it exits 0 silently.
-
-### Sentry telemetry — the plan's premise here is wrong
+### nono DOES support allow-side host wildcards
 
 The plan states nono has no allow-side host wildcard and that only `deny_domain` accepts `*.host`.
-**That is not true of 0.69.0.** `*.ingest.sentry.io` in `allow_domain` both validates and matches at
-runtime:
+**That is not true of 0.69.0.** With `*.ingest.sentry.io` in `allow_domain`, verified against the
+deployed profile:
+
+| Host | Result | Meaning |
+|------|--------|---------|
+| `abc123.ingest.sentry.io` | ALLOWED | the wildcard matches subdomains |
+| `ingest.sentry.io` (bare apex) | DENIED | correct strict-subdomain semantics |
+| `ingest.sentry.io.attacker.com` | DENIED | no suffix confusion |
+
+Independently reproduced with `o12345.ingest.sentry.io` ALLOWED while `pastebin.com` and
+`foo.sentry.io` stayed DENIED under the same profile — so the matcher is real and scoped, not a
+blanket pass.
+
+**Consequence:** enumerating a real org hostname is **not** required, and this moots the Sentry half of
+the planned follow-up issue. **No entry was added to the profile,** because nothing was denied: the
+Sentry plugin's MCP server never attempted a connection during any probe — it is unauthenticated, and a
+non-interactive session cannot run the auth flow. Its skills load fine. If it is authenticated
+interactively later, telemetry to `<org>.ingest.sentry.io` will be blocked until someone chooses to add
+`*.ingest.sentry.io` — now a one-line choice rather than a blocked design.
+
+### `nono why --host` is valid for HTTP(S) only
+
+`nono why --host` models the HTTP(S) proxy allowlist and **nothing else**. It does not model the
+raw-TCP restriction, so it reports a false positive for non-HTTP ports:
 
 ```
-$ nono why --host o12345.ingest.sentry.io --profile <candidate-with-wildcard>
+$ nono why --host github.com --port 22 --profile claude-seal
 ALLOWED
   Reason: proxy_allowed
   Source: domain allowlist
 ```
 
-The matcher is real and correctly scoped, not a blanket pass. Under the same wildcard-bearing profile,
-`pastebin.com` stays DENIED, the apex `ingest.sentry.io` stays DENIED, and an unrelated
-`foo.sentry.io` stays DENIED. So enumerating the real org hostname is **not** required — one wildcard
-entry would suffice.
+The actual connection is refused (`Operation not permitted`, row 2). **Every `nono why` host
+enumeration in this document — including the baseline table below — is therefore valid for HTTP(S)
+traffic only.** For anything else, probe the real connection.
 
-**No such entry was added,** because no denial motivated it. The Sentry plugin's MCP server never
-attempted a connection during any probe: it is unauthenticated, and a non-interactive session cannot
-run the auth flow (`plugin:sentry:sentry` MCP server reported unauthenticated). Its skills load fine.
-Consequence: if and when it is authenticated interactively, telemetry to `<org>.ingest.sentry.io`
-will be blocked until someone chooses to add `*.ingest.sentry.io`. That is now a one-line choice
-rather than a blocked design.
+## Left blocked or unresolved
 
-### `statsig.anthropic.com` — blocked, no observed consequence
+### Write-side git in this worktree
 
-DENIED by the allowlist. It produced no error and no `DENY CONNECT` in any log, and `claude -p` runs
-completed normally. Left blocked.
+See row 2. Fix verified, not committed; needs a ruling. Consequence until then: `git commit`,
+`git fetch`, `git pull` and `git rebase` all fail inside nono **in this repository**. Verified narrow
+fix: `write` on `~/.local/share/chezmoi/.git`.
 
 ### `~/.claude.json` config persistence — a real gap with no narrow fix
 
@@ -280,13 +371,18 @@ covered by any grant.
 
 **No narrow fix exists.** nono has no filesystem glob matching — `$HOME/.claude.json.tmp.*` in
 `allow_file` validates but does not match, and `nono why` for a concrete path under it returns
-`DENIED ... Suggested fix: --allow $HOME`, i.e. write access to the entire home directory.
-That is not acceptable.
+`DENIED ... Suggested fix: --allow $HOME`, i.e. write access to the entire home directory. That is not
+acceptable.
 
-Consequence: config state (MCP auth, project trust, history) is not persisted from inside nono.
-Claude Code degrades rather than crashing. An untested hypothesis for the cutover task: relocating the
-config via `CLAUDE_CONFIG_DIR` into `~/.claude`, which is already granted readwrite recursively. This
-was **not** tested here — it mutates config state, and verifying it belongs with the cutover.
+**Consequence for Task 6:** config state (MCP auth, project trust, history) is **not persisted** from
+inside nono, and Claude Code degrades silently rather than crashing — easy to miss after cutover. An
+untested hypothesis: relocate the config via `CLAUDE_CONFIG_DIR` into `~/.claude`, which is already
+granted readwrite recursively. This was **not** tested here — it mutates config state.
+
+### `statsig.anthropic.com` — blocked, no observed consequence
+
+DENIED by the allowlist. It produced no error and no `DENY CONNECT` in any log, and `claude -p` runs
+completed normally. Left blocked.
 
 ### `ps` process enumeration — cosmetic
 
@@ -295,12 +391,13 @@ policy. No functional impact observed.
 
 ## Other findings the cutover depends on
 
-**`--allow-cwd` is required.** With the profile alone, the working directory is denied even though
-`workdir.access` is `readwrite`:
+**`--allow-cwd` is required — Task 6 must pass it.** With the profile alone, the working directory is
+denied even though `workdir.access` is `readwrite`:
 
 ```
 Sandbox denial: 2 paths blocked.
   $HOME/orca/workspaces/chezmoi/seal (read)
+  /home (read)
 ```
 
 `workdir.access` sets the *level* granted, but the grant itself needs `--allow-cwd` (or an interactive
@@ -333,8 +430,7 @@ adds.
 
 ## Network baseline (`network_profile: "developer"`)
 
-`nono why --host <h> --profile claude-seal` is the cheapest way to answer "is this destination
-allowed" without making a request. Re-verified against the grown profile:
+Re-verified against the grown profile. **HTTP(S) only** — see the `nono why` caveat above.
 
 **ALLOWED:** `github.com`, `api.github.com`, `codeload.github.com`, `raw.githubusercontent.com`,
 `api.anthropic.com`, `registry.npmjs.org`, `pypi.org`, `proxy.golang.org`, `mcp.deepwiki.com`,
@@ -348,17 +444,34 @@ metadata endpoint are all blocked.
 
 ## Detail on the rows that passed quietly
 
+**Row 3 — `gh`: PASS.** With `$XDG_CONFIG_HOME/gh` and the `device-id` file in the profile and **no
+ad-hoc flags**, `gh auth status` exits 0 and reports the keyring as its credential source, and
+`gh issue list --limit 3` exits 0 returning real issues. Before the grant, gh could not start at all
+(`failed to create root command: failed to read configuration`), and granting only `config.yml` merely
+moved the failure to `hosts.yml`.
+
 **Row 4 — `make lint`: exit 0, zero network denials, zero path denials.** The richest single probe.
 All targets ran: secretlint (silent on success), shellcheck, shfmt, oxlint, oxfmt, actionlint, zizmor,
 the `modify_` smoke tests, the script and harness-script tests, `check-templates`, `scan-sensitive`,
 and `test-nono-profile`. pnpm dependency resolution worked. Note `zizmor` self-reports running in
 offline mode and skipping its token-requiring audits — that is its default, not a nono denial.
 
-**Row 10 — hooks and statusline: PASS.** `harness-briefing.sh`, `harness-doctor.sh`,
-`harness-reflect-trigger.sh` and `notify-wrapper.sh` each exited 0 with no denials. The statusline
-runs under `node --experimental-strip-types` (v24.13.1) and its output inside nono is byte-identical
-to its output outside nono, including the git branch and diff stats. The `N/A` usage bars appear in
-both, so they are a pre-existing baseline rather than a sandbox effect.
+**Row 5 — chezmoi: PASS.** With everything carried by the profile and no ad-hoc flags,
+`chezmoi diff --source "$(pwd)"` exits 0 (1989 lines of diff, no denials) and
+`chezmoi apply --dry-run --source "$(pwd)"` exits 0 with no output. Denials were originally enumerated
+iteratively — `~/.bash_profile` (deny group), then `.config/cco`, `.config/cmux`, `.config/gh` — with
+`.config/safehouse` and `.gitignore` observed separately via scoped diffs rather than inferred.
+`.local` and `.chezmoiscripts` produced no denial and were **not** granted. The TTY prompt on
+`.claude/settings.json` that the plan expected did **not** reproduce.
+
+**Row 7 — deepwiki: PASS.** A real end-to-end MCP connection, better evidence than a synthetic HTTP
+client would be: `MCP server "deepwiki": Successfully connected (transport: http) in 878ms`.
+
+**Row 10 — hooks and statusline: PASS.** `harness-briefing.sh` (exit 0, 95 bytes),
+`harness-doctor.sh` (exit 0, 475 bytes), `harness-reflect-trigger.sh` (exit 0), `notify-wrapper.sh`
+(exit 0). The statusline runs under `node --experimental-strip-types` (v24.13.1) and its output inside
+nono is byte-identical to its output outside nono, including the git branch and diff stats. The `N/A`
+usage bars appear in both, so they are a pre-existing baseline rather than a sandbox effect.
 
 **Row 11 — plugin loading: PASS.** Seven plugins loaded with no failures — `ecc` (278 skills),
 `compound-engineering` (32), `superpowers` (14), `sentry` (10), and one each from
@@ -370,9 +483,6 @@ both, so they are a pre-existing baseline rather than a sandbox effect.
 |---|------|-----|---------------------|
 | 8 | gstack `/browse` (Chromium launch) | In-session tool behaviour. Needs a live interactive Claude Code session; cannot be driven from one-shot commands | Run `/browse` inside `nono run --profile claude-seal -- claude --settings '{"sandbox":{"enabled":false}}'`, confirm Chromium launches, and record which sites 403 |
 | 9 | WebFetch / WebSearch | Same — these are in-session tools, not CLI entry points | Exercise both in an interactive session; WebSearch is expected to work via `api.anthropic.com`, WebFetch will be bounded by `allow_domain` |
-| 2 | Authenticated `git push` over HTTPS | Pushing was out of scope, and no HTTPS credential exists even outside nono | Establish an HTTPS credential source, then test `git push` from a throwaway clone |
+| 2 | `git push` (any transport) | Pushing was out of scope by instruction and was never attempted | Push from a throwaway clone once the write-side grant is ruled on |
+| — | Write-side git in this worktree | Fix verified but not committed; needs a ruling | Grant `write` on `~/.local/share/chezmoi/.git`, then re-probe `git fetch` and a commit in the worktree |
 | — | `CLAUDE_CONFIG_DIR` as a fix for the `.claude.json.tmp` gap | Untested hypothesis; testing it mutates config state | Set it in `environment.set_vars` and confirm the atomic-write EPERM disappears |
-| — | Whether `~/.config/gh` should be granted | A security decision, not a technical one | Human decides: grant `read`, or implement nono credential injection |
-
-Rows 3 and 5 are FAIL rather than UNVERIFIED — the cause is known and reproducible, and the fix is a
-pending decision rather than missing evidence.

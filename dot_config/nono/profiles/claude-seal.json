@@ -41,6 +41,7 @@
       "$HOME/.local/share/chezmoi",
       "$XDG_CONFIG_HOME/cco",
       "$XDG_CONFIG_HOME/cmux",
+      "$XDG_CONFIG_HOME/gh",
       "$XDG_CONFIG_HOME/safehouse",
       "$XDG_CONFIG_HOME/ghostty",
       "$XDG_CONFIG_HOME/helix",
@@ -60,6 +61,7 @@
       "$HOME/.zshrc",
       "$HOME/.zprofile",
       "$HOME/.gitignore",
+      "$HOME/.local/state/gh/device-id",
       "$HOME/.vimrc",
       "$HOME/.tmux.conf",
       "$HOME/.cVimrc"
@@ -91,6 +93,13 @@
     "open_port": [0]
   },
   "environment": {
-    "set_vars": { "INSIDE_NONO_SANDBOX": "1" }
+    "set_vars": {
+      "INSIDE_NONO_SANDBOX": "1",
+      "GIT_CONFIG_COUNT": "2",
+      "GIT_CONFIG_KEY_0": "url.https://github.com/.insteadOf",
+      "GIT_CONFIG_VALUE_0": "git@github.com:",
+      "GIT_CONFIG_KEY_1": "credential.helper",
+      "GIT_CONFIG_VALUE_1": "!gh auth git-credential"
+    }
   }
 }
