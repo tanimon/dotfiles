@@ -21,22 +21,29 @@ permitted`), which contaminates every result. The first attempt hit exactly that
 
 ## Verdict table
 
-| # | Item | What was probed | Verdict |
-|---|------|-----------------|---------|
-| 1 | `git commit` with 1Password signing | A signed empty commit **in this worktree**, plus throwaway repos under `~/.cache`; commit object inspected for a `gpgsig` header | **PASS** |
-| 2 | `git push` / `git fetch` | `git ls-remote` and `git fetch --dry-run` over SSH and over the HTTPS rewrite | **PASS** for fetch/ls-remote; `push` never attempted by instruction |
-| 3 | `gh` (keychain auth) | `gh auth status`, `gh issue list` | **PASS** |
-| 4 | `make lint` | Full `make lint` inside nono | **PASS** |
-| 5 | `chezmoi diff`, `chezmoi apply --dry-run` | Full-tree runs with `--source` | **PASS** |
-| 6 | MCP: codex | `codex --version`, `codex mcp-server </dev/null`, and a real `claude -p` session | **PASS** |
-| 7 | MCP: deepwiki | Real MCP connection inside a `claude -p` session | **PASS** |
-| 8 | gstack `/browse` | not run | **UNVERIFIED** |
-| 9 | WebFetch / WebSearch | not run | **UNVERIFIED** |
-| 10 | Hooks and statusline | All four hook scripts, plus the `node --experimental-strip-types` statusline | **PASS** |
-| 11 | Plugin loading | Plugin/skill loading inside a real `claude -p` session | **PASS** |
-| 12 | `--settings` precedence | Contrast pair: `claude -p` with and without the settings override, each running a Bash tool call | **PASS** |
+| # | Item | What was probed | Verdict | Confirmed at |
+|---|------|-----------------|---------|--------------|
+| 1 | `git commit` with 1Password signing | A signed empty commit **in this worktree**, plus throwaway repos under `~/.cache`; commit object inspected for a `gpgsig` header | **PASS** | final profile |
+| 2 | `git push` / `git fetch` | `git ls-remote` and `git fetch --dry-run` over SSH and over the HTTPS rewrite | **PASS** for fetch/ls-remote; `push` never attempted by instruction | final profile |
+| 3 | `gh` (keychain auth) | `gh auth status`, `gh issue list` | **PASS** | final profile |
+| 4 | `make lint` | Full `make lint` inside nono | **PASS** | final profile |
+| 5 | `chezmoi diff`, `chezmoi apply --dry-run` | Full-tree runs with `--source` | **PASS** | final profile |
+| 6 | MCP: codex | `codex --version`, `codex mcp-server </dev/null`, and a real `claude -p` session | **PASS** | final profile |
+| 7 | MCP: deepwiki | Real MCP connection inside a `claude -p` session | **PASS** | earlier round |
+| 8 | gstack `/browse` | not run | **UNVERIFIED** | n/a |
+| 9 | WebFetch / WebSearch | not run | **UNVERIFIED** | n/a |
+| 10 | Hooks and statusline | All four hook scripts, plus the `node --experimental-strip-types` statusline | **PASS** | earlier round |
+| 11 | Plugin loading | Plugin/skill loading inside a real `claude -p` session | **PASS** | earlier round |
+| 12 | `--settings` precedence | Contrast pair: `claude -p` with and without the settings override, each running a Bash tool call | **PASS** | earlier round |
 
 **Totals: 10 PASS, 2 UNVERIFIED.**
+
+**"Confirmed at" matters.** The profile was grown across three rounds, so not every row was re-probed
+against the final state. Rows 1–6 were re-run against the shipped profile. Rows 7, 10, 11 and 12 passed
+in an earlier round and were **not** re-probed — their evidence predates the `gh`, `GIT_CONFIG_*` and
+git-write additions. Those additions are all read/write grants and environment variables that no
+observed failure ties to those rows, so regression is unlikely but **not verified**. Anyone relying on
+rows 7/10/11/12 for the cutover should re-run them.
 
 ## The four load-bearing questions
 
@@ -80,8 +87,8 @@ created *without* a signature was specifically watched for and did not occur: be
 commit was not created at all (exit 128), so there was no silent-unsigned failure mode.
 
 The grant was also minimized: `filesystem.unix_socket` **alone** is sufficient. The socket's
-`read_file` entry and the whole `bypass_protection` array were verified redundant and removed, which
-narrows the boundary — the profile no longer overrides a deny rule on a keychain-adjacent path.
+`read_file` entry and its `bypass_protection` entry (the array's only entry at the time) were verified
+redundant and removed, which narrows the boundary — the profile no longer overrides a deny rule on a keychain-adjacent path.
 
 Re-verified after `environment.set_vars` gained the `GIT_CONFIG_*` entries (below), since the signing
 path depends on nono's env handling: commit exit 0, `gpgsig` still present in the raw object, and
@@ -142,6 +149,13 @@ fatal: Could not read from remote repository.
 "GIT_CONFIG_VALUE_4": "false"
 ```
 
+**The rewrite only covers scp-form remotes.** `url.https://github.com/.insteadOf = git@github.com:`
+matches `git@github.com:owner/repo.git` — this repository's form, which is why it works. A remote
+written as `ssh://git@github.com/owner/repo.git` would **not** be rewritten and would hit the raw-TCP
+port-22 denial instead, surfacing as an unexplained `Operation not permitted` rather than an obvious
+configuration gap. If such a remote is ever added, extend `insteadOf` to cover `ssh://git@github.com/`
+as well.
+
 Indices 2 and 3 exist only to **re-declare settings that would otherwise be lost** — see the collision
 note below. Index 4 silences the `network-outbound (…/fsmonitor--daemon.ipc)` denial that git's
 fsmonitor daemon triggers on index-heavy commands; it is non-fatal noise, but noise in a security
@@ -190,10 +204,22 @@ false
 ```
 
 All five pairs resolve inside the sandbox (`insteadOf`, `credential.helper`,
-`credential.interactive=false`, `credential.guiPrompt=false`, `core.fsmonitor=false`), and the rewrite
-survives inside a Claude Code Bash tool call inside nono — the case where Claude Code's own
-`GIT_CONFIG_*` could have clobbered the profile's. **Any future addition must keep the indices
-contiguous and `GIT_CONFIG_COUNT` in sync, or git silently ignores the tail.**
+`credential.interactive=false`, `credential.guiPrompt=false`, `core.fsmonitor=false`).
+
+The rewrite also survives one layer deeper — inside a Claude Code Bash tool call inside nono, which is
+the layer where Claude Code's own `GIT_CONFIG_*` could have clobbered the profile's. Verified against
+the shipped five-pair profile (11 variables = `GIT_CONFIG_COUNT` + five key/value pairs):
+
+```
+$ ... -- claude --settings '{"sandbox":{"enabled":false}}' -p '... env | grep -c "^GIT_CONFIG"; \
+      git config --get url.https://github.com/.insteadOf; git config --get credential.interactive'
+11
+git@github.com:
+false
+```
+
+**Any future addition must keep the indices contiguous and `GIT_CONFIG_COUNT` in sync, or git silently
+ignores the tail.**
 
 `git fetch` additionally needed filesystem grants, for a reason unrelated to the network. This
 repository is a **git worktree** whose object store lives outside it:
@@ -257,6 +283,20 @@ Error: error loading config: failed to read CODEX_HOME ".../codex-accounts/<uuid
 Operation not permitted (os error 1)
 ```
 
+**Why that grant is `allow` (read+write) and not `read`.** The first observed denial was a *read*, so
+`read` was the narrower candidate and was tested rather than assumed. It is **not** sufficient — codex
+opens a SQLite state database under `CODEX_HOME` for writing:
+
+```
+failed to initialize state runtime at .../codex-accounts/<uuid>/home:
+failed to open state DB at .../home/state_5.sqlite:
+error returned from database: (code: 8) attempt to write a readonly database
+Error: Operation not permitted (os error 1)
+```
+
+With `read` the MCP server exits 1; with `allow` restored it exits 0 with no output, as before. So the
+width is justified by an observed write denial, not by inference.
+
 **Answering the plan's conditional branch: `codex mcp-server` does NOT accept `--sandbox`.** Its
 entire flag set is `-c/--config`, `--strict-config`, `--enable`, `--disable`, `-h`. The nearest
 equivalent would be `-c sandbox_mode=...` or `-c 'sandbox_permissions=[...]'`. None of this is needed,
@@ -294,18 +334,18 @@ injects `[NONO SANDBOX - PERMISSION DENIED]` guidance on denial and the agent re
 | Change | Motivating denial |
 |--------|-------------------|
 | `filesystem.unix_socket += 1Password agent socket` | `error: 1Password: Could not connect to socket` / `fatal: failed to write commit object` (row 1) |
-| Removed the socket's `read_file` entry and the whole `bypass_protection` array | Not a denial — verified redundant once `unix_socket` was present. Narrowing, not widening |
-| `filesystem.allow += $HOME/Library/Application Support/orca/codex-accounts` | `failed to read CODEX_HOME ".../codex-accounts/<uuid>/home": Operation not permitted` (row 6) |
+| Removed the socket's `read_file` entry and its `bypass_protection` entry (the array's only entry at the time; the array was later repopulated with the four shell configs below) | Not a denial — verified redundant once `unix_socket` was present. Narrowing, not widening |
+| `filesystem.allow` (read+write) `+= $HOME/Library/Application Support/orca/codex-accounts` | First observed as a read denial — `failed to read CODEX_HOME ".../codex-accounts/<uuid>/home": Operation not permitted` (row 6). `read` alone was then tested and is **not** sufficient; see the write denial quoted below |
 | `filesystem.read += $XDG_CONFIG_HOME/cco` | `chezmoi: .config/cco: lstat ...: operation not permitted` (row 5) |
 | `filesystem.read += $XDG_CONFIG_HOME/cmux` | `chezmoi: .config/cmux: lstat ...: operation not permitted` (row 5) |
 | `filesystem.read += $XDG_CONFIG_HOME/gh` | `failed to read configuration: open ~/.config/gh/config.yml: operation not permitted` (row 3), and `chezmoi: .config/gh: lstat ...: operation not permitted` (row 5) |
 | `filesystem.read += $XDG_CONFIG_HOME/safehouse` | `chezmoi: .config/safehouse: lstat ...: operation not permitted` (row 5, scoped diff) |
 | `filesystem.read_file += $HOME/.gitignore` | `chezmoi: .gitignore: lstat ...: operation not permitted` (row 5, scoped diff) |
-| `filesystem.read_file += $HOME/.local/state/gh/device-id` | residual non-fatal `gh` read denial |
+| `filesystem.read_file += $HOME/.local/state/gh/device-id` | A residual non-fatal `gh` read denial. Named by review rather than independently observed in a `gh` run here, but confirmed load-bearing: without the entry, `nono why --path ~/.local/state/gh/device-id --op read` returns `DENIED / Reason: path_not_granted` |
 | `filesystem.read_file += $HOME/.zshrc`, `$HOME/.zprofile` and `filesystem.bypass_protection` for all four chezmoi-managed shell configs | `chezmoi: .bash_profile: open ...: operation not permitted`, and the same for `.bashrc`, `.zshrc`, `.zprofile` (row 5) |
 | `environment.set_vars += GIT_CONFIG_* (5 pairs)` | `ssh: connect to host github.com port 22: Operation not permitted` (row 2); indices 2–3 restore Claude Code settings the profile would otherwise shadow; index 4 silences fsmonitor denial noise |
 | `filesystem.write += .git/{objects,refs,logs,worktrees}` under `$HOME/.local/share/chezmoi` | `error: unable to create temporary file: Operation not permitted` / `fatal: failed to write object` (row 2 fetch, and every write-side git op in this worktree) |
-| `filesystem.write_file += .git/packed-refs`, `.git/packed-refs.lock` | ref-packing writes during fetch; the `.lock` sibling needs its own entry — a `write_file` grant on `packed-refs` does not cover it |
+| `filesystem.write_file += .git/packed-refs`, `.git/packed-refs.lock` | Ref-packing writes during fetch. Named by review rather than surfaced by its own error line here, but both confirmed load-bearing: with `packed-refs.lock` removed, `nono why --path .../packed-refs.lock --op write` returns `DENIED / Reason: insufficient_access`, confirming a `write_file` grant on `packed-refs` does **not** cover the `.lock` sibling |
 
 **No host was added to `network.allow_domain`.** Across every probe log — `make lint`, several full
 `claude -p` sessions, chezmoi, git, codex, gh — **not one `DENY CONNECT` line was emitted**. The
@@ -337,6 +377,10 @@ would then execute **unsandboxed** the next time a human runs git in that reposi
 Granting only the four subdirectories that git actually writes — `objects`, `refs`, `logs`,
 `worktrees` — plus the two `packed-refs` files is sufficient and keeps `config` and `hooks` unwritable.
 Both halves of that claim were verified.
+
+**Scope of that claim, stated precisely:** `config` and `hooks` are unwritable, but that does **not**
+mean the escalation path is closed — `write` on `.git/worktrees` reaches an equivalent outcome via
+`commondir` redirection. See "Residual 2" below, which is an explicit, argued acceptance.
 
 Sufficient:
 
@@ -379,6 +423,43 @@ So the hook-planting path is open for `~/ghq` repositories regardless of the che
 out of scope here and arguably inherent — an agent that can write a repository's source can already
 influence what runs, via `package.json` scripts, Makefiles and so on. It is recorded so that nobody
 reads the narrow chezmoi grant as a claim about the general case.
+
+**Residual 2: `commondir` redirection reaches the same escalation by another door — accepted, not
+closed.** Keeping `config` and `hooks` unwritable does **not** close the escalation path. `write` on
+`.git/worktrees` also grants write to the worktree's own metadata, and these all report ALLOWED for
+write under the shipped profile:
+
+```
+~/.local/share/chezmoi/.git/worktrees/seal/commondir         ALLOWED
+~/.local/share/chezmoi/.git/worktrees/seal/gitdir            ALLOWED
+~/.local/share/chezmoi/.git/worktrees/seal/config.worktree   ALLOWED
+~/.local/share/chezmoi/.git/objects/info/alternates          ALLOWED
+```
+
+Mechanism: rewrite `commondir` so git resolves its common directory to some other agent-writable
+location; the agent controls `config` and `hooks` *there*; `core.hooksPath` / `core.sshCommand` from
+that config then execute **unsandboxed** on the next git invocation in this worktree. Same outcome as
+hook-planting, different door.
+
+**The obvious carve-out does not work.** `filesystem.deny` does **not** override `filesystem.write` —
+tested by adding `commondir` to `filesystem.deny`: the profile validates, and the path still reports
+`ALLOWED / Granted by: .../.git/worktrees`. The alternative (narrowing to `write` on
+`worktrees/seal/{logs,refs}` plus `write_file` on `index`/`HEAD`/`ORIG_HEAD`/`COMMIT_EDITMSG` and each
+`.lock` sibling) is brittle, and a missed `.lock` breaks git in ways that are hard to diagnose later.
+
+**Why accepting it is the right call rather than an oversight.** It is strictly dominated by exposure
+that already exists and is inherent to this setup:
+
+- `$HOME/ghq` is granted `allow`, so for every repository under it an agent can write
+  `.git/hooks/pre-commit` **directly** — simpler, identical outcome (residual 1 above).
+- In this repository the cwd is granted readwrite, so an agent can already edit
+  `.pre-commit-config.yaml`, the `Makefile`, `dot_config/zsh/*.zsh` — **and
+  `dot_config/nono/profiles/claude-seal.json` itself.** The files that *define* this sandbox live
+  inside the writable working tree. That is unavoidable when an agent edits its own dotfiles repo.
+
+Spending brittleness to close `commondir` while those stand would be theatre. The narrow grant is still
+worth having — it removes the cheapest path and costs nothing — but it must not be read as a claim that
+escalation is prevented.
 
 ### Why the shell-config `bypass_protection` grant is defensible
 
