@@ -196,11 +196,12 @@
     ],
     "Notification": [
       {
-        "matcher": "",
+        "matcher": "permission_prompt|idle_prompt|agent_needs_input",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'",
+            "timeout": 5
           }
         ]
       }
@@ -297,7 +298,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'"
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/notify.sh\" 2>>\"$HOME/.claude/logs/notify-errors.log\" || true'",
+            "timeout": 5
           }
         ]
       },
