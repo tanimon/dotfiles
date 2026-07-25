@@ -54,6 +54,16 @@
       "$XDG_CONFIG_HOME/zsh",
       "$XDG_CONFIG_HOME/nono"
     ],
+    "write": [
+      "$HOME/.local/share/chezmoi/.git/objects",
+      "$HOME/.local/share/chezmoi/.git/refs",
+      "$HOME/.local/share/chezmoi/.git/logs",
+      "$HOME/.local/share/chezmoi/.git/worktrees"
+    ],
+    "write_file": [
+      "$HOME/.local/share/chezmoi/.git/packed-refs",
+      "$HOME/.local/share/chezmoi/.git/packed-refs.lock"
+    ],
     "read_file": [
       "$XDG_CONFIG_HOME/starship.toml",
       "$HOME/.bashrc",
@@ -95,11 +105,17 @@
   "environment": {
     "set_vars": {
       "INSIDE_NONO_SANDBOX": "1",
-      "GIT_CONFIG_COUNT": "2",
+      "GIT_CONFIG_COUNT": "5",
       "GIT_CONFIG_KEY_0": "url.https://github.com/.insteadOf",
       "GIT_CONFIG_VALUE_0": "git@github.com:",
       "GIT_CONFIG_KEY_1": "credential.helper",
-      "GIT_CONFIG_VALUE_1": "!gh auth git-credential"
+      "GIT_CONFIG_VALUE_1": "!gh auth git-credential",
+      "GIT_CONFIG_KEY_2": "credential.interactive",
+      "GIT_CONFIG_VALUE_2": "false",
+      "GIT_CONFIG_KEY_3": "credential.guiPrompt",
+      "GIT_CONFIG_VALUE_3": "false",
+      "GIT_CONFIG_KEY_4": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_4": "false"
     }
   }
 }

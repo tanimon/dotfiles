@@ -23,8 +23,8 @@ permitted`), which contaminates every result. The first attempt hit exactly that
 
 | # | Item | What was probed | Verdict |
 |---|------|-----------------|---------|
-| 1 | `git commit` with 1Password signing | Throwaway repos under `~/.cache`; commit object inspected for a `gpgsig` header | **PASS** |
-| 2 | `git push` / `git fetch` | `git ls-remote` and `git fetch --dry-run` over SSH and over the HTTPS rewrite | **PARTIAL** — transport solved; a separate write-side blocker remains |
+| 1 | `git commit` with 1Password signing | A signed empty commit **in this worktree**, plus throwaway repos under `~/.cache`; commit object inspected for a `gpgsig` header | **PASS** |
+| 2 | `git push` / `git fetch` | `git ls-remote` and `git fetch --dry-run` over SSH and over the HTTPS rewrite | **PASS** for fetch/ls-remote; `push` never attempted by instruction |
 | 3 | `gh` (keychain auth) | `gh auth status`, `gh issue list` | **PASS** |
 | 4 | `make lint` | Full `make lint` inside nono | **PASS** |
 | 5 | `chezmoi diff`, `chezmoi apply --dry-run` | Full-tree runs with `--source` | **PASS** |
@@ -36,7 +36,7 @@ permitted`), which contaminates every result. The first attempt hit exactly that
 | 11 | Plugin loading | Plugin/skill loading inside a real `claude -p` session | **PASS** |
 | 12 | `--settings` precedence | Contrast pair: `claude -p` with and without the settings override, each running a Bash tool call | **PASS** |
 
-**Totals: 9 PASS, 1 PARTIAL, 2 UNVERIFIED.**
+**Totals: 10 PASS, 2 UNVERIFIED.**
 
 ## The four load-bearing questions
 
@@ -88,7 +88,28 @@ path depends on nono's env handling: commit exit 0, `gpgsig` still present in th
 `SSH_AUTH_SOCK` still resolves to the 1Password agent socket inside the sandbox. `set_vars` *adds* to
 the environment; it does not replace it wholesale.
 
-### Row 2 — SSH is impossible; the HTTPS rewrite works; one write-side blocker remains
+**Scope correction — this row now covers this worktree, not only throwaway repos.** The first passes
+used repos under `~/.cache`, where the object store sits inside an already-granted path. That was
+misleading: committing in *this* repository additionally needs writes to a shared object store outside
+it (see row 2), and until those grants were added it would have failed. Verified directly with a signed
+empty commit in this worktree, inside nono, with profile grants only:
+
+```
+$ nono run --profile claude-seal --allow-cwd -- git commit --allow-empty -m "<probe>"
+[tanimon/migrate-sandbox-nono b5bf0a0] ...
+$ git cat-file commit HEAD | grep -c '^gpgsig'
+1
+```
+
+The probe commit was then removed and the pre-probe state confirmed restored (`HEAD` back to
+`693c05f`, nothing staged). `git reset --soft` was used rather than `--hard`: the two are equivalent
+for an empty commit, and `--soft` cannot destroy uncommitted work in the tree.
+
+A useful side observation: the repository's `prek` pre-commit hook chain (secretlint, oxfmt,
+`scan-sensitive`, …) ran inside nono during that commit and completed normally, including its
+stash/restore of unstaged changes.
+
+### Row 2 — SSH is impossible; the nono-internal HTTPS rewrite works: PASS
 
 **SSH cannot be made to work under nono on macOS.** Confirmed four ways:
 
@@ -108,12 +129,25 @@ fatal: Could not read from remote repository.
 **Chosen fix: rewrite SSH remotes to HTTPS inside nono only,** via `environment.set_vars`:
 
 ```json
-"GIT_CONFIG_COUNT": "2",
+"GIT_CONFIG_COUNT": "5",
 "GIT_CONFIG_KEY_0": "url.https://github.com/.insteadOf",
 "GIT_CONFIG_VALUE_0": "git@github.com:",
 "GIT_CONFIG_KEY_1": "credential.helper",
-"GIT_CONFIG_VALUE_1": "!gh auth git-credential"
+"GIT_CONFIG_VALUE_1": "!gh auth git-credential",
+"GIT_CONFIG_KEY_2": "credential.interactive",
+"GIT_CONFIG_VALUE_2": "false",
+"GIT_CONFIG_KEY_3": "credential.guiPrompt",
+"GIT_CONFIG_VALUE_3": "false",
+"GIT_CONFIG_KEY_4": "core.fsmonitor",
+"GIT_CONFIG_VALUE_4": "false"
 ```
+
+Indices 2 and 3 exist only to **re-declare settings that would otherwise be lost** — see the collision
+note below. Index 4 silences the `network-outbound (…/fsmonitor--daemon.ipc)` denial that git's
+fsmonitor daemon triggers on index-heavy commands; it is non-fatal noise, but noise in a security
+tool's output trains people to ignore real denials, and disabling a performance optimisation inside a
+sandbox costs nothing. Measured effect: `fsmonitor` mentions in probe logs went from 2 to 0, with no
+functional regression in any row.
 
 **Why `set_vars` rather than gitconfig:** git reads `GIT_CONFIG_*` from the environment, so the
 rewrite exists only for processes nono launches. The user's global gitconfig and the repository's SSH
@@ -140,16 +174,37 @@ $ ... -- claude --settings '{"sandbox":{"enabled":false}}' -p '... git ls-remote
 74fe2080c9a8dbd985f42d3a58d2606a75a421c2	HEAD
 ```
 
-**A `GIT_CONFIG_*` collision to be aware of.** The namespace is numerically indexed, and Claude Code
-sets its own entries at indices 0 and 1 (`credential.interactive=false`, `credential.guiPrompt=false`,
-plus `GIT_CONFIG_PARAMETERS`). nono's `set_vars` **wins** over the launching shell's values — inside
-the sandbox only the profile's five variables are present and `credential.interactive` resolves to
-empty. This was verified not to break the nested case: inside a Claude Code Bash tool call inside nono,
-`url.https://github.com/.insteadOf` and `credential.helper` both still resolve to the profile's values,
-with exactly 5 `GIT_CONFIG*` variables present. Any future addition to `set_vars` must keep the indices
-contiguous and `GIT_CONFIG_COUNT` in sync, or git silently ignores the tail.
+**The `GIT_CONFIG_*` collision, and why indices 2–3 are re-declared.** The namespace is numerically
+indexed, and **Claude Code sets its own entries at indices 0 and 1** —
+`credential.interactive=false`, `credential.guiPrompt=false`, plus `GIT_CONFIG_PARAMETERS`. nono's
+`set_vars` **wins** over the launching shell, so with `GIT_CONFIG_COUNT=2` the profile silently shadowed
+both of Claude Code's settings and `credential.interactive` resolved to *empty* inside the sandbox.
+Losing it matters: it can turn a clean auth failure into an interactive credential prompt, which inside
+a sandbox means a wedged session. There is no way to merge with a parent list of unknown length, so the
+two settings are re-declared explicitly at indices 2 and 3. Verified fixed — this is the exact thing
+that was broken, so it was proved rather than assumed:
 
-**The remaining blocker is filesystem, not network.** `git fetch --dry-run origin` fails:
+```
+$ nono run --profile claude-seal --allow-cwd -- git config --get credential.interactive
+false
+```
+
+All five pairs resolve inside the sandbox (`insteadOf`, `credential.helper`,
+`credential.interactive=false`, `credential.guiPrompt=false`, `core.fsmonitor=false`), and the rewrite
+survives inside a Claude Code Bash tool call inside nono — the case where Claude Code's own
+`GIT_CONFIG_*` could have clobbered the profile's. **Any future addition must keep the indices
+contiguous and `GIT_CONFIG_COUNT` in sync, or git silently ignores the tail.**
+
+`git fetch` additionally needed filesystem grants, for a reason unrelated to the network. This
+repository is a **git worktree** whose object store lives outside it:
+
+```
+git-dir:        ~/.local/share/chezmoi/.git/worktrees/seal
+git-common-dir: ~/.local/share/chezmoi/.git
+```
+
+`--allow-cwd` grants the worktree directory readwrite, but the shared object store is elsewhere and was
+read-only, so fetch failed *after* the transport and credential handshake, during object unpacking:
 
 ```
 error: unable to create temporary file: Operation not permitted
@@ -157,26 +212,7 @@ fatal: failed to write object
 fatal: unpack-objects failed
 ```
 
-Note *where* it fails — after the transport and credential handshake, during object unpacking. The
-cause is that this repository is a **git worktree** whose object store lives outside it:
-
-```
-git-dir:        ~/.local/share/chezmoi/.git/worktrees/seal
-git-common-dir: ~/.local/share/chezmoi/.git
-```
-
-and the profile grants that path **read-only**:
-
-```
-$ nono why --path ~/.local/share/chezmoi --op write --profile claude-seal
-DENIED
-  Reason: insufficient_access
-  Details: Path is covered by '~/.local/share/chezmoi', which grants read access from profile
-           but write was requested
-```
-
-`--allow-cwd` grants the worktree directory readwrite, but the shared object store is elsewhere.
-Isolated confirmation, with no commit and no ref change:
+Isolated to an object write, with no commit and no ref change:
 
 ```
 $ ... -- sh -c 'echo probe | git hash-object -w --stdin'
@@ -184,27 +220,23 @@ error: unable to create temporary file: Operation not permitted
 fatal: Unable to add (null) to database
 ```
 
-**This affects every write-side git operation in this repository, not just fetch** — commit, pull,
-rebase and stash all need to write into the shared object store. Row 1 passed because its probes used
-throwaway repos under `~/.cache`, where the object store sits inside a granted path; it does **not**
-imply that committing in this worktree works under nono.
-
-The narrowest fix was verified but **deliberately not committed** — it widens a security boundary and
-is a decision to be ruled on, as `~/.config/gh` was. A `write` grant on the shared `.git` directory
-alone is sufficient, and is meaningfully narrower than granting `~/.local/share/chezmoi` as a whole
-(which would expose the dotfiles source in the main worktree):
+This affected **every** write-side git operation in this repository — commit, fetch, pull, rebase,
+stash. Resolved with the narrow grants described in the next section. Final state, profile only, no
+ad-hoc flags:
 
 ```
-$ ... --write ~/.local/share/chezmoi/.git -- sh -c 'echo probe | git hash-object -w --stdin'
-da0c4eb8d9a48d171a33574b380752e183286751
+$ nono run --profile claude-seal --allow-cwd -- git ls-remote origin
+...226 refs...
+exit=0
 
-$ ... --write ~/.local/share/chezmoi/.git -- git fetch --dry-run origin
+$ nono run --profile claude-seal --allow-cwd -- git fetch --dry-run origin
 From https://github.com/<owner>/<repo>
  + 900c6b6...f5cdde5 renovate/... -> origin/renovate/...  (forced update)
 exit=0
 ```
 
-Nothing was pushed at any point.
+The `From https://...` line confirms the `insteadOf` rewrite is live and the fetch went through the
+proxy over HTTPS. **Nothing was pushed at any point**, and `push` therefore remains untested.
 
 ### Row 6 — codex MCP under nested Seatbelt: PASS
 
@@ -271,7 +303,9 @@ injects `[NONO SANDBOX - PERMISSION DENIED]` guidance on denial and the agent re
 | `filesystem.read_file += $HOME/.gitignore` | `chezmoi: .gitignore: lstat ...: operation not permitted` (row 5, scoped diff) |
 | `filesystem.read_file += $HOME/.local/state/gh/device-id` | residual non-fatal `gh` read denial |
 | `filesystem.read_file += $HOME/.zshrc`, `$HOME/.zprofile` and `filesystem.bypass_protection` for all four chezmoi-managed shell configs | `chezmoi: .bash_profile: open ...: operation not permitted`, and the same for `.bashrc`, `.zshrc`, `.zprofile` (row 5) |
-| `environment.set_vars += five GIT_CONFIG_* entries` | `ssh: connect to host github.com port 22: Operation not permitted` (row 2) |
+| `environment.set_vars += GIT_CONFIG_* (5 pairs)` | `ssh: connect to host github.com port 22: Operation not permitted` (row 2); indices 2–3 restore Claude Code settings the profile would otherwise shadow; index 4 silences fsmonitor denial noise |
+| `filesystem.write += .git/{objects,refs,logs,worktrees}` under `$HOME/.local/share/chezmoi` | `error: unable to create temporary file: Operation not permitted` / `fatal: failed to write object` (row 2 fetch, and every write-side git op in this worktree) |
+| `filesystem.write_file += .git/packed-refs`, `.git/packed-refs.lock` | ref-packing writes during fetch; the `.lock` sibling needs its own entry — a `write_file` grant on `packed-refs` does not cover it |
 
 **No host was added to `network.allow_domain`.** Across every probe log — `make lint`, several full
 `claude -p` sessions, chezmoi, git, codex, gh — **not one `DENY CONNECT` line was emitted**. The
@@ -292,6 +326,59 @@ the GitHub token lives in the **macOS keyring**, not in `~/.config/gh/hosts.yml`
 token lines. Granting read exposes the account name and protocol preference only. Verified: with the
 grant, both `gh auth status` and `gh issue list` exit 0, and `gh auth status` self-reports its
 credential source as `(keyring)` — so keyring access is not blocked by nono either.
+
+### Why the git-dir grant is per-subdirectory, and not `write` on `.git`
+
+A blanket `write` on `~/.local/share/chezmoi/.git` also works, and was rejected. It would grant write
+to `.git/config` and `.git/hooks`, which is a **sandbox escape path**: a sandboxed agent could plant a
+script in `.git/hooks/pre-commit`, or set `core.hooksPath` / `core.sshCommand` in `.git/config`, and it
+would then execute **unsandboxed** the next time a human runs git in that repository.
+
+Granting only the four subdirectories that git actually writes — `objects`, `refs`, `logs`,
+`worktrees` — plus the two `packed-refs` files is sufficient and keeps `config` and `hooks` unwritable.
+Both halves of that claim were verified.
+
+Sufficient:
+
+```
+$ ... -- sh -c 'echo probe | git hash-object -w --stdin'      -> da0c4eb…
+$ ... -- git update-ref refs/probe/nono HEAD                  -> ok (refs + reflog writes)
+$ ... -- git update-ref -d refs/probe/nono                    -> ok
+$ ... -- git fetch --dry-run origin                           -> exit 0
+$ ... -- git commit --allow-empty -m '<probe>'                -> exit 0, signed
+```
+
+Genuinely narrow — the two negative controls:
+
+```
+$ ... -- sh -c 'echo "#!/bin/sh" > ~/.local/share/chezmoi/.git/hooks/probe'
+/bin/sh: …/.git/hooks/probe: Operation not permitted
+(file was not created)
+
+$ ... -- sh -c 'git config --local probe.x 1; echo "get=[$(git config --get probe.x)]"'
+error: could not lock config file …/.git/config: Operation not permitted
+get=[]
+```
+
+```
+$ nono why --path ~/.local/share/chezmoi/.git/hooks --op write --profile claude-seal
+DENIED
+  Reason: insufficient_access
+```
+
+**Pre-existing, accepted residual — this narrow grant does not imply the general case is locked
+down.** The profile already grants `allow` (read+write) on `$HOME/ghq`, so for every repository under
+there `.git/hooks` and `.git/config` *are* writable:
+
+```
+$ nono why --path ~/ghq/<org>/<repo>/.git/hooks  --op write --profile claude-seal   -> ALLOWED (read+write)
+$ nono why --path ~/ghq/<org>/<repo>/.git/config --op write --profile claude-seal   -> ALLOWED (read+write)
+```
+
+So the hook-planting path is open for `~/ghq` repositories regardless of the chezmoi grant. This is
+out of scope here and arguably inherent — an agent that can write a repository's source can already
+influence what runs, via `package.json` scripts, Makefiles and so on. It is recorded so that nobody
+reads the narrow chezmoi grant as a claim about the general case.
 
 ### Why the shell-config `bypass_protection` grant is defensible
 
@@ -347,12 +434,6 @@ enumeration in this document — including the baseline table below — is there
 traffic only.** For anything else, probe the real connection.
 
 ## Left blocked or unresolved
-
-### Write-side git in this worktree
-
-See row 2. Fix verified, not committed; needs a ruling. Consequence until then: `git commit`,
-`git fetch`, `git pull` and `git rebase` all fail inside nono **in this repository**. Verified narrow
-fix: `write` on `~/.local/share/chezmoi/.git`.
 
 ### `~/.claude.json` config persistence — a real gap with no narrow fix
 
@@ -483,6 +564,5 @@ usage bars appear in both, so they are a pre-existing baseline rather than a san
 |---|------|-----|---------------------|
 | 8 | gstack `/browse` (Chromium launch) | In-session tool behaviour. Needs a live interactive Claude Code session; cannot be driven from one-shot commands | Run `/browse` inside `nono run --profile claude-seal -- claude --settings '{"sandbox":{"enabled":false}}'`, confirm Chromium launches, and record which sites 403 |
 | 9 | WebFetch / WebSearch | Same — these are in-session tools, not CLI entry points | Exercise both in an interactive session; WebSearch is expected to work via `api.anthropic.com`, WebFetch will be bounded by `allow_domain` |
-| 2 | `git push` (any transport) | Pushing was out of scope by instruction and was never attempted | Push from a throwaway clone once the write-side grant is ruled on |
-| — | Write-side git in this worktree | Fix verified but not committed; needs a ruling | Grant `write` on `~/.local/share/chezmoi/.git`, then re-probe `git fetch` and a commit in the worktree |
+| 2 | `git push` (any transport) | Out of scope by instruction; never attempted | Push from a throwaway clone. Everything it depends on — the HTTPS rewrite, the `gh` credential helper, and object/ref writes — is verified, so this is expected to work |
 | — | `CLAUDE_CONFIG_DIR` as a fix for the `.claude.json.tmp` gap | Untested hypothesis; testing it mutates config state | Set it in `environment.set_vars` and confirm the atomic-write EPERM disappears |
