@@ -221,8 +221,14 @@ numbered cases, and `cleanup` on failure. The send step is verified by putting a
 
 Step 2 is a known weakness worth stating plainly: `terminal-notifier` **fails silently**
 until permission is granted, so a new machine can sit in a "no notifications at all" state
-without any error surfacing. The `osascript` fallback partly insures against this, since its
-permission is tracked separately.
+without any error surfacing. The `osascript` fallback does **not** insure against this.
+Backend selection is `command -v terminal-notifier`, so the fallback covers exactly one
+failure mode — the binary being absent (Linux, or a machine before `brew bundle` has run).
+Once `darwin/Brewfile` installs it, `terminal-notifier` is always chosen, and neither
+permission denial (it exits 0 and displays nothing) nor a hang inside a sandbox reaches
+`osascript`. Verifying delivery per machine is therefore a manual step with no automated
+substitute; `"timeout": 5` on both hook entries bounds the hang case rather than recovering
+from it.
 
 ## To resolve during implementation
 
