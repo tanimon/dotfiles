@@ -114,11 +114,17 @@ project scope で `allow` を追加すれば同じキーの user scope 設定を
 (B) の実装として、`dot_claude/settings.json.tmpl` の `permissions` を 4 段階のリスク Tier モデル
 （Tier 0: ローカルで完全に可逆、Tier 1: 既存のコンテナへの追記のみで新しい作業項目を作らず誰かの
 キューも変えない、Tier 2: 共有オブジェクトの状態を変える、Tier 3: 破壊的・不可逆・履歴書き換え）で
-再編した。この Tier モデルに沿って、`git commit` / `git merge` / `git revert` / `git push` /
-`gh pr comment` / `gh issue comment` の 6 件を `ask` から `allow` へ移した。いずれも Tier 0 または
-Tier 1（`push` は既存ブランチへの追記であり、`--force`/`--force-with-lease`/`-f` の 3 表記が
-すべて `deny` に残っているために「追記専用」という Tier 1 の前提が成立する）であり、ディレクトリ
+再編した。この Tier モデルに沿って、`git commit` / `git merge` / `git revert`（Tier 0）と
+`gh pr comment` / `gh issue comment`（Tier 1）の 5 件を `ask` から `allow` へ移した。ディレクトリ
 ではなくコマンドの性質で緩めている。
+
+`git push` は当初 Tier 1 として移動対象に含めていたが、最終レビューで撤回し `ask` に残した。
+`deny` にある `--force` / `--force-with-lease` / `-f` の 3 件は前方一致ルールであり、フラグが
+`git push` の直後に来る場合しかマッチしない。`git push origin main --force` や
+`git push origin +main` は force push でありながらこれらを回避し、`git push --delete origin foo`
+や `git push origin :foo` に至っては追記ですらないリモートブランチ削除である。つまり前方一致では
+`push` の「追記専用」性を担保できず、Tier 1 の要件を満たさない。`git reset` を
+`--hard` だけ切り出せないのと同じフラグ位置の問題である。
 
 ## Why This Works
 

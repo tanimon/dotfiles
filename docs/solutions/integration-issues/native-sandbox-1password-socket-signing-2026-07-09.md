@@ -53,6 +53,15 @@ The instinctive mitigation — disabling hooks (`--no-verify` / `core.hooksPath=
 
 Independently, git write governance was tightened. `permissions.ask` (which fires even under `bypassPermissions` and takes precedence over `allow` — eval order is deny > ask > allow) gates `commit`, `push`, and history-altering commands (`rebase`, `reset`, `revert`, `cherry-pick`, `merge`, `filter-branch`). Routine writes (`add`, `checkout`, `fetch`, `pull`, `submodule`, `worktree`) stay in `allow` so unattended autonomous runs (ralph-loop, ce-work, LFG) don't deadlock on an unanswerable prompt. All three force-push forms stay in `deny`.
 
+**2026-07-25 追記:** 上記の `ask` 一覧は 2026-07-09 時点のもので、現在は一部が `allow` へ移っている。リスク Tier モデル（`docs/superpowers/specs/2026-07-25-permission-tier-model-design.md`、`claude-code-ask-rule-cannot-be-relaxed-per-directory-2026-07-25.md`）に基づき、`commit` / `revert` / `merge` は `allow` へ移動した。`push` / `rebase` / `reset` / `cherry-pick` / `filter-branch` は `ask` のまま残っている。
+
+これにより、上記「Trade-off」で述べた緩和策のうち **git writes are human-approved via `permissions.ask`** の部分は分割して読む必要がある:
+
+- **`push` については維持されている。** `ask` に残っているため、サンドボックス外で走る SSH transport（`GIT_SSH_COMMAND`、`ext::`）と `network.allowedDomains` のバイパスは、依然として承認プロンプトが最後の砦になっている。
+- **`commit` については失われた。** `excludedCommands` に含まれたまま `allow` へ移ったため、リポジトリ側の `pre-commit` / `commit-msg` フックがプロンプトなしでサンドボックス外で実行される。残る緩和策は「信頼できるリポジトリでのみ作業する」「除外範囲が commit/push に限定されている」の 2 点のみで、承認プロンプトによる裏付けはない。
+
+なお `--force` / `--force-with-lease` / `-f` の `deny` は 3 件とも維持しているが、これらは前方一致ルールであり `git push origin main --force` のような後置フラグや `--delete` によるリモートブランチ削除は捕捉しない。`push` を `ask` に残しているのはまさにこのためである。
+
 ## Prevention
 
 - When a sandboxed tool must reach a Unix domain socket (SSH agents, gpg-agent, Docker socket) and the sandbox has no socket-allow key, `excludedCommands` is the lever — not `filesystem.allowRead`.
