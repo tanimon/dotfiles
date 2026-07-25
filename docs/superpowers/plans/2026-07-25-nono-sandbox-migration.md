@@ -1,5 +1,13 @@
 # nono Sandbox Migration Implementation Plan
 
+> **Completed and partly superseded — do not copy its prescribed prose verbatim.** The CLAUDE.md text
+> this plan dictates (Task 7) contains two claims the implementation disproved: nono **does** support
+> allow-side host wildcards (`*.host` in `allow_domain`), and the egress claim "the sandboxed child can
+> reach only `localhost:<proxy-port>` and all other outbound TCP is blocked" overstates the guarantee —
+> `open_port: [0]` means `localhost:*` on macOS, so a listener outside the sandbox can relay around the
+> allowlist. Current authority: `CLAUDE.md` and
+> `docs/solutions/integration-issues/nono-sandbox-migration-observations-2026-07-25.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the three overlapping sandbox mechanisms (safehouse, cco, Claude Code's native Bash sandbox) with a single chezmoi-managed nono profile that enforces a domain allowlist at the kernel level, while keeping the native sandbox reachable via `command claude`.

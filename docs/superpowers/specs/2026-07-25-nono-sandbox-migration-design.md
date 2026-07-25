@@ -1,5 +1,19 @@
 # Sandbox Migration to nono — Design
 
+> **Historical record — partly superseded. Do not use as the current authority.**
+> This document captures the design as approved *before* implementation. The observation phase
+> disproved three of its claims: (1) "there is no host wildcard on the allow side" is **false** —
+> `network.allow_domain` accepts `*.host` with strict-subdomain semantics; (2) the 1Password recipe of
+> `filesystem.bypass_protection` + `filesystem.read_file` on the agent socket is **superseded** — macOS
+> Seatbelt treats socket `connect(2)` as network, so the shipped profile uses `filesystem.unix_socket`
+> and that pair was verified redundant and removed; (3) the Sentry workaround here rests on the false
+> wildcard premise and is therefore moot. Its egress claim is also overstated in the same way `CLAUDE.md`'s
+> was: `open_port: [0]`, which this document seeds, means `localhost:*` on macOS, so "every other outbound
+> TCP is blocked" holds only for *remote* addresses — a listener outside the sandbox can relay around the
+> allowlist. The body below is left unedited as a record of its moment.
+> Current authority: `docs/solutions/integration-issues/nono-sandbox-migration-observations-2026-07-25.md`
+> and the sandbox sections of `CLAUDE.md`.
+
 **Date:** 2026-07-25
 **Status:** Approved (pending user review of this document)
 

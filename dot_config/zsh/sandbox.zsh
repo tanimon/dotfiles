@@ -25,7 +25,14 @@ claude() {
 # nested sandbox_apply, verified inside nono:
 #   nono run --profile claude-seal --allow-cwd -- codex sandbox -- /bin/echo ok
 #   -> sandbox-exec: sandbox_apply: Operation not permitted (exit 71)
-# while the same command outside nono exits 0. --sandbox danger-full-access drops
+# while the same command outside nono exits 0. That the flag *fixes* it is also
+# demonstrated, not just inferred from the docs — a credit-free contrast pair:
+#   nono run ... -- codex -c sandbox_mode=danger-full-access sandbox -- /bin/echo ok
+#   -> ok
+#   nono run ... -- codex sandbox -- /bin/echo ok
+#   -> fails
+# (-c sandbox_mode=... is the config-key form of the setting --sandbox sets; the
+# wrapper uses --sandbox, the documented flag.) --sandbox danger-full-access drops
 # only the nested sandbox; --ask-for-approval on-request keeps codex's approval
 # flow (strictly safer than --dangerously-bypass-approvals-and-sandbox, which
 # discards both). INSIDE_NONO_SANDBOX is injected by the claude-seal profile's

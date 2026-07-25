@@ -351,6 +351,35 @@ injects `[NONO SANDBOX - PERMISSION DENIED]` guidance on denial and the agent re
 `claude -p` sessions, chezmoi, git, codex, gh — **not one `DENY CONNECT` line was emitted**. The
 existing allowlist plus the `developer` preset covered everything the probed work needed.
 
+### Grant provenance: `open_port: [0]` has no motivating denial, and differs in kind from `allow_domain`
+
+Every entry in the change table above is tied to an observed denial (the two exceptions — the `gh`
+`device-id` file and `packed-refs.lock` — were named by review and then each confirmed load-bearing with
+a `nono why` DENIED result). `network.open_port: [0]` has neither: it was carried over from the design
+seed purely for **parity with the native sandbox's `network.allowLocalBinding: true`**, and no probe in
+this pass demonstrated that anything needed it — the row where it would show up, row 8, was never run.
+It also differs in kind from the rest of `network`: each `allow_domain` entry names one destination with
+a recorded purpose and can be reviewed on its own, while this grants a whole class of local
+connectivity. That matters because of what it actually permits — on macOS, port `0` means `localhost:*`:
+
+```
+| `open_port` | array of integer | `[]` | Localhost TCP IPC (connect + bind). Aliases: `port_allow`,
+  `allow_port`. Port **0**: macOS only (`localhost:*` outbound); Linux: explicit ports. |
+        — `nono profile guide`, network field table
+```
+
+nono's startup banner reflects it as `ipc  localhost:0`. **Consequence for the egress guarantee:** a
+process inside the sandbox can connect to any listener running *outside* it, and such a listener relays
+around `allow_domain` completely. Demonstrated during final review — a listener started outside nono
+received the bytes `EXFIL-PROBE` from a process inside nono over `127.0.0.1`. So the accurate statement
+of the guarantee is "HTTP(S) egress to non-allowlisted hosts is blocked at the kernel level", **not**
+"no data can leave by any route".
+
+**Decision: not narrowed in V1.** Row 8 below (gstack `/browse`) is UNVERIFIED, so the set of localhost
+ports actually needed is unknown and guessing would break browsing. Narrowing this to specific ports
+(`open_port_range`) should be informed by row 8's result. Recorded here because the profile itself
+cannot express the rationale.
+
 ### Why granting `~/.config/gh` read is not a contradiction
 
 `~/.config/gh` also appears in `sandbox.filesystem.denyRead` in `dot_claude/settings.json.tmpl`. That
@@ -438,14 +467,30 @@ write under the shipped profile:
 
 Mechanism: rewrite `commondir` so git resolves its common directory to some other agent-writable
 location; the agent controls `config` and `hooks` *there*; `core.hooksPath` / `core.sshCommand` from
-that config then execute **unsandboxed** on the next git invocation in this worktree. Same outcome as
-hook-planting, different door.
+that config then execute on the next git invocation in this worktree.
 
-**The obvious carve-out does not work.** `filesystem.deny` does **not** override `filesystem.write` —
-tested by adding `commondir` to `filesystem.deny`: the profile validates, and the path still reports
-`ALLOWED / Granted by: .../.git/worktrees`. The alternative (narrowing to `write` on
+**The mechanism is persistence, not immediate sandbox escape.** On the nono path git runs *inside* the
+boundary — there is no `excludedCommands` concept — so the planted config executes sandboxed when the
+agent itself runs git. What makes it a real risk is that it **survives the session**: it fires
+unsandboxed when a human later runs git in this worktree, or when the `command claude` path does, where
+`git commit` / `git push` are in the native sandbox's `excludedCommands` and run outside it entirely.
+Same outcome as hook-planting, a different door and a delayed fuse.
+
+**The obvious `filesystem` carve-out does not work; a `command_policies` one exists and was deferred.**
+`filesystem.deny` does **not** override `filesystem.write` — tested by adding `commondir` to
+`filesystem.deny`: the profile validates, and the path still reports
+`ALLOWED / Granted by: .../.git/worktrees`. The per-file alternative (narrowing to `write` on
 `worktrees/seal/{logs,refs}` plus `write_file` on `index`/`HEAD`/`ORIG_HEAD`/`COMMIT_EDITMSG` and each
 `.lock` sibling) is brittle, and a missed `.lock` breaks git in ways that are hard to diagnose later.
+But a purpose-built mechanism **does** exist in 0.69: `command_policies.commands.git` is a per-tool
+child sandbox whose `fs_read` / `fs_write` lists accept dynamic provider tokens, including
+`@git:common-dir` (the git common directory — the absolute path to the main repo's `.git` in a
+worktree) and `@git:config-files`. Per `nono profile guide`, these tokens "are opt-in per profile and
+ignore repo-local/worktree Git config so a checkout cannot grant itself extra host filesystem access" —
+built for exactly this class of problem. V1 is a straight translation and defers all of
+`command_policies` (issue #235 — tool-sandboxing `git` / `gh` via `command_policies`), so
+this is a **deferral, not an impossibility**. Earlier revisions of this document and of `CLAUDE.md`
+claimed no narrow carve-out existed; that was wrong.
 
 **Why accepting it is the right call rather than an oversight.** It is strictly dominated by exposure
 that already exists and is inherent to this setup:
@@ -587,8 +632,41 @@ resolve correctly to `~/.config/...` — nono supplies the default. The literal-
 
 **The `claude-code` pack grants more than this profile does.** The resolved capability set includes
 `~/Library/Keychains` (readwrite, via `bypass_protection` in the pack) and `login.keychain-db`
-(readwrite). Worth an explicit look during the cutover, since it is broader than anything this profile
-adds.
+(readwrite). Broader than anything this profile adds.
+
+**That look happened during final review. Closed as a documented, accepted residual — the profile was
+not changed.** The pack profile
+(`~/.config/nono/packages/nolabs-ai/claude/profiles/claude.json`) lists `$HOME/Library/Keychains`
+in **both** `filesystem.allow` (read+write) and `filesystem.bypass_protection`, which is why the
+required `deny_keychains_macos` group does not stop it. Re-confirmed under the shipped profile:
+
+```
+$ nono why --path ~/Library/Keychains --op read  --profile claude-seal   -> ALLOWED (read+write, Source: profile)
+$ nono why --path ~/Library/Keychains --op write --profile claude-seal   -> ALLOWED (read+write, Source: profile)
+$ nono why --path ~/Library/Keychains/login.keychain-db --op read  ...   -> ALLOWED (read+write, Source: group:claude_code_macos)
+$ nono why --path ~/Library/Keychains/login.keychain-db --op write ...   -> ALLOWED (read+write, Source: group:claude_code_macos)
+```
+
+Three reasons it is accepted rather than fixed:
+
+- **Not removable.** nono appends array values across `extends`, and `nono profile guide` states
+  plainly that "there is no mechanism to remove inherited filesystem paths" — `groups.exclude` handles
+  groups only. Short of abandoning `extends` on the pack profile, the grant stays.
+- **Not a regression introduced by this migration.** The native-sandbox path's
+  `sandbox.filesystem.denyRead` in `dot_claude/settings.json.tmpl` lists `~/.ssh`,
+  `~/.aws/credentials`, `~/.config/gh`, `~/.git-credentials`, `~/.netrc` — and **not**
+  `~/Library/Keychains` — so that path never blocked it either. (Review also reported that
+  safehouse's built-in keychain profile granted the same. That half could **not** be re-verified here:
+  safehouse is uninstalled and its tap is no longer trusted by Homebrew, so treat the safehouse
+  comparison as unconfirmed.)
+- **The real defence is not the file boundary.** Keychain items are encrypted and access goes through
+  `securityd`'s per-item ACL, so file-level *read* does not by itself yield entries. Write access is a
+  destructive capability regardless, so this is a genuine residual, not a non-issue.
+
+**It narrows a claim made elsewhere in this document.** "Why granting `~/.config/gh` read is not a
+contradiction" argues the exposure is small because the token lives in the macOS keyring rather than in
+`hosts.yml`. That remains true of `hosts.yml`, but it must not be read as "the keyring is out of
+reach" — the keyring *files* are read+write under this profile.
 
 ## Network baseline (`network_profile: "developer"`)
 
@@ -643,7 +721,7 @@ usage bars appear in both, so they are a pre-existing baseline rather than a san
 
 | # | Item | Why | What would close it |
 |---|------|-----|---------------------|
-| 8 | gstack `/browse` (Chromium launch) | In-session tool behaviour. Needs a live interactive Claude Code session; cannot be driven from one-shot commands | Run `/browse` inside `nono run --profile claude-seal -- claude --settings '{"sandbox":{"enabled":false}}'`, confirm Chromium launches, and record which sites 403 |
+| 8 | gstack `/browse` (Chromium launch) — **the priority gap; it bounds the egress guarantee, not just a feature** | In-session tool behaviour. Needs a live interactive Claude Code session; cannot be driven from one-shot commands | Run `/browse` inside `nono run --profile claude-seal -- claude --settings '{"sandbox":{"enabled":false}}'`, confirm Chromium launches, and record which sites 403. **Also record whether Chromium runs *inside* nono (traffic proxied, bounded by `allow_domain`) or attaches to a browser daemon *outside* it over a localhost CDP port — the latter is a relay that bypasses the allowlist entirely, per the `open_port: [0]` provenance note above.** `CLAUDE.md` mandates `/browse` for *all* web browsing and `$HOME/.gstack` is granted read+write, so this decides whether web fetches are allowlist-bounded at all |
 | 9 | WebFetch / WebSearch | Same — these are in-session tools, not CLI entry points | Exercise both in an interactive session; WebSearch is expected to work via `api.anthropic.com`, WebFetch will be bounded by `allow_domain` |
 | 2 | `git push` (any transport) | Out of scope by instruction; never attempted | Push from a throwaway clone. Everything it depends on — the HTTPS rewrite, the `gh` credential helper, and object/ref writes — is verified, so this is expected to work |
 | — | `CLAUDE_CONFIG_DIR` as a fix for the `.claude.json.tmp` gap | Untested hypothesis; testing it mutates config state | Set it in `environment.set_vars` and confirm the atomic-write EPERM disappears |
