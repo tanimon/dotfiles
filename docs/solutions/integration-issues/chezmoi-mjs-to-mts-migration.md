@@ -116,4 +116,6 @@ Each problem stems from implicit assumptions — Node.js assumes `package.json` 
 - [`chezmoi-tmpl-shellcheck-shfmt-incompatibility.md`](./chezmoi-tmpl-shellcheck-shfmt-incompatibility.md) — Pre-commit patterns for chezmoi files
 - [`chezmoi-full-template-drift.md`](./chezmoi-full-template-drift.md) — Template drift with `--experimental-strip-types`
 - Skill: `node-typescript-mts-esm` — Reusable knowledge for `.mts` vs `.ts` ESM resolution
-- Skill: `cco-seatbelt-nodejs-fix` — Seatbelt EPERM fixes for Node.js
+- Skill: `cco-seatbelt-nodejs-fix` — Seatbelt EPERM fixes for Node.js (**removed** with the
+  cco → safehouse → nono sandbox migrations; the surviving workaround is
+  `dot_claude/scripts/executable_notify-wrapper.sh`)

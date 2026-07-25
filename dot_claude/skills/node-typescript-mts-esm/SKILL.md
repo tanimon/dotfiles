@@ -80,5 +80,7 @@ executable_notify.mts → ~/.claude/scripts/notify.mts  # clean execution
 - If running via a wrapper that copies to `/tmp`, preserve the `.mts` extension
   in the cached copy — Node.js uses the extension, not file content, to determine
   module type
-- See also: `cco-seatbelt-nodejs-fix` for Seatbelt sandbox issues with
-  `--experimental-strip-types`
+- For Seatbelt sandbox EPERM issues with `--experimental-strip-types`, see
+  `dot_claude/scripts/executable_notify-wrapper.sh` — it caches the `.mts` source
+  outside `$HOME` because Node's `realpathSync` calls `lstat($HOME)` during module
+  loading, which a sandbox deny rule on `$HOME` rejects
