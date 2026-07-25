@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "name": "claude-seal",
+    "version": "1.0.0",
+    "description": "Claude Code sandbox for this dotfiles setup"
+  },
+  "extends": "claude-code",
+  "workdir": { "access": "readwrite" },
+  "groups": {
+    "include": [
+      "git_config",
+      "mise_manager",
+      "homebrew_macos",
+      "node_runtime",
+      "bun_runtime",
+      "go_runtime",
+      "go_runtime_macos",
+      "rust_runtime",
+      "python_runtime",
+      "user_tools",
+      "user_caches_macos",
+      "codex_macos"
+    ]
+  },
+  "filesystem": {
+    "allow": ["$HOME/ghq", "$HOME/.cache", "$HOME/.codex", "$HOME/.gstack"],
+    "read": [
+      "$HOME/.local/bin",
+      "$HOME/.local/share/cco",
+      "$HOME/.bun",
+      "$HOME/.pnpm-state",
+      "$HOME/.agents",
+      "$HOME/Library/Caches/ms-playwright",
+      "$XDG_CONFIG_HOME/chezmoi",
+      "$HOME/.local/share/chezmoi",
+      "$XDG_CONFIG_HOME/ghostty",
+      "$XDG_CONFIG_HOME/helix",
+      "$XDG_CONFIG_HOME/karabiner",
+      "$XDG_CONFIG_HOME/opencode",
+      "$XDG_CONFIG_HOME/sheldon",
+      "$XDG_CONFIG_HOME/yazi",
+      "$XDG_CONFIG_HOME/zed",
+      "$XDG_CONFIG_HOME/zellij",
+      "$XDG_CONFIG_HOME/zsh",
+      "$XDG_CONFIG_HOME/nono"
+    ],
+    "read_file": [
+      "$XDG_CONFIG_HOME/starship.toml",
+      "$HOME/.bashrc",
+      "$HOME/.bash_profile",
+      "$HOME/.vimrc",
+      "$HOME/.tmux.conf",
+      "$HOME/.cVimrc",
+      "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+    ],
+    "bypass_protection": ["$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"]
+  },
+  "network": {
+    "network_profile": "developer",
+    "allow_domain": [
+      "formulae.brew.sh",
+      "proxy.golang.org",
+      "sum.golang.org",
+      "mcp.deepwiki.com",
+      "chatgpt.com",
+      "auth.openai.com",
+      "mise.jdx.dev",
+      "registry.nono.sh",
+      "cdn.playwright.dev",
+      "storage.googleapis.com",
+      "code.claude.com",
+      "docs.anthropic.com"
+    ],
+    "open_port": [0]
+  },
+  "environment": {
+    "set_vars": { "INSIDE_NONO_SANDBOX": "1" }
+  }
+}

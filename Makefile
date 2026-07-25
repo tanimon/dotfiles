@@ -1,4 +1,4 @@
-.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts
+.PHONY: lint secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-nono-profile
 
 # File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
 SHELL_FILES := $(shell find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
@@ -22,7 +22,7 @@ ALL_MD_FILES := $(shell find . \( -path './node_modules' -o -path './.git' -o -p
 	-type f -name '*.md' -print 2>/dev/null)
 
 ## Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-nono-profile
 
 ## Scan for leaked secrets
 secretlint:
@@ -430,3 +430,14 @@ test-harness-scripts:
 		echo "  PASS: corrupt pending exits non-zero"; \
 	fi; \
 	cleanup
+
+## Validate the nono sandbox profile (local only — CI does not install nono)
+test-nono-profile:
+	@if command -v nono >/dev/null 2>&1; then \
+		echo "Validating nono profile..."; \
+		nono profile validate dot_config/nono/profiles/claude-seal.json \
+			|| { echo "FAIL: claude-seal.json is not a valid nono profile"; exit 1; }; \
+		echo "PASS: nono profile valid"; \
+	else \
+		echo "WARNING: nono not found, skipping nono profile validation"; \
+	fi
