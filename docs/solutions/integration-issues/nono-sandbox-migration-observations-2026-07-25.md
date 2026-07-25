@@ -375,10 +375,29 @@ received the bytes `EXFIL-PROBE` from a process inside nono over `127.0.0.1`. So
 of the guarantee is "HTTP(S) egress to non-allowlisted hosts is blocked at the kernel level", **not**
 "no data can leave by any route".
 
-**Decision: not narrowed in V1.** Row 8 below (gstack `/browse`) is UNVERIFIED, so the set of localhost
-ports actually needed is unknown and guessing would break browsing. Narrowing this to specific ports
-(`open_port_range`) should be informed by row 8's result. Recorded here because the profile itself
-cannot express the rationale.
+**Tested during a later touch-up pass, not merely left unprobed.** The hypothesis that `open_port: [0]`
+is itself what grants nono's HTTP(S) proxy hop — plausible, since the proxy is itself a localhost
+listener — was checked directly. A copy of the profile (`noport`) was deployed with `network.open_port`
+deleted entirely:
+
+```
+$ nono run --profile noport --allow-cwd -- git ls-remote origin HEAD
+f03f808cd97823f14bb550a6f07c8b62e6d9c62a	HEAD
+```
+
+Egress succeeded, so the hypothesis is false: nono grants its own proxy hop independently of
+`open_port`. This is one command — `git ls-remote`, which exercises the proxy hop — and does not cover
+every workflow this pass verified.
+
+**Consequence: removal, not merely narrowing via `open_port_range`, is the candidate once row 8 is
+settled.** For the proxy hop specifically, `open_port: [0]` is now established by removal (this probe),
+not merely by absence of a denial across the earlier rows. Removing it entirely would close the
+localhost relay channel described above. Row 8 (gstack `/browse`) remains **UNVERIFIED** and is the one
+plausible localhost consumer — a Chromium CDP endpoint is itself a localhost port — so guessing at
+removal now, before row 8 is checked, could break browsing.
+
+**Decision: not narrowed in V1.** Recorded here because the profile itself cannot express the
+rationale.
 
 ### Why granting `~/.config/gh` read is not a contradiction
 
