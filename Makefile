@@ -191,10 +191,10 @@ test-scripts:
 	echo "  PASS: exists with correct shebang"; \
 	tmphome=$$(mktemp -d "$${TMPDIR:-/tmp}/test-notify-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }; \
 	cleanup() { rm -rf "$$tmphome"; }; \
-	run() { HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 bash "$$SCRIPT"; }; \
+	run() { HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= bash "$$SCRIPT"; }; \
 	echo "  Test 1: all three orca env vars suppress the notification..."; \
 	out=$$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" \
-		| ORCA_PANE_KEY=pane ORCA_AGENT_HOOK_PORT=1234 ORCA_AGENT_HOOK_TOKEN=tok run) \
+		| HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 ORCA_PANE_KEY=pane ORCA_AGENT_HOOK_PORT=1234 ORCA_AGENT_HOOK_TOKEN=tok bash "$$SCRIPT") \
 		|| { echo "  FAIL: non-zero exit inside orca"; cleanup; exit 1; }; \
 	if [ -z "$$out" ]; then \
 		echo "  PASS: silent inside orca"; \
@@ -203,7 +203,8 @@ test-scripts:
 	fi; \
 	echo "  Test 2: ORCA_PANE_KEY alone does NOT suppress (orca cannot notify without port/token)..."; \
 	out=$$(printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"s1","cwd":"%s"}' "$$tmphome" \
-		| ORCA_PANE_KEY=pane run) || { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+		| HOME="$$tmphome" CLAUDE_NOTIFY_DRY_RUN=1 ORCA_PANE_KEY=pane ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= bash "$$SCRIPT") \
+		|| { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
 	if echo "$$out" | grep -q 'subtitle=許可待ち'; then \
 		echo "  PASS: notification still produced"; \
 	else \
