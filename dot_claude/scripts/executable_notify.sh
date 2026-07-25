@@ -9,8 +9,8 @@
 # ~/.orca/agent-hooks/claude-hook.sh and emits its own notifications, with more
 # accurate worktree/tab attribution than this script could reconstruct.
 #
-# Reads only hook_event_name, message, session_id, and cwd from the payload.
-# The transcript is never opened.
+# Reads only hook_event_name, notification_type, message, error, session_id, and
+# cwd from the payload. The transcript is never opened.
 #
 # Design: docs/superpowers/specs/2026-07-25-notification-hook-redesign-design.md
 set -euo pipefail
@@ -19,14 +19,17 @@ LOG_FILE="$HOME/.claude/logs/notify.log"
 LOG_MAX_LINES=500
 readonly LOG_FILE LOG_MAX_LINES
 
-# Append one auditable line per invocation. The Notification `message` wording
-# and StopFailure semantics are external contracts this repo does not control,
-# so keeping a bounded record is what makes a misclassification diagnosable.
+# Append one auditable line per invocation. The `notification_type` enum and the
+# StopFailure `error` enum are external contracts this repo does not control, so
+# keeping a bounded record of the raw discriminators alongside the classification
+# is what makes a misclassification diagnosable. `message` is always empty for
+# StopFailure, which is why `error` has to be logged separately.
 log_diagnostic() {
-    local event="$1" kind="$2" message="$3" line_count
+    local event="$1" kind="$2" notification_type="$3" error="$4" message="$5" line_count
     mkdir -p "${LOG_FILE%/*}" 2>/dev/null || return 0
-    printf '%s\tevent=%s\tkind=%s\tmessage=%s\n' \
-        "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$event" "$kind" "$message" \
+    printf '%s\tevent=%s\tkind=%s\tnotification_type=%s\terror=%s\tmessage=%s\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$event" "$kind" \
+        "$notification_type" "$error" "$message" \
         >>"$LOG_FILE" 2>/dev/null || return 0
     line_count=$(wc -l <"$LOG_FILE" 2>/dev/null || echo 0)
     if [[ "$line_count" -gt "$LOG_MAX_LINES" ]]; then
@@ -124,7 +127,9 @@ payload=$(cat)
 event=$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null) || exit 0
 [[ -z "$event" ]] && exit 0
 
+notification_type=$(printf '%s' "$payload" | jq -r '.notification_type // empty' 2>/dev/null || true)
 message=$(printf '%s' "$payload" | jq -r '.message // empty' 2>/dev/null || true)
+error=$(printf '%s' "$payload" | jq -r '.error // empty' 2>/dev/null || true)
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
 cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)
 [[ -z "$cwd" ]] && cwd="$PWD"
@@ -132,21 +137,46 @@ cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)
 
 # --- 2. classification ------------------------------------------------------
 
+# True when the payload is an approval dialog the user has to answer.
+#
+# `notification_type` is the payload's own discriminator, so it is what drives
+# classification. Claude Code 2.1.x emits permission_prompt,
+# worker_permission_prompt, idle_prompt, agent_needs_input, agent_completed,
+# auth_success and elicitation_dialog/complete/response; the glob deliberately
+# catches both *_permission_prompt forms, since the worker variant is a
+# network-access approval dialog that blocks the same way.
+#
+# The message-regex branch is the fallback for a Claude Code that omits the
+# field. `approv` rather than `approve` is deliberate: the product's literal is
+# "needs your approval for …", which `approve` does not match.
+is_permission_wait() {
+    case "$notification_type" in
+    *permission_prompt*) return 0 ;;
+    "") printf '%s' "$message" | grep -qiE 'permission|approv|許可' ;;
+    *) return 1 ;;
+    esac
+}
+
 case "$event" in
 StopFailure)
     kind="エラー停止"
     glyph="⚠️"
     sound="Basso"
-    body="ターンが異常終了しました"
+    # `error` names the API failure (rate_limit, authentication_failed, …). It is
+    # the only actionable field in the payload, so it goes in the banner body.
+    if [[ -n "$error" ]]; then
+        body="API エラーで停止: $error"
+    else
+        body="ターンが異常終了しました"
+    fi
     ;;
 *)
     # Notification, and any future event, share the waiting-for-human shape.
-    # An unrecognized event degrades to the lowest-priority kind rather than
-    # to silence.
+    # An unrecognized event or notification_type degrades to the lowest-priority
+    # kind rather than to silence.
     body="$message"
     [[ -z "$body" ]] && body="応答を待っています"
-    if [[ "$event" == "Notification" ]] &&
-        printf '%s' "$message" | grep -qiE 'permission|approve|許可'; then
+    if [[ "$event" == "Notification" ]] && is_permission_wait; then
         kind="許可待ち"
         glyph="⏸"
         sound="Glass"
@@ -170,7 +200,7 @@ group="claude-${session_id}"
 
 # --- 3. send ----------------------------------------------------------------
 
-log_diagnostic "$event" "$kind" "$message"
+log_diagnostic "$event" "$kind" "$notification_type" "$error" "$message"
 
 if [[ -n "${CLAUDE_NOTIFY_DRY_RUN:-}" ]]; then
     printf 'title=%s\nsubtitle=%s\nmessage=%s\nsound=%s\ngroup=%s\n' \
