@@ -280,6 +280,65 @@ test-scripts:
 	else \
 		echo "  FAIL: got: $$out"; cleanup; exit 1; \
 	fi; \
+	echo "  Test 13: terminal-notifier receives group, subtitle, and sound..."; \
+	fakebin="$$tmphome/bin"; mkdir -p "$$fakebin"; \
+	{ echo '#!/bin/sh'; echo 'printf "%s\n" "$$@" > "$$TN_ARGS"'; } > "$$fakebin/terminal-notifier"; \
+	chmod +x "$$fakebin/terminal-notifier"; \
+	tnargs="$$tmphome/tn-args.txt"; \
+	printf '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","session_id":"sess-xyz","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX= TMUX_PANE= bash "$$SCRIPT" \
+		|| { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if grep -qx -- '-group' "$$tnargs" \
+		&& grep -qx -- 'claude-sess-xyz' "$$tnargs" \
+		&& grep -qx -- '許可待ち' "$$tnargs" \
+		&& grep -qx -- 'Glass' "$$tnargs"; then \
+		echo "  PASS: terminal-notifier received group, subtitle, and sound"; \
+	else \
+		echo "  FAIL: argv was: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 14: ghostty click target activates the bundle id..."; \
+	if grep -q 'com.mitchellh.ghostty' "$$tnargs"; then \
+		echo "  PASS: click target present"; \
+	else \
+		echo "  FAIL: expected ghostty bundle id in argv: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 15: silent kinds omit -sound..."; \
+	printf '{"hook_event_name":"Notification","message":"Claude is waiting for your input","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX= TMUX_PANE= bash "$$SCRIPT"; \
+	if grep -qx -- '-sound' "$$tnargs"; then \
+		echo "  FAIL: -sound passed for a silent kind"; cleanup; exit 1; \
+	else \
+		echo "  PASS: no -sound for 入力待ち"; \
+	fi; \
+	echo "  Test 16: tmux click target jumps to the pane..."; \
+	printf '{"hook_event_name":"Notification","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX=/tmp/fake-tmux TMUX_PANE=@7 bash "$$SCRIPT"; \
+	if grep -q 'select-pane' "$$tnargs"; then \
+		echo "  PASS: tmux pane jump present"; \
+	else \
+		echo "  FAIL: expected select-pane in argv: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
+	echo "  Test 17: CLAUDE_NOTIFY_BACKEND=osascript forces the fallback..."; \
+	{ echo '#!/bin/sh'; echo 'echo called > "$$OSA_MARKER"'; } > "$$fakebin/osascript"; \
+	chmod +x "$$fakebin/osascript"; \
+	rm -f "$$tnargs"; \
+	printf '{"hook_event_name":"Notification","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  OSA_MARKER="$$tmphome/osa-called.txt" CLAUDE_NOTIFY_BACKEND=osascript \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX= TMUX_PANE= bash "$$SCRIPT" \
+		|| { echo "  FAIL: non-zero exit on fallback"; cleanup; exit 1; }; \
+	if [ -f "$$tmphome/osa-called.txt" ] && [ ! -f "$$tnargs" ]; then \
+		echo "  PASS: osascript used, terminal-notifier skipped"; \
+	else \
+		echo "  FAIL: expected osascript only"; cleanup; exit 1; \
+	fi; \
 	cleanup
 
 ## Validate chezmoi templates
