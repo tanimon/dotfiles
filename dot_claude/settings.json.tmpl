@@ -422,17 +422,19 @@
   "sandbox": {
     "enabled": true,
     "failIfUnavailable": false,
-    {{/* git commit/push run outside the sandbox so op-ssh-sign can reach the 1Password SSH agent Unix socket under `command claude` (native Seatbelt blocks the socket network-outbound; v2.1.205 has no Unix-socket allow key). Trade-off: excluded git runs repo hooks / SSH transports unsandboxed and push bypasses network.allowedDomains — accepted because these commands are ask-gated (see permissions.ask) and this repo's trusted prek/secretlint hooks must not be neutralized. */ -}}
-    "excludedCommands": [
-      "docker *",
-      "gcloud *",
-      "gh *",
-      "git commit *",
-      "git push *",
-      "open *",
-      "osascript *",
-      "terraform *"
-    ],
+    "network": {
+      "allowedDomains": [
+        "*.githubusercontent.com",
+        "api.anthropic.com",
+        "api.github.com",
+        "codeload.github.com",
+        "formulae.brew.sh",
+        "github.com",
+        "registry.npmjs.org",
+        "registry.yarnpkg.com"
+      ],
+      "allowLocalBinding": true
+    },
     "filesystem": {
       {{/* Low-risk OS-managed temp/scratch dirs. The default write boundary grants only the working dir and the specific session $TMPDIR, not these roots, so writes to them are silently denied. Safe to grant because none hold $PATH executables, system config, or shell rc — the escalation surface the sandbox docs warn about. /tmp + /private/tmp are the macOS symlink pair; /var/folders is the Darwin per-user temp (_CS_DARWIN_USER_TEMP_DIR) that a bare `mktemp -d` and TMPDIR-ignoring libc calls resolve to. Removes silent write-denial friction for tools that hardcode /tmp or bypass $TMPDIR. */ -}}
       "allowWrite": [
@@ -458,18 +460,16 @@
         "~/.ssh/known_hosts"
       ]
     },
-    "network": {
-      "allowLocalBinding": true,
-      "allowedDomains": [
-        "*.githubusercontent.com",
-        "api.anthropic.com",
-        "api.github.com",
-        "codeload.github.com",
-        "formulae.brew.sh",
-        "github.com",
-        "registry.npmjs.org",
-        "registry.yarnpkg.com"
-      ]
-    }
+    {{/* git commit/push run outside the sandbox so op-ssh-sign can reach the 1Password SSH agent Unix socket under `command claude` (native Seatbelt blocks the socket network-outbound; v2.1.205 has no Unix-socket allow key). Trade-off: excluded git runs repo hooks / SSH transports unsandboxed and push bypasses network.allowedDomains — accepted because these commands are ask-gated (see permissions.ask) and this repo's trusted prek/secretlint hooks must not be neutralized. */ -}}
+    "excludedCommands": [
+      "docker *",
+      "gcloud *",
+      "gh *",
+      "git commit *",
+      "git push *",
+      "open *",
+      "osascript *",
+      "terraform *"
+    ]
   }
 }
