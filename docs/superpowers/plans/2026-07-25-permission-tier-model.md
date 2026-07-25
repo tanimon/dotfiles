@@ -2,6 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **2026-07-25 correction — read before re-executing any step.** This plan was written and
+> executed for **six** entries, including `"Bash(git push:*)"` as Tier 1. Final review of the
+> branch found the Tier 1 justification for `push` false — the force-push `deny` entries are
+> *prefix* rules, so trailing-flag force (`git push origin main --force`), `+refspec` force,
+> and `--delete` / `:branch` remote-branch deletion all evade them. `git push` was returned to
+> `ask`; **five** entries moved. The as-executed end state is `allow` = 63, `ask` = 44
+> (`Bash(gh` 39, `Bash(git` 5), `deny` = 46 unchanged. Task 2's verbatim replacement blocks
+> below record the text as originally planned; the text actually in `CLAUDE.md` today is the
+> corrected version — treat `CLAUDE.md` and
+> `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` as authoritative over
+> this plan wherever they disagree. (Task 4's closing note already anticipated exactly this
+> correction; see the last paragraph of this file.)
+
 **Goal:** Move six append-only / local-only git and gh commands from `permissions.ask` to `permissions.allow` in the global Claude Code settings template, and document the risk-tier model that justifies the split.
 
 **Architecture:** Three independent changes to a chezmoi-managed template and two documentation files. No code, no scripts, no new tooling. Verification is a render-and-assert cycle: `chezmoi execute-template` produces the effective JSON, `jq` asserts the permission arrays. The assertion script is written first and must fail before the edit is made.
@@ -17,7 +30,7 @@
 - `permissions.allow` entries are inserted preserving the list's existing ASCII-alphabetical order.
 - Exactly six entries move. Any other change to `permissions.ask` is out of scope.
 - Documentation under `docs/` and `CLAUDE.md` is agent-facing and must be written in **English** (`~/.claude/rules/common/documentation-language.md`). Commit messages follow `<type>(<scope>): <description>` in Japanese, matching this repo's history.
-- Post-change counts, to be asserted verbatim: `allow` = 64, `ask` = 43, `deny` = 46, `ask` entries starting `Bash(gh` = 39, `ask` entries starting `Bash(git` = 4.
+- Post-change counts, to be asserted verbatim: `allow` = 64, `ask` = 43, `deny` = 46, `ask` entries starting `Bash(gh` = 39, `ask` entries starting `Bash(git` = 4. **(Superseded — see the correction banner: the shipped counts are `allow` = 63, `ask` = 44, `Bash(git` = 5.)**
 - The six moving entries, exact strings:
   `"Bash(git commit:*)"`, `"Bash(git merge:*)"`, `"Bash(git push:*)"`, `"Bash(git revert:*)"`, `"Bash(gh pr comment:*)"`, `"Bash(gh issue comment:*)"`.
 
@@ -182,10 +195,12 @@ Expected: passes. This validates that every `.tmpl` in the repo still renders, c
 - [ ] **Step 7: Confirm `deny` is untouched**
 
 ```bash
-git diff -U0 dot_claude/settings.json.tmpl | grep -E '^[+-]' | grep -v '^[+-][+-]'
+git diff --no-ext-diff -U0 dot_claude/settings.json.tmpl | grep -E '^[+-]' | grep -v '^[+-][+-]'
 ```
 
-Expected: exactly 13 lines — 6 additions in `allow`, 5 deletions in `ask`, plus the comma-only rewrite of the `git reset` line, which shows as one `-` and one `+`. That is 7 `+` and 6 `-`. If any line from the `deny` array (roughly lines 84-127) appears, revert and redo.
+`--no-ext-diff` is **required**: this repo sets `diff.external = difft`, and difftastic's output carries no `+`/`-` line prefixes, so without the flag the `grep` matches nothing and the step silently appears to pass while verifying nothing.
+
+Expected: exactly 14 lines — 7 `+` and 7 `-`. If any line from the `deny` array (roughly lines 84-127) appears, revert and redo.
 
 - [ ] **Step 8: Commit**
 
@@ -223,6 +238,8 @@ Line 69 is one paragraph of roughly 900 words. Do not rewrite it wholesale — m
 
 There is a **security-posture change** buried in this paragraph that the spec did not call out, and it must be recorded honestly rather than quietly left stale. The paragraph currently justifies running `git commit`/`git push` outside the sandbox with the words "accepted because git writes are ask-gated (below)". After Task 1 that justification is false: those two commands now run unsandboxed **and** without an approval prompt. Concretely, a repo-controlled pre-commit hook, or a remote reached via `GIT_SSH_COMMAND` or an `ext::` URL, executes outside the Seatbelt boundary with nothing prompting first. Replacement 1 records this.
 
+> **Superseded 2026-07-25 (final review).** The paragraph above, and Replacement 1 below, apply to `git commit` only. `git push` was returned to `ask`, so its unsandboxed SSH transport and `network.allowedDomains` bypass remain prompt-backstopped. `CLAUDE.md` carries the corrected split.
+
 - [ ] **Step 1: Replace the stale sandbox-exclusion justification**
 
 Find this exact substring:
@@ -250,6 +267,8 @@ Replace with:
 ```
 **git write governance (tier model):** placement follows a four-tier risk model — Tier 0 local and fully reversible, Tier 1 append-only to an existing container, Tier 2 changes shared object state, Tier 3 destructive or history-rewriting (`docs/superpowers/specs/2026-07-25-permission-tier-model-design.md`). Tier 0 (`commit`, `merge`, `revert`) and Tier 1 (`push`) sit in `allow`; Tier 3 (`reset`, `rebase`, `cherry-pick`, `filter-branch`) stays in `ask` (deny > ask > allow; `ask` fires even under `bypassPermissions`, so unattended runs *block* on these — intended). Routine writes (`add`, `checkout`, `fetch`, `pull`, `submodule`, `worktree`) stay in `allow` so autonomous loops don't deadlock; read-only git is built-in no-prompt. All three force-push forms (`--force`, `--force-with-lease`, `-f`) stay in `deny` — that `deny` is precisely what makes `push` append-only and therefore Tier 1, so weakening it would invalidate `push`'s placement. `reset` is *not* split into `Bash(git reset --hard:*)`-in-`ask` plus `Bash(git reset:*)`-in-`allow`: `git reset HEAD~1 --hard` defeats the prefix match, the same flag-position problem that keeps `gh api` ungateable.
 ```
+
+> **Retracted 2026-07-25 (final review) — the block immediately above is quoted as planned, not as shipped.** Two of its assertions are **false** and were never allowed to reach the final branch: that `push` is Tier 1 sitting in `allow`, and that the force-push `deny` entries are "precisely what makes `push` append-only". Those `deny` entries are prefix rules; `git push origin main --force`, `git push origin +main`, and `git push --delete origin foo` / `git push origin :foo` all evade them, and `--delete`/`--mirror`/`--prune` are not append-only at all — the very flag-position problem the same sentence names for `git reset` and `gh api`. `git push` stays in `ask`. Read the shipped text in `CLAUDE.md`, not this block.
 
 - [ ] **Step 3: Update the gh governance verb list**
 
@@ -405,6 +424,8 @@ ask は床であって既定値ではない — どのスコープからも床�
 - Consumes: all three preceding tasks.
 - Produces: a deployed `~/.claude/settings.json`.
 
+**Deployment is blocked until merge.** This task originally assumed `chezmoi apply` deploys from this working tree. It does not: chezmoi's source directory `~/.local/share/chezmoi` is a **separate git worktree pinned to `main`**, so `chezmoi diff` / `chezmoi apply` read `main`, not this branch. Steps 3-5 are therefore only performable after this branch merges. Steps 1-2 run against the working tree and are performable now.
+
 - [ ] **Step 1: Run the full lint suite**
 
 ```bash
@@ -427,7 +448,7 @@ Expected: `PASS: permission arrays match the tier model`. Re-running after Tasks
 chezmoi diff ~/.claude/settings.json
 ```
 
-Expected: exactly the six-entry move — additions in `allow`, removals in `ask`, nothing else. If any other key differs, there is uncommitted drift in the deployed target; resolve it before applying.
+Expected: exactly the five-entry move — additions in `allow`, removals in `ask`, nothing else. If any other key differs, there is uncommitted drift in the deployed target; resolve it before applying.
 
 - [ ] **Step 4: Apply**
 
@@ -440,7 +461,7 @@ chezmoi apply ~/.claude/settings.json
 This cannot be automated — permission prompts are interactive and settings are read at session start. Start a new Claude Code session in this repository and confirm:
 
 - `git commit` runs with no approval prompt
-- `git push` runs with no approval prompt
+- `git push` **still prompts** (returned to `ask` in final review — see the correction banner)
 - `gh pr create` still prompts
 - `gh pr edit` still prompts
 - `git reset` still prompts
@@ -456,6 +477,6 @@ Report the result. If a command that should be silent still prompts, the most li
 - **No permanent `make` target for the permission assertion.** A committed regression test would catch a future edit that accidentally moves `gh pr create` into `allow`, which is real value. It is excluded because the spec's scope did not include it and PR #224 set the precedent of ad-hoc assertion. Worth raising as a follow-up if permission drift ever actually occurs.
 - **No `.claude/settings.json` in this repository.** It cannot affect `ask` rules. Adding a file that appears to grant permissions but does not is worse than adding nothing.
 - **No PreToolUse permission hook.**
-- **No audit of the remaining 43 `ask` entries.** Applying the tier model to them yields their current placement.
+- **No audit of the remaining 44 `ask` entries.** Applying the tier model to them yields their current placement.
 
-**The one thing this plan surfaces that the spec did not:** Task 2 Step 1. The `excludedCommands` trade-off in `CLAUDE.md` was justified by the `ask` gate that this change removes, so `git commit`/`git push` now run both outside the sandbox and without a prompt. The plan records the change in posture rather than silently leaving stale text. If that posture is not acceptable, the correcting move is to return `Bash(git push:*)` to `ask` — which reverts one Tier 1 entry without disturbing the tier model.
+**The one thing this plan surfaces that the spec did not:** Task 2 Step 1. The `excludedCommands` trade-off in `CLAUDE.md` was justified by the `ask` gate that this change removes, so `git commit`/`git push` now run both outside the sandbox and without a prompt. The plan records the change in posture rather than silently leaving stale text. If that posture is not acceptable, the correcting move is to return `Bash(git push:*)` to `ask` — which reverts one Tier 1 entry without disturbing the tier model. **That is exactly what final review decided, for an additional reason this plan did not foresee: the force-push `deny` entries are prefix rules and never made `push` append-only in the first place. See the correction banner at the top of this file.**
