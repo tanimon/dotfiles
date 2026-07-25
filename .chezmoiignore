@@ -10,6 +10,11 @@ windows/
 *.txt
 *.sh
 .config/gh/extensions.txt
+.config/nono/packs.txt
+
+# ~/.config/nono/packages/ is nono's own pack store (pulled by
+# run_onchange_after_pull-nono-packs.sh.tmpl, not managed by chezmoi)
+.config/nono/packages
 
 # gstack runtime state
 .gstack

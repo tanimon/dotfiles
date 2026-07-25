@@ -1,0 +1,21 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# packs.txt hash: {{ include "dot_config/nono/packs.txt" | sha256sum }}
+
+if ! command -v nono >/dev/null 2>&1; then
+  echo "WARNING: nono not found, skipping pack install"
+  exit 0
+fi
+
+# nono treats a non-TTY context as NONO_NO_MIGRATE=1 and exits without
+# pulling. Set NONO_AUTO_MIGRATE=1 so the pull runs unattended.
+export NONO_AUTO_MIGRATE=1
+
+while IFS= read -r pack || [ -n "$pack" ]; do
+  [[ -z "$pack" || "$pack" == \#* ]] && continue
+  echo "Ensuring nono pack: ${pack}"
+  nono pull "$pack" || echo "WARNING: nono pull ${pack} failed"
+done < "{{ .chezmoi.sourceDir }}/dot_config/nono/packs.txt"
+{{ end -}}

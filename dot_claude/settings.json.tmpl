@@ -61,6 +61,10 @@
       "Bash(mise:*)",
       "Bash(mkdir:*)",
       "Bash(mv:*)",
+      "Bash(nono profile guide)",
+      "Bash(nono profile show:*)",
+      "Bash(nono profile validate:*)",
+      "Bash(nono why:*)",
       "Bash(npm:*)",
       "Bash(pnpm:*)",
       "Bash(python3:*)",
@@ -129,9 +133,22 @@
       "Edit(/etc/shadow)",
       "Edit(/etc/sudoers)"
     ],
+    {{/* Package/module install gate: installing new code is a supply-chain event, so it goes through a human. Precedence is deny > ask > allow, so the broad Bash(npm:*)/Bash(pnpm:*)/Bash(mise:*) entries in allow stay and these narrower ask entries win. Two deliberate holes: (1) Claude Code permissions match the Bash string the agent issues, NOT its subprocesses — `make lint` (Bash(make:*), still in allow) invokes pnpm without prompting; acceptable because make targets are version-controlled and reviewable. (2) Lockfile restore (bare `pnpm install`, `npm ci`) is gated too, deliberately: splitting "new deps ask, restore allow" is an illusory boundary because an agent can edit package.json then run bare `pnpm install` straight through it. curl/wget are already in deny, which closes `curl … | sh`. */ -}}
     {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/merge/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh pr view is read, gh pr create is write), so a noun-level gh pr:* wildcard would over-gate reads. Read-only gh (pr view/reviews, and unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api is left unlisted: its read/write intent lives in --method, not a fixed prefix, so it can't be prefix-gated cleanly. */ -}}
     "ask": [
+      "Bash(brew bundle:*)",
+      "Bash(brew install:*)",
+      "Bash(brew tap:*)",
+      "Bash(bun add:*)",
+      "Bash(bun install:*)",
+      "Bash(bunx:*)",
+      "Bash(cargo add:*)",
+      "Bash(cargo install:*)",
+      "Bash(claude plugin install:*)",
+      "Bash(claude plugin marketplace add:*)",
+      "Bash(gem install:*)",
       "Bash(gh cache delete:*)",
+      "Bash(gh extension install:*)",
       "Bash(gh gist create:*)",
       "Bash(gh gist delete:*)",
       "Bash(gh gist edit:*)",
@@ -174,7 +191,32 @@
       "Bash(git filter-branch:*)",
       "Bash(git push:*)",
       "Bash(git rebase:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(go get:*)",
+      "Bash(go install:*)",
+      "Bash(mise install:*)",
+      "Bash(mise plugin:*)",
+      "Bash(mise use:*)",
+      "Bash(nono pull:*)",
+      "Bash(nono update:*)",
+      "Bash(npm add:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm i:*)",
+      "Bash(npm install:*)",
+      "Bash(npm update:*)",
+      "Bash(npx:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm dlx:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm update:*)",
+      "Bash(uv add:*)",
+      "Bash(uv pip install:*)",
+      "Bash(uvx:*)",
+      "Bash(yarn add:*)",
+      "Bash(yarn dlx:*)",
+      "Bash(yarn install:*)"
     ],
     "defaultMode": "auto",
     "additionalDirectories": [
@@ -363,7 +405,9 @@
     "type": "command",
     "command": "node --experimental-strip-types $HOME/.claude/statusline-command.ts"
   },
+  {{/* nono@nolabs-ai: the nono pack (nolabs-ai/claude) writes this key into ~/.claude/settings.json at install time. chezmoi fully owns this template, so without reflecting it here `chezmoi apply` wipes the key and the pack's sandbox-diagnostic hooks silently stop firing — same failure shape as #228 and the marketplace-rename pitfall in CLAUDE.md. If the pack namespace changes upstream, this key must be updated in lockstep. */ -}}
   "enabledPlugins": {
+    "nono@nolabs-ai": true,
     "superpowers@claude-plugins-official": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": false,
@@ -472,5 +516,6 @@
       "osascript *",
       "terraform *"
     ]
-  }
+  },
+  "effortLevel": "high"
 }

@@ -1,0 +1,118 @@
+{
+  "meta": {
+    "name": "claude-seal",
+    "version": "1.0.0",
+    "description": "Claude Code sandbox for this dotfiles setup"
+  },
+  "extends": "claude-code",
+  "workdir": { "access": "readwrite" },
+  "groups": {
+    "include": [
+      "git_config",
+      "mise_manager",
+      "homebrew_macos",
+      "node_runtime",
+      "bun_runtime",
+      "go_runtime",
+      "go_runtime_macos",
+      "rust_runtime",
+      "python_runtime",
+      "user_tools",
+      "user_caches_macos",
+      "codex_macos"
+    ]
+  },
+  "filesystem": {
+    "allow": [
+      "$HOME/ghq",
+      "$HOME/.cache",
+      "$HOME/.codex",
+      "$HOME/.gstack",
+      "$HOME/Library/Application Support/orca/codex-accounts"
+    ],
+    "read": [
+      "$HOME/.local/bin",
+      "$HOME/.bun",
+      "$HOME/.pnpm-state",
+      "$HOME/.agents",
+      "$HOME/Library/Caches/ms-playwright",
+      "$XDG_CONFIG_HOME/chezmoi",
+      "$HOME/.local/share/chezmoi",
+      "$XDG_CONFIG_HOME/cmux",
+      "$XDG_CONFIG_HOME/gh",
+      "$XDG_CONFIG_HOME/ghostty",
+      "$XDG_CONFIG_HOME/helix",
+      "$XDG_CONFIG_HOME/karabiner",
+      "$XDG_CONFIG_HOME/opencode",
+      "$XDG_CONFIG_HOME/sheldon",
+      "$XDG_CONFIG_HOME/yazi",
+      "$XDG_CONFIG_HOME/zed",
+      "$XDG_CONFIG_HOME/zellij",
+      "$XDG_CONFIG_HOME/zsh",
+      "$XDG_CONFIG_HOME/nono"
+    ],
+    "write": [
+      "$HOME/.local/share/chezmoi/.git/objects",
+      "$HOME/.local/share/chezmoi/.git/refs",
+      "$HOME/.local/share/chezmoi/.git/logs",
+      "$HOME/.local/share/chezmoi/.git/worktrees"
+    ],
+    "write_file": [
+      "$HOME/.local/share/chezmoi/.git/packed-refs",
+      "$HOME/.local/share/chezmoi/.git/packed-refs.lock"
+    ],
+    "read_file": [
+      "$XDG_CONFIG_HOME/starship.toml",
+      "$HOME/.bashrc",
+      "$HOME/.bash_profile",
+      "$HOME/.zshrc",
+      "$HOME/.zprofile",
+      "$HOME/.gitignore",
+      "$HOME/.local/state/gh/device-id",
+      "$HOME/.vimrc",
+      "$HOME/.tmux.conf",
+      "$HOME/.cVimrc"
+    ],
+    "bypass_protection": [
+      "$HOME/.bashrc",
+      "$HOME/.bash_profile",
+      "$HOME/.zshrc",
+      "$HOME/.zprofile"
+    ],
+    "unix_socket": ["$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"]
+  },
+  "network": {
+    "network_profile": "developer",
+    "allow_domain": [
+      "formulae.brew.sh",
+      "proxy.golang.org",
+      "sum.golang.org",
+      "mcp.deepwiki.com",
+      "chatgpt.com",
+      "auth.openai.com",
+      "mise.jdx.dev",
+      "registry.nono.sh",
+      "cdn.playwright.dev",
+      "storage.googleapis.com",
+      "code.claude.com",
+      "docs.anthropic.com"
+    ],
+    "open_port": [0]
+  },
+  "environment": {
+    "set_vars": {
+      "INSIDE_NONO_SANDBOX": "1",
+      "GIT_CONFIG_COUNT": "5",
+      "GIT_CONFIG_KEY_0": "url.https://github.com/.insteadOf",
+      "GIT_CONFIG_VALUE_0": "git@github.com:",
+      "GIT_CONFIG_KEY_1": "credential.helper",
+      "GIT_CONFIG_VALUE_1": "!gh auth git-credential",
+      "GIT_CONFIG_KEY_2": "credential.interactive",
+      "GIT_CONFIG_VALUE_2": "false",
+      "GIT_CONFIG_KEY_3": "credential.guiPrompt",
+      "GIT_CONFIG_VALUE_3": "false",
+      "GIT_CONFIG_KEY_4": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_4": "false"
+    }
+  }
+}

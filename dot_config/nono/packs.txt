@@ -1,0 +1,6 @@
+# nono registry packs to install (one per line: <namespace>/<pack>)
+# Lines starting with # are comments.
+#
+# Removal requires `nono remove <namespace>/<pack>` on each machine —
+# deleting a line here does NOT uninstall the pack.
+nolabs-ai/claude

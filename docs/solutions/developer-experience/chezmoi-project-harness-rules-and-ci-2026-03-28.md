@@ -1,8 +1,8 @@
 ---
 title: "Project-Specific Harness Rules and CI for chezmoi Dotfiles Repository"
 date: 2026-03-28
-last_updated: 2026-03-29
-updated_reason: "Added harness-activator smoke tests, hook guidance rules, Known Pitfalls categorization"
+last_updated: 2026-07-25
+updated_reason: "Refresh — corrected the now-false docs/plans gitignore claim, broadened the --source rationale beyond include resolution, and marked the harness-activator and pnpm-verify details as superseded"
 problem_type: developer_experience
 component: tooling
 symptoms:
@@ -41,9 +41,9 @@ Agents working in the chezmoi dotfiles repository had no project-specific rules 
 
 ## What Didn't Work
 
-- **Attempting to commit `docs/plans/` files** — `.gitignore` excludes `docs/*` with only `!docs/solutions/` as exception. Modifying `.gitignore` to add `!docs/plans/` exposed 30+ old untracked plan files, polluting the PR scope. Reverted and left plans as local working documents.
+- **Attempting to commit `docs/plans/` files** — `.gitignore` excluded `docs/*` with only `!docs/solutions/` as exception. Modifying `.gitignore` to add `!docs/plans/` exposed 30+ old untracked plan files, polluting the PR scope. Reverted and left plans as local working documents. **(Historical — this constraint no longer holds: `docs/plans/` is tracked today. See Prevention.)**
 - **Using `chezmoi apply --dry-run` in CI** — Requires `.chezmoi.toml` with template variables (`.profile`, `.ghOrg`) that are environment-specific. Setup cost too high for CI; lint checks provide sufficient validation.
-- **`chezmoi execute-template --init` without `--source`** — Templates using `include` (e.g., `{{ include "darwin/Brewfile" | sha256sum }}`) fail silently because `execute-template --init` doesn't know the source directory. The `--source "$(pwd)"` flag is required.
+- **`chezmoi execute-template --init` without `--source`** — Templates using `include` (e.g., `{{ include "darwin/Brewfile" | sha256sum }}`) fail silently because `execute-template --init` doesn't know the source directory. The `--source "$(pwd)"` flag is required. **`include` is one trigger, not the only one:** `--source` is needed whenever the invoking directory differs from chezmoi's configured source dir — see [verification through the wrong resolution path](../workflow-issues/verification-through-the-wrong-resolution-path.md).
 - **`chezmoi execute-template --init --promptString` does not populate `.data` namespace** — `--promptString 'ghOrg=test-org'` answers `promptStringOnce` prompts during config initialization, but does NOT set template data variables (`.ghOrg`, `.profile`). Templates referencing `.ghOrg` fail with `map has no entry for key "ghOrg"`. The fix is to use a test `chezmoi.toml` with `[data]` section and `--config` flag instead of `--init --promptString`.
 - **`mktemp` without `.toml` extension for chezmoi config** — `chezmoi execute-template --config` determines the config format from the file extension. Plain `mktemp` creates files like `/tmp/tmp.dcHXJCEb9v` with no recognizable extension, causing `chezmoi: invalid config: .dcHXJCEb9v: unknown format`. Fix: use `mktemp /tmp/chezmoi-test-XXXXXX.toml` to preserve the `.toml` suffix. This applies to any tool that infers format from file extension (chezmoi, viper-based CLIs, etc.).
 
@@ -83,7 +83,7 @@ Four parallel jobs: secretlint (via pnpm), shellcheck (Ubuntu pre-installed), sh
 
 **chezmoi template validation** uses `chezmoi execute-template --config <test-config> --source "$(pwd)"` to validate Go template syntax in all `.tmpl` files. Key details:
 - A test `chezmoi.toml` is created with `[data]` section providing dummy values for `profile` and `ghOrg`. This is required because `--init --promptString` only answers `promptStringOnce` prompts — it does NOT populate the `.data` namespace that templates reference via `.ghOrg` / `.profile`
-- `--source "$(pwd)"` is **required** for templates that use `include` — without it, `execute-template` cannot resolve file paths for hash computation
+- `--source "$(pwd)"` is **required** for templates that use `include` — without it, `execute-template` cannot resolve file paths for hash computation. It is also required, independently of `include`, whenever the invoking directory is not chezmoi's configured source dir (e.g. a git-worktree checkout), because chezmoi otherwise reads a different tree entirely
 - `.chezmoi.toml.tmpl` is excluded from validation because it uses `promptStringOnce` which requires interactive input
 - Validates syntax only (output goes to `/dev/null`); does not test rendered correctness
 
@@ -104,11 +104,13 @@ Key details:
 
 - **Concrete file references in `.claude/rules/chezmoi-patterns.md`** — Each pattern in the File Type Selection table now links to a real example file (e.g., `modify_dot_claude.json` for modify\_ pattern). Declarative Sync Pattern section references both marketplace and gh extension file triples.
 - **CI Enforcement section in `.claude/rules/shell-scripts.md`** — Explicitly states that shell script rules are enforced by CI (`.github/workflows/lint.yml`) and pre-commit (`.pre-commit-config.yaml`), not advisory.
-- **`verify` script in `package.json`** — `pnpm run verify` runs secretlint as a single entry point for validation.
+- **`verify` script in `package.json`** — `pnpm run verify` is the single entry point for validation. It originally ran secretlint alone; it now delegates to `pnpm run lint` → `make lint`, so the npm entry point and the Makefile cannot drift apart.
 
 ### 6. Harness-activator smoke tests and hook guidance (2026-03-29)
 
-**`test-scripts` Makefile target** — Tests `dot_claude/scripts/executable_harness-activator.sh` with three scenarios: (1) normal execution in a git repo produces "HARNESS EVALUATION REMINDER" output, (2) HOME directory guard suppresses output (exit 0), (3) duplicate session_id produces empty output (flag file prevents re-firing). Includes a `jq` tool guard matching the `shellcheck`/`shfmt` pattern. CI job `harness-scripts` added to `lint.yml`.
+**`test-scripts` Makefile target** — Originally tested `dot_claude/scripts/executable_harness-activator.sh` with three scenarios: (1) normal execution in a git repo produces "HARNESS EVALUATION REMINDER" output, (2) HOME directory guard suppresses output (exit 0), (3) duplicate session_id produces empty output (flag file prevents re-firing). Includes a `jq` tool guard matching the `shellcheck`/`shfmt` pattern. CI job `harness-scripts` added to `lint.yml`.
+
+**Since superseded:** `harness-activator.sh` no longer exists — the harness loop was rebuilt around `harness-reflect-trigger.sh`, `harness-briefing.sh`, and `harness-doctor.sh`. `test-scripts` now covers `notify-wrapper.sh`, and the harness loop scripts moved to their own `test-harness-scripts` target. The *pattern* below (stdin-piped JSON, `/tmp` flag-file management, context guards exercised from different directories) is what carried forward, not the specific script.
 
 **Hook Scripts section in `.claude/rules/shell-scripts.md`** — Promotes three hard-won patterns from `docs/solutions/` into project rules:
 - Exit code contract: `exit 0` for intentional skip, `exit 1` + stderr for errors, never `exit 1` without stderr
@@ -131,15 +133,17 @@ Key details:
 - When setting up shell linting in CI for chezmoi repos, always exclude `.tmpl` files — reference `.pre-commit-config.yaml` for the established exclusion patterns
 - When aligning CI `find` with pre-commit regex patterns, watch for chezmoi `executable_*` prefix files — `find -name` and pre-commit `files:` regex use different matching semantics. Verify both produce the same file set with a local `find` command
 - Add smoke tests for `modify_` scripts in CI — a broken modify\_ script can silently zero out the target file on `chezmoi apply`. Test with sample input, empty stdin, and missing source file scenarios
-- When using `chezmoi execute-template` in CI, use `--config` with a test `chezmoi.toml` containing `[data]` section — `--init --promptString` does NOT populate the data namespace. Also pass `--source` for `include` resolution. Exclude `.chezmoi.toml.tmpl` from validation
+- When using `chezmoi execute-template` in CI, use `--config` with a test `chezmoi.toml` containing `[data]` section — `--init --promptString` does NOT populate the data namespace. Exclude `.chezmoi.toml.tmpl` from validation
+- **Pass `--source "$(pwd)"` to every chezmoi invocation that reads source state** (`apply`, `diff`, `managed`, `ignored`, `execute-template`) — not only to templates using `include`. Whenever the invoking directory is not chezmoi's configured source dir, chezmoi silently reads a different tree, and a verification step run that way passes vacuously. Confirm with `chezmoi source-path` before trusting any bare chezmoi output — see [verification through the wrong resolution path](../workflow-issues/verification-through-the-wrong-resolution-path.md)
 - When adding project rules, include concrete file path references to real repository examples — agents follow patterns better when they can read the actual implementation
 - When creating temp files for tools that infer format from extension (chezmoi, viper-based CLIs), always use `mktemp <dir>/prefix-XXXXXX.ext` with the correct extension — plain `mktemp` produces extensionless files that cause "unknown format" errors
 - When CI and local development run the same checks, consolidate the check logic into a `Makefile` (or equivalent) and have CI call the same targets — this eliminates drift between CI inline commands and local developer invocations
 - **Mirror contract enforcement:** When adding a new `make` target to the `lint` dependency, always add a corresponding CI job in `.github/workflows/lint.yml` — the contract is "if it passes locally, CI will pass too" and the converse must also hold
 - When testing hook scripts in Makefile, pipe JSON to stdin (`printf '{"session_id":"%s"}' "$SID" | bash "$SCRIPT"`), manage `/tmp` flag files for cleanup, and test context guards by running from different directories in subshells
-- Remember that `docs/plans/` is gitignored — don't attempt to commit plan files
+- ~~Remember that `docs/plans/` is gitignored — don't attempt to commit plan files~~ **No longer true.** `docs/plans/` is tracked and committed alongside `docs/solutions/`. The `.gitignore` exception was widened after this learning was written. Because plan files are now version-controlled, run `make scan-sensitive` before committing them — it checks every `.md` in the repo for PII
 
 ## Related Issues
 
 - [Autonomous Harness Engineering via Claude Code Hooks](autonomous-harness-engineering-hooks-2026-03-28.md) — Complementary: hooks handle dynamic session feedback, rules handle static project guidance
 - [chezmoi .tmpl shellcheck/shfmt incompatibility](../integration-issues/chezmoi-tmpl-shellcheck-shfmt-incompatibility.md) — The foundational learning that informed CI exclusion patterns
+- [Verification through the wrong resolution path](../workflow-issues/verification-through-the-wrong-resolution-path.md) — Why `--source` matters beyond `include` resolution, and the general rule that a check resolving a different path than the artifact under test passes vacuously

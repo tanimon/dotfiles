@@ -1,53 +1,45 @@
-# Sandbox Claude Code via safehouse (deny-all default) or cco (fallback)
-# Reads config from ~/.config/safehouse/config or ~/.config/cco/allow-paths
-# Use `command claude` or `\claude` to bypass and run unsandboxed
+# Sandbox Claude Code via nono (kernel-enforced Seatbelt/Landlock, deny-all default).
+# Policy lives in ~/.config/nono/profiles/claude-seal.json (chezmoi-managed).
+#
+# --allow-cwd is required: workdir.access in the profile sets the access *level*,
+# not the grant itself. Without it the working directory is not shared and nono
+# falls back to an interactive prompt no non-interactive run can answer.
+#
+# --settings disables Claude Code's own Bash sandbox for this invocation only, so
+# nono is the single boundary. This is load-bearing, not a nicety: nested Seatbelt
+# does not degrade gracefully — every Bash tool call dies with
+# `Exit code 71 / sandbox-exec: sandbox_apply: Operation not permitted`.
+# Use `command claude` or `\claude` to bypass nono — that path keeps Claude Code's
+# native Bash sandbox active, per the sandbox block in ~/.claude/settings.json.
 claude() {
-  if command -v safehouse &>/dev/null; then
-    _claude_safehouse "$@"
-  elif command -v cco &>/dev/null; then
-    _claude_cco "$@"
+  if command -v nono &>/dev/null; then
+    command nono run --profile claude-seal --allow-cwd -- \
+      claude --settings '{"sandbox":{"enabled":false}}' \
+      --dangerously-skip-permissions "$@"
   else
     command claude "$@"
   fi
 }
 
-_claude_safehouse() {
-  local -a args=()
-  local config="${XDG_CONFIG_HOME:-$HOME/.config}/safehouse/config"
-  local dir_path
-  if [[ -f "$config" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      [[ -z "$line" || "$line" == \#* ]] && continue
-      # Skip --add-dirs / --add-dirs-ro entries whose path does not exist
-      if [[ "$line" == --add-dirs=* || "$line" == --add-dirs-ro=* ]]; then
-        dir_path="${line#*=}"
-        [[ ! -e "$dir_path" ]] && continue
-      fi
-      args+=("$line")
-    done < "$config"
-  fi
-  command safehouse "${args[@]}" -- claude --dangerously-skip-permissions "$@"
-}
-
-_claude_cco() {
-  local -a cco_args=(--safe)
-  local config="${XDG_CONFIG_HOME:-$HOME/.config}/cco/allow-paths"
-  if [[ -f "$config" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      [[ -z "$line" || "$line" == \#* ]] && continue
-      cco_args+=(--add-dir "$line")
-    done < "$config"
-  fi
-  command cco "${cco_args[@]}" "$@"
-}
-
-# Bypass codex's internal Seatbelt sandbox when already inside an external sandbox.
-# macOS denies nested sandbox_apply syscalls — same root cause as the Claude Code
-# internal sandbox conflict. The outer sandbox (safehouse/cco) already provides isolation.
-# Use `command codex` to bypass this wrapper.
+# Disable codex's own Seatbelt sandbox when already inside nono. macOS denies
+# nested sandbox_apply, verified inside nono:
+#   nono run --profile claude-seal --allow-cwd -- codex sandbox -- /bin/echo ok
+#   -> sandbox-exec: sandbox_apply: Operation not permitted (exit 71)
+# while the same command outside nono exits 0. That the flag *fixes* it is also
+# demonstrated, not just inferred from the docs — a credit-free contrast pair:
+#   nono run ... -- codex -c sandbox_mode=danger-full-access sandbox -- /bin/echo ok
+#   -> ok
+#   nono run ... -- codex sandbox -- /bin/echo ok
+#   -> fails
+# (-c sandbox_mode=... is the config-key form of the setting --sandbox sets; the
+# wrapper uses --sandbox, the documented flag.) --sandbox danger-full-access drops
+# only the nested sandbox; --ask-for-approval on-request keeps codex's approval
+# flow (strictly safer than --dangerously-bypass-approvals-and-sandbox, which
+# discards both). INSIDE_NONO_SANDBOX is injected by the claude-seal profile's
+# environment.set_vars. Use `command codex` to bypass this wrapper.
 codex() {
-  if [[ -n "$APP_SANDBOX_CONTAINER_ID" ]]; then
-    command codex --dangerously-bypass-approvals-and-sandbox "$@"
+  if [[ -n "${INSIDE_NONO_SANDBOX:-}" ]]; then
+    command codex --sandbox danger-full-access --ask-for-approval on-request "$@"
   else
     command codex "$@"
   fi
