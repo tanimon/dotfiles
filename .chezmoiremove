@@ -16,3 +16,9 @@
 .claude/skills/propose-harness-improvement
 .claude/skills/validate-harness-proposal/**
 .claude/skills/validate-harness-proposal
+
+# Retired sandbox wrappers, replaced by nono (see .config/nono/profiles/claude-seal.json)
+.config/safehouse
+.config/cco
+.local/share/cco
+bin/cco

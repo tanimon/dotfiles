@@ -4,10 +4,3 @@
   # renovate: branch=main
   stripComponents = 1
   refreshPeriod = "168h"
-
-[".local/share/cco"]
-  type = "archive"
-  url = "https://github.com/nikvdp/cco/archive/9744b9fce8f8db1deae20be4dfe430b7a05c2f53.tar.gz"
-  # renovate: branch=master
-  stripComponents = 1
-  refreshPeriod = "168h"
