@@ -49,7 +49,7 @@ click_target() {
     WezTerm) bundle="com.github.wez.wezterm" ;;
     esac
 
-    if [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]]; then
+    if [[ -n "${TMUX:-}" && "${TMUX_PANE:-}" =~ ^[@%][0-9]+$ ]]; then
         # Activate the app first so the tmux switch lands on a visible window.
         [[ -n "$bundle" ]] && printf "open -b '%s'; " "$bundle"
         printf "tmux switch-client -t '%s' 2>/dev/null; " "$TMUX_PANE"

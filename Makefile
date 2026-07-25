@@ -339,6 +339,20 @@ test-scripts:
 	else \
 		echo "  FAIL: expected osascript only"; cleanup; exit 1; \
 	fi; \
+	echo "  Test 18: malformed TMUX_PANE does not reach -execute (injection guard)..."; \
+	rm -f "$$tnargs"; \
+	printf '{"hook_event_name":"Notification","message":"hi","session_id":"s1","cwd":"%s"}' "$$tmphome" \
+		| HOME="$$tmphome" PATH="$$fakebin:$$PATH" TN_ARGS="$$tnargs" \
+		  ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= \
+		  TERM_PROGRAM=ghostty TMUX=/tmp/fake-tmux TMUX_PANE="@1'; touch $$tmphome/injected #" bash "$$SCRIPT" \
+		|| { echo "  FAIL: non-zero exit"; cleanup; exit 1; }; \
+	if grep -q 'select-pane' "$$tnargs"; then \
+		echo "  FAIL: malformed TMUX_PANE reached -execute: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	elif grep -q 'com.mitchellh.ghostty' "$$tnargs"; then \
+		echo "  PASS: malformed TMUX_PANE rejected, fell through to app activation"; \
+	else \
+		echo "  FAIL: expected ghostty bundle activation, got: $$(cat "$$tnargs")"; cleanup; exit 1; \
+	fi; \
 	cleanup
 
 ## Validate chezmoi templates
