@@ -23,7 +23,13 @@
     ]
   },
   "filesystem": {
-    "allow": ["$HOME/ghq", "$HOME/.cache", "$HOME/.codex", "$HOME/.gstack"],
+    "allow": [
+      "$HOME/ghq",
+      "$HOME/.cache",
+      "$HOME/.codex",
+      "$HOME/.gstack",
+      "$HOME/Library/Application Support/orca/codex-accounts"
+    ],
     "read": [
       "$HOME/.local/bin",
       "$HOME/.local/share/cco",
@@ -33,6 +39,9 @@
       "$HOME/Library/Caches/ms-playwright",
       "$XDG_CONFIG_HOME/chezmoi",
       "$HOME/.local/share/chezmoi",
+      "$XDG_CONFIG_HOME/cco",
+      "$XDG_CONFIG_HOME/cmux",
+      "$XDG_CONFIG_HOME/safehouse",
       "$XDG_CONFIG_HOME/ghostty",
       "$XDG_CONFIG_HOME/helix",
       "$XDG_CONFIG_HOME/karabiner",
@@ -48,12 +57,20 @@
       "$XDG_CONFIG_HOME/starship.toml",
       "$HOME/.bashrc",
       "$HOME/.bash_profile",
+      "$HOME/.zshrc",
+      "$HOME/.zprofile",
+      "$HOME/.gitignore",
       "$HOME/.vimrc",
       "$HOME/.tmux.conf",
-      "$HOME/.cVimrc",
-      "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+      "$HOME/.cVimrc"
     ],
-    "bypass_protection": ["$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"]
+    "bypass_protection": [
+      "$HOME/.bashrc",
+      "$HOME/.bash_profile",
+      "$HOME/.zshrc",
+      "$HOME/.zprofile"
+    ],
+    "unix_socket": ["$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"]
   },
   "network": {
     "network_profile": "developer",
