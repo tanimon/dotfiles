@@ -65,3 +65,13 @@ Preserve the `.toml` suffix on the check-templates temp file — chezmoi infers 
 - **When a temp path must be sandbox-portable, use `"${TMPDIR:-/tmp}/name-XXXXXX"`, not hardcoded `/tmp` and not bare `mktemp -d`.** On macOS the bare form ignores `$TMPDIR`.
 - **Treat "error message immediately followed by PASS" as a silent-failure smell.** If a target can print a tool error and still reach its success line, the success line is lying.
 - Verify both ways: run the target inside the sandbox (should now fail loudly or pass legitimately) and unsandboxed (should still pass). In this repo, `make check-templates test-modify test-sensitive test-harness-scripts` covers all four call sites.
+
+## 更新: bats-core移行により構造的に解消（2026-07-26）
+
+このドキュメントが記述しているMakefileレシピは、`test/` 配下のbats-coreスイートとして
+書き直された（`docs/superpowers/specs/2026-07-26-bats-core-test-migration-design.md` 参照）。
+手書きの `mktemp` 呼び出しはすべて `$BATS_TEST_TMPDIR` に置き換えられ、bats がテストケース
+ごとに自動生成・自動削除する。このドキュメントが記述している障害モード——ガードされていない
+`mktemp` の失敗が気付かれずに通過する——は、もはや発生し得ない。なぜならテストスイートの
+中に手書きの `mktemp` 呼び出し自体が存在せず、それが起こる余地がないからである。この
+ドキュメントは、batsの自動tmpdir管理を採用する価値があった理由を示す歴史的記録として残す。
