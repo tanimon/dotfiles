@@ -95,6 +95,10 @@ test-modify:
 	pnpm exec bats test/modify-dot-claude.bats test/modify-karabiner.bats
 
 ## Smoke test hook scripts
+# LC_ALL=C works around a bats-core locale bug: under some locales, @test names
+# containing non-ASCII characters (this file's test names are in Japanese)
+# register under a different name than they're looked up by, causing spurious
+# "unknown test name" failures (23 -> 16 executed). See .claude/rules/shell-scripts.md.
 test-scripts:
 	LC_ALL=C pnpm exec bats test/notify.bats
 

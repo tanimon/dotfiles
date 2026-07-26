@@ -108,6 +108,7 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 | `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), MCP servers (`mcp-servers.json`), rules, commands, plugins, scripts (hooks), keybindings |
 | `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-marketplaces.sh`, `update-gh-extensions.sh`) |
+| `test/` | bats-core test suites — one `.bats` file per script under test, run via `make test-*` targets |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
 | `CONCEPTS.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts |
 
