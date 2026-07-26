@@ -137,11 +137,4 @@ test-harness-scripts:
 
 ## Validate the nono sandbox profile (local only — CI does not install nono)
 test-nono-profile:
-	@if command -v nono >/dev/null 2>&1; then \
-		echo "Validating nono profile..."; \
-		nono profile validate dot_config/nono/profiles/claude-seal.json \
-			|| { echo "FAIL: claude-seal.json is not a valid nono profile"; exit 1; }; \
-		echo "PASS: nono profile valid"; \
-	else \
-		echo "WARNING: nono not found, skipping nono profile validation"; \
-	fi
+	pnpm exec bats test/nono-profile.bats
