@@ -65,6 +65,8 @@ cco `--safe` は `$HOME` 配下の全ファイルへの read/write を拒否し�
 
 read-only コマンド (`diff`, `data`, `managed`, `apply --dry-run`) は sandbox の意義を損なわず実用的。
 
+> **2026-07-26 追記(歴史的文脈):** cco 自体はこのリポジトリから撤退済み(nono へ移行、#241)。上記の「`apply --dry-run` は安全」という判断は cco 固有の scope 決定として当時の記録に残すが、この前提は誤りだったことが後に判明した — [`chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md`](chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md) は、エージェントの非対話サンドボックスから `chezmoi apply --dry-run --verbose` を実行したことで `~/.claude.json`(`modify_` スクリプトで部分管理されているファイル)が破壊された実例を記録している。cco の後継である nono やその他の将来のサンドボックス設定で同じ前提(`apply --dry-run` は副作用なし)を引き継ぐ場合は、この教訓を踏まえて再検証すること。
+
 ## Prevention
 
 新しいファイルを chezmoi 管理に追加した場合、そのターゲットパスが `allow-paths.tmpl` に含まれているか確認する。含まれていないと sandbox 内での `chezmoi diff` が不正確な結果を返す（EPERM を差分として表示する可能性がある）。
