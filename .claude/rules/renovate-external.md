@@ -1,6 +1,9 @@
 ---
 date: 2026-04-12
 trigger: "Agent breaks Renovate adjacency contract in .chezmoiexternal.toml"
+paths:
+  - ".chezmoiexternal.toml"
+  - "renovate.json"
 ---
 
 # Renovate + .chezmoiexternal.toml
