@@ -8,6 +8,9 @@
   "devDependencies": {
     "@secretlint/secretlint-rule-no-dotenv": "^13.0.0",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.0",
+    "bats": "^1.13.0",
+    "bats-assert": "^2.2.4",
+    "bats-support": "^0.3.0",
     "oxfmt": "^0.48.0",
     "oxlint": "^1.57.0",
     "secretlint": "^13.0.0"
