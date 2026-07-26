@@ -108,40 +108,54 @@ The concrete case: `dot_claude/scripts/executable_notify.sh` suppresses itself w
 maintainer works inside orca-managed terminals, where they are. The first version of the test
 suite passed in CI and failed on the maintainer's machine every time.
 
-Clear every variable the script reads in a baseline helper, and let individual cases pass
-their own values explicitly:
+`.bats` ファイルの `setup()` で読み込む各変数をクリアし、個々の `@test` ケースが必要な値を
+明示的に `export` する:
 
-```make
-run() { HOME="$$tmphome" ORCA_PANE_KEY= ORCA_AGENT_HOOK_PORT= ORCA_AGENT_HOOK_TOKEN= bash "$$SCRIPT"; }; \
+```bash
+setup() {
+    load 'helpers/setup'
+    unset ORCA_PANE_KEY ORCA_AGENT_HOOK_PORT ORCA_AGENT_HOOK_TOKEN
+}
+
+@test "ORCA_PANE_KEY alone does not suppress" {
+    export ORCA_PANE_KEY=pane
+    run notify "$payload"
+    ...
+}
 ```
 
-**An env-prefix assignment inside the helper wins over one on the `run` call**, so a case
-needing custom values must invoke `bash "$$SCRIPT"` directly with its own full environment
-rather than going through the helper.
-
-Prove hermeticity by running the suite twice — once normally, once with the leak simulated —
-and requiring identical results:
+hermeticity（環境からの独立性）を証明するには、スイートを2回実行する——1回は通常通り、もう1回は
+漏れをシミュレートして——そして結果が一致することを要求する:
 
 ```sh
 make test-scripts
 ORCA_PANE_KEY=leak ORCA_AGENT_HOOK_PORT=1 ORCA_AGENT_HOOK_TOKEN=x make test-scripts
 ```
 
-### Makefile Test Harness Gotchas
+### batsテストスイートの規約
 
-Two traps when writing shell test cases inside a Makefile recipe:
+シェルスクリプトのテストは `test/*.bats` 配下に置く（テスト対象スクリプトごとに1ファイル）。
+`pnpm exec bats` で実行し、`Makefile` のターゲット（`make test-modify`, `make test-scripts`
+など）がラップすることで、CIとローカルが全く同じコマンドを実行する。付随ライブラリ
+（`bats-support`, `bats-assert`）は pnpm devDependency として管理し、`test/helpers/setup.bash`
+で一度だけロードする。
 
-- **Never put `%s` in a `printf` format string** used to generate a fake binary or fixture —
-  it collides with the outer `printf`'s own substitution and silently emits a literal `%s`.
-  Build such files with `echo` instead: `{ echo '#!/bin/sh'; echo 'printf "%s\n" "$$@" > "$$OUT"'; } > fake`
-- **Never test a fallback path by emptying `$PATH`.** Stripping `PATH` also hides `bash`,
-  `jq`, and `git` from the script, so the test fails for an unrelated reason. Give the script
-  an explicit override variable (e.g. `CLAUDE_NOTIFY_BACKEND=osascript`) and select the
-  fallback with that.
-
-Also verify each case is non-vacuous: an assertion like `grep -q 'title='` that every possible
-output satisfies cannot fail, and a case asserting on a file a *previous* case created must
-name that dependency in a comment.
+- **`mktemp` で一時ファイル/ディレクトリを作らない。** `$BATS_TEST_TMPDIR` を使う。bats が
+  `@test` ごとに自動生成・自動削除する。これにより mktemp の失敗を握りつぶすバグや macOS
+  サンドボックスの TMPDIR 問題のクラスが構造的に解消される——手書きの `mktemp` 呼び出し自体が
+  存在しないため、失敗をチェックし忘れることがあり得ない
+  （`docs/solutions/integration-issues/makefile-mktemp-silent-pass-and-macos-tmpdir-sandbox.md` 参照）。
+- **偽バイナリは `printf` ではなく heredoc で作る。** heredoc（`cat > "$fake" <<'EOF' ... EOF`）は
+  外側のコマンド置換と衝突しない。これは今回置き換えた旧Makefileレシピの `printf` パターンとは
+  異なる。
+- **フォールバック経路を `$PATH` を空にしてテストしない。** `PATH` を空にすると `bash`/`jq`/`git`
+  までスクリプトから見えなくなり、無関係な理由でテストが失敗する。スクリプトに明示的な上書き
+  変数（例: `CLAUDE_NOTIFY_BACKEND=osascript`）を用意し、それでフォールバックを選択する。
+- 各 `@test` が非空虚（vacuous でない）ことを確認する。`assert_output --partial 'title='` の
+  ように、あらゆる出力が満たしてしまうアサーションは失敗し得ない。`@test` ごとに専用の
+  `$BATS_TEST_TMPDIR` が与えられるため、旧Makefileレシピと異なり、*別の*テストケースが残した
+  ファイルを読むことはできない。もし2つのケースが状態を共有しているように見えるなら、1つの
+  `@test` に統合すること。
 
 ### Reference
 
