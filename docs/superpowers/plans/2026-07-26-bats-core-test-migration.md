@@ -1260,33 +1260,33 @@ output satisfies cannot fail, and a case asserting on a file a *previous* case c
 name that dependency in a comment.
 ```
 
-Replace it with:
+Replace it with (written in Japanese per this repo's documentation-language convention — new additions to existing English rule files are written in Japanese, without translating the rest of the file):
 
 ```markdown
-### bats Test Suite Conventions
+### batsテストスイートの規約
 
-Shell script tests live under `test/*.bats` (one file per script under test), run via
-`pnpm exec bats` and wrapped by `Makefile` targets (`make test-modify`, `make test-scripts`,
-etc.) so CI and local runs call the exact same command. Companion libraries
-(`bats-support`, `bats-assert`) are pnpm devDependencies, loaded once via `test/helpers/setup.bash`.
+シェルスクリプトのテストは `test/*.bats` 配下に置く（テスト対象スクリプトごとに1ファイル）。
+`pnpm exec bats` で実行し、`Makefile` のターゲット（`make test-modify`, `make test-scripts`
+など）がラップすることで、CIとローカルが全く同じコマンドを実行する。付随ライブラリ
+（`bats-support`, `bats-assert`）は pnpm devDependency として管理し、`test/helpers/setup.bash`
+で一度だけロードする。
 
-- **Never create a temp file/dir with `mktemp`.** Use `$BATS_TEST_TMPDIR`, which bats
-  creates fresh and destroys automatically per `@test`. This structurally eliminates the
-  silent-mktemp-failure and macOS-sandbox-TMPDIR class of bug — there is no longer a
-  hand-written `mktemp` call whose failure could go unchecked (see
-  `docs/solutions/integration-issues/makefile-mktemp-silent-pass-and-macos-tmpdir-sandbox.md`).
-- **Build fake binaries with a heredoc, not `printf`.** A heredoc (`cat > "$fake" <<'EOF' ... EOF`)
-  has no outer-command substitution to collide with, unlike the old Makefile-recipe `printf`
-  pattern this replaces.
-- **Never test a fallback path by emptying `$PATH`.** Stripping `PATH` also hides `bash`,
-  `jq`, and `git` from the script, so the test fails for an unrelated reason. Give the script
-  an explicit override variable (e.g. `CLAUDE_NOTIFY_BACKEND=osascript`) and select the
-  fallback with that.
-- Verify each `@test` is non-vacuous: an assertion like `assert_output --partial 'title='`
-  that every possible output satisfies cannot fail. Each `@test` gets its own
-  `$BATS_TEST_TMPDIR`, so — unlike the old Makefile recipe — a test can never read a file a
-  *different* test case left behind; if two cases seem to depend on shared state, merge them
-  into one `@test`.
+- **`mktemp` で一時ファイル/ディレクトリを作らない。** `$BATS_TEST_TMPDIR` を使う。bats が
+  `@test` ごとに自動生成・自動削除する。これにより mktemp の失敗を握りつぶすバグや macOS
+  サンドボックスの TMPDIR 問題のクラスが構造的に解消される——手書きの `mktemp` 呼び出し自体が
+  存在しないため、失敗をチェックし忘れることがあり得ない
+  （`docs/solutions/integration-issues/makefile-mktemp-silent-pass-and-macos-tmpdir-sandbox.md` 参照）。
+- **偽バイナリは `printf` ではなく heredoc で作る。** heredoc（`cat > "$fake" <<'EOF' ... EOF`）は
+  外側のコマンド置換と衝突しない。これは今回置き換えた旧Makefileレシピの `printf` パターンとは
+  異なる。
+- **フォールバック経路を `$PATH` を空にしてテストしない。** `PATH` を空にすると `bash`/`jq`/`git`
+  までスクリプトから見えなくなり、無関係な理由でテストが失敗する。スクリプトに明示的な上書き
+  変数（例: `CLAUDE_NOTIFY_BACKEND=osascript`）を用意し、それでフォールバックを選択する。
+- 各 `@test` が非空虚（vacuous でない）ことを確認する。`assert_output --partial 'title='` の
+  ように、あらゆる出力が満たしてしまうアサーションは失敗し得ない。`@test` ごとに専用の
+  `$BATS_TEST_TMPDIR` が与えられるため、旧Makefileレシピと異なり、*別の*テストケースが残した
+  ファイルを読むことはできない。もし2つのケースが状態を共有しているように見えるなら、1つの
+  `@test` に統合すること。
 ```
 
 - [ ] **Step 2: Update the "Tests Must Be Hermetic Against Ambient Environment" section**
@@ -1314,11 +1314,11 @@ ORCA_PANE_KEY=leak ORCA_AGENT_HOOK_PORT=1 ORCA_AGENT_HOOK_TOKEN=x make test-scri
 ```
 ```
 
-Replace it with:
+Replace it with (Japanese, per this repo's documentation-language convention):
 
 ```markdown
-Clear every variable the script reads in the `.bats` file's `setup()`, and let individual
-`@test` cases `export` their own values explicitly:
+`.bats` ファイルの `setup()` で読み込む各変数をクリアし、個々の `@test` ケースが必要な値を
+明示的に `export` する:
 
 ```bash
 setup() {
@@ -1333,8 +1333,8 @@ setup() {
 }
 ```
 
-Prove hermeticity by running the suite twice — once normally, once with the leak simulated —
-and requiring identical results:
+hermeticity（環境からの独立性）を証明するには、スイートを2回実行する——1回は通常通り、もう1回は
+漏れをシミュレートして——そして結果が一致することを要求する:
 
 ```sh
 make test-scripts
@@ -1344,19 +1344,19 @@ ORCA_PANE_KEY=leak ORCA_AGENT_HOOK_PORT=1 ORCA_AGENT_HOOK_TOKEN=x make test-scri
 
 - [ ] **Step 3: Append a resolution note to the mktemp solution doc**
 
-Append to the end of `docs/solutions/integration-issues/makefile-mktemp-silent-pass-and-macos-tmpdir-sandbox.md`:
+Append to the end of `docs/solutions/integration-issues/makefile-mktemp-silent-pass-and-macos-tmpdir-sandbox.md` (Japanese, per this repo's documentation-language convention):
 
 ```markdown
 
-## Update: Structurally Resolved by the bats-core Migration (2026-07-26)
+## 更新: bats-core移行により構造的に解消（2026-07-26）
 
-The Makefile recipes this document describes were rewritten as bats-core suites under
-`test/` (see `docs/superpowers/specs/2026-07-26-bats-core-test-migration-design.md`). Every
-manual `mktemp` call site was replaced with `$BATS_TEST_TMPDIR`, which bats creates and
-destroys automatically per test case. The failure mode this document describes — an
-unguarded `mktemp` whose failure went unnoticed — can no longer occur, because there is no
-longer a hand-written `mktemp` call in the test suite for it to happen to. This document is
-kept as a historical record of why bats' automatic tmpdir handling was worth adopting.
+このドキュメントが記述しているMakefileレシピは、`test/` 配下のbats-coreスイートとして
+書き直された（`docs/superpowers/specs/2026-07-26-bats-core-test-migration-design.md` 参照）。
+手書きの `mktemp` 呼び出しはすべて `$BATS_TEST_TMPDIR` に置き換えられ、bats がテストケース
+ごとに自動生成・自動削除する。このドキュメントが記述している障害モード——ガードされていない
+`mktemp` の失敗が気付かれずに通過する——は、もはや発生し得ない。なぜならテストスイートの
+中に手書きの `mktemp` 呼び出し自体が存在せず、それが起こる余地がないからである。この
+ドキュメントは、batsの自動tmpdir管理を採用する価値があった理由を示す歴史的記録として残す。
 ```
 
 - [ ] **Step 4: Verify the doc changes render as valid markdown and contain no sensitive info**
@@ -1371,7 +1371,7 @@ Expected: no findings.
 
 ```bash
 git add .claude/rules/shell-scripts.md docs/solutions/integration-issues/makefile-mktemp-silent-pass-and-macos-tmpdir-sandbox.md
-git commit -m "docs: update shell-scripts.md and mktemp solution doc for bats migration"
+git commit -m "docs: shell-scripts.mdとmktempの解決策ドキュメントをbats移行に合わせて更新"
 ```
 
 ---
