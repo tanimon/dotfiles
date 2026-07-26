@@ -1,21 +1,25 @@
 ---
 date: 2026-03-29
-trigger: "Agent wrote agent-facing documentation or rules in non-English language"
+trigger: "エージェントが、明示的な英語指示や外部フォーマット制約なしに新規ドキュメントを英語で書いた"
 ---
 
-# Documentation Language
+# ドキュメントの言語
 
-## Agent-Facing Documents Must Be Written in English
+## 新規ドキュメントは日本語で記載する
 
-All files that serve as instructions or context for coding agents must be written in English:
+新規作成時は以下を日本語で記載する:
 
-- `CLAUDE.md` / `AGENTS.md` — project instructions
-- `.claude/rules/**/*.md` — rule files
-- `docs/solutions/**/*.md` — solution documents
-- Code comments, commit messages
+- `CLAUDE.md` / `AGENTS.md` — プロジェクト指示
+- `.claude/rules/**/*.md` — ルールファイル
+- `docs/solutions/**/*.md` — 解決策ドキュメント
+- コードコメント
+- コミットメッセージ
 
-**Why:** Agent-facing documentation is consumed by LLMs whose training data is predominantly English. English rules are parsed more reliably, reduce ambiguity in technical terms, and avoid mixed-language inconsistencies (e.g., Japanese section headers with English content).
+既存の英語ドキュメントに新規項目を追記・編集する場合も、追記部分は日本語で記載する（ファイル全体の一括翻訳は行わない。1ファイル内で英語と日本語が混在する状態を許容する）。
 
-**Exceptions:**
-- **PR descriptions** — written in the user's preferred language, as they are primarily for human reviewers
-- **Chat responses** — follow the user's language preference
+**理由:** これらのドキュメントは最終的に人間（日本語話者）が読むもの。最新のLLM（Sonnet 5など）は日本語も十分な精度で扱えるため、英語で書くことによる解釈精度上のメリットは小さく、人間の可読性を優先すべき。
+
+**例外（英語での記載を許容する場合）:**
+
+- **明示的に英語での記載を指示された場合** — その指示に従い英語で記載する
+- **Skillなどの出力フォーマットでセクション名や構造が英語で指定されている場合** — 指定された構造部分（セクション名、フロントマターのキー名、Conventional Commitsの `feat:`/`fix:` などのtype等）はそのまま英語を使う。本文の言語について特に指定がなければ、本文は日本語で記載する

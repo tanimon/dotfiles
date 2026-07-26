@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 .context/
 
 # docs/ is version-controlled in this repo. Override the global ~/.gitignore
