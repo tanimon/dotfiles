@@ -25,7 +25,7 @@
   "filesystem": {
     "allow": [
       "$HOME/ghq",
-      "$HOME/.cache",
+      "$XDG_CACHE_HOME",
       "$HOME/.codex",
       "$HOME/.gstack",
       "$HOME/Library/Application Support/orca/codex-accounts"
@@ -37,7 +37,7 @@
       "$HOME/.agents",
       "$HOME/Library/Caches/ms-playwright",
       "$XDG_CONFIG_HOME/chezmoi",
-      "$HOME/.local/share/chezmoi",
+      "$XDG_DATA_HOME/chezmoi",
       "$XDG_CONFIG_HOME/cmux",
       "$XDG_CONFIG_HOME/gh",
       "$XDG_CONFIG_HOME/ghostty",
@@ -52,14 +52,15 @@
       "$XDG_CONFIG_HOME/nono"
     ],
     "write": [
-      "$HOME/.local/share/chezmoi/.git/objects",
-      "$HOME/.local/share/chezmoi/.git/refs",
-      "$HOME/.local/share/chezmoi/.git/logs",
-      "$HOME/.local/share/chezmoi/.git/worktrees"
+      "$XDG_DATA_HOME/chezmoi/.git/objects",
+      "$XDG_DATA_HOME/chezmoi/.git/refs",
+      "$XDG_DATA_HOME/chezmoi/.git/logs",
+      "$XDG_DATA_HOME/chezmoi/.git/worktrees",
+      "$HOME/Library/pnpm/.tools/@pnpm+exe"
     ],
     "write_file": [
-      "$HOME/.local/share/chezmoi/.git/packed-refs",
-      "$HOME/.local/share/chezmoi/.git/packed-refs.lock"
+      "$XDG_DATA_HOME/chezmoi/.git/packed-refs",
+      "$XDG_DATA_HOME/chezmoi/.git/packed-refs.lock"
     ],
     "read_file": [
       "$XDG_CONFIG_HOME/starship.toml",
@@ -68,7 +69,7 @@
       "$HOME/.zshrc",
       "$HOME/.zprofile",
       "$HOME/.gitignore",
-      "$HOME/.local/state/gh/device-id",
+      "$XDG_STATE_HOME/gh/device-id",
       "$HOME/.vimrc",
       "$HOME/.tmux.conf",
       "$HOME/.cVimrc"
