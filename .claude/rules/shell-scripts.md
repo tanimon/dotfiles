@@ -132,6 +132,11 @@ make test-scripts
 ORCA_PANE_KEY=leak ORCA_AGENT_HOOK_PORT=1 ORCA_AGENT_HOOK_TOKEN=x make test-scripts
 ```
 
+unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK_TOKEN` に限らない。
+テスト対象スクリプトが実際に読んでいる環境変数はすべて対象で、他に `HARNESS_DISABLE`
+（`executable_harness-reflect-trigger.sh` のオプトアウト）や `CLAUDE_NOTIFY_BACKEND`
+（`executable_notify.sh` のフォールバック指定）が該当する。
+
 ### batsテストスイートの規約
 
 シェルスクリプトのテストは `test/*.bats` 配下に置く（テスト対象スクリプトごとに1ファイル）。
@@ -156,6 +161,11 @@ ORCA_PANE_KEY=leak ORCA_AGENT_HOOK_PORT=1 ORCA_AGENT_HOOK_TOKEN=x make test-scri
   `$BATS_TEST_TMPDIR` が与えられるため、旧Makefileレシピと異なり、*別の*テストケースが残した
   ファイルを読むことはできない。もし2つのケースが状態を共有しているように見えるなら、1つの
   `@test` に統合すること。
+- **非ASCIIの `@test` 名は bats-core のロケール依存バグを踏むことがある。** `test/notify.bats`
+  はテスト名に日本語（「許可待ち」など）を含むため、`LC_ALL=C` なしで実行すると登録名と検索名が
+  食い違い、23件中16件しか実行されず exit 1 になる。`Makefile` の `test-scripts` レシピが
+  `LC_ALL=C pnpm exec bats test/notify.bats` としているのはこの回避策であり、一見不要に見えても
+  削除しないこと。
 
 ### Reference
 

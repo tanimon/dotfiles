@@ -1,6 +1,7 @@
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-reflect-trigger.sh"
+    unset HARNESS_DISABLE
     export HOME="$BATS_TEST_TMPDIR"
     TRANSCRIPT="$BATS_TEST_TMPDIR/big.jsonl"
     for i in $(seq 1 12); do

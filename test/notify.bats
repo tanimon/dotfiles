@@ -1,7 +1,7 @@
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_notify.sh"
-    unset ORCA_PANE_KEY ORCA_AGENT_HOOK_PORT ORCA_AGENT_HOOK_TOKEN
+    unset ORCA_PANE_KEY ORCA_AGENT_HOOK_PORT ORCA_AGENT_HOOK_TOKEN CLAUDE_NOTIFY_BACKEND
     export HOME="$BATS_TEST_TMPDIR"
     export CLAUDE_NOTIFY_DRY_RUN=1
 }
