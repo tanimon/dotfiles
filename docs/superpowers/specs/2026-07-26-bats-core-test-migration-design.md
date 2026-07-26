@@ -48,7 +48,9 @@ lessons in the new idiom, not just carrying over the test cases.
 
 1. **Full migration, single PR.** All five Makefile test targets move to bats-core at once;
    no hand-rolled shell test code remains in the `Makefile` afterward.
-2. **Installation via pnpm devDependency.** `bats-core` is published as an npm package. It is
+2. **Installation via pnpm devDependency.** The bats-core project publishes its CLI to npm
+   under the package name `bats` (not `bats-core`, which is the project/repo name only — the
+   npm package `bats-core` does not exist). It is
    added to `package.json` `devDependencies` alongside `secretlint`, `oxlint`, and `oxfmt`,
    invoked as `pnpm exec bats`. This guarantees CI (Ubuntu) and local (macOS) run the exact
    same version, pinned in `pnpm-lock.yaml`, and picked up automatically by Renovate — unlike
