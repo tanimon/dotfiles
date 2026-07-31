@@ -484,7 +484,11 @@
         "registry.npmjs.org",
         "registry.yarnpkg.com"
       ],
-      "allowLocalBinding": true
+      "allowLocalBinding": true,
+      {{/* 1Password SSH agent のソケット。commit 署名時に op-ssh-sign がここへ接続する（`gpg.format=ssh` / `gpg.ssh.program`、dot_gitconfig.tmpl 参照）。Seatbelt は deny-default で unix-socket への network-outbound を塞ぐため、許可しないと署名が `1Password: Could not connect to socket` → `fatal: failed to write commit object` で失敗する（サンドボックス内で実測）。v2.1.205 には本キーが存在せず `excludedCommands` で git commit をサンドボックス外に出す回避策を取っていたが、v2.1.220 で `network.allowUnixSockets` が追加されたため回避策を撤去した。macOS 限定キー（Linux の seccomp はパス単位でフィルタできないため無視される）。生成されるルールは `(allow system-socket (socket-domain AF_UNIX))` + `(allow network-outbound (remote unix-socket (subpath <path>)))` で、同等の SBPL を sandbox-exec に直接与えて ssh-add -l の成否が反転することを確認済み。パスに空白を含むが Seatbelt 側でクォートされる。 */ -}}
+      "allowUnixSockets": [
+        "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+      ]
     },
     "filesystem": {
       {{/* Low-risk OS-managed temp/scratch dirs. The default write boundary grants only the working dir and the specific session $TMPDIR, not these roots, so writes to them are silently denied. Safe to grant because none hold $PATH executables, system config, or shell rc — the escalation surface the sandbox docs warn about. /tmp + /private/tmp are the macOS symlink pair; /var/folders is the Darwin per-user temp (_CS_DARWIN_USER_TEMP_DIR) that a bare `mktemp -d` and TMPDIR-ignoring libc calls resolve to. Removes silent write-denial friction for tools that hardcode /tmp or bypass $TMPDIR. */ -}}
@@ -511,12 +515,11 @@
         "~/.ssh/known_hosts"
       ]
     },
-    {{/* git commit/push run outside the sandbox so op-ssh-sign can reach the 1Password SSH agent Unix socket under `command claude` (native Seatbelt blocks the socket network-outbound; v2.1.205 has no Unix-socket allow key). Trade-off, and it differs per command: push is ask-gated (see permissions.ask), so the unsandboxed SSH transport (GIT_SSH_COMMAND/ext::) and the network.allowedDomains bypass stay prompt-backstopped. commit is in allow, so it runs unsandboxed AND unprompted — a repo-controlled pre-commit hook executes outside the sandbox with nothing prompting. Accepted because this repo's trusted prek/secretlint hooks must not be neutralized. */ -}}
+    {{/* `git push` はサンドボックス外で実行する。remote が `git@github.com:`（かつ全体の `url.git@github.com:.insteadOf https://github.com/` で https も ssh に書き換わる）ため github.com:22 への生 TCP が必要で、ネイティブサンドボックスの HTTP(S) プロキシ経路では通らない。push は permissions.ask でゲートしてあるので、サンドボックス外実行と network.allowedDomains のバイパスはプロンプトで抑止される。`git commit` は上の network.allowUnixSockets で署名が通るようになったため、この一覧から外してサンドボックス内で実行する（worktree の共通 git dir への書き込みは Claude Code が自動許可するため commit 自体は成立する — 実測済み）。これにより「allow に入った git commit を経由してリポジトリ管理の pre-commit hook がサンドボックス外・無プロンプトで実行される」という残存リスクは解消した。prek/secretlint はサンドボックス内で動くため、cwd 外への書き込みや許可外ドメインへの通信を行う hook を追加する場合は allowWrite / allowedDomains 側の調整が必要になる。 */ -}}
     "excludedCommands": [
       "docker *",
       "gcloud *",
       "gh *",
-      "git commit *",
       "git push *",
       "open *",
       "osascript *",
