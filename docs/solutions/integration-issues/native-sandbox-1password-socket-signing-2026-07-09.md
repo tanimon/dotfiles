@@ -118,6 +118,16 @@ github.com:22 への**生 TCP** を必要とする。ネイティブサンドボ
 よって `git push *` は `excludedCommands` に残す。`push` は `permissions.ask` に残っているため、
 サンドボックス外実行と `allowedDomains` バイパスは承認プロンプトが裏付けとして残る（上記 2026-07-25 追記のとおり）。
 
+**2026-07-31 追記:** 上記の前提（`insteadOf` が https→ssh 方向であること）はこの時点で崩れている。
+`dot_gitconfig.tmpl` の `insteadOf` を ssh→https に反転し（`git@github.com:` 形式のリモートを
+`https://github.com/` に書き換える）、既存の credential.helper（Git Credential Manager）でHTTPS認証する
+方式に変更した結果、`git fetch`/`pull` はサンドボックス内でHTTPS経由で成功することを実測確認した
+（詳細は [native-sandbox-git-ssh-to-https-insteadof-reversal.md](native-sandbox-git-ssh-to-https-insteadof-reversal.md)）。
+したがって本セクションが挙げていた「push が生TCPを必要とする」根拠（https URL も ssh に書き換わる設定）は
+もう存在しない。ただし `git push *` を `excludedCommands` から実際に除去できるかは、サンドボックス設定が
+セッション開始時にのみ読み込まれるため fresh session でしか検証できず、本追記時点でも**未検証のまま**
+`excludedCommands` に残してある。
+
 ### 解消した残存リスク
 
 上記 2026-07-25 追記の「**`commit` については失われた**」— `allow` かつ `excludedCommands` のため
@@ -151,4 +161,6 @@ commit はサンドボックス内で走るため、フックも Seatbelt 境界
 - [1password-ssh-agent-libgit2-ssh-auth-sock.md](1password-ssh-agent-libgit2-ssh-auth-sock.md) — prior 1Password agent socket learning
 - [verification-through-the-wrong-resolution-path.md](../workflow-issues/verification-through-the-wrong-resolution-path.md)
   — 2026-07-30 の検証で使った対照ペアの一般形。本件はその実例リストに追加済み
+- [native-sandbox-git-ssh-to-https-insteadof-reversal.md](native-sandbox-git-ssh-to-https-insteadof-reversal.md)
+  — 2026-07-31、`insteadOf` を ssh→https に反転して git を HTTPS 経由で使う変更。上記「`git push` を除外したままにする理由」2026-07-31 追記の詳細
 - `docs/plans/2026-07-09-001-fix-sandbox-1password-socket-and-git-approval-plan.md` — the plan behind this change
