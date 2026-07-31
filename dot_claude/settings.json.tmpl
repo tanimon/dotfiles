@@ -519,7 +519,7 @@
         "~/.ssh/known_hosts"
       ]
     },
-    {{/* `git push` はサンドボックス外で実行する。remote が `git@github.com:`（かつ全体の `url.git@github.com:.insteadOf https://github.com/` で https も ssh に書き換わる）ため github.com:22 への生 TCP が必要で、ネイティブサンドボックスの HTTP(S) プロキシ経路では通らない。push は permissions.ask でゲートしてあるので、サンドボックス外実行と network.allowedDomains のバイパスはプロンプトで抑止される。`git commit` は上の network.allowUnixSockets で署名が通るようになったため、この一覧から外してサンドボックス内で実行する（worktree の共通 git dir への書き込みは Claude Code が自動許可するため commit 自体は成立する — 実測済み）。これにより「allow に入った git commit を経由してリポジトリ管理の pre-commit hook がサンドボックス外・無プロンプトで実行される」という残存リスクは解消した。prek/secretlint はサンドボックス内で動くため、cwd 外への書き込みや許可外ドメインへの通信を行う hook を追加する場合は allowWrite / allowedDomains 側の調整が必要になる。 */ -}}
+    {{/* `git push` はサンドボックス外で実行する。**2026-07-31 更新:** ここに書かれていた「remote が git@github.com: 形式のため github.com:22 への生TCPが必要」という前提は、dot_gitconfig.tmpl の insteadOf を https→ssh から ssh→https に反転したことで崩れた（詳細は dot_gitconfig.tmpl 側のコメント参照）。fetch/pull はこれで HTTPS 経由になり動作を実測済みだが、push については新しい gitconfig を読み込んだ fresh session でしか検証できない（sandbox設定はセッション開始時に読み込まれるため、このセッション内での確認は無意味 — CLAUDE.md の "verification through the wrong resolution path" を参照）。したがって `excludedCommands` からの `git push *` 除去は本コメント更新時点では未実施・未検証のフォローアップとする。push は permissions.ask でゲートしてあるので、サンドボックス外実行と network.allowedDomains のバイパスはプロンプトで抑止される。`git commit` は上の network.allowUnixSockets で署名が通るようになったため、この一覧から外してサンドボックス内で実行する（worktree の共通 git dir への書き込みは Claude Code が自動許可するため commit 自体は成立する — 実測済み）。これにより「allow に入った git commit を経由してリポジトリ管理の pre-commit hook がサンドボックス外・無プロンプトで実行される」という残存リスクは解消した。prek/secretlint はサンドボックス内で動くため、cwd 外への書き込みや許可外ドメインへの通信を行う hook を追加する場合は allowWrite / allowedDomains 側の調整が必要になる。 */ -}}
     "excludedCommands": [
       "docker *",
       "gcloud *",
