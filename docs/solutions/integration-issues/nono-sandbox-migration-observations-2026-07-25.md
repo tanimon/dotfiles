@@ -495,6 +495,14 @@ unsandboxed when a human later runs git in this worktree, or when the `command c
 `git commit` / `git push` are in the native sandbox's `excludedCommands` and run outside it entirely.
 Same outcome as hook-planting, a different door and a delayed fuse.
 
+> **2026-07-31 追記（上の文の後半のみ、現在は成り立たない）:** 2026-07-30 の変更で `git commit` は
+> `sandbox.excludedCommands` から外れ、ネイティブサンドボックス**内**で実行されるようになった
+> （1Password agent socket を `sandbox.network.allowUnixSockets` で直接許可できるようになったため。
+> 詳細は [native-sandbox-1password-socket-signing-2026-07-09.md](native-sandbox-1password-socket-signing-2026-07-09.md)）。
+> したがって `command claude` 経路のドアは `git push` だけに狭まった。**残存リスク自体は消えていない** —
+> 人間が git を実行する経路が残り、そちらが現在の主経路である。上の本文は 2026-07-25 時点の観察記録
+> として残す。
+
 **The obvious `filesystem` carve-out does not work; a `command_policies` one exists and was deferred.**
 `filesystem.deny` does **not** override `filesystem.write` — tested by adding `commondir` to
 `filesystem.deny`: the profile validates, and the path still reports
