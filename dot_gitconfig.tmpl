@@ -64,8 +64,9 @@
 
 {{ if eq .profile "work" -}}
 ### 会社用設定
-[url "git@github.com:"]
-  insteadOf = https://github.com/
+{{/* 2026-07-31: https→ssh の insteadOf を廃止し、逆方向(ssh→https)に反転した。狙いは Claude Code のネイティブサンドボックス（settings.json.tmpl の sandbox.network）内で git を使えるようにすること。ネイティブサンドボックスは HTTP(S) プロキシ経由の egress のみを許可し、github.com:22 への生 TCP を拒否するため、リモートが git@github.com: 形式のままだと fetch/pull/push が軒並み失敗する（実測: `ssh: Could not resolve hostname github.com`）。逆方向の insteadOf を追加するだけでは不十分で、この https→ssh ルールと共存させると（両方が gitconfig に存在する状態で）git の内部解決が SSH 側を優先してしまい、逆方向ルールが効かないことを実測で確認した（GIT_TRACE=1 で `ssh ... git@github.com` のまま）。GIT_CONFIG_GLOBAL=/dev/null で本ファイルを丸ごと無視した場合のみ逆方向ルールが機能した。`-c`/`GIT_CONFIG_KEY_n` はURLを含むキーのパースに失敗している可能性を疑い、`include.path` でファイルベースの逆方向ルールのみを追加して再検証したが、https→ssh ルールと共存させたままでは同じく機能しなかった（`-c` 構文の問題ではなく、この2ルールの共存自体が原因）。内部メカニズムの詳細（gitのinsteadOf解決アルゴリズムのどこで優先されるか）は未特定。認証は既存の credential.helper（GCM、下記）が担う。commit 署名は gpg.format=ssh 経由で 1Password SSH agent を使い続けるため、この変更の影響を受けない。 */ -}}
+[url "https://github.com/"]
+  insteadOf = git@github.com:
 [gtr "copy"]
   include = **/.envrc
   include = tmp/scripts/**
