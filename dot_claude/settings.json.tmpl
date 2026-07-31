@@ -1,6 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
+    {{/* CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL: advisor tool（実験的）を強制有効化する。未設定の場合はサーバー側のロールアウトフラグ（tengu_sage_compass2）次第で有効/無効が変わり、マシンやタイミングで挙動が揺れる。Anthropic 直接認証（firstParty）のときのみ効き、Bedrock/Vertex では無視される。停止したいときは CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 が優先される。 */ -}}
+    "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL": "1",
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "ENABLE_TOOL_SEARCH": "true",
     "HOME": "{{ .chezmoi.homeDir }}",
@@ -228,6 +230,8 @@
     ]
   },
   "model": "sonnet",
+  {{/* advisorModel: サーバーサイド advisor tool の助言役モデル（指定可能なエイリアスは fable / opus / sonnet）。advisor は executor（メインモデル）以上のランクでないと attach されないため、上の "model": "sonnet" と対になって初めて機能する。/model で Opus に切り替えたセッションでは main では発動せず（サブエージェントでは発動しうる）、起動時通知でその旨が出る。トークン消費は増える。/advisor ダイアログが書き込む先は ~/.claude/settings.json だが、そのファイルはこの tmpl が全面所有しているため apply で消える。恒久設定はここに書くこと。 */ -}}
+  "advisorModel": "opus",
   {{/* orca agent-hooks integration: orca injects a claude-hook.sh dispatcher into every hook event. The command runs ~/.orca/agent-hooks/claude-hook.sh only when it exists and is executable, else no-ops (cat >/dev/null) — safe to ship to machines without orca. Reflected here from the live ~/.claude/settings.json so chezmoi apply doesn't wipe it. */ -}}
   "hooks": {
     "SessionStart": [

@@ -14,6 +14,8 @@ The deployed file in the home directory that a Source renders to. Targets are ge
 
 Rendering is one-directional and is performed from whichever checkout the tool treats as its source directory — not necessarily the checkout being edited. A change that is committed but not yet present in that source directory will not appear in a Target, and the absence reads as "nothing to deploy" rather than as an error.
 
+A Target's writers are not only the people who open it. The application a Target configures often writes its own settings back into that same file at runtime, and such a write is indistinguishable from a hand edit — it is discarded by the next apply just the same, silently and with no record of what was there. A setting that keeps being lost this way is a setting whose home is the Source.
+
 When a Target is only partially owned — its Source is a script that reads the Target's current state and re-emits a modified version, rather than a template rendered from scratch — the transform re-derives the whole file from whatever it currently observes on every run. If that observation is empty or corrupted (a race with another writer, an aborted run), the Target's entire unmanaged portion can be lost even though the Source itself was never touched.
 
 ## Permission policy
