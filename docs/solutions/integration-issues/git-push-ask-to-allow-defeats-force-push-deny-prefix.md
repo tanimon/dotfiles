@@ -33,7 +33,7 @@ tags: [claude-code, permissions, prefix-matching, git-push, force-push, ask, all
 
 **この根拠は誤りだった。** Claude Code の `permissions` は `deny > ask > allow` の優先順で
 **プレフィックスマッチ**により評価され、最初にマッチしたルールが勝つ。`deny` に置かれた
-force-push 3 件（`dot_claude/settings.json.tmpl:102-104`）は
+force-push 3 件（`dot_claude/settings.json.tmpl` の `permissions.deny`）は
 `Bash(git push --force-with-lease:*)` / `Bash(git push --force:*)` / `Bash(git push -f:*)` で
 あり、フラグが `git push` の**直後に来る綴りにしかマッチしない**。`git push` を `allow` に
 置いた瞬間、以下はすべて `deny` を回避して `Bash(git push:*)` にマッチし、プロンプトなしで
@@ -118,11 +118,11 @@ solutions ドキュメントの 3 箇所へ伝播していた。
 
 ## Solution
 
-- **`Bash(git push:*)` を `permissions.ask` へ戻した**（`dot_claude/settings.json.tmpl:175`。
+- **`Bash(git push:*)` を `permissions.ask` へ戻した**（`dot_claude/settings.json.tmpl`。
   `Bash(git cherry-pick:*)` `Bash(git filter-branch:*)` `Bash(git rebase:*)` `Bash(git reset:*)`
   と並ぶ）。移動する entry は 6 件から **5 件**（`git commit` / `git merge` / `git revert` /
   `gh pr comment` / `gh issue comment`）になった。
-- **force-push 3 件は `deny` に据え置き**（`dot_claude/settings.json.tmpl:102-104`）。削除する
+- **force-push 3 件は `deny` に据え置き**（`dot_claude/settings.json.tmpl` の `permissions.deny`）。削除する
   理由は無いが、これらが担う範囲を過大評価しない。実際に force-push とリモートブランチ削除を
   止めているのは `ask` の `Bash(git push:*)` である。
 - **誤った append-only 主張を全ドキュメントから撤回**した。`CLAUDE.md:69` の governance 段落は
@@ -137,7 +137,7 @@ solutions ドキュメントの 3 箇所へ伝播していた。
   外へ動かすことで破壊的な綴りに到達できるコマンドは Tier 1 になれない
   （`docs/superpowers/specs/2026-07-25-permission-tier-model-design.md:98-100`）。
 - **再利用可能な落とし穴として `CLAUDE.md:172` に記載**した（Known Pitfalls）。
-- **`ask` 配列直上のコメント**（`dot_claude/settings.json.tmpl:132`）にも、`push` が `ask` に
+- **`ask` 配列直上のコメント**（`dot_claude/settings.json.tmpl` の `permissions.ask` 直上のテンプレートコメント）にも、`push` が `ask` に
   留まる理由（force-push の `deny` はプレフィックスのみ、末尾フラグ・`+refspec`・`--delete`/
   `:branch` が回避する）を設定ファイル内に埋め込んだ。ドキュメントを読まずに配列だけを編集する
   読者に届く位置に置くことが目的である。
@@ -149,14 +149,14 @@ solutions ドキュメントの 3 箇所へ伝播していた。
 どう並ぼうと関係なく捕らえる。狭い `deny` はプレフィックス位置に依存するが、広い `ask` は
 依存しない。これが「狭い `deny` は広い `ask` の代替にならない」の技術的な中身である。
 
-このリポジトリは `permissions.defaultMode: "auto"`（`dot_claude/settings.json.tmpl:179`）で
+このリポジトリは `permissions.defaultMode: "auto"`（`dot_claude/settings.json.tmpl`）で
 動作するため、**未列挙 = 自動承認**である
 （`docs/solutions/integration-issues/claude-code-defaultmode-auto-gh-command-gating.md` 参照）。
 この前提の下では、あるコマンドの危険な綴りをゲートする方法は「その綴りにマッチするルールを
 `ask` か `deny` に置く」ことしかない。`deny` にプレフィックス的な部分集合しか置けないなら、
 その補集合をカバーするのは広い `ask` の役目になる。
 
-`git push` は `sandbox.excludedCommands` にも含まれ（`dot_claude/settings.json.tmpl:469`）、
+`git push` は `sandbox.excludedCommands` にも含まれ（`dot_claude/settings.json.tmpl`）、
 サンドボックス外で実行される。したがって承認ゲートが唯一の統制であり、`ask` を外すことは
 「サンドボックス境界も承認ゲートも無い」状態を作ることを意味した。
 
@@ -203,7 +203,14 @@ append-only 性がマッチャのレベルで成立している。追加した�
 
 ### 運用上の注意
 
-- 権限配列に手を入れる際は `dot_claude/settings.json.tmpl:132` の `ask` 直上コメントを必ず読む。
+- 権限配列に手を入れる際は `dot_claude/settings.json.tmpl` の `permissions.ask` 直上のテンプレート
+  コメントを必ず読む。
+- **2026-07-31: 本文書内の `settings.json.tmpl` への参照はキー名指定に統一した。** それまでは行番号
+  （`:102-104`、`:132`、`:175`、`:179`、`:469`）で引用していたが、7 件すべてが実ファイルの無関係な行を
+  指す状態にドリフトしていた（`:469` は `"autoUpdate": true` を指していた）。主張自体はいずれも正しく、
+  壊れていたのは参照だけである。`settings.json.tmpl` は権限配列の増減で行が絶えず動くため、この
+  ファイルへの引用は行番号ではなくキー名（`permissions.deny`、`permissions.ask`、
+  `sandbox.excludedCommands` 等）で行う。
   ここに `push` を `ask` に留める理由が埋め込まれている。
 - レンダリング検証は `make check-templates` と
   `chezmoi execute-template --config <test toml> --source "$(pwd)"` を用いる

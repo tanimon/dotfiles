@@ -11,6 +11,7 @@ applies_when:
   - "Designing or reviewing a verification step for a tool that resolves its target from configuration rather than from the current working directory"
   - "Verifying that something worked by asserting on an end state that some other action could also have produced"
   - "Trusting a check that has only ever been observed passing"
+  - "fail open で degrade する強制機構（サンドボックス、feature flag、`|| true`）に許可を追加し、1 回の成功だけでその許可が効いたと判断しようとしているとき"
   - "Diagnosing unexplained drift between a deployed target and its source when more than one checkout of the same repo exists on the machine"
 symptoms:
   - "\"chezmoi managed | grep <new-entry>\" reports the expected result even though the entry exists only on a branch chezmoi is not reading"
@@ -20,6 +21,7 @@ symptoms:
 tags:
   - verification
   - vacuous-check
+  - fail-open
   - chezmoi
   - git-worktree
   - silent-failure
@@ -163,7 +165,8 @@ commits that existed on `main`. A tool silently answering a different question d
 withhold a fact; it manufactures a false mental model, and the model then generates its own
 downstream decisions.
 
-**The pattern is not chezmoi-specific.** Two more instances from the same session:
+**The pattern is not chezmoi-specific.** Other instances — the first three from the same session as
+the chezmoi one:
 
 - `nono why --profile claude-seal --host github.com --port 22` reports `ALLOWED` for a connection
   that is impossible. The output is candid about why — `Reason: proxy_allowed`,
@@ -183,6 +186,18 @@ downstream decisions.
   read as "upstream did not touch this file" — when in fact upstream had changed it by 43 lines.
   Use `git diff --no-ext-diff` when a command needs unified output. See the corresponding entry
   in `CLAUDE.md`'s Known Pitfalls.
+- **サンドボックスの許可キーは、片側だけの実行では検証できない**（2026-07-30、別 session）。
+  `sandbox.network.allowUnixSockets` に 1Password の agent socket を追加して commit 署名が通った
+  — それだけでは何も示せない。`dot_claude/settings.json.tmpl` の `sandbox.failIfUnavailable: false`
+  によりサンドボックスは **fail open** で degrade するので、「通った」は (a) キーが Seatbelt まで
+  配線された、(b) サンドボックスがそもそも適用されていない、のどちらとも整合する。決着させたのは
+  対照ペア: `sandbox` ブロックだけを `claude -p --settings` に渡し、当該キーの有無を唯一の差分にした
+  2 回の実行で `ssh-add -l` が `Operation not permitted` ↔ 鍵の列挙に反転することを確認した。
+  上の 3 例と違い、**検査対象が間違っているのではなく、検査したい強制機構そのものが黙って不在に
+  なりうる**ケースである。fail open な仕組み（graceful degradation、feature flag、`|| true`、
+  「利用不可なら素通し」フラグ）はすべて同じ形の空虚な PASS を生むので、許可を足した側の成功では
+  なく、**外した側の失敗**が証拠になる。(See
+  `../integration-issues/native-sandbox-1password-socket-signing-2026-07-09.md`.)
 
 ## When to Apply
 
@@ -269,6 +284,10 @@ fault injections.
   whenever the invoking worktree differs from the configured source dir, `include` or not.
 - [nono sandbox migration observations](../integration-issues/nono-sandbox-migration-observations-2026-07-25.md) — source of the
   `nono why` transport-modelling instance cited above.
+- [1Password SSH signing under the native sandbox](../integration-issues/native-sandbox-1password-socket-signing-2026-07-09.md)
+  — fail open な強制機構の実例の出所。`nono why` の例と地続きで、そこで「間違った transport を
+  モデルしている」原因になっている生 TCP と HTTP(S) プロキシの区別が、この変更で `git push` だけを
+  `excludedCommands` に残す理由でもある。
 - [.chezmoiignore blocking dot_gitignore deployment](../integration-issues/chezmoiignore-blocking-dot-gitignore-deployment-2026-04-03.md) — origin of
   the `chezmoi managed | grep` verification idiom this doc shows failing vacuously.
 - `CLAUDE.md` Known Pitfalls carries two entries of this class, arrived at independently: the
