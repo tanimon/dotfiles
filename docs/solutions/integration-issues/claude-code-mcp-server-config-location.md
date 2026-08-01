@@ -37,18 +37,20 @@ The `mcpServers` key in `~/.claude/settings.json` is silently ignored. There is 
 
 ## Working Solution
 
-Used chezmoi's `modify_` mechanism to partially manage `~/.claude.json`:
+Used chezmoi's `modify_` mechanism to partially manage `~/.claude.json`.
+
+> **Update (2026-08-01):** the script below has since been renamed and retargeted — see [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md). Claude Code's native install now stores this runtime state at `~/.claude/claude.json` and leaves `~/.claude.json` as a symlink to it, so the script targets the real file directly and `~/.claude.json` is `.chezmoiignore`d. The merge logic below (replace only `.mcpServers`, preserve everything else) is unchanged.
 
 ### File Structure
 
 ```
 chezmoi source/
 ├── dot_claude/mcp-servers.json     # Source of truth for MCP server definitions
-├── modify_dot_claude.json          # Merges mcpServers into ~/.claude.json
+├── dot_claude/modify_claude.json   # Merges mcpServers into ~/.claude/claude.json
 └── dot_claude/settings.json.tmpl   # mcpServers removed from here
 ```
 
-### modify_dot_claude.json
+### dot_claude/modify_claude.json
 
 ```bash
 #!/bin/bash
@@ -124,3 +126,4 @@ diff <(jq -r '.mcpServers | keys[]' ~/.claude.json | sort) \
 - Brainstorm: `docs/brainstorms/2026-03-06-chezmoi-mcp-servers-brainstorm.md`
 - Plan: `docs/plans/2026-03-06-feat-chezmoi-mcp-server-management-plan.md`
 - Related: `docs/solutions/security-issues/dotfiles-hardening-profile-management.md`
+- [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md) — the script this doc introduced was later renamed to `dot_claude/modify_claude.json` and retargeted at `~/.claude/claude.json` after Claude Code's native install turned `~/.claude.json` into a symlink

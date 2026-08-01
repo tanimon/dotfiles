@@ -112,6 +112,7 @@ Fixed flow:
 | `printf '%s'` without `\n` | `$(cat)` strips trailing newlines → perpetual `chezmoi diff` | Use `printf '%s\n'` to compensate |
 | Missing `.data` file | `sed` fails → empty output → target deleted | Guard with `[ -f "$DATA_FILE" ]` or rely on `set -e` |
 | External process races the `modify_` script's stdin read (e.g. the app itself doing its own atomic write to the same target concurrently with `chezmoi apply`) | `modify_` receives empty/partial stdin even though the script itself has no bug → target zeroed the same way as the script-bug cases above, but the trigger is environmental, not a fix-once bug | No fix within the `modify_` script itself is known; avoid running `chezmoi apply` (even `--dry-run`) against a `modify_`-managed target from a context where something else may be writing that target concurrently — see [`chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md`](chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md) |
+| Target is a symlink to elsewhere (e.g. the owning app itself restructured its storage into a symlink split) | `modify_`'s write-back replaces the symlink with a regular file — silently deleting it — regardless of whether stdin content was read correctly | Retarget the `modify_` script directly at the real backing file, and add the symlink path to `.chezmoiignore` so chezmoi never touches it — see [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md) |
 
 ## Decision Tree: When to Use Each chezmoi Pattern
 
@@ -152,8 +153,9 @@ Does chezmoi need to manage this file?
 
 ## Related
 
-- [`modify_dot_claude.json`](/modify_dot_claude.json) — Same pattern for partial JSON management (MCP servers via `jq`)
-- [`chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md`](chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md) — a real incident hitting the environmental-race gotcha in the table above, against `modify_dot_claude.json` specifically, with a full recovery playbook
+- [`dot_claude/modify_claude.json`](/dot_claude/modify_claude.json) — same pattern for partial JSON management (MCP servers via `jq`); renamed and retargeted from `modify_dot_claude.json`/`~/.claude.json` — see [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md) for why
+- [`chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md`](chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md) — a real incident hitting the environmental-race gotcha in the table above, against `modify_dot_claude.json` specifically (as it was named at the time), with a full recovery playbook
+- [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md) — the symlink-target gotcha added to the table above, with the isolated-test methodology used to verify it safely
 - [`docs/solutions/integration-issues/claude-code-mcp-server-config-location.md`](/docs/solutions/integration-issues/claude-code-mcp-server-config-location.md) — MCP server config discovery
 - [PR #8](https://github.com/tanimon/dotfiles/pull/8) — Implementation PR
 - [CLAUDE.md Key Patterns](/CLAUDE.md) — Project-level documentation of chezmoi patterns

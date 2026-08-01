@@ -18,6 +18,8 @@ A Target's writers are not only the people who open it. The application a Target
 
 When a Target is only partially owned — its Source is a script that reads the Target's current state and re-emits a modified version, rather than a template rendered from scratch — the transform re-derives the whole file from whatever it currently observes on every run. If that observation is empty or corrupted (a race with another writer, an aborted run), the Target's entire unmanaged portion can be lost even though the Source itself was never touched.
 
+The write-back can also fail to preserve a property of the Target the transform never inspected, such as the Target being a symlink into another location: the transform faithfully reads the content through the symlink, but writes it back as an ordinary file at the symlink's own path, deleting the symlink even though the content itself was reproduced correctly.
+
 ## Permission policy
 
 ### Risk Tier
