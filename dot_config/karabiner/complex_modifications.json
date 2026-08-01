@@ -1,6 +1,7 @@
 [
   {
     "description": "日本語入力モードにおける全角スペースと半角スペースの入力を入れ替える",
+    "enabled": false,
     "manipulators": [
       {
         "conditions": [
