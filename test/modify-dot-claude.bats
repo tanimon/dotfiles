@@ -1,6 +1,6 @@
 setup() {
     load 'helpers/setup'
-    SCRIPT="$BATS_TEST_DIRNAME/../modify_dot_claude.json"
+    SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/modify_claude.json"
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 }
 

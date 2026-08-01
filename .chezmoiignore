@@ -19,6 +19,11 @@ windows/
 # gstack runtime state
 .gstack
 
+# ~/.claude.json is a symlink to ~/.claude/claude.json managed by Claude Code
+# itself (since 2026-07-26); dot_claude/modify_claude.json targets the real
+# file directly, so chezmoi must never touch this symlink.
+.claude.json
+
 # ~/.claude/ auto-managed (safeguard against accidental bulk add)
 .claude/projects
 .claude/plans

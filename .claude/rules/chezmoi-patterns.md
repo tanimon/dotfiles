@@ -20,7 +20,7 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 |---------|-------------|---------|
 | `.tmpl` (regular template) | chezmoi fully owns the file; no external tool modifies it | `dot_gitconfig.tmpl`, `dot_claude/settings.json.tmpl` |
 | `create_` | Provision-once files that should not be overwritten on subsequent applies | (none currently in this repo) |
-| `modify_` script | Runtime-mutable files where chezmoi owns a subset of keys (e.g., IDE configs, `~/.claude.json`) | `modify_dot_claude.json` |
+| `modify_` script | Runtime-mutable files where chezmoi owns a subset of keys (e.g., IDE configs, `~/.claude/claude.json`) | `dot_claude/modify_claude.json` |
 | `.chezmoiignore` + `run_onchange_` | Files managed entirely by external tools (plugin state, extension lists) | `dot_claude/plugins/marketplaces.txt` + `.chezmoiscripts/run_onchange_after_add-marketplaces.sh.tmpl` |
 
 ## modify_ Script Safety
@@ -29,7 +29,8 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 - Never use OS guards (`{{ if eq .chezmoi.os "darwin" }}`) that wrap the entire script — on non-matching OS the script outputs nothing and chezmoi deletes the target
 - Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`
 - For new-machine bootstrap (empty stdin), output initial data from a `.data` file
-- See `modify_dot_claude.json` for a well-documented example of partial JSON management
+- See `dot_claude/modify_claude.json` for a well-documented example of partial JSON management
+- Never target a path that may be a symlink managed by the app itself (e.g. `~/.claude.json`, symlinked to `~/.claude/claude.json` since 2026-07-26) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` the symlink.
 
 ## Template Syntax
 
