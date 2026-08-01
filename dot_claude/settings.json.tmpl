@@ -106,8 +106,6 @@
       "Bash(sudo chown:*)",
       "Bash(sudo -i:*)",
       "Bash(sudo su:*)",
-      "Bash(curl:*)",
-      "Bash(wget:*)",
       "Bash(rm -rf .git)",
       "Bash(git push --force-with-lease:*)",
       "Bash(git push --force:*)",
@@ -139,7 +137,7 @@
       "Edit(/etc/shadow)",
       "Edit(/etc/sudoers)"
     ],
-    {{/* Package/module install gate: installing new code is a supply-chain event, so it goes through a human. Precedence is deny > ask > allow, so the broad Bash(npm:*)/Bash(pnpm:*)/Bash(mise:*) entries in allow stay and these narrower ask entries win. Two deliberate holes: (1) Claude Code permissions match the Bash string the agent issues, NOT its subprocesses — `make lint` (Bash(make:*), still in allow) invokes pnpm without prompting; acceptable because make targets are version-controlled and reviewable. (2) Lockfile restore (bare `pnpm install`, `npm ci`) is gated too, deliberately: splitting "new deps ask, restore allow" is an illusory boundary because an agent can edit package.json then run bare `pnpm install` straight through it. curl/wget are already in deny, which closes `curl … | sh`. */ -}}
+    {{/* Package/module install gate: installing new code is a supply-chain event, so it goes through a human. Precedence is deny > ask > allow, so the broad Bash(npm:*)/Bash(pnpm:*)/Bash(mise:*) entries in allow stay and these narrower ask entries win. Two deliberate holes: (1) Claude Code permissions match the Bash string the agent issues, NOT its subprocesses — `make lint` (Bash(make:*), still in allow) invokes pnpm without prompting; acceptable because make targets are version-controlled and reviewable. (2) Lockfile restore (bare `pnpm install`, `npm ci`) is gated too, deliberately: splitting "new deps ask, restore allow" is an illusory boundary because an agent can edit package.json then run bare `pnpm install` straight through it. curl/wget moved from deny to ask (2026-08-01): they were previously hard-blocked to close `curl … | sh`, but that also blocked legitimate one-off downloads/API calls. ask still requires explicit approval per invocation, so `curl … | sh` is not silently executable — the boundary is now human review instead of a hard block. */ -}}
     {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/merge/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh pr view is read, gh pr create is write), so a noun-level gh pr:* wildcard would over-gate reads. Read-only gh (pr view/reviews, and unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api is left unlisted: its read/write intent lives in --method, not a fixed prefix, so it can't be prefix-gated cleanly. */ -}}
     "ask": [
       "Bash(brew bundle:*)",
@@ -152,6 +150,7 @@
       "Bash(cargo install:*)",
       "Bash(claude plugin install:*)",
       "Bash(claude plugin marketplace add:*)",
+      "Bash(curl:*)",
       "Bash(gem install:*)",
       "Bash(gh cache delete:*)",
       "Bash(gh extension install:*)",
@@ -220,6 +219,7 @@
       "Bash(uv add:*)",
       "Bash(uv pip install:*)",
       "Bash(uvx:*)",
+      "Bash(wget:*)",
       "Bash(yarn add:*)",
       "Bash(yarn dlx:*)",
       "Bash(yarn install:*)"
