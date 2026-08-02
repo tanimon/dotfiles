@@ -1,7 +1,16 @@
 # APM (microsoft/apm) による Skill/MCP サーバー管理の一本化 — Design
 
 **Date:** 2026-08-02
-**Status:** Approved (pending user review of this document)
+**Status:** Approved; amended during implementation (see "実装時の訂正" below)
+
+## 実装時の訂正（2026-08-02、Task 6実装中に判明）
+
+実装フェーズで、当初の設計を覆す事実が2件見つかり、ユーザー承認のうえ以下のとおり方針を変更した。設計本文中の該当箇所（`dependencies.apm`のオブジェクト形式、`run_onchange_after_`）は歴史的記録として残すが、実際に採用したのは以下。
+
+1. **`apm.yml`の`dependencies.apm`はgit直指定の文字列形式(`owner/repo#ref`)のみを使う。** `name`/`marketplace`のオブジェクト形式や`owner/repo/plugins/name`形式は実機検証でエラーになった。またAPM独自のマーケットプレイス登録(`~/.apm/marketplaces.json`)は宣言的に管理されておらず新規マシンで解決に失敗するため、マーケットプレイス参照そのものを避ける。
+2. **自動化スクリプトは`run_onchange_after_apm-install.sh.tmpl`ではなく`run_after_apm-install.sh.tmpl`とし、`apm.yml`のハッシュに関わらず毎回のapplyで無条件実行する。** `apm install`はSkillプラグインのフックを`~/.claude/settings.json`に直接書き込むが、同ファイルは`settings.json.tmpl`がchezmoiで完全管理しているため、ハッシュ変化時にしか再実行されないスクリプトでは、次のapplyでフックが静かに消えたまま復活しない。
+
+詳細は `docs/superpowers/plans/2026-08-02-apm-skill-mcp-management.md` のTask 6以降と、リポジトリのgit履歴(コミット `166c1f7`, `01dfb84` 等)を参照。
 
 ## Context
 

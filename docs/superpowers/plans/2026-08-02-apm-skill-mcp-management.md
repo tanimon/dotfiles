@@ -396,44 +396,66 @@ git commit -m "feat: apm.ymlにsuperpowersプラグインを追加(参照構文�
 
 ### Task 7: 残り8件のプラグインを `apm.yml` に追加する
 
+**注記（Task 6実装中に判明・2026-08-02訂正）**: 当初想定していた `owner/repo/plugins/name` 形式・`name@marketplace`（マーケットプレイスのオブジェクト参照）形式は、いずれも実機検証で無効と判明した。有効なのは **git直指定の文字列形式 `owner/repo#ref`** のみ（`ref`はタグ/ブランチ/コミット）。`superpowers` は `obra/superpowers#v6.2.0` として解決済み（`dot_apm/apm.yml` に反映・コミット済み）。また、マーケットプレイス登録（`apm marketplace add`）は宣言的に管理されていないため、新規マシンでの再現性を優先し、**マーケットプレイス参照ではなく必ずgit直指定形式を使うこと**（ユーザー承認済み）。
+
 **Files:**
 - Modify: `dot_apm/apm.yml`
 
 **Interfaces:**
-- Consumes: Task 6 で確定した参照構文
+- Consumes: Task 6 で確定した `owner/repo#ref` 形式
 
-現在 `enabledPlugins` で `true` の残り8件を、Task 6で確定した構文で追加する。
+現在 `enabledPlugins` で `true` の残り8件を対象とする。それぞれの実際のソースリポジトリは、`enabledPlugins`のキーが指すマーケットプレイス経由でしか分からない（マーケットプレイスがプラグインを別リポジトリへの参照として保持している場合がある — `superpowers`の実体が`anthropics/claude-plugins-official`ではなく`obra/superpowers`だったのがその例）。そのため、各プラグインについて以下の手順で実体を特定してから `owner/repo#ref` 形式でピン留めする。
 
-- [ ] **Step 1: `dependencies.apm` に8件を追加**
+- [ ] **Step 1: 各プラグインの実体リポジトリ・バージョンを特定**
 
-`dot_claude/settings.json.tmpl` の `enabledPlugins`/`extraKnownMarketplaces` との対応:
+対象と、現時点で分かっている所属マーケットプレイス（`dot_claude/settings.json.tmpl` の `enabledPlugins`/`extraKnownMarketplaces` より）:
 
-| プラグイン | マーケットプレイス | ソースリポジトリ |
+| プラグイン | マーケットプレイス | マーケットプレイスのソースリポジトリ |
 |---|---|---|
-| `nono` | `nolabs-ai` | （nono独自配布、`nono:nono-sandbox` スキルの提供元。`apm view` で解決可否を先に確認する） |
 | `commit-commands` | `claude-plugins-official` | `anthropics/claude-plugins-official` |
-| `compound-engineering` | `compound-engineering-plugin` | `EveryInc/compound-engineering-plugin` |
 | `ralph-loop` | `claude-plugins-official` | `anthropics/claude-plugins-official` |
 | `claude-md-management` | `claude-plugins-official` | `anthropics/claude-plugins-official` |
-| `ecc` | `ecc` | `affaan-m/everything-claude-code` |
 | `skill-creator` | `claude-plugins-official` | `anthropics/claude-plugins-official` |
 | `sentry` | `claude-plugins-official` | `anthropics/claude-plugins-official` |
+| `compound-engineering` | `compound-engineering-plugin` | `EveryInc/compound-engineering-plugin` |
+| `ecc` | `ecc` | `affaan-m/everything-claude-code` |
+| `nono` | `nolabs-ai`（`extraKnownMarketplaces`未登録） | 不明。まず `apm marketplace list` に登録があるか確認 |
 
-Task 6で確定した構文が `owner/repo/plugins/name` 形式だった場合:
+`claude-plugins-official` は既にTask 6で `apm marketplace add anthropics/claude-plugins-official` 済みのはず(未登録なら再実行)。各プラグインについて:
+
+```bash
+apm view <plugin-name>@claude-plugins-official 2>&1 | head -20
+```
+
+出力から実体のgitリポジトリとバージョン/コミットを読み取る（`superpowers`の場合は`repo_url: obra/superpowers`, `version: 6.2.0`だった）。`compound-engineering`/`ecc`/`nono`はマーケットプレイスが異なるため、先に `apm marketplace add EveryInc/compound-engineering-plugin` / `apm marketplace add affaan-m/everything-claude-code` を実行してから同様に `apm view <name>@<marketplace>` を試す。`nono`が解決できない場合（`nolabs-ai`が`extraKnownMarketplaces`に未登録で、独自配布の可能性が高い）は、手作業ファイルとして残す判断も可（懸念事項に記載し先送りしてよい）。
+
+- [ ] **Step 2: 特定した実体を `owner/repo#ref` 形式でdry-run検証**
+
+各プラグインについて（`superpowers`と同じ検証パターン）:
+
+```bash
+apm install <owner>/<repo>#<ref> --global --target claude --dry-run
+```
+
+Expected: エラーなくインストール計画に表示される。`--dry-run`はロックファイルを実際には更新しないため、8件分を1つずつ実行して構わない。
+
+- [ ] **Step 3: `dot_apm/apm.yml` に `dependencies.apm` として追加**
+
+Step 1〜2で特定した実体を使う（以下は判明した内容の例。プレースホルダの `owner/repo#ref` は実際にStep 1〜2で確認した値に置き換えること）:
 
 ```yaml
   apm:
-    - anthropics/claude-plugins-official/plugins/superpowers
-    - anthropics/claude-plugins-official/plugins/commit-commands
-    - anthropics/claude-plugins-official/plugins/ralph-loop
-    - anthropics/claude-plugins-official/plugins/claude-md-management
-    - anthropics/claude-plugins-official/plugins/skill-creator
-    - anthropics/claude-plugins-official/plugins/sentry
-    - EveryInc/compound-engineering-plugin/plugins/compound-engineering
-    - affaan-m/everything-claude-code/plugins/ecc
+    - obra/superpowers#v6.2.0
+    - <commit-commandsの実体owner/repo#ref>
+    - <ralph-loopの実体owner/repo#ref>
+    - <claude-md-managementの実体owner/repo#ref>
+    - <skill-creatorの実体owner/repo#ref>
+    - <sentryの実体owner/repo#ref>
+    - <compound-engineeringの実体owner/repo#ref>
+    - <eccの実体owner/repo#ref>
 ```
 
-`nono` については `apm view nolabs-ai/nono/plugins/nono`（またはTask 6で確定した形式）で解決できるか個別に確認し、解決できなければ手作業ファイル（`.chezmoiignore`維持）として残すことを検討する。
+`nono`をStep 1で解決できなかった場合は追加せず、報告書に理由を明記する。
 
 - [ ] **Step 2: dry-runで全体を確認**
 
@@ -492,7 +514,7 @@ old_string:
 **Declarative marketplace sync** — `dot_claude/plugins/marketplaces.txt` lists marketplace sources (one per line: `owner/repo` or URL). `run_onchange_after_add-marketplaces.sh.tmpl` tracks the file hash and runs `claude plugin marketplace add` for each entry when it changes. To add a new marketplace: register it locally with `claude plugin marketplace add`, run `scripts/update-marketplaces.sh` to regenerate the list, then commit and push. To remove: run `claude plugin marketplace remove` manually on each machine — removing a line from `marketplaces.txt` does not unregister the marketplace. Plugin install/enable state (`installed_plugins.json`, `known_marketplaces.json`) is not managed by chezmoi — these files are in `.chezmoiignore`.
 
 new_string:
-**Skill/plugin management via APM** — `dot_apm/apm.yml`'s `dependencies.apm` list declares every Claude Code plugin to install (superseding the earlier `marketplaces.txt` + `settings.json.tmpl` `enabledPlugins`/`extraKnownMarketplaces` combination). `run_onchange_after_apm-install.sh.tmpl` runs `apm install --global` when `apm.yml` changes, deploying Skills to `~/.claude/skills/` and agents to `~/.claude/agents/`. To add a plugin: append its `owner/repo/plugins/name` reference (verify the exact form with `apm view <ref>` first), commit, and let the next `chezmoi apply` install it. To remove: delete the line from `apm.yml` — `apm install --global` reconciles deployed files against the current manifest, but only for files it generated (hand-authored files, e.g. `dot_claude/skills/*`, are never touched). Plugin install/enable runtime state (`installed_plugins.json`, `known_marketplaces.json`) is still not managed by chezmoi — these files remain in `.chezmoiignore`.
+**Skill/plugin management via APM** — `dot_apm/apm.yml`'s `dependencies.apm` list declares every Claude Code plugin to install (superseding the earlier `marketplaces.txt` + `settings.json.tmpl` `enabledPlugins`/`extraKnownMarketplaces` combination). `run_after_apm-install.sh.tmpl` runs `apm install --global --target claude` on every `chezmoi apply` (not gated on `apm.yml`'s hash — plugin hooks land directly in `~/.claude/settings.json`, which `settings.json.tmpl` also fully owns, so this script must re-run every apply to keep hooks from silently disappearing after the next `chezmoi apply` overwrites them). Plugins are pinned as git shorthand strings (`owner/repo#ref`, e.g. `obra/superpowers#v6.2.0`) rather than marketplace references, since APM's own marketplace registry (`~/.apm/marketplaces.json`) is not declaratively bootstrapped and would fail to resolve on a fresh machine. To add a plugin: find its real upstream repo+ref (`apm view <name>@<marketplace>` after `apm marketplace add <marketplace-repo>`, or check the marketplace's `.claude-plugin/marketplace.json` directly), append `owner/repo#ref` to `dependencies.apm`, commit, and let the next `chezmoi apply` install it. To remove: delete the line from `apm.yml` — `apm install --global` reconciles deployed files against the current manifest, but only for files it generated (hand-authored files, e.g. `dot_claude/skills/*`, are never touched). Plugin install/enable runtime state (`installed_plugins.json`, `known_marketplaces.json`) is still not managed by chezmoi — these files remain in `.chezmoiignore`.
 ```
 
 - [ ] **Step 5: `CLAUDE.md` の `scripts/` ディレクトリ説明を更新**
