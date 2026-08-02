@@ -164,9 +164,11 @@ if ! command -v apm &>/dev/null; then
   exit 0
 fi
 
-apm install --global || echo "WARNING: apm install --global failed; run it manually to sync Skills/MCP servers" >&2
+apm install --global --target claude || echo "WARNING: apm install --global failed; run it manually to sync Skills/MCP servers" >&2
 {{ end -}}
 ```
+
+**注記（Task 2実装中に判明）**: `apm install --global`（`--target`省略）は、検出できた「グローバル対応の全ランタイム」に配布する挙動で、実機検証の結果Claude Code以外にGemini CLI（`~/.gemini/settings.json`）・Kiro（`~/.kiro/settings/mcp.json`）にも実際にMCPサーバー設定を書き込むことを確認した。これらはこのdotfilesリポジトリが管理していないツールであり、意図しない副作用となる。`apm install --help` で確認した `-t, --target TARGET` オプションに `claude` を指定し、Claude Codeのみに展開先を限定する（ユーザー承認済み、2026-08-02）。
 
 - [ ] **Step 2: テンプレート構文を検証**
 
@@ -351,7 +353,7 @@ Expected: いずれかのコマンドがエラーにならず、`superpowers` �
 
 - [ ] **Step 2: dry-runでインストール計画を確認**
 
-Run: `apm install anthropics/claude-plugins-official/plugins/superpowers --global --dry-run`
+Run: `apm install anthropics/claude-plugins-official/plugins/superpowers --global --target claude --dry-run`
 Expected: `superpowers` プラグインのSkill群が `~/.claude/skills/` 配下に展開される計画が出力される。参照構文がエラーになった場合、Step 1のエラーメッセージに従って正しい形式（`plugin-name@marketplace-name` 形式の可能性がある。例: `superpowers@claude-plugins-official`）に変える。
 
 - [ ] **Step 3: `dot_apm/apm.yml` に `dependencies.apm` を追加**
@@ -378,7 +380,7 @@ dependencies:
 
 Run:
 ```bash
-apm install --global
+apm install --global --target claude
 ls ~/.claude/skills/ | grep -i superpower || ls ~/.claude/agents/
 ```
 Expected: `superpowers` プラグイン由来のSkill/エージェントファイルが展開されている
@@ -435,14 +437,14 @@ Task 6で確定した構文が `owner/repo/plugins/name` 形式だった場合:
 
 - [ ] **Step 2: dry-runで全体を確認**
 
-Run: `apm install --global --dry-run`
+Run: `apm install --global --target claude --dry-run`
 Expected: 9件全てのプラグインがインストール計画に含まれる。エラーが出たプラグインは個別に `apm view <ref>` で参照構文を再確認する。
 
 - [ ] **Step 3: 実インストールして確認**
 
 Run:
 ```bash
-apm install --global
+apm install --global --target claude
 ls ~/.claude/skills/
 ```
 Expected: 各プラグイン由来のSkillディレクトリが並ぶ。既存の自作Skill（`chezmoi-adopt-drift`, `harness-reflect`, `harness-review`, `node-typescript-mts-esm`）が消えていないことも確認する。
