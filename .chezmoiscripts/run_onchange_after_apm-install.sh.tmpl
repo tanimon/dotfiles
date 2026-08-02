@@ -1,0 +1,13 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# apm.yml hash: {{ include "dot_apm/apm.yml" | sha256sum }}
+
+if ! command -v apm &>/dev/null; then
+  echo "apm CLI not found, skipping apm install --global"
+  exit 0
+fi
+
+apm install --global --target claude || echo "WARNING: apm install --global failed; run it manually to sync Skills/MCP servers" >&2
+{{ end -}}
