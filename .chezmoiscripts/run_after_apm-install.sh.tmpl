@@ -1,0 +1,16 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 毎回のapplyで実行する(run_onchange_ではない): apmが書き込むSkillのフックは
+# ~/.claude/settings.json内にあり、chezmoiがsettings.json.tmplで同ファイルを
+# 完全管理しているため、apm.ymlが変化しないapplyでもフックが消えないよう
+# 毎回再同期する必要がある。
+
+if ! command -v apm &>/dev/null; then
+  echo "apm CLI not found, skipping apm install --global"
+  exit 0
+fi
+
+apm install --global --target claude || echo "WARNING: apm install --global failed; run it manually to sync Skills/MCP servers" >&2
+{{ end -}}

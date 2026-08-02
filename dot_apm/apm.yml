@@ -13,5 +13,4 @@ dependencies:
       transport: http
       url: https://mcp.deepwiki.com/mcp
   apm:
-    - name: superpowers
-      marketplace: claude-plugins-official
+    - obra/superpowers#v6.2.0
