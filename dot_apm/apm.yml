@@ -1,0 +1,14 @@
+name: tanimon-global
+version: 1.0.0
+
+dependencies:
+  mcp:
+    - name: codex
+      registry: false
+      transport: stdio
+      command: codex
+      args: ["-m", "gpt-5.2-codex", "mcp-server"]
+    - name: deepwiki
+      registry: false
+      transport: http
+      url: https://mcp.deepwiki.com/mcp
