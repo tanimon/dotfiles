@@ -13,6 +13,8 @@ component: Claude Code Plugin Management
 
 # Replace Bidirectional Plugin Sync with Declarative Marketplace Registration
 
+> **2026-08-03 update:** The specific worked example below (`dot_claude/plugins/marketplaces.txt` + `run_onchange_after_add-marketplaces.sh.tmpl` + `claude plugin marketplace add`) has since been removed from this repo — Claude Code Skill/plugin management was migrated to the [microsoft/apm](https://github.com/microsoft/apm) package manager (PR #260; see `docs/superpowers/specs/2026-08-02-apm-skill-mcp-management-design.md`). The general **pattern** documented here — unidirectional declarative sync via a text list + a hash-tracked `run_onchange_` script + an idempotent CLI, the decision tree, and the `*.txt` root-level-only `.chezmoiignore` gotcha — remains valid guidance and is still the pattern other in-repo implementations follow (e.g. gh extension sync, ECC rules install). Only the Claude Code marketplace example itself is historical; treat the "Solution" section below as illustrating the pattern, not as describing current repo state.
+
 ## Problem Symptom
 
 A chezmoi dotfiles repo accumulated a complex 3-layer bidirectional sync system (6 files, ~190 LOC) for Claude Code plugin files (`known_marketplaces.json`, `installed_plugins.json`):
@@ -149,6 +151,8 @@ chezmoi apply                            # Other machines (run_onchange_ adds ma
 
 ## Related
 
+- `docs/superpowers/specs/2026-08-02-apm-skill-mcp-management-design.md` — the migration that superseded the Claude Code marketplace example below with [microsoft/apm](https://github.com/microsoft/apm) package-manager pinning (PR #260)
+- [`../architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md`](../architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md) — a related but distinct lesson from that same migration, about when `run_onchange_` is *not* the right choice (contested full-file ownership)
 - PR #10: `refactor: replace bidirectional plugin sync with declarative marketplace list`
 - PR #8: `fix: prevent chezmoi apply from overwriting runtime plugin changes` (introduced the old pattern)
 - Brainstorm: `docs/brainstorms/2026-03-08-marketplace-sync-brainstorm.md`
