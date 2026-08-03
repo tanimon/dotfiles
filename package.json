@@ -15,5 +15,5 @@
     "oxlint": "^1.57.0",
     "secretlint": "^13.0.0"
   },
-  "packageManager": "pnpm@11.17.0"
+  "packageManager": "pnpm@11.20.0"
 }
