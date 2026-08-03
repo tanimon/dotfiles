@@ -396,7 +396,7 @@ git commit -m "feat: apm.ymlにsuperpowersプラグインを追加(参照構文�
 
 ### Task 7: 残り8件のプラグインを `apm.yml` に追加する
 
-**注記（Task 6実装中に判明・2026-08-02訂正）**: 当初想定していた `owner/repo/plugins/name` 形式・`name@marketplace`（マーケットプレイスのオブジェクト参照）形式は、いずれも実機検証で無効と判明した。有効なのは **git直指定の文字列形式 `owner/repo#ref`** のみ（`ref`はタグ/ブランチ/コミット）。`superpowers` は `obra/superpowers#v6.2.0` として解決済み（`dot_apm/apm.yml` に反映・コミット済み）。また、マーケットプレイス登録（`apm marketplace add`）は宣言的に管理されていないため、新規マシンでの再現性を優先し、**マーケットプレイス参照ではなく必ずgit直指定形式を使うこと**（ユーザー承認済み）。
+**注記（Task 6実装中に判明・2026-08-02訂正）**: 当初想定していた `name@marketplace`（マーケットプレイスのオブジェクト参照）形式は実機検証で無効と判明した。有効なのは **git直指定の文字列形式**のみ（マーケットプレイス登録一切不要）だが、対象リポジトリの構造によって2種類ある: 単体リポジトリとして配布されているプラグインは `owner/repo#ref`（例: `superpowers` → `obra/superpowers#v6.2.0`）、`anthropics/claude-plugins-official` のようなモノレポ内のサブディレクトリとして配布されているプラグインは `owner/repo/subpath#ref`（APMの `DependencyReference` パーサーが正式サポートする「仮想サブディレクトリパッケージ」構文、Task 7で4件について実機検証・ソースコード確認・ユーザー承認済み）。`owner/repo/plugins/name` という当初案が誤りだったのは形式自体ではなく、`superpowers`（実体は別リポジトリ`obra/superpowers`）にモノレポ用の構文を誤って適用した点だった。マーケットプレイス登録（`apm marketplace add`）は宣言的に管理されていないため、新規マシンでの再現性を優先し、**マーケットプレイス参照ではなく必ずgit直指定形式（上記いずれか）を使うこと**（ユーザー承認済み）。
 
 **Files:**
 - Modify: `dot_apm/apm.yml`
