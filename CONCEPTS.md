@@ -20,6 +20,8 @@ When a Target is only partially owned — its Source is a script that reads the 
 
 The write-back can also fail to preserve a property of the Target the transform never inspected, such as the Target being a symlink into another location: the transform faithfully reads the content through the symlink, but writes it back as an ordinary file at the symlink's own path, deleting the symlink even though the content itself was reproduced correctly.
 
+When the runtime-written value cannot itself be declared in the Source — because the external application generates it dynamically rather than from any input the repository controls — the reconciling automation that re-asserts it must run unconditionally on every application of the Source, not only when some tracked input changes. The external application writes on its own schedule, independent of that input, so gating the reconciliation on it lets the loss recur silently on any later application where the tracked input happened not to change, even though the Source's own render still ran and still overwrote the Target.
+
 ## Permission policy
 
 ### Risk Tier

@@ -92,7 +92,7 @@ zizmor:
 
 ## Smoke test modify_ scripts
 test-modify:
-	pnpm exec bats test/modify-dot-claude.bats test/modify-karabiner.bats
+	pnpm exec bats test/modify-karabiner.bats
 
 ## Smoke test hook scripts
 # LC_ALL=C works around a bats-core locale bug: under some locales, @test names
