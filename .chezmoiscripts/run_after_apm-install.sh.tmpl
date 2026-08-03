@@ -12,5 +12,5 @@ if ! command -v apm &>/dev/null; then
   exit 0
 fi
 
-apm install --global --target claude || echo "WARNING: apm install --global failed; run it manually to sync Skills/MCP servers" >&2
+apm install --global --target claude || echo "WARNING: apm install --global --target claude failed; run it manually to sync Skills/MCP servers" >&2
 {{ end -}}

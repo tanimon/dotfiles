@@ -30,7 +30,7 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 - Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`
 - For new-machine bootstrap (empty stdin), output initial data from a `.data` file
 - See `dot_config/karabiner/modify_karabiner.json` for a well-documented example of partial JSON management
-- Never target a path that may be a symlink managed by the app itself (e.g. `~/.claude.json`, symlinked to `~/.claude/claude.json` since 2026-07-26) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` the symlink.
+- Never target a path that may be a symlink managed by the app itself (e.g. `~/.claude.json`, observed symlinked to `~/.claude/claude.json` as of 2026-07-26 — verify current topology before relying on it, it has changed before) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` the symlink.
 
 ## Template Syntax
 
@@ -55,3 +55,5 @@ For files managed by external tools (plugins, extensions):
 5. Removal requires manual action — removing a line does not uninstall
 
 Examples: gh extensions (`dot_config/gh/extensions.txt` + `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` + `scripts/update-gh-extensions.sh`)
+
+複数のツールが同じ設定ファイルに書き込む場合は、ハッシュゲート(`run_onchange_`)ではなく無条件で毎回実行する`run_after_`を使う（例: `apm-install`。APMが書くフックが`settings.json.tmpl`の完全管理と競合するため、`apm.yml`の変化有無に関わらず毎apply後に再同期する必要がある）。

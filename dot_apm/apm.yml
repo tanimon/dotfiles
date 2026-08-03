@@ -1,5 +1,6 @@
 name: tanimon-global
 version: 1.0.0
+target: claude
 
 dependencies:
   mcp:

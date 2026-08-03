@@ -58,7 +58,6 @@ windows/
 .claude/plugins/installed_plugins.json
 .claude/plugins/data
 .claude/plugins/known_marketplaces.json
-.claude/plugins/marketplaces.txt
 .claude/docs
 .claude/hooks
 .claude/homunculus
