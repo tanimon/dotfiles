@@ -21,7 +21,7 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 | `.tmpl` (regular template) | chezmoi fully owns the file; no external tool modifies it | `dot_gitconfig.tmpl`, `dot_claude/settings.json.tmpl` |
 | `create_` | Provision-once files that should not be overwritten on subsequent applies | (none currently in this repo) |
 | `modify_` script | Runtime-mutable files where chezmoi owns a subset of keys (e.g., IDE configs) | `dot_config/karabiner/modify_karabiner.json` |
-| `.chezmoiignore` + `run_onchange_` | Files managed entirely by external tools (plugin state, extension lists) | `dot_claude/plugins/marketplaces.txt` + `.chezmoiscripts/run_onchange_after_add-marketplaces.sh.tmpl` |
+| `.chezmoiignore` + `run_onchange_` | Files managed entirely by external tools (plugin state, extension lists) | `dot_config/gh/extensions.txt` + `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` |
 
 ## modify_ Script Safety
 
@@ -54,4 +54,4 @@ For files managed by external tools (plugins, extensions):
 4. Use a `scripts/update-*.sh` helper to regenerate the list from current state
 5. Removal requires manual action — removing a line does not uninstall
 
-Examples: marketplace sync (`dot_claude/plugins/marketplaces.txt` + `.chezmoiscripts/run_onchange_after_add-marketplaces.sh.tmpl` + `scripts/update-marketplaces.sh`), gh extensions (`dot_config/gh/extensions.txt` + `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` + `scripts/update-gh-extensions.sh`)
+Examples: gh extensions (`dot_config/gh/extensions.txt` + `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` + `scripts/update-gh-extensions.sh`)

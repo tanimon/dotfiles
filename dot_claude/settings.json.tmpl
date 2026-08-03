@@ -414,65 +414,6 @@
     "type": "command",
     "command": "node --experimental-strip-types $HOME/.claude/statusline-command.ts"
   },
-  {{/* nono@nolabs-ai: the nono pack (nolabs-ai/claude) writes this key into ~/.claude/settings.json at install time. chezmoi fully owns this template, so without reflecting it here `chezmoi apply` wipes the key and the pack's sandbox-diagnostic hooks silently stop firing — same failure shape as #228 and the marketplace-rename pitfall in CLAUDE.md. If the pack namespace changes upstream, this key must be updated in lockstep. */ -}}
-  "enabledPlugins": {
-    "nono@nolabs-ai": true,
-    "superpowers@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": false,
-    "gopls-lsp@claude-plugins-official": false,
-    "plugin-dev@claude-plugins-official": false,
-    "planning-with-files@planning-with-files": false,
-    "feature-dev@claude-plugins-official": false,
-    "commit-commands@claude-plugins-official": true,
-    "compound-engineering@compound-engineering-plugin": true,
-    "ralph-loop@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "ecc@ecc": true,
-    "skill-creator@claude-plugins-official": true,
-    "sentry@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "compound-engineering-plugin": {
-      "source": {
-        "source": "github",
-        "repo": "EveryInc/compound-engineering-plugin"
-      },
-      "autoUpdate": true
-    },
-    "ecc": {
-      "source": {
-        "source": "github",
-        "repo": "affaan-m/everything-claude-code"
-      },
-      "autoUpdate": true
-    },
-    "claude-plugins-official": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-plugins-official"
-      }
-    },
-    "anthropic-agent-skills": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/skills"
-      },
-      "autoUpdate": true
-    },
-    "planning-with-files": {
-      "source": {
-        "source": "github",
-        "repo": "OthmanAdi/planning-with-files"
-      }
-    },
-    "agent-plugins-for-aws": {
-      "source": {
-        "source": "github",
-        "repo": "awslabs/agent-plugins"
-      },
-      "autoUpdate": true
-    }
-  },
   "language": "japanese",
   "sandbox": {
     "enabled": true,
