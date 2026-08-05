@@ -4,6 +4,11 @@ target: claude
 
 dependencies:
   mcp:
+    - name: code-review-graph
+      registry: false
+      transport: stdio
+      command: uvx
+      args: ["code-review-graph", "serve"]
     - name: codex
       registry: false
       transport: stdio
