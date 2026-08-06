@@ -17,8 +17,8 @@ chezmoi edit <file>            # Edit a managed file's source
 chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
-# Linting (mirrors CI — also runs on commit via prek)
-make lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan + nono profile)
+# Linting (mirrors CI — also runs on commit via prek; requires `just`, installed via darwin/Brewfile)
+just lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan + nono profile)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
 # Security alerts (scheduled weekly in CI, also manual)
@@ -56,7 +56,7 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **`dot_apm/apm.yml` + APM (microsoft/apm)** — Single declarative manifest for MCP servers and (as of the Skill/plugin migration) Claude Code Skills/plugins, deployed to `~/.apm/apm.yml`. `.chezmoiscripts/run_after_apm-install.sh.tmpl` runs `apm install --global --target claude` on **every** `chezmoi apply` (not hash-gated on `apm.yml`'s content) and writes MCP servers into the top-level `mcpServers` key of `~/.claude.json` (as of 2026-07-26 this was a symlink to `~/.claude/claude.json` — do not assume that topology still holds; verify before relying on either path, see the Known Pitfalls entry below) and deploys Skills to `~/.claude/skills/`. `--target claude` is required — omitting it makes `apm install --global` fan out to every "global-capable" runtime it detects (Gemini CLI, Kiro, etc.), not just Claude Code. It must re-run on every apply, not just when `apm.yml` changes, because Skill plugins that ship hooks (e.g. `superpowers`) write those hooks directly into `~/.claude/settings.json`, which `settings.json.tmpl` also fully owns — without an unconditional re-run, the next apply's template render would silently erase the hook with no way to restore it. Plugins are pinned as git shorthand (`owner/repo#ref`, e.g. `obra/superpowers#v6.2.0`) rather than marketplace references (`name`/`marketplace` object form), since APM's own marketplace registry (`~/.apm/marketplaces.json`) isn't declaratively bootstrapped and would fail to resolve on a fresh machine. APM marks its own generated files, so hand-authored files (e.g. `dot_claude/skills/*`) are never overwritten. chezmoi no longer manages `~/.claude/claude.json` directly — this replaced the earlier `modify_claude.json` (jq-based partial ownership) approach. Some plugins bring their own MCP servers independent of `dependencies.mcp` (e.g. `getsentry/plugin-claude`, pulled in via `dependencies.apm`, installs its own `sentry` MCP server), so `dependencies.mcp` is only a subset of the MCP servers actually deployed — check the live `mcpServers` key, not just `apm.yml`, to see the full set. Of the 9 `dependencies.apm` git-shorthand pins, the ones with a real semver-ish tag (e.g. `v6.2.0`) are Renovate-updatable via a `github-tags` custom regex manager; repos with no tags at all, or whose only pin predates any tag, carry an inline `# renovate: branch=main` comment and are tracked by digest via a `git-refs` custom regex manager instead. `EveryInc/compound-engineering-plugin` uses a non-standard `compound-engineering-v*` tag prefix (the repo's tags also include an unrelated `v*` series) handled via a dedicated `versioningTemplate: regex:...` manager entry. See [renovate-external.md](.claude/rules/renovate-external.md) for the full adjacency contract across both files. Running `apm install <pkg>` by hand appends the dependency straight to `~/.apm/apm.yml` (the deploy target, fully owned by chezmoi via `dot_apm/apm.yml`) and that edit is silently lost on the next `chezmoi apply` — always declare new dependencies in `dot_apm/apm.yml` instead. See `docs/superpowers/specs/2026-08-02-apm-skill-mcp-management-design.md`.
 
-**`dot_config/karabiner/modify_karabiner.json`** — Partial management of `~/.config/karabiner/karabiner.json`, mirroring the jq-based partial-ownership pattern formerly used by `dot_claude/modify_claude.json` (now removed in favor of APM; see above). Owns `profiles[*].complex_modifications.rules` only; preserves Karabiner's runtime state (`machine_specific` UUID, profile metadata, `virtual_hid_keyboard`, sibling `complex_modifications.parameters`, etc.) verbatim. The rules array lives at `dot_config/karabiner/complex_modifications.json` and is applied to *every* profile (V1 deliberately ignores per-profile rule divergence). Empty stdin (new-machine bootstrap before Karabiner has been launched) seeds a minimal profile shape with no fabricated `machine_specific`. First apply normalizes the file mode from Karabiner's `0600` to `0644`; Karabiner restores `0600` on next save. Smoke-tested by `make test-modify`.
+**`dot_config/karabiner/modify_karabiner.json`** — Partial management of `~/.config/karabiner/karabiner.json`, mirroring the jq-based partial-ownership pattern formerly used by `dot_claude/modify_claude.json` (now removed in favor of APM; see above). Owns `profiles[*].complex_modifications.rules` only; preserves Karabiner's runtime state (`machine_specific` UUID, profile metadata, `virtual_hid_keyboard`, sibling `complex_modifications.parameters`, etc.) verbatim. The rules array lives at `dot_config/karabiner/complex_modifications.json` and is applied to *every* profile (V1 deliberately ignores per-profile rule divergence). Empty stdin (new-machine bootstrap before Karabiner has been launched) seeds a minimal profile shape with no fabricated `machine_specific`. First apply normalizes the file mode from Karabiner's `0600` to `0644`; Karabiner restores `0600` on next save. Smoke-tested by `just test-modify`.
 
 **Skill/plugin management via APM** — `dot_apm/apm.yml`'s `dependencies.apm` list declares every Claude Code plugin to install (superseding the earlier `marketplaces.txt` + `settings.json.tmpl` `enabledPlugins`/`extraKnownMarketplaces` combination). `run_after_apm-install.sh.tmpl` runs `apm install --global --target claude` on every `chezmoi apply` (not gated on `apm.yml`'s hash — plugin hooks land directly in `~/.claude/settings.json`, which `settings.json.tmpl` also fully owns, so this script must re-run every apply to keep hooks from silently disappearing after the next `chezmoi apply` overwrites them). Plugins are pinned as git shorthand strings (`owner/repo#ref`, e.g. `obra/superpowers#v6.2.0`) rather than marketplace references, since APM's own marketplace registry (`~/.apm/marketplaces.json`) is not declaratively bootstrapped and would fail to resolve on a fresh machine. To add a plugin: find its real upstream repo+ref (`apm view <name>@<marketplace>` after `apm marketplace add <marketplace-repo>`, or check the marketplace's `.claude-plugin/marketplace.json` directly), append `owner/repo#ref` to `dependencies.apm`, commit, and let the next `chezmoi apply` install it. To remove: delete the line from `apm.yml` — `apm install --global` reconciles deployed files against the current manifest, but only for files it generated (hand-authored files, e.g. `dot_claude/skills/*`, are never touched). Plugin install/enable runtime state (`installed_plugins.json`, `known_marketplaces.json`) is still not managed by chezmoi — these files remain in `.chezmoiignore`.
 
@@ -109,7 +109,7 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 | `dot_apm/` | APM (microsoft/apm) global manifest: `apm.yml` — declares MCP servers and Claude Code Skills/plugins, deployed to `~/.apm/apm.yml` |
 | `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-gh-extensions.sh`) |
-| `test/` | bats-core test suites — one `.bats` file per script under test, run via `make test-*` targets |
+| `test/` | bats-core test suites — one `.bats` file per script under test, run via `just test-*` targets |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
 | `CONCEPTS.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts |
 
@@ -120,27 +120,27 @@ Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Depende
 ## Verification
 
 ```sh
-make lint                      # Run ALL checks locally (mirrors CI)
+just lint                      # Run ALL checks locally (mirrors CI)
 chezmoi apply --dry-run        # Preview changes before applying
 
-# Individual targets (same as CI jobs):
-make secretlint                # Scan for leaked secrets
-make shellcheck                # Lint non-.tmpl shell scripts
-make shfmt                     # Check shell script formatting (indent=4)
-make oxlint                    # Lint JS/TS files (.js, .mjs, .mts, .ts)
-make oxfmt                     # Check JS/TS and JSON formatting
-make actionlint                # Lint GitHub Actions workflows (syntax + types)
-make zizmor                    # Security audit GitHub Actions workflows
-make test-modify               # Smoke test modify_ scripts
-make test-scripts              # Smoke test harness scripts
-make test-harness-scripts      # Smoke test harness loop scripts (trigger/briefing/doctor)
-make check-templates           # Validate chezmoi .tmpl files
-make scan-sensitive            # Scan all .md files for PII and sensitive info
-make test-sensitive            # Smoke test sensitive info scanner
-make test-nono-profile         # Validate the nono sandbox profile (skipped if nono absent)
+# Individual recipes (same as CI jobs):
+just secretlint                # Scan for leaked secrets
+just shellcheck                # Lint non-.tmpl shell scripts
+just shfmt                     # Check shell script formatting (indent=4)
+just oxlint                    # Lint JS/TS files (.js, .mjs, .mts, .ts)
+just oxfmt                     # Check JS/TS and JSON formatting
+just actionlint                # Lint GitHub Actions workflows (syntax + types)
+just zizmor                    # Security audit GitHub Actions workflows
+just test-modify               # Smoke test modify_ scripts
+just test-scripts              # Smoke test harness scripts
+just test-harness-scripts      # Smoke test harness loop scripts (trigger/briefing/doctor)
+just check-templates           # Validate chezmoi .tmpl files
+just scan-sensitive            # Scan all .md files for PII and sensitive info
+just test-sensitive            # Smoke test sensitive info scanner
+just test-nono-profile         # Validate the nono sandbox profile (skipped if nono absent)
 ```
 
-Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `make` targets — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
+Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `just` recipes — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
 
 ## Known Pitfalls
 
@@ -154,7 +154,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 - **`.chezmoiignore` bare filenames match target paths** — `.chezmoiignore` evaluates target paths, not source filenames. Adding `.gitignore` blocks `dot_gitignore` → `~/.gitignore` deployment because the target path is `.gitignore`. Likewise, regular non-prefixed source files (e.g., `README.md`, `LICENSE`) are still managed by chezmoi and need explicit `.chezmoiignore` entries to prevent deployment to `~/`. `dot_`, `private_`, etc. are mapping conventions for how source names translate to targets, not a gate for whether chezmoi considers a file a source.
 - **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.
 - **Never edit deployed targets directly** — Always edit the chezmoi source file (under `~/.local/share/chezmoi/`), never the deployed target (under `~/`). For example, edit `dot_claude/scripts/executable_harness-briefing.sh`, not `~/.claude/scripts/harness-briefing.sh`. Changes to deployed targets are overwritten on next `chezmoi apply` and are not version-controlled. Use `chezmoi source-path <target>` to find the source file for any managed target.
-- **`docs/` is tracked** — Both `docs/plans/` and `docs/solutions/` are committed. Plan files created by `ce:plan` and solution documents are version-controlled. Ensure no PII or sensitive information is included — `make scan-sensitive` checks all `.md` files in the repo.
+- **`docs/` is tracked** — Both `docs/plans/` and `docs/solutions/` are committed. Plan files created by `ce:plan` and solution documents are version-controlled. Ensure no PII or sensitive information is included — `just scan-sensitive` checks all `.md` files in the repo.
 - **Do not judge `modify_*` files by extension** — `dot_config/karabiner/modify_karabiner.json` has a `.json` extension but is a bash script. Add `! -name 'modify_*'` exclusions to file-type-based linter/formatter globs (`*.json`, `*.yaml`, etc.). Also include `modify_` patterns in pre-commit excludes.
 - **`~/.claude.json` topology has changed before and may change again — verify, don't assume** — as of 2026-07-26, Claude Code's native install symlinked `~/.claude.json` to a real runtime state file at `~/.claude/claude.json`. That was a point-in-time observation, not a permanent guarantee: a later check found `~/.claude.json` back to being a regular file (not a symlink) with its own independent `mcpServers` key, diverging from `~/.claude/claude.json`'s. Nothing in this repo manages either file directly anymore (APM's `apm install --global` writes to whichever `~/.claude.json` resolves to at runtime, outside chezmoi's control). The lasting lesson for any future `modify_` script: never assume today's topology — check with `ls -la`/`file` before writing, because writing back through a symlink target replaces it with a plain file (verified in an isolated test, `chezmoi apply -S <tmp> -D <tmp>` replaced a `120755` symlink with a `100644` regular file). `~/.claude.json` stays listed in `.chezmoiignore` so chezmoi never touches it, symlink or not.
 - **`chezmoi apply` deploys from `main`, not from your branch** — The chezmoi source directory `~/.local/share/chezmoi` is a *separate git worktree pinned to `main`*; feature work happens in sibling worktrees (`~/orca/workspaces/chezmoi/<name>`). `chezmoi diff` and `chezmoi apply` therefore read `main`'s templates and show **nothing** for unmerged branch changes — which reads as "no drift", not as "wrong source". Verify branch changes by rendering instead (`chezmoi execute-template --config <test toml> --source "$(pwd)"`), and deploy only after the branch merges. Confirm with `git -C ~/.local/share/chezmoi rev-parse --abbrev-ref HEAD`. The same `--source "$(pwd)"` requirement applies to *every* chezmoi command that reads source state (`managed`, `ignored`, `diff`, `apply`), not only `execute-template` — and the reason it bites so hard is that the resulting check passes *vacuously*: see [verification through the wrong resolution path](docs/solutions/workflow-issues/verification-through-the-wrong-resolution-path.md) for the general shape of that failure and how to test for it.
@@ -183,7 +183,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 
 ### nono Sandbox
 
-- **nono profiles must not be chezmoi templates** — nono expands `$HOME`, `$XDG_CONFIG_HOME`, `$WORKDIR`, `$TMPDIR`, `$NONO_CONFIG`, and `$NONO_PACKAGES` itself. Writing `{{ .chezmoi.homeDir }}` works but forfeits `make oxfmt` JSON validation and `nono profile validate`. Keep profiles as plain JSON with **no comments** (both oxfmt and nono reject JSONC).
+- **nono profiles must not be chezmoi templates** — nono expands `$HOME`, `$XDG_CONFIG_HOME`, `$WORKDIR`, `$TMPDIR`, `$NONO_CONFIG`, and `$NONO_PACKAGES` itself. Writing `{{ .chezmoi.homeDir }}` works but forfeits `just oxfmt` JSON validation and `nono profile validate`. Keep profiles as plain JSON with **no comments** (both oxfmt and nono reject JSONC).
 - **`nono run` needs `--allow-cwd`** — `workdir.access` sets the access *level*, not the grant. Without the flag the working directory is denied outright (`Sandbox denial: … (read)`) and nono falls back to an interactive prompt a non-interactive run cannot answer. Any wrapper must pass it, or stay inside a directory the profile already grants (e.g. `~/ghq`).
 - **`filesystem.bypass_protection` grants nothing on its own** — it only lifts a deny-group rule. The path must *also* appear in `filesystem.allow` / `read` / `write` (or a `*_file` variant) to become accessible; listing it in `bypass_protection` alone silently changes nothing. The shipped profile pairs both for `~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, `~/.zprofile` (blocked by the required `deny_shell_configs` group). Note it was **not** the answer for the 1Password socket — see `filesystem.unix_socket` above.
 - **`filesystem.deny` does not override `filesystem.write`** — tested by adding the paths to `deny`: the profile validates and they stay `ALLOWED / Granted by: <the write grant>`. A carve-out inside a granted directory is **not expressible within `filesystem`** — there, the only way to narrow is to grant less. (`command_policies.commands.<name>.fs_write` is a separate mechanism that can scope one tool's writes, including via `@git:*` provider tokens; see the `commondir` residual above.)

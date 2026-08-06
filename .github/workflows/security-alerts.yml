@@ -141,6 +141,10 @@ jobs:
             echo "has_alerts=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install just
+        if: steps.alerts.outputs.has_alerts == 'true'
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+
       - name: Sweep security alerts
         if: steps.alerts.outputs.has_alerts == 'true'
         uses: anthropics/claude-code-action@9db594c7a0e82298c121c18b7f08aa1579ce7341 # v1.0.185
@@ -174,10 +178,10 @@ jobs:
             ## Rules
             - Skip alerts that already have associated PRs or issues
             - Maximum 5 alerts processed per sweep run
-            - Run `make lint` before any commits
+            - Run `just lint` before any commits
             - NEVER log or display actual secret values
             - For secret scanning alerts, ONLY create issues — never attempt fixes
-          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(make *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
+          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(just *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
 
       - name: Generate summary
         if: always()

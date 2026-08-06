@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "secretlint": "secretlint '**/*'",
-    "lint": "make lint",
+    "lint": "just lint",
     "verify": "pnpm run lint"
   },
   "devDependencies": {
