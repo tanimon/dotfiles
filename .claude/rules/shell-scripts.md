@@ -46,9 +46,9 @@ command -v pnpm >/dev/null 2>&1 || { echo "WARNING: pnpm not found, skipping"; e
 
 These rules are enforced automatically — not just advisory:
 
-- **CI** (`.github/workflows/lint.yml`): Each CI job calls `Makefile` targets directly — local and CI run the exact same commands
+- **CI** (`.github/workflows/lint.yml`): Each CI job calls `justfile` recipes directly — local and CI run the exact same commands
 - **Pre-commit** (`.pre-commit-config.yaml`): Runs shellcheck, shfmt, and secretlint automatically before each commit via prek
-- **Local** (`Makefile`): `make lint` runs all checks. Individual targets: `make shellcheck`, `make shfmt`, `make secretlint`, `make test-modify`, `make test-scripts`, `make check-templates`
+- **Local** (`justfile`): `just lint` runs all checks. Individual recipes: `just shellcheck`, `just shfmt`, `just secretlint`, `just test-modify`, `just test-scripts`, `just check-templates`
 
 `.tmpl` files are excluded from shell linting because Go template syntax is incompatible with shell linters.
 
@@ -128,8 +128,8 @@ hermeticity（環境からの独立性）を証明するには、スイートを
 漏れをシミュレートして——そして結果が一致することを要求する:
 
 ```sh
-make test-scripts
-ORCA_PANE_KEY=leak ORCA_AGENT_HOOK_PORT=1 ORCA_AGENT_HOOK_TOKEN=x make test-scripts
+just test-scripts
+ORCA_PANE_KEY=leak ORCA_AGENT_HOOK_PORT=1 ORCA_AGENT_HOOK_TOKEN=x just test-scripts
 ```
 
 unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK_TOKEN` に限らない。
@@ -140,7 +140,7 @@ unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK
 ### batsテストスイートの規約
 
 シェルスクリプトのテストは `test/*.bats` 配下に置く（テスト対象スクリプトごとに1ファイル）。
-`pnpm exec bats` で実行し、`Makefile` のターゲット（`make test-modify`, `make test-scripts`
+`pnpm exec bats` で実行し、`justfile` のレシピ（`just test-modify`, `just test-scripts`
 など）がラップすることで、CIとローカルが全く同じコマンドを実行する。付随ライブラリ
 （`bats-support`, `bats-assert`）は pnpm devDependency として管理し、`test/helpers/setup.bash`
 で一度だけロードする。
@@ -163,7 +163,7 @@ unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK
   `@test` に統合すること。
 - **非ASCIIの `@test` 名は bats-core のロケール依存バグを踏むことがある。** `test/notify.bats`
   はテスト名に日本語（「許可待ち」など）を含むため、`LC_ALL=C` なしで実行すると登録名と検索名が
-  食い違い、23件中16件しか実行されず exit 1 になる。`Makefile` の `test-scripts` レシピが
+  食い違い、23件中16件しか実行されず exit 1 になる。`justfile` の `test-scripts` レシピが
   `LC_ALL=C pnpm exec bats test/notify.bats` としているのはこの回避策であり、一見不要に見えても
   削除しないこと。
 

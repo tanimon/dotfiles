@@ -65,7 +65,7 @@ of caution are noise — deprecate aggressively; git history preserves them.
 1. Create a branch `harness/review-YYYY-MM-DD` off `main`.
 2. Apply all adopted changes (new rules in English, following
    `~/.claude/rules/common/harness-engineering.md` writing guidelines).
-3. Run `make lint` and fix findings.
+3. Run `just lint` and fix findings.
 4. Open one PR (body in Japanese) listing: adopted entries with their queue
    titles, rejected/handoff counts, staleness findings. Do NOT merge it.
 
