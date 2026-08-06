@@ -174,10 +174,10 @@ jobs:
             ## Rules
             - Skip alerts that already have associated PRs or issues
             - Maximum 5 alerts processed per sweep run
-            - Run `make lint` before any commits
+            - Run `just lint` before any commits
             - NEVER log or display actual secret values
             - For secret scanning alerts, ONLY create issues — never attempt fixes
-          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(make *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
+          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(just *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
 
       - name: Generate summary
         if: always()
