@@ -133,7 +133,7 @@ check-templates:
                 < "$file") || { echo "FAIL: $file (render)"; fail=1; continue; }
             case "$file" in
                 *.json.tmpl)
-                    echo "$rendered" | jq empty 2>/dev/null || { echo "FAIL: $file (invalid JSON)"; fail=1; }
+                    printf '%s\n' "$rendered" | jq -e . >/dev/null || { echo "FAIL: $file (invalid JSON)"; fail=1; }
                     ;;
             esac
         done

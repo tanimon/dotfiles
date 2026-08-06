@@ -1,7 +1,7 @@
 ---
 title: "issue #210 残存課題への対応 — サンドボックス可視化・テンプレート検証・nono行動テスト"
 date: 2026-08-06
-status: approved
+status: approved; amended during implementation
 related_issue: "https://github.com/tanimon/dotfiles/issues/210"
 ---
 
@@ -87,6 +87,10 @@ done
 - 2件目（allow側）は、`docs/solutions/workflow-issues/verification-through-the-wrong-resolution-path.md`が指摘する「対比なしの単独passは何も証明しない」を踏まえた対比ペア。`filesystem.allow`に明記されている`$HOME/ghq`を使う。
 - ネイティブBashサンドボックスの`excludedCommands`行動検証は、`claude -p`ヘッドレス実行が必要でAPI費用・非決定性の問題があるため今回は対応せず、既知の限界としてissue #210側にコメントで記録する。
 - `just test-nono-profile`（既存レシピ、ローカル専用）でそのまま実行される。CI側の変更は不要。
+
+### 実装時の訂正
+
+実装フェーズで、上記コード例の`--profile claude-seal`（プロファイル名指定）は誤りと判明し、`--profile "$PROFILE"`（`test/nono-profile.bats`の`setup()`で定義した、リポジトリ内`dot_config/nono/profiles/claude-seal.json`への絶対パス）に変更した。`--profile claude-seal`という名前指定は`~/.config/nono/profiles/claude-seal.json`（chezmoi apply でデプロイ済みの古いコピー。mainからデプロイされるためブランチの編集内容を反映しない）を名前解決してしまい、このリポジトリでの編集を検証しない「空振りテスト」になる。パスを直接渡すことで、常にリポジトリ内の編集内容そのものを検証対象にする。実装は`test/nono-profile.bats`に反映済み。
 
 # テスト方針
 
