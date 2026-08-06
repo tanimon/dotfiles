@@ -141,6 +141,10 @@ jobs:
             echo "has_alerts=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install just
+        if: steps.alerts.outputs.has_alerts == 'true'
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+
       - name: Sweep security alerts
         if: steps.alerts.outputs.has_alerts == 'true'
         uses: anthropics/claude-code-action@9db594c7a0e82298c121c18b7f08aa1579ce7341 # v1.0.185
