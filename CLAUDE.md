@@ -17,7 +17,7 @@ chezmoi edit <file>            # Edit a managed file's source
 chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
-# Linting (mirrors CI — also runs on commit via prek)
+# Linting (mirrors CI — also runs on commit via prek; requires `just`, installed via darwin/Brewfile)
 just lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan + nono profile)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
@@ -123,7 +123,7 @@ Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Depende
 just lint                      # Run ALL checks locally (mirrors CI)
 chezmoi apply --dry-run        # Preview changes before applying
 
-# Individual targets (same as CI jobs):
+# Individual recipes (same as CI jobs):
 just secretlint                # Scan for leaked secrets
 just shellcheck                # Lint non-.tmpl shell scripts
 just shfmt                     # Check shell script formatting (indent=4)

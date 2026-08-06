@@ -3,24 +3,32 @@
 # variables do NOT collapse embedded newlines to spaces, so without this a
 # multi-match `find` would put each path on its own line inside the recipe
 # body text instead of space-separating them on one command line.
+# It also matters for error handling: GNU Make's $(shell ...) ignores the
+# command's exit status, but a failing backtick in just aborts *all* recipes
+# (even ones that never reference the variable) with "error: backtick failed
+# with exit code 1". `find` can exit non-zero (e.g. an unreadable directory);
+# `2>/dev/null` only silences stderr, not the exit code. Piping through `tr`
+# (which always exits 0) absorbs that failure. If someone later "simplifies"
+# this by dropping the `tr` pipe, or enables `pipefail` via `set shell := [...]`,
+# this hard-error mode comes back.
 shell_files := `find . -type f \( -name '*.sh' -o -name '*.bash' -o -name 'executable_*' \) \
     ! -name '*.tmpl' ! -name '*.mts' ! -name '*.ts' ! -name '*.mjs' \
-    ! -path './node_modules/*' 2>/dev/null | tr '\n' ' '`
+    ! -path './node_modules/*' ! -path './.pnpm-store/*' 2>/dev/null | tr '\n' ' '`
 
 tmpl_files := `find . -name '*.tmpl' \
-    ! -path './node_modules/*' \
+    ! -path './node_modules/*' ! -path './.pnpm-store/*' \
     ! -name '.chezmoi.toml.tmpl' 2>/dev/null | tr '\n' ' '`
 
 js_ts_files := `find . -type f \( -name '*.js' -o -name '*.mjs' -o -name '*.mts' -o -name '*.ts' \) \
     ! -name '*.tmpl' \
-    ! -path './node_modules/*' 2>/dev/null | tr '\n' ' '`
+    ! -path './node_modules/*' ! -path './.pnpm-store/*' 2>/dev/null | tr '\n' ' '`
 
 json_files := `find . -type f -name '*.json' \
-    ! -path './node_modules/*' \
+    ! -path './node_modules/*' ! -path './.pnpm-store/*' \
     ! -name 'pnpm-lock.yaml' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
-all_md_files := `find . \( -path './node_modules' -o -path './.git' -o -path './.superpowers' \) -prune -o \
+all_md_files := `find . \( -path './node_modules' -o -path './.pnpm-store' -o -path './.git' -o -path './.superpowers' \) -prune -o \
     -type f -name '*.md' -print 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
