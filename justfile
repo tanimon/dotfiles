@@ -31,7 +31,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
     pnpm exec secretlint '**/*'
 
 # Lint shell scripts
-@shellcheck:
+shellcheck:
     #!/usr/bin/env bash
     if command -v shellcheck >/dev/null 2>&1; then
         if [ -n "{{shell_files}}" ]; then
@@ -45,7 +45,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
     fi
 
 # Check shell script formatting
-@shfmt:
+shfmt:
     #!/usr/bin/env bash
     if command -v shfmt >/dev/null 2>&1; then
         if [ -n "{{shell_files}}" ]; then
@@ -59,7 +59,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
     fi
 
 # Lint JS/TS files
-@oxlint:
+oxlint:
     #!/usr/bin/env bash
     if [ -n "{{js_ts_files}}" ]; then
         echo "Running oxlint..."
@@ -69,7 +69,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
     fi
 
 # Check JS/TS and JSON formatting
-@oxfmt:
+oxfmt:
     #!/usr/bin/env bash
     if [ -n "{{js_ts_files}}{{json_files}}" ]; then
         echo "Running oxfmt..."
@@ -79,7 +79,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
     fi
 
 # Lint GitHub Actions workflows (syntax + types)
-@actionlint:
+actionlint:
     #!/usr/bin/env bash
     if command -v actionlint >/dev/null 2>&1; then
         echo "Running actionlint..."
@@ -89,7 +89,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
     fi
 
 # Security audit GitHub Actions workflows
-@zizmor:
+zizmor:
     #!/usr/bin/env bash
     if command -v zizmor >/dev/null 2>&1; then
         echo "Running zizmor..."
@@ -102,16 +102,16 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
 @test-modify:
     pnpm exec bats test/modify-karabiner.bats
 
-# Smoke test hook scripts
 # LC_ALL=C works around a bats-core locale bug: under some locales, @test names
 # containing non-ASCII characters (this file's test names are in Japanese)
 # register under a different name than they're looked up by, causing spurious
 # "unknown test name" failures (23 -> 16 executed). See .claude/rules/shell-scripts.md.
+# Smoke test hook scripts
 @test-scripts:
     LC_ALL=C pnpm exec bats test/notify.bats
 
 # Validate chezmoi templates
-@check-templates:
+check-templates:
     #!/usr/bin/env bash
     if command -v chezmoi >/dev/null 2>&1; then
         echo "Validating chezmoi templates..."
@@ -132,7 +132,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify tes
     fi
 
 # Scan all .md files for sensitive information (PII, credentials, absolute paths)
-@scan-sensitive:
+scan-sensitive:
     #!/usr/bin/env bash
     if [ -n "{{all_md_files}}" ]; then
         echo "Running scan-sensitive-info..."
