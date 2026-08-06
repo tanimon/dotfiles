@@ -11,7 +11,7 @@ scan() {
 # scanner test needs). The '' splits are harmless bash string concatenation
 # (adjacent quoted literals join with no separator, so the printf output is
 # byte-identical) inserted only to keep this same PII-shaped text from
-# tripping this repo's own `make scan-sensitive` check wherever this test
+# tripping this repo's own `just scan-sensitive` check wherever this test
 # file's content is quoted inside a .md document (e.g. the plan that
 # specified this file). scan-sensitive-info.sh only scans *.md files, so
 # this .bats file itself is never scanned — the split exists for the
