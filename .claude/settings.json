@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -c core.fsmonitor=false show *)",
+      "Bash(gh repo list *)",
+      "Bash(git -c core.fsmonitor=false diff *)",
+      "mcp__claude_ai_Notion__notion-fetch",
+      "Bash(git -c core.fsmonitor=false log *)",
+      "Bash(git -c core.fsmonitor=false status *)",
+      "Bash(git -c core.fsmonitor=false rev-parse *)"
+    ]
+  }
+}
