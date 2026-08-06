@@ -457,7 +457,9 @@
       ],
       "allowRead": [
         "~/.ssh/config",
-        "~/.ssh/known_hosts"
+        "~/.ssh/known_hosts",
+        {{/* excludedCommands の `gh *` は文字列前方一致のため、直接 `gh ...` と打った場合のみサンドボックスを完全バイパスする。`sh -c "gh ..."` やラッパースクリプト経由の間接呼び出しは `gh *` にマッチせずサンドボックス内で実行され、denyRead の `~/.config/gh` により gh 自身の設定読み込みが `operation not permitted` で失敗する。hosts.yml/config.yml に平文トークンは含まれず（トークンは macOS Keychain 保管、`gh auth status` の `(keyring)` 表示で確認済み）、read 許可のみで機密性リスクはない。 */ -}}
+        "~/.config/gh"
       ]
     },
     {{/* `git push` はサンドボックス外で実行する。**2026-07-31 更新:** ここに書かれていた「remote が git@github.com: 形式のため github.com:22 への生TCPが必要」という前提は、dot_gitconfig.tmpl の insteadOf を https→ssh から ssh→https に反転したことで崩れた（詳細は dot_gitconfig.tmpl 側のコメント参照）。fetch/pull はこれで HTTPS 経由になり動作を実測済みだが、push については新しい gitconfig を読み込んだ fresh session でしか検証できない（sandbox設定はセッション開始時に読み込まれるため、このセッション内での確認は無意味 — CLAUDE.md の "verification through the wrong resolution path" を参照）。したがって `excludedCommands` からの `git push *` 除去は本コメント更新時点では未実施・未検証のフォローアップとする。push は permissions.ask でゲートしてあるので、サンドボックス外実行と network.allowedDomains のバイパスはプロンプトで抑止される。`git commit` は上の network.allowUnixSockets で署名が通るようになったため、この一覧から外してサンドボックス内で実行する（worktree の共通 git dir への書き込みは Claude Code が自動許可するため commit 自体は成立する — 実測済み）。これにより「allow に入った git commit を経由してリポジトリ管理の pre-commit hook がサンドボックス外・無プロンプトで実行される」という残存リスクは解消した。prek/secretlint はサンドボックス内で動くため、cwd 外への書き込みや許可外ドメインへの通信を行う hook を追加する場合は allowWrite / allowedDomains 側の調整が必要になる。 */ -}}
@@ -469,7 +471,9 @@
       "open *",
       "osascript *",
       "terraform *"
-    ]
+    ],
+    {{/* gh/gcloud/terraform 等の Go 製 CLI をサンドボックス内（間接呼び出し経路）で実行すると、trustd 経由のTLS証明書検証ができず `x509: OSStatus -26276` で失敗する。直接 `gh ...` 等は excludedCommands でサンドボックス自体をバイパスするため影響なし。trustd への Mach lookup を許可する分セキュリティは低下するが（公式ドキュメントが明記）、間接呼び出しでの認証済みAPI呼び出しを成立させるため有効化する。 */ -}}
+    "enableWeakerNetworkIsolation": true
   },
   "effortLevel": "high",
   "theme": "dark",
