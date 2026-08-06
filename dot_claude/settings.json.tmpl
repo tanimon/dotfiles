@@ -68,6 +68,7 @@
       "Bash(nono profile validate:*)",
       "Bash(nono why:*)",
       "Bash(npm:*)",
+      {{/* npx はここに列挙した既知の devDependencies 実行に限り allow。permissions.ask に Bash(npx:*) のような広いエントリを置くと、ルール評価は deny > ask > allow の配列順で決まり具体性は無視されるため(公式ドキュメント: "rule specificity doesn't change the order")、ここでどれだけ狭い allow を書いても ask が先に一致して常にプロンプトが出る — npm/pnpm の「狭い ask が広い allow に勝つ」設計とは逆方向で、broad ask + narrow allow exception は構造的に成立しない。そのため npx は個別コマンドの allow 列挙のみとし、ask には入れていない(未知の npx パッケージ実行は defaultMode: auto のクラシファイア判定に委ねる)。 */ -}}
       "Bash(npx eslint:*)",
       "Bash(npx playwright-cli:*)",
       "Bash(npx vitest:*)",
@@ -209,7 +210,6 @@
       "Bash(npm i:*)",
       "Bash(npm install:*)",
       "Bash(npm update:*)",
-      "Bash(npx:*)",
       "Bash(pip install:*)",
       "Bash(pip3 install:*)",
       "Bash(pnpm add:*)",

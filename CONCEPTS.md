@@ -34,6 +34,8 @@ Tier 1 carries a second requirement beyond the append-only property merely being
 
 ゲートはコマンドのプレフィックスで照合するため、プレフィックスが届く綴りしかカバーしない — Risk Tier 1 を縛るのと同じ制約である。また、Isolation Boundary の外に出たコマンドに残る統制はゲートだけなので、ゲートのない Boundary Exclusion はそのコマンドを無統制にする。
 
+Approval Gate は一致した時点でその呼び出しを確定させ、同じ呼び出しがより狭い一括許可にも一致する場合でも先に評価されて発火する。この優先順位はゲートと一括許可それぞれの一致範囲の広さ(具体性)には左右されない — 一括許可側にどれだけ狭い例外を書いても、ゲートが同じ呼び出しに一致する限りその例外は評価されずに終わる。ゲートを緩めるには一括許可側を狭めるのではなく、ゲート自身の一致範囲を狭めるか取り除く必要がある。
+
 ## Isolation boundary
 
 ### Isolation Boundary
