@@ -21,7 +21,9 @@ jobs:
           node-version-file: '.node-version'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: make secretlint
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just secretlint
 
   shellcheck:
     name: ShellCheck
@@ -30,7 +32,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: make shellcheck
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just shellcheck
 
   shfmt:
     name: shfmt
@@ -44,7 +48,9 @@ jobs:
           SHFMT_VERSION=3.11.0
           curl -fsSL "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" -o /usr/local/bin/shfmt
           chmod +x /usr/local/bin/shfmt
-      - run: make shfmt
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just shfmt
 
   oxlint:
     name: oxlint
@@ -59,7 +65,9 @@ jobs:
           node-version-file: '.node-version'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: make oxlint
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just oxlint
 
   oxfmt:
     name: oxfmt
@@ -74,7 +82,9 @@ jobs:
           node-version-file: '.node-version'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: make oxfmt
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just oxfmt
 
   modify-scripts:
     name: modify_ script smoke tests
@@ -89,7 +99,9 @@ jobs:
           node-version-file: '.node-version'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: make test-modify
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just test-modify
 
   harness-scripts:
     name: harness script smoke tests
@@ -104,7 +116,9 @@ jobs:
           node-version-file: '.node-version'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: make test-scripts
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just test-scripts
 
   harness-loop-scripts:
     name: harness loop script smoke tests
@@ -119,7 +133,9 @@ jobs:
           node-version-file: '.node-version'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: make test-harness-scripts
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just test-harness-scripts
 
   actionlint:
     name: actionlint
@@ -133,7 +149,9 @@ jobs:
           ACTIONLINT_VERSION=1.7.12
           curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             | tar xz -C /usr/local/bin actionlint
-      - run: make actionlint
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just actionlint
 
   zizmor:
     name: zizmor
@@ -144,7 +162,9 @@ jobs:
           persist-credentials: false
       - name: Install zizmor
         run: pip install zizmor==1.23.1
-      - run: make zizmor
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just zizmor
 
   scan-sensitive:
     name: Scan sensitive info
@@ -153,7 +173,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: make scan-sensitive
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just scan-sensitive
 
   test-sensitive:
     name: sensitive scan smoke tests
@@ -168,7 +190,9 @@ jobs:
           node-version-file: '.node-version'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: make test-sensitive
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just test-sensitive
 
   chezmoi-templates:
     name: chezmoi templates
@@ -179,4 +203,6 @@ jobs:
           persist-credentials: false
       - name: Install chezmoi
         run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
-      - run: make check-templates
+      - name: Install just
+        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - run: just check-templates
