@@ -127,10 +127,15 @@ check-templates:
         printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' > "$tmpconfig"
         fail=0
         for file in {{tmpl_files}}; do
-            chezmoi execute-template \
+            rendered=$(chezmoi execute-template \
                 --config "$tmpconfig" \
                 --source "$(pwd)" \
-                < "$file" > /dev/null || { echo "FAIL: $file"; fail=1; }
+                < "$file") || { echo "FAIL: $file (render)"; fail=1; continue; }
+            case "$file" in
+                *.json.tmpl)
+                    printf '%s\n' "$rendered" | jq -e . >/dev/null || { echo "FAIL: $file (invalid JSON)"; fail=1; }
+                    ;;
+            esac
         done
         rm -f "$tmpconfig"
         if [ "$fail" -eq 1 ]; then exit 1; fi
