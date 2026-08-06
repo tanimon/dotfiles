@@ -182,7 +182,7 @@ async function main(): Promise<void> {
     if (branch) {
       line1 += `${sep}🔀 ${branch}`;
     }
-    const sandboxLabel = process.env.INSIDE_NONO_SANDBOX ? "🔒 nono" : "🔓 native";
+    const sandboxLabel = process.env.INSIDE_NONO_SANDBOX ? "🔒 nono" : "🔓 raw";
     line1 += `${sep}${sandboxLabel}`;
 
     const line2 = formatUsageLine("⏱", "5h", rateLimits?.five_hour, "5h");

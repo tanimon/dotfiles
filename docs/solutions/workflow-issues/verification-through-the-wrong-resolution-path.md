@@ -305,11 +305,9 @@ Reported by the session that produced this learning and **not** re-verified here
 (reproducing them requires inducing drift on a managed target), and the three `test-nono-profile`
 fault injections.
 
-**2026-08-06 追記の検証状況**: `--profile claude-seal`（名前指定）が対比検証で反転しないこと、
-`--profile "$PROFILE"`（パス指定）に変更後は反転することの両方は、実装セッション本人が確認したのに
-加え、本セッションの記録によれば（この件数自体はリポジトリのアーティファクトからは独立に検証できない
-ため、セッション記録に基づく記載である旨を明記する）レビュー工程で少なくとも1回、独立に別途
-`nono why` を再実行して同じ反転を再現・確認している（`test/nono-profile.bats` への変更は PR
+**2026-08-06 追記の検証状況**: `--profile claude-seal`（名前指定）では対比検証が反転せず、
+`--profile "$PROFILE"`（パス指定）に変更後は反転することを、PR #272のコードレビューで
+`nono why` を独立に再実行し再現・確認した（`test/nono-profile.bats` への変更は PR
 [tanimon/dotfiles#272](https://github.com/tanimon/dotfiles/pull/272) に含まれる。本追記時点で
 同PRは未マージ — コミットSHAはrebase/squashで変わりうるためPR番号を正としている）。
 

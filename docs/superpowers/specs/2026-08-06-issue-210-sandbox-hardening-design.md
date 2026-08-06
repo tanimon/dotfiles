@@ -25,13 +25,14 @@ issue #210 は PR #209（ネイティブ Bash サンドボックス有効化）�
 `main()`内、`line1`組み立て箇所に1項目追加する。
 
 ```typescript
-const sandboxLabel = process.env.INSIDE_NONO_SANDBOX ? "🔒 nono" : "🔓 native";
+const sandboxLabel = process.env.INSIDE_NONO_SANDBOX ? "🔒 nono" : "🔓 raw";
 line1 += `${sep}${sandboxLabel}`;
 ```
 
 - 判定は`INSIDE_NONO_SANDBOX`環境変数の有無のみ。真偽の実効性（サンドボックスが本当に効いているか）までは主張しない — 「どちらの経路で起動しているか」の可視化に限定する。
 - statuslineプロセスはClaude Codeの子プロセスとして起動されるため、nono経由セッションでは`INSIDE_NONO_SANDBOX`を継承する。
 - 新規依存なし。既存の`StatusLineInput`型やエラーハンドリング（try/catchでフォールバック表示）に影響しない、独立した1行追加。
+- ラベル文言は`raw`（nono非経由の起動経路という事実）を使い、`native`は使わない。`native`は「ネイティブサンドボックスが実際に有効」という含意を持ちうるが、`failIfUnavailable: false`で初期化が無音失敗した場合は境界が実質存在しないため、その状態でも表示されてしまう文言は誤解を招く。コードが実際に知り得るのは「nonoラップを経由したか否か」のみ。
 
 ## ③ `check-templates` のJSON妥当性検証
 
@@ -86,7 +87,7 @@ done
 - `nono why`はポリシー解決のみを行う静的診断コマンドで、対象パスの実在に依存しない（`cat`等での検証だと「ファイルが存在しないための失敗」と「サンドボックスによる拒否」が区別できず、issue #210自体が懸念する「無音の境界消失」と同じ穴になる）。
 - 2件目（allow側）は、`docs/solutions/workflow-issues/verification-through-the-wrong-resolution-path.md`が指摘する「対比なしの単独passは何も証明しない」を踏まえた対比ペア。`filesystem.allow`に明記されている`$HOME/ghq`を使う。
 - ネイティブBashサンドボックスの`excludedCommands`行動検証は、`claude -p`ヘッドレス実行が必要でAPI費用・非決定性の問題があるため今回は対応せず、既知の限界としてissue #210側にコメントで記録する。
-- `just test-nono-profile`（既存レシピ、ローカル専用）でそのまま実行される。CI側の変更は不要。
+- `just test-nono-profile`（既存レシピ、ローカル専用）でそのまま実行される。CI側の変更は不要 — ただし「不要」は「既にCIでカバーされている」ではなく、`test-nono-profile`（既存の`nono profile validate`を含む）自体が`.github/workflows/lint.yml`に一度も組み込まれておらず、GitHub上のPRチェックでは元々実行されない、という既存の限界の継続である。今回追加した行動検証テストもこの限界をそのまま引き継ぐため、nono未導入の環境でレビューした場合はCIも含めて検知手段がない。
 
 ### 実装時の訂正
 
