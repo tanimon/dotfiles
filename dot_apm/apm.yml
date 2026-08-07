@@ -28,3 +28,4 @@ dependencies:
     - EveryInc/compound-engineering-plugin#compound-engineering-v3.21.0
     - affaan-m/everything-claude-code#v2.1.0
     - nolabs-ai/nono-packs/claude#58f77c73a949bad1a9e261bb824c51e323589984 # renovate: branch=main
+    - lambdalisue/cclens/plugins/cclens#v0.1.1
