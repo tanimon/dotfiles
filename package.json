@@ -11,7 +11,7 @@
     "bats": "^1.13.0",
     "bats-assert": "^2.2.4",
     "bats-support": "^0.3.0",
-    "oxfmt": "^0.48.0",
+    "oxfmt": "^0.62.0",
     "oxlint": "^1.57.0",
     "secretlint": "^13.0.0"
   },
