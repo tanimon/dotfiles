@@ -10,42 +10,6 @@
       ],
       "datasourceTemplate": "git-refs",
       "packageNameTemplate": "https://github.com/{{{depName}}}"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/dot_apm\\/apm\\.yml$/"],
-      "matchStrings": [
-        "-\\s+(?<depName>[\\w.-]+/[\\w.-]+)(?:/[\\w./-]+)?#(?<currentDigest>[0-9a-f]{40})\\s*#\\s*renovate:\\s*branch=(?<currentValue>\\S+)"
-      ],
-      "datasourceTemplate": "git-refs",
-      "packageNameTemplate": "https://github.com/{{{depName}}}"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/dot_apm\\/apm\\.yml$/"],
-      "matchStrings": [
-        "-\\s+(?<depName>[\\w.-]+/[\\w.-]+)#(?<currentValue>compound-engineering-v\\d+\\.\\d+\\.\\d+)"
-      ],
-      "datasourceTemplate": "github-tags",
-      "packageNameTemplate": "{{{depName}}}",
-      "versioningTemplate": "regex:^compound-engineering-v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/dot_apm\\/apm\\.yml$/"],
-      "matchStrings": [
-        "-\\s+(?<depName>[\\w.-]+/[\\w.-]+)(?:/[\\w./-]+)?#(?<currentValue>v\\d+\\.\\d+\\.\\d+)"
-      ],
-      "datasourceTemplate": "github-tags",
-      "packageNameTemplate": "{{{depName}}}"
-    }
-  ],
-  "packageRules": [
-    {
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": ["dot_apm/apm.yml"],
-      "matchDatasources": ["git-refs"],
-      "schedule": ["before 6am on monday"]
     }
   ]
 }
