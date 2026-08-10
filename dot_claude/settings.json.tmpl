@@ -236,6 +236,47 @@
       "{{ .chezmoi.homeDir }}/ghq/github.com/{{ .ghOrg }}/**"
     ]
   },
+  {{/* nono@nolabs-ai: the nono pack (nolabs-ai/nono-packs/claude) writes this key into ~/.claude/settings.json at install/pull time via its own directory-sourced marketplace registration (~/.claude/plugins/marketplaces/nolabs-ai), not via extraKnownMarketplaces below. chezmoi fully owns this template, so without reflecting it here `chezmoi apply` wipes the key and the pack's sandbox-diagnostic hooks silently stop firing. If the pack namespace changes upstream, this key must be updated in lockstep (see the marketplace-rename pitfall in this file's Known Pitfalls). Skills/plugins here are managed via Claude Code's native marketplace mechanism (not APM) — new machines require running `claude plugin marketplace add <owner/repo>` once per marketplace listed in extraKnownMarketplaces before enabledPlugins can resolve; this is a deliberate manual step, not automated. */ -}}
+  "enabledPlugins": {
+    "nono@nolabs-ai": true,
+    "superpowers@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "sentry@claude-plugins-official": true,
+    "compound-engineering@compound-engineering-plugin": true,
+    "ecc@ecc": true,
+    "cclens@cclens": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "compound-engineering-plugin": {
+      "source": {
+        "source": "github",
+        "repo": "EveryInc/compound-engineering-plugin"
+      },
+      "autoUpdate": true
+    },
+    "ecc": {
+      "source": {
+        "source": "github",
+        "repo": "affaan-m/everything-claude-code"
+      },
+      "autoUpdate": true
+    },
+    "cclens": {
+      "source": {
+        "source": "github",
+        "repo": "lambdalisue/cclens"
+      }
+    }
+  },
   "model": "sonnet",
   {{/* advisorModel: サーバーサイド advisor tool の助言役モデル（指定可能なエイリアスは fable / opus / sonnet）。advisor は executor（メインモデル）以上のランクでないと attach されないため、上の "model": "sonnet" と対になって初めて機能する。/model で Opus に切り替えたセッションでは main では発動せず（サブエージェントでは発動しうる）、起動時通知でその旨が出る。トークン消費は増える。/advisor ダイアログが書き込む先は ~/.claude/settings.json だが、そのファイルはこの tmpl が全面所有しているため apply で消える。恒久設定はここに書くこと。 */ -}}
   "advisorModel": "opus",

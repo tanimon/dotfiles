@@ -1,0 +1,20 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+# apm.yml hash: {{ include "dot_apm/apm.yml" | sha256sum }}
+#
+# dependencies.apm (Skill/plugin管理)はネイティブmarketplace方式
+# (settings.json.tmplのenabledPlugins/extraKnownMarketplaces)に移行済みのため、
+# apm.ymlにはdependencies.mcpのみが残る。MCPサーバーの展開先は~/.claude.jsonの
+# mcpServersキーで、chezmoiはこのファイルを.tmplとして所有していない(競合する
+# 完全所有テンプレートが存在しない)ため、apm.ymlのハッシュ変化時のみ実行すれば
+# 十分(run_after_ではなくrun_onchange_で問題ない)。
+
+if ! command -v apm &>/dev/null; then
+  echo "apm CLI not found, skipping apm install --global"
+  exit 0
+fi
+
+apm install --global --target claude || echo "WARNING: apm install --global --target claude failed; run it manually to sync MCP servers" >&2
+{{ end -}}

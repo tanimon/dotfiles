@@ -22,9 +22,11 @@ All external entries use `type = "archive"` with SHA-embedded GitHub archive URL
 
 Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
-## Renovate Contract — dot_apm/apm.yml (`dependencies.apm`)
+## Renovate Contract — dot_apm/apm.yml (`dependencies.apm`) — 廃止済み（2026-08-10）
 
-`dependencies.apm` entries use git shorthand: `owner/repo[/subpath]#ref`. Three `renovate.json` custom regex managers cover them, chosen by what `ref` looks like:
+> **2026-08-10 update:** Skill/plugin management (`dependencies.apm`)はネイティブClaude Codeマーケットプレイス方式(`dot_claude/settings.json.tmpl`の`enabledPlugins`/`extraKnownMarketplaces`)に巻き戻された。`apm.yml`には`dependencies.mcp`のみが残り、バージョン参照を持つgit shorthandピンが存在しないため、以下の3つのcustom regex manager（および対応する`packageRules`エントリ）は`renovate.json`から削除済み。以下は歴史的記録として残す。
+
+`dependencies.apm` entries used git shorthand: `owner/repo[/subpath]#ref`. Three `renovate.json` custom regex managers covered them, chosen by what `ref` looks like:
 
 | `ref` shape | Example | Manager | Datasource |
 |---|---|---|---|
