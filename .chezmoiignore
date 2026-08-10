@@ -1,8 +1,11 @@
 LICENSE
 README.md
 CLAUDE.md
+AGENTS.md
 CONCEPTS.md
 .chezmoiremove
+
+.agents/
 
 darwin/
 windows/
