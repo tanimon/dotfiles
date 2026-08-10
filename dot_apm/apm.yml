@@ -20,10 +20,10 @@ dependencies:
       url: https://mcp.deepwiki.com/mcp
   apm:
     - obra/superpowers#v6.2.0
-    - anthropics/claude-plugins-official/plugins/commit-commands#a473e6e809e0866cdf7798e2d534f03c0367036b # renovate: branch=main
-    - anthropics/claude-plugins-official/plugins/ralph-loop#a473e6e809e0866cdf7798e2d534f03c0367036b # renovate: branch=main
-    - anthropics/claude-plugins-official/plugins/claude-md-management#a473e6e809e0866cdf7798e2d534f03c0367036b # renovate: branch=main
-    - anthropics/claude-plugins-official/plugins/skill-creator#a473e6e809e0866cdf7798e2d534f03c0367036b # renovate: branch=main
+    - anthropics/claude-plugins-official/plugins/commit-commands#3da105324a27aa7b1f435a3925f8626092891d4e # renovate: branch=main
+    - anthropics/claude-plugins-official/plugins/ralph-loop#3da105324a27aa7b1f435a3925f8626092891d4e # renovate: branch=main
+    - anthropics/claude-plugins-official/plugins/claude-md-management#3da105324a27aa7b1f435a3925f8626092891d4e # renovate: branch=main
+    - anthropics/claude-plugins-official/plugins/skill-creator#3da105324a27aa7b1f435a3925f8626092891d4e # renovate: branch=main
     - getsentry/plugin-claude#4b61acc29f8c5f29ad7a8851ba521a24d4f118fe # renovate: branch=main
     - EveryInc/compound-engineering-plugin#compound-engineering-v3.21.0
     - affaan-m/everything-claude-code#v2.1.0
