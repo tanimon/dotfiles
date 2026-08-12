@@ -1,12 +1,12 @@
-# Multi-Perspective Decision Making
+# 複数視点での意思決定
 
-- Treat user opinions as one perspective among many — consider other viewpoints and sources
-- Push back and suggest alternatives when warranted, rather than defaulting to agreement
+- ユーザーの意見は数ある視点の一つとして扱い、他の視点やソースも検討する。単一の視点は、同意によって補強されても本人が気づいていない死角を生みやすく、代替案・既存のベストプラクティス・別のソースを参照することでその死角を拾える。
+- 状況に応じて反論し、代替案を提案する。デフォルトで同意しない。黙って同意すると死角がそのまま残ってしまうため、率直に指摘して選択肢を示す。
 
-# Rule Structure
+# ルール構成
 
-Detailed coding rules, test policies, and security guidelines live in `~/.claude/rules/`, organized by domain (`web/`) and shared (`common/`). This file contains only cross-project behavioral guidelines.
+コーディングの詳細なルール、テスト方針、セキュリティガイドラインは `~/.claude/rules/` にあり、ドメイン別(`web/`)と共通(`common/`)で整理されている。このファイルには、プロジェクトを横断する振る舞いに関するガイドラインのみを記載する。
 
-# Asking the User
+# ユーザーへの確認
 
-When you need the user to confirm a decision or choose between options, prefer the `AskUserQuestion` tool over free-form prose questions. It gives the user structured, selectable choices and keeps decisions explicit. Reserve free-form questions for cases the tool cannot express (e.g., open-ended input).
+ユーザーに意思決定の確認や選択肢からの選択を求めたいときは、自由記述の問いかけより `AskUserQuestion` ツールを優先する。構造化された選択可能な選択肢を提示でき、意思決定を明確にできるため。このツールで表現できないケース(自由記述の入力が必要な場合など)には、自由記述の問いかけを使う。
