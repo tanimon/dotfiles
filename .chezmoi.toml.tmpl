@@ -4,3 +4,12 @@
 [data]
   profile = {{ $profile | quote }}
   ghOrg = {{ $ghOrg | quote }}
+
+# Tools that own a managed JSON file wholesale (notably Claude Code itself,
+# rewriting ~/.claude/settings.json on every /plugin, /model, /theme,
+# /advisor change) don't preserve a stable key order, so a verbatim diff is
+# mostly reordering noise. chezmoi-json-diff sorts object keys (jq -S)
+# before diffing so only real content changes show up; see
+# dot_local/bin/executable_chezmoi-json-diff.
+[diff]
+  command = {{ printf "%s/.local/bin/chezmoi-json-diff" .chezmoi.homeDir | quote }}

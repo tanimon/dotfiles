@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'USAGE'
+Usage: chezmoi-json-diff <destination> <target>
+
+diff.command for `chezmoi diff` (see [diff] in .chezmoi.toml.tmpl).
+
+Some managed JSON files (e.g. ~/.claude/settings.json) get rewritten
+wholesale by the owning tool (Claude Code itself, via /plugin, /model,
+/theme, /advisor, ...), which does not preserve a stable object-key order.
+Diffing those files verbatim buries genuine changes in reordering-only
+noise on almost every run. This wrapper sorts object keys recursively
+(jq -S) before diffing, so only real content changes show up. Falls back
+to a verbatim diff for files jq can't parse as JSON (or that don't exist
+yet, e.g. before the first apply).
+
+Limitations: only compares canonicalized content, so file mode/type
+changes (e.g. permission bits) are invisible here. `chezmoi status` and
+`chezmoi apply` are unaffected by this script (they compare raw bytes, not
+through diff.command), so they still treat a key-order-only difference as
+a real change.
+USAGE
+}
+
+if [[ $# -ne 2 ]]; then
+    usage >&2
+    exit 1
+fi
+
+destination="$1"
+target="$2"
+
+normalize() {
+    local src="$1" dst="$2"
+    if [[ ! -e "$src" ]]; then
+        : >"$dst"
+        return 0
+    fi
+    jq -S . "$src" >"$dst" 2>/dev/null || cp "$src" "$dst"
+}
+
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/chezmoi-json-diff.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT
+
+normalize "$destination" "$work_dir/destination"
+normalize "$target" "$work_dir/target"
+
+diff -u --label "$destination" --label "$target" "$work_dir/destination" "$work_dir/target"
