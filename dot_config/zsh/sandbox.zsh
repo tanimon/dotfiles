@@ -44,3 +44,22 @@ codex() {
     command codex "$@"
   fi
 }
+
+# Claude Code のネイティブ Bash サンドボックス（settings.json.tmpl の sandbox.network）は
+# Unix ドメインソケットへの outbound を 1Password の SSH agent ソケットのみに限定しており、
+# git 組み込み fsmonitor デーモンの IPC ソケット（$GIT_DIR/fsmonitor--daemon.ipc、
+# core.fsmonitor=true を dot_gitconfig.tmpl でグローバル設定）への接続がブロックされる。
+# 結果として git status 等の実行のたびに次のエラーが stderr に出る（実害はこれのみ：
+# 終了コードは 0、stdout は正常。sandbox-exec の with/without 対比で確認済み）：
+#   error: fsmonitor_ipc__send_query: unspecified error on '.../fsmonitor--daemon.ipc'
+# サンドボックス設定自体（allowUnixSockets への .git ディレクトリ追加等）を広げる代替案もあるが、
+# そのディレクトリ配下の任意の Unix ソケットへの接続を許可することになり影響範囲が広い。
+# 対して、通常のインタラクティブなターミナル作業では fsmonitor による高速化を維持したいので、
+# Claude Code のシェル（CLAUDECODE=1、Claude Code 自身が設定する環境変数）に限り
+# GIT_CONFIG_* 環境変数（git-config(1) 記載の公式スクリプト向け上書き手段）で
+# core.fsmonitor を無効化する。
+if [[ -n "${CLAUDECODE:-}" ]]; then
+  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_KEY_0=core.fsmonitor
+  export GIT_CONFIG_VALUE_0=false
+fi
