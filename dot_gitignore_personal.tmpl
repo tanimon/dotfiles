@@ -1,0 +1,7 @@
+### 個人リポジトリ用 excludesfile
+# ~/.gitconfig の includeIf "gitdir:..." → ~/.config/git/personal.inc 経由で
+# core.excludesfile としてデフォルトの ~/.gitignore から差し替えられる。
+# 共通部分は同一で、superpowers/ce 系スキル生成の経緯ドキュメント
+# (docs/{brainstorms,ideation,plans,residual-review-findings,superpowers}/)を
+# 除外しない点だけが異なる(個人リポジトリでは開発経緯として commit するため)。
+{{ template "gitignore-common" }}

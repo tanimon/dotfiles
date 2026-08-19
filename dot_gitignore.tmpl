@@ -1,0 +1,10 @@
+{{ template "gitignore-common" }}
+### superpowers/ce 系スキル生成の経緯ドキュメント
+# デフォルト(仕事リポジトリ含む全リポジトリ)では除外する。
+# 個人リポジトリでは commit したいため、~/.gitconfig の includeIf "gitdir:..." が
+# core.excludesfile を ~/.gitignore_personal(このブロックを含まない版)に差し替える。
+docs/brainstorms/
+docs/ideation/
+docs/plans/
+docs/residual-review-findings/
+docs/superpowers/
