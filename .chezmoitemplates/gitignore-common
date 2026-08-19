@@ -111,8 +111,6 @@ tags
 claudedocs/
 .takt/
 .gstack/
-docs/plans/
-docs/superpowers/
 
 **/.claude/.cc-writes/
 **/.claude/worktrees/
