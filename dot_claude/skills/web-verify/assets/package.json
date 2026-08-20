@@ -1,0 +1,8 @@
+{
+  "name": "verify",
+  "private": true,
+  "scripts": {
+    "verify": "playwright test",
+    "report": "playwright show-report report"
+  }
+}
