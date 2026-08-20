@@ -2,6 +2,12 @@ node_modules/
 .pnpm-store/
 .context/
 
+# Extra scan-sensitive-info.sh patterns that are themselves secrets and so must
+# never be committed (the work org name is resolved automatically from
+# `chezmoi data`, so this file is only for anything beyond that).
+# scripts/ is already in .chezmoiignore, so it never deploys either.
+scripts/sensitive-patterns.local.txt
+
 # docs/ is version-controlled in this repo. Override the global ~/.gitignore
 # (dot_gitignore) `docs/plans` and `docs/superpowers` entries so new files under
 # docs/ are not ignored here.

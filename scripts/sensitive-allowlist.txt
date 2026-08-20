@@ -1,0 +1,24 @@
+# Allowlist for scan-sensitive-info.sh.
+#
+# Format: <path-suffix or *>:<grep extended regex>, split on the FIRST colon,
+# so the path part must not contain one. A match is suppressed when the scanned
+# path ends with the path part (or the part is `*`) AND the matching line
+# satisfies the regex.
+#
+# This file is committed, so it is only for information that is *already*
+# public by construction — a published commit identity, a public key, the
+# public GitHub account this repo lives under. Never add a real leak here; fix
+# the file instead. The work org name in particular cannot be allowlisted from
+# this file without writing the org name into the repo, which is the whole
+# thing the guard exists to prevent.
+
+# The GitHub account this repository is published under. Its ghq path is what
+# the personal-repo `includeIf` rule keys on (see the includeIf section in
+# CLAUDE.md), so it cannot become a template variable.
+*:ghq/github\.com/tanimon
+
+# Commit identity and the SSH *public* signing key. Both are attached to every
+# commit already in this repo's public history; redacting them here would
+# protect nothing.
+dot_gitconfig.tmpl:\+tanimon@users\.noreply\.github\.com
+dot_gitconfig.tmpl:signingkey = ssh-ed25519 AAAA

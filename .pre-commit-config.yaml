@@ -46,9 +46,13 @@ repos:
         language: system
         files: '\.github/workflows/.*\.yml$'
         types: [file]
+      # Not restricted to .md: a literal org path is most likely to land in a
+      # template or config (settings.json.tmpl, nono profiles, gitconfig).
+      # The pattern/allowlist files are excluded because they hold
+      # guarded-looking text by construction.
       - id: scan-sensitive
         name: scan-sensitive
         entry: bash scripts/scan-sensitive-info.sh
         language: system
-        files: '\.md$'
-        types: [file]
+        exclude: '(^scripts/sensitive-(patterns|patterns\.local|allowlist)\.txt$|^pnpm-lock\.yaml$)'
+        types: [text]

@@ -13,7 +13,7 @@
 - **should:** 再実行時に備えて動作確認に必要なデータの準備・クリーンアップを再利用可能にする
 - **should:** 再実行時に備えて動作確認手順をスクリプト化する
 
-既存の `tanomu-verify` skill(tanomu の worktree 専用・playwright-cli ベースのカスタムハーネス)は同じ要件を満たすが、本 skill は**別物として新規作成**する。対象を tanomu に限定しない**任意の Web プロジェクト汎用**の skill であり、実行エンジンにカスタムハーネスではなく標準の `@playwright/test` を採用する点が根本的に異なる。
+既存の `<work-org>-verify` skill(`<work-org>` の worktree 専用・playwright-cli ベースのカスタムハーネス)は同じ要件を満たすが、本 skill は**別物として新規作成**する。対象を特定の組織に限定しない**任意の Web プロジェクト汎用**の skill であり、実行エンジンにカスタムハーネスではなく標準の `@playwright/test` を採用する点が根本的に異なる。
 
 ## 決定事項サマリ
 
@@ -25,7 +25,7 @@
 | 探索手段 | `playwright-cli` が利用可能なら任意で使用(必須にしない) |
 | 承認ゲート | 初回のみ観点リストを承認。再実行(差分観点追加)は自律 |
 | skill の置き場所 | chezmoi リポ `dot_claude/skills/web-verify/` |
-| skill 名 | `web-verify`(`tanomu-verify` との対比で汎用 Web 版と分かる) |
+| skill 名 | `web-verify`(組織専用の `<work-org>-verify` との対比で汎用 Web 版と分かる) |
 
 ## 設計の不変条件
 
@@ -129,7 +129,7 @@ dot_claude/skills/web-verify/
 ## 非スコープ
 
 - CLI / TUI / ネイティブアプリの検証(Web ブラウザで操作できるものだけが対象)
-- tanomu 専用機能(クロスアプリ伝播検証・worktree 共有 DB 等)。tanomu では引き続き `tanomu-verify` を使う
+- `<work-org>` 専用機能(クロスアプリ伝播検証・worktree 共有 DB 等)。そちらでは引き続き `<work-org>-verify` を使う
 - 合成カーソル・キャプション等のナレーション層(標準録画 + trace viewer で代替。必要になったら後付けを検討)
 - CI への組み込み(資産は標準形式なので将来 CI に乗せることは可能だが、本 skill の scope 外)
 - fail した実装バグの修正
