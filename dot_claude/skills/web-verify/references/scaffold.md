@@ -57,8 +57,8 @@ npx playwright install chromium
   認証が不要なプロジェクトでは auth.setup.ts を削除し、playwright.config.ts の
   `projects` を単一プロジェクト(`dependencies` と `storageState` なし)に書き換える
 - `seed/setup.ts` / `seed/cleanup.ts` — profile.md のデータ準備手段で実装
-- `.env` — ユーザーに `.env.example` をコピーして値を埋めてもらう(エージェントは資格情報の値を扱う場合、
-  ファイルへの書き込みのみ行い、会話ログ・レポートに値を残さない)
+- `.env` — エージェントは資格情報の値を扱わない。ユーザー自身に `.env.example` を
+  コピーして直接編集してもらう
 
 ## 5. 生成の検証
 

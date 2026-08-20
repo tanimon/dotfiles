@@ -30,7 +30,7 @@ description: >-
 .claude/verify/
 ├── README.md               # 観点一覧・実行方法(人間向け)
 ├── profile.md              # 起動方法・ログイン方式・seed手段(再実行の自律性の源)
-├── package.json            # @playwright/test のみの自己完結 devDependency
+├── package.json            # 自己完結の devDependency(ホストの依存を汚さない)
 ├── playwright.config.ts    # video:'on'、HTMLレポート、seed の配線
 ├── scenarios/*.spec.ts     # 1観点 = 1 test(auth.setup.ts はログイン分離用)
 ├── seed/setup.ts           # データ準備(冪等)

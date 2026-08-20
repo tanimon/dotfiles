@@ -20,6 +20,8 @@ test("商品を新規登録すると一覧に表示され件数が1増える", a
 
   // durable な判定: 一覧へ戻り、登録した行が表示され、件数が1増えている
   await page.waitForURL("**/items");
-  await expect(page.getByRole("row").filter({ hasText: "動作確認用商品A" })).toBeVisible();
+  // シナリオが作るデータは cleanup.ts で片付けるか実行ごとに一意な識別子を使う。ここでは再実行で同名行が複数あっても壊れないよう .first() で判定する
+  await expect(page.getByRole("row").filter({ hasText: "動作確認用商品A" }).first()).toBeVisible();
+  // 一覧がページネーションされている場合、表示件数と全体件数が一致せずこの件数判定は成り立たない
   await expect(rows).toHaveCount(before + 1);
 });

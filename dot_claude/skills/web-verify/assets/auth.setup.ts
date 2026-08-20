@@ -10,6 +10,11 @@ setup("ログインして認証状態を保存する", async ({ page }) => {
   if (!loginId || !password) {
     throw new Error("VERIFY_LOGIN_ID / VERIFY_LOGIN_PASSWORD を .env に設定してください");
   }
+  const baseURL = process.env.VERIFY_BASE_URL;
+  if (!baseURL) {
+    // 未設定だと goto("/login") が "Cannot navigate to invalid URL" という分かりにくいエラーになるため先に検出する
+    throw new Error("VERIFY_BASE_URL を .env に設定してください");
+  }
   await page.goto("/login");
   await page.getByLabel("メールアドレス").fill(loginId);
   await page.getByLabel("パスワード").fill(password);
