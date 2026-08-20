@@ -19,8 +19,11 @@ fail は必ず次の 3 分類のどれかに切り分けてから報告する。
 
 ## 症状別
 
-- **`Error: VERIFY_LOGIN_ID / VERIFY_LOGIN_PASSWORD を .env に設定してください`**
-  → `.env.example` をコピーして `.env` を作り値を埋める(ユーザーに依頼する)
+- **`Error: VERIFY_BASE_URL を .env に設定してください` /
+  `Error: VERIFY_LOGIN_ID / VERIFY_LOGIN_PASSWORD を .env に設定してください`**
+  → `.env.example` をコピーして `.env` を作り値を埋める(ユーザーに依頼する)。
+  `.env` を作ってあるのに出る場合は、検証ディレクトリの外から実行していて
+  `.env` が読み込まれていない(本ページ末尾の CWD の項目を参照)
 - **auth-setup は通るのに全シナリオが未ログイン画面に飛ばされる**
   → `.auth/user.json` が古い(セッション失効)。`.auth/` を削除して再実行
 - **起動確認(readiness)が通らない**

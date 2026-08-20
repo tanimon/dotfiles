@@ -56,7 +56,9 @@ npx playwright install chromium
 - `scenarios/auth.setup.ts` — ログイン画面のセレクタ・成功条件を profile.md と一致させる。
   認証が不要なプロジェクトでは auth.setup.ts を削除し、playwright.config.ts の
   `projects` を単一プロジェクト(`dependencies` と `storageState` なし)に書き換える
-- `seed/setup.ts` / `seed/cleanup.ts` — profile.md のデータ準備手段で実装
+  (`VERIFY_BASE_URL` の未設定検出は seed/setup.ts 側にあるため削除しても失われない)
+- `seed/setup.ts` / `seed/cleanup.ts` — profile.md のデータ準備手段で実装。
+  setup.ts 冒頭の `VERIFY_BASE_URL` ガードはスイート唯一の `.env` 前提チェックなので残す
 - `.env` — エージェントは資格情報の値を扱わない。ユーザー自身に `.env.example` を
   コピーして直接編集してもらう
 
@@ -72,5 +74,15 @@ Expected: シナリオ一覧が表示され exit 0(config・spec の構文エラ
 ## 6. ホストリポの .gitignore 確認
 
 検証ディレクトリ自体は commit する設計(spec 参照)。ホストリポの `.gitignore` が
-`.claude/` を丸ごと除外している場合は、ユーザーに確認のうえ
-`!.claude/verify/` の追加(または配置場所の変更)を提案する。
+`.claude/` を丸ごと除外している場合、`!.claude/verify/` を 1 行追加するだけでは効かない
+(git は除外されたディレクトリの中には降りないため、親ごと除外された配下の再包含 `!` は
+無効になる)。ユーザーに確認のうえ、除外行を次の 2 行に書き換えるか、配置場所の変更を提案する:
+
+```gitignore
+.claude/*
+!.claude/verify/
+```
+
+書き換え後は、**リポジトリルートで** `git check-ignore -v .claude/verify/README.md` を実行し、
+ignore されていないこと(何も出力されず exit 1)を確認する。パスは CWD 基準で解釈されるため、
+検証ディレクトリ内から実行すると実在しない別パスを判定してしまい確認にならない。
