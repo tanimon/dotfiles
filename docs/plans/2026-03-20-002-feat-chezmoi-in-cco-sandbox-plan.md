@@ -149,4 +149,4 @@ command chezmoi managed --path-style absolute | xargs -I{} dirname {} | sort -u
 - cco `--add-dir` はファイル・ディレクトリ両対応 (ファイルは Seatbelt `literal`、ディレクトリは `subpath`)
 - 既存 allow-paths パターン: `dot_config/cco/allow-paths.tmpl`
 - cco sandbox patch: `.chezmoiscripts/run_onchange_after_patch-cco-sandbox.sh.tmpl`
-- Memory: [cco_seatbelt_file_read_metadata.md](../../.claude/projects/-Users-akito-tanikado--local-share-chezmoi/memory/cco_seatbelt_file_read_metadata.md)
+- Memory: [cco_seatbelt_file_read_metadata.md](../../.claude/projects/-Users-<user>--local-share-chezmoi/memory/cco_seatbelt_file_read_metadata.md)

@@ -68,7 +68,7 @@ new mode 100644
 --- a/.claude/settings.json
 +++ b/.claude/settings.json
 @@ -227,7 +227,56 @@     "additionalDirectories": [
-       "~/ghq/github.com/tanomu/**"
+       "~/ghq/github.com/<work-org>/**"
      ]
    },
 +  "enabledPlugins": {

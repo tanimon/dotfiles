@@ -28,9 +28,6 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'pnpm-lock.yaml' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
-all_md_files := `find . \( -path './node_modules' -o -path './.pnpm-store' -o -path './.git' -o -path './.superpowers' \) -prune -o \
-    -type f -name '*.md' -print 2>/dev/null | tr '\n' ' '`
-
 # Run all checks (mirrors CI)
 lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-nono-profile
 
@@ -144,15 +141,11 @@ check-templates:
         echo "WARNING: chezmoi not found, skipping template validation"
     fi
 
-# Scan all .md files for sensitive information (PII, credentials, absolute paths)
-scan-sensitive:
-    #!/usr/bin/env bash
-    if [ -n "{{all_md_files}}" ]; then
-        echo "Running scan-sensitive-info..."
-        bash scripts/scan-sensitive-info.sh {{all_md_files}}
-    else
-        echo "No .md files found"
-    fi
+# Scan every file for sensitive information (PII, credentials, absolute paths,
+# literal work-org names). No file list is passed: the script does its own
+# repo-wide walk, which also keeps the prune list in one place.
+@scan-sensitive:
+    bash scripts/scan-sensitive-info.sh
 
 # Smoke test scan-sensitive-info.sh
 @test-sensitive:

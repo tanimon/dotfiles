@@ -41,7 +41,7 @@ $ /bin/bash -c 'set -u; C=3; echo "${C}件"'
 perl -ne 'next if /^\s*#/; while (/\$([A-Za-z_][A-Za-z0-9_]*)(?=[^\x00-\x7F])/g) { print "$ARGV: $&\n" } close ARGV if eof' path/to/*.sh
 ```
 
-実例: `tanomu-verify` スキルの `scripts/selftest.sh` がこのチェックを回帰テストとして持っている。
+実例: あるプロジェクト専用の検証スキルの `scripts/selftest.sh` がこのチェックを回帰テストとして持っている。
 
 ## macOS の bash 3.2 で使えない構文を避ける
 

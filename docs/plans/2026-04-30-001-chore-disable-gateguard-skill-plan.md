@@ -66,7 +66,7 @@ gateguard hook は本来「最初の Bash と各ファイルへの最初の Edit
 
 - `docs/solutions/integration-issues/gateguard-fact-force-sandbox-state-dir-2026-04-19.md` — 当時の対症療法(hook を生かしたまま `~/.gateguard` を allowlist 追加)の経緯
 - `docs/solutions/integration-issues/safehouse-add-dirs-requires-existing-path-2026-04-30.md` — `--add-dirs` のパス先存在トラップを発見した経緯。同 doc の "Workarounds considered and rejected" セクションで `ECC_DISABLED_HOOKS=pre:bash:gateguard-fact-force` は「便利なゲートを失う」として却下されているが、issue #188 でユーザが明示的に無効化を選択したため、本計画ではこの選択を採用する旨を doc 側で追記する
-- `~/.claude/projects/-Users-akito-tanikado--local-share-chezmoi/memory/safehouse_add_dirs_startup_path_existence.md` — `--add-dirs` のランタイム追加が効かない、safehouse 起動時にパスが必要という挙動。今回は逆に "そもそも allowlist エントリが要らなくなる" 側に倒す
+- `~/.claude/projects/-Users-<user>--local-share-chezmoi/memory/safehouse_add_dirs_startup_path_existence.md` — `--add-dirs` のランタイム追加が効かない、safehouse 起動時にパスが必要という挙動。今回は逆に "そもそも allowlist エントリが要らなくなる" 側に倒す
 - `.chezmoiignore` で repo-only な `docs/` 等を除外する慣習。`dot_gateguard/` 以下を消すだけで chezmoi の管理対象から外れるので追加の `.chezmoiignore` 編集は不要(検証で確認する)
 
 ### External References

@@ -1,10 +1,34 @@
 # Sensitive information patterns for scan-sensitive-info.sh
 # Each non-comment, non-empty line is a grep extended regex.
 # Lines starting with # are comments.
+#
+# A plain line describes a *shape*, so its matching line is printed in full;
+# seeing the offending text is what makes the finding actionable.
+#
+# A line prefixed with `@redact ` reports file:line only and never echoes the
+# pattern. Use it when the matched text is itself the secret — this scanner runs
+# in CI on a PUBLIC repo, so a printed match would copy the guarded string into a
+# public Actions log.
+#
+# Either way, a *literal* secret (the work GitHub org name) must never be
+# written into this file: it is committed. The org name is resolved at scan time
+# instead — see resolve_work_org() in scan-sensitive-info.sh, plus the optional,
+# gitignored scripts/sensitive-patterns.local.txt.
+#
+# To exempt an intentionally-public match, add it to sensitive-allowlist.txt.
 
 # Absolute paths with real usernames (macOS/Linux)
 /Users/[a-zA-Z][a-zA-Z0-9._-]+/
 /home/[a-zA-Z][a-zA-Z0-9._-]+/
+
+# Claude Code project slug, where an absolute path is flattened by replacing
+# every `/` and `.` with `-`: /Users/<user>/.local/share/chezmoi becomes
+# -Users-<user>--local-share-chezmoi. The `/Users/...` pattern above cannot see
+# this form at all, which is how real account names survived in docs/ that the
+# scanner already covered. The trailing `--` anchors on the `/.` boundary, and
+# the leading `[A-Za-z]` means the `-Users-<user>--` placeholder does not match.
+# Redacted because the matched text contains the account name.
+@redact -Users-[A-Za-z][A-Za-z0-9.-]*--
 
 # Windows user paths
 C:\\Users\\[a-zA-Z][a-zA-Z0-9._-]+
@@ -17,3 +41,13 @@ ssh-(rsa|ed25519|ecdsa|dsa) AAAA
 
 # Private key markers
 BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY
+
+# Literal org name in a ghq checkout path, where a chezmoi template variable
+# belongs. Which org a `~/ghq/github.com/<org>` path names is exactly the
+# work-affiliation fact this public repo should not carry. The intended form
+# is `~/ghq/github.com/{{ .ghOrg }}/**` (dot_claude/settings.json.tmpl:97,237);
+# `<work-org>` is the placeholder for prose and docs. Both are excluded by the
+# character class below, so the correct spellings never trip this.
+# Redacted because the org name is what a match would print, and file:line is
+# already fully actionable — any literal here is wrong regardless of which.
+@redact ghq/github\.com/[A-Za-z0-9._-]+

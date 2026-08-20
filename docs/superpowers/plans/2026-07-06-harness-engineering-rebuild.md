@@ -1074,4 +1074,4 @@ Transcribe #130 and #158 into `~/.claude/harness/queue.md` as initial entries (r
 
 - [ ] **Step 4: Update agent memory**
 
-Update `~/.claude/projects/-Users-tanikado--local-share-chezmoi/memory/harness-silent-failure-audit.md`: note the old system was replaced (not repaired) on the rebuild date, link the spec path, and mark the "regenerate CLAUDE_CODE_OAUTH_TOKEN for harness-analysis" follow-up obsolete (workflow deleted; token only matters if `claude.yml`/`security-alerts.yml` need it). Add a new memory `harness-loop-v2.md` describing the new system's shape and update `MEMORY.md`.
+Update `~/.claude/projects/-Users-<user>--local-share-chezmoi/memory/harness-silent-failure-audit.md`: note the old system was replaced (not repaired) on the rebuild date, link the spec path, and mark the "regenerate CLAUDE_CODE_OAUTH_TOKEN for harness-analysis" follow-up obsolete (workflow deleted; token only matters if `claude.yml`/`security-alerts.yml` need it). Add a new memory `harness-loop-v2.md` describing the new system's shape and update `MEMORY.md`.
