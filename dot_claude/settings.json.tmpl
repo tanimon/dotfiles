@@ -14,7 +14,9 @@
     {{/* ECC_CONTEXT_MONITOR_COST_WARNINGS: silence the COST NOTICE/WARNING/CRITICAL messages the ecc post:ecc-context-monitor hook injects at $5/$10/$50 session spend. This is a granular switch inside that hook — context-exhaustion, scope-creep, and tool-loop warnings from the same monitor stay active. To disable the whole monitor instead, add post:ecc-context-monitor to ECC_DISABLED_HOOKS above. */ -}}
     "ECC_CONTEXT_MONITOR_COST_WARNINGS": "0",
     {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
-    "_ZO_DOCTOR": "0"
+    "_ZO_DOCTOR": "0",
+    {{/* GIT_CONFIG_GLOBAL: suppress the git built-in fsmonitor daemon's IPC error, scoped to Claude Code's own process only (unlike a dotfiles-side CLAUDECODE check in .zshrc, which never actually took effect — the Bash tool runs commands in a non-interactive shell that doesn't source .zshrc, and even when it did, the shell-snapshot mechanism only preserves PATH, not arbitrary exports; see dot_config/git/claude-code.inc for the full history). The pointed-to file includes ~/.gitconfig first, so nothing else changes; normal interactive terminal use is unaffected and keeps fsmonitor's speedup. */ -}}
+    "GIT_CONFIG_GLOBAL": "{{ .chezmoi.homeDir }}/.config/git/claude-code.inc"
   },
   "permissions": {
     "allow": [
