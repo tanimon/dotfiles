@@ -484,6 +484,8 @@
     "command": "node --experimental-strip-types $HOME/.claude/statusline-command.ts"
   },
   "language": "japanese",
+  {{/* outputStyle: Concise — 結果を先に述べ前置き・実況を省略し応答を短く保つ組み込みスタイル(Claude Code v2.1.237+)。明示的な説明依頼には通常通り詳しく答える。*/ -}}
+  "outputStyle": "Concise",
   "sandbox": {
     "enabled": true,
     "failIfUnavailable": false,
