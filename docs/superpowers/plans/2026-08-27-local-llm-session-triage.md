@@ -17,6 +17,7 @@
 - **実装言語:** TypeScript。ビルドステップ・トランスパイラ・外部パッケージを**追加しない**。実行は `node <file>.ts`(Node v24 系は型ストリッピング既定有効)
 - **テスト:** `node:test` + `node:assert/strict`。既存 bats は bash 用のため併用
 - **コードの置き場:** chezmoi source の `dot_claude/scripts/triage/`。**`~/.claude/scripts/` を直接編集しない**(worktree が clean のままになり、コミットしたつもりの変更が残らない)
+- **合宿中はソースツリーから直接実行する。** すべての CLI は chezmoi source のパス(`node dot_claude/scripts/triage/*.ts`)で叩き、`~/.claude/scripts/` にデプロイされたコピーには依存しない。`chezmoi apply` が要るのは常用(cron 化)を決めてからであり、当日は不要
 - **ランタイム成果物の置き場:** `~/.claude/harness/` 配下(`digests/`, `triage.jsonl`, `gold-set.jsonl`)。chezmoi 管理外
 - **`~/.claude/harness/pending.jsonl` への書き込みを一切行わない。** 読み取り専用。SessionEnd hook が並行追記するため
 - **コミット単位:** 各タスク末尾で 1 コミット。ブランチは `docs/local-llm-session-triage-spec` を継続使用するか、実装用に切り直す
@@ -35,6 +36,7 @@
 | `dot_claude/scripts/triage/ollama.ts` | ollama HTTP クライアント。JSON スキーマ強制・thinking 制御・実測トークン数の取得 |
 | `dot_claude/scripts/triage/probe.ts` | ollama の挙動確認と tok/s 実測。モデル入れ替え時の再測定にも使う |
 | `dot_claude/scripts/triage/pick-gold.ts` | gold set 用の層化サンプリング。低シグナル層を主層に取る |
+| `dot_claude/scripts/triage/calibrate.ts` | 概算トークン数を ollama の実測値で較正する。ベースライン①を実測ベースに直す |
 | `dot_claude/scripts/triage/classify.ts` | ダイジェスト 1 件 → `TriageVerdict`。プロンプトとスキーマを保持 |
 | `dot_claude/scripts/triage/batch.ts` | 全件バッチ。レジューム・進捗表示・`triage.jsonl` への追記 |
 | `dot_claude/scripts/triage/evaluate.ts` | gold set に対する recall / 偽陽性の算出。層別に集計 |
@@ -557,10 +559,19 @@ Expected: `originalBytes` が数百万〜3000 万、`digestChars` が数千〜1.
 ```just
 # Run the session-triage TypeScript tests
 @test-triage:
-    node --test test/triage-*.test.ts
+    node --test test/
 ```
 
-- [ ] **Step 7: コミット**
+**グロブを書かないこと。** `node --test test/triage-*.test.ts` はシェルにグロブ展開を任せるため、この時点でまだ存在しない `triage-signals.test.ts` / `triage-batch.test.ts` にマッチせず、zsh が `no matches found` で落ちる。`lint` がこのターゲットに依存する以上、Task 2 から Task 7 まで `just lint` が赤いままになる。ディレクトリを渡して Node に探索させれば、`.bats` は Node のテスト判定パターンに合わないため無視される。
+
+- [ ] **Step 7: この時点で just lint が通ることを確認する**
+
+Run: `just lint`
+Expected: PASS
+
+**Task 9 まで lint 確認を先送りしない。** ここで通しておかないと、以降のタスクで壊れた場合に原因の切り分けができなくなる。
+
+- [ ] **Step 8: コミット**
 
 ```bash
 git add dot_claude/scripts/triage/transcript.ts test/triage-transcript.test.ts justfile
@@ -787,10 +798,57 @@ Run: `node dot_claude/scripts/triage/digest.ts`
 
 **この出力をメモに残す。** 特に「ダイジェスト合計トークン」は本プロジェクトで最も決定的な数字である。1M に収まるなら Layer 1 だけで実現可能性の問題は解決しており、Layer 2 の価値はコスト・レイテンシ・プライバシーに変わる。**その場合も設計は変えず、共有時にその事実を正直に述べる。**
 
-- [ ] **Step 7: コミット**
+- [ ] **Step 7: 概算トークン数を実測で較正する**
+
+ベースライン①は `estimateTokens` の概算に乗っている。**最も決定的な数字を推定のまま残さない。** ollama が返す `prompt_eval_count` は実測値なので、数件で比を取れば合計を実測ベースに直せる。
+
+`dot_claude/scripts/triage/calibrate.ts`:
+
+```typescript
+#!/usr/bin/env node
+/**
+ * estimateTokens の係数を ollama の実測 prompt_eval_count で較正する。
+ * ベースライン①(ダイジェスト合計トークン数)を推定から実測ベースに直すために使う。
+ */
+import { readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { generateJson } from "./ollama.ts";
+import { estimateTokens } from "./signals.ts";
+import type { Digest } from "./types.ts";
+
+const DIGEST_DIR = join(homedir(), ".claude", "harness", "digests");
+const files = readdirSync(DIGEST_DIR).filter((f) => f.endsWith(".json")).slice(0, 3);
+
+let estimated = 0;
+let actual = 0;
+for (const file of files) {
+  const digest: Digest = JSON.parse(readFileSync(join(DIGEST_DIR, file), "utf8"));
+  // 中身の判定は不要。プロンプトを投入した際のトークン数だけが欲しい
+  const r = await generateJson<{ ok: boolean }>({
+    model: process.argv[2] ?? "qwen3:8b",
+    prompt: digest.text,
+    schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+    think: false,
+    numCtx: 16384,
+  });
+  const est = estimateTokens(digest.text);
+  estimated += est;
+  actual += r.promptTokens;
+  console.log(`${digest.sessionId}: 概算 ${est} / 実測 ${r.promptTokens} (比 ${(r.promptTokens / est).toFixed(2)})`);
+}
+console.log(`\n補正係数: ${(actual / estimated).toFixed(3)}`);
+console.log("ベースライン①の合計トークンにこの係数を掛けた値を、実測ベースの数字として記録する");
+```
+
+Run: `node dot_claude/scripts/triage/calibrate.ts`
+
+補正後の合計が 1M を超えるか下回るかを記録する。**超えるなら Layer 1 だけでは 238 件を 1 セッションに載せられず、Layer 2 の存在理由が「可能にすること」になる。下回るならその逆であり、その事実をそのまま結果に書く。**
+
+- [ ] **Step 8: コミット**
 
 ```bash
-git add dot_claude/scripts/triage/signals.ts dot_claude/scripts/triage/digest.ts test/triage-signals.test.ts
+git add dot_claude/scripts/triage/signals.ts dot_claude/scripts/triage/digest.ts dot_claude/scripts/triage/calibrate.ts test/triage-signals.test.ts
 git commit -m "feat(triage): 摩擦シグナル集計とダイジェスト化CLIを追加"
 ```
 
