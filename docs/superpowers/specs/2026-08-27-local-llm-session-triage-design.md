@@ -45,6 +45,8 @@
 | 出力先 | `~/.claude/harness/triage.jsonl` に**追記のみ**。`pending.jsonl` は一切触らない |
 | モデル | `qwen3:8b` (Q4) から開始し、精度不足なら `qwen3:14b` (Q4) に上げる。同一 gold set で比較する |
 | ランタイム | ollama(ゼロから OpenAI 互換エンドポイントに到達するのが最速) |
+| 実装言語 | **TypeScript**(依存ゼロ・ビルドなし)。既存の `dot_claude/statusline-command.ts` が `node --experimental-strip-types` で動いている前例に従う。Node v24 系のため型ストリッピングは既定で有効 |
+| テスト | `node:test`(標準搭載・追加依存なし)。既存の bats は bash 用のため併用する |
 | 評価 | 手ラベル 20 件の gold set。正解率ではなく recall と偽陽性数を別々に追う |
 | ベースライン | ①ダイジェスト合計トークン数(算術) ②摩擦シグナル数によるソート の 2 つを対照群として先に測る |
 | spec の置き場 | 個人 harness 基盤のため業務リポジトリ外(chezmoi 配下) |
