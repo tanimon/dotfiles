@@ -31,6 +31,12 @@ const strata: Record<string, Cell> = {
   "low-signal": { truePositive: 0, falseNegative: 0, falsePositive: 0, trueNegative: 0 },
   "high-signal": { truePositive: 0, falseNegative: 0, falsePositive: 0, trueNegative: 0 },
 };
+// 出荷される選択ルールは LLM 単独ではなく「LLM true ∪ interrupts>=1」(report.ts の
+// isLayer3Candidate)。LLM 単独の数字だけ出すと、実際に届く recall を過小報告する
+const hybridStrata: Record<string, Cell> = {
+  "low-signal": { truePositive: 0, falseNegative: 0, falsePositive: 0, trueNegative: 0 },
+  "high-signal": { truePositive: 0, falseNegative: 0, falsePositive: 0, trueNegative: 0 },
+};
 
 let totalMs = 0;
 let evaluated = 0;
@@ -54,6 +60,12 @@ for (const label of gold) {
   if (verdict.has_learning) {
     severityCount[verdict.severity] = (severityCount[verdict.severity] ?? 0) + 1;
   }
+  const hybridPredicted = verdict.has_learning || digest.signals.interrupts >= 1;
+  const hybridCell = hybridStrata[label.stratum];
+  if (label.has_learning && hybridPredicted) hybridCell.truePositive++;
+  else if (label.has_learning && !hybridPredicted) hybridCell.falseNegative++;
+  else if (!label.has_learning && hybridPredicted) hybridCell.falsePositive++;
+  else hybridCell.trueNegative++;
   const cell = strata[label.stratum];
   if (label.has_learning && verdict.has_learning) cell.truePositive++;
   else if (label.has_learning && !verdict.has_learning) cell.falseNegative++;
@@ -66,18 +78,23 @@ for (const label of gold) {
   );
 }
 
-console.log(`\n=== ${model} / 層別集計 ===`);
-for (const [name, c] of Object.entries(strata)) {
-  const positives = c.truePositive + c.falseNegative;
-  const recall = positives === 0 ? null : c.truePositive / positives;
-  console.log(
-    `${name}: 陽性 ${positives} 件中 ${c.truePositive} 件を検出` +
-      (recall === null
-        ? " (陽性なし: recall 算出不能)"
-        : ` → recall ${(recall * 100).toFixed(0)}%`) +
-      ` / 偽陽性 ${c.falsePositive} 件`,
-  );
+function printStrata(title: string, cells: Record<string, Cell>): void {
+  console.log(title);
+  for (const [name, c] of Object.entries(cells)) {
+    const positives = c.truePositive + c.falseNegative;
+    const recall = positives === 0 ? null : c.truePositive / positives;
+    console.log(
+      `${name}: 陽性 ${positives} 件中 ${c.truePositive} 件を検出` +
+        (recall === null
+          ? " (陽性なし: recall 算出不能)"
+          : ` → recall ${(recall * 100).toFixed(0)}%`) +
+        ` / 偽陽性 ${c.falsePositive} 件`,
+    );
+  }
 }
+
+printStrata(`\n=== ${model} / 層別集計(LLM 単独) ===`, strata);
+printStrata("\n=== 複合ルール(LLM true ∪ interrupts>=1、出荷される選択) ===", hybridStrata);
 if (errors > 0) console.log(`分類エラーで集計から除外: ${errors} 件`);
 // severity が単一値に縮退しているとランキングキーとして機能しないため、分布をその場で見せる
 console.log(

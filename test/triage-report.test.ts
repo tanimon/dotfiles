@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compareTriageHits } from "../dot_claude/scripts/triage/report.ts";
+import { compareTriageHits, isLayer3Candidate } from "../dot_claude/scripts/triage/report.ts";
 import type { TriageRecord } from "../dot_claude/scripts/triage/types.ts";
 
 function record(severity: "high" | "medium" | "low", signalTotal: number): TriageRecord {
@@ -30,6 +30,23 @@ test("severity が異なれば severity 順(high が先)", () => {
     sorted.map((r) => r.verdict.severity),
     ["high", "medium", "low"],
   );
+});
+
+test("LLM が true なら候補になる", () => {
+  assert.equal(isLayer3Candidate(record("medium", 0)), true);
+});
+
+test("LLM が false でも interrupts>=1 なら候補になる(決定論オーバーライド)", () => {
+  const r = record("low", 1);
+  r.verdict.has_learning = false;
+  r.signals.interrupts = 1;
+  assert.equal(isLayer3Candidate(r), true);
+});
+
+test("LLM が false かつ interrupts=0 なら候補にならない", () => {
+  const r = record("low", 3);
+  r.verdict.has_learning = false;
+  assert.equal(isLayer3Candidate(r), false);
 });
 
 test("severity が同じならシグナル数の降順", () => {
