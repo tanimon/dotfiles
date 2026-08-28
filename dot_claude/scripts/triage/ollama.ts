@@ -22,6 +22,8 @@ export interface GenerateJsonOptions {
   temperature?: number;
   /** コンテキスト長。ダイジェストが入り切る値にする */
   numCtx?: number;
+  /** 反復縮退ループの抑制。既定は指定なし(モデル既定値) */
+  repeatPenalty?: number;
 }
 
 /**
@@ -42,6 +44,7 @@ export async function generateJson<T>(opts: GenerateJsonOptions): Promise<Ollama
       options: {
         temperature: opts.temperature ?? 0,
         num_ctx: opts.numCtx ?? 8192,
+        ...(opts.repeatPenalty !== undefined && { repeat_penalty: opts.repeatPenalty }),
       },
     }),
   });
