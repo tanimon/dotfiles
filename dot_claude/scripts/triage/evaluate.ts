@@ -35,6 +35,7 @@ const strata: Record<string, Cell> = {
 let totalMs = 0;
 let evaluated = 0;
 let errors = 0;
+const severityCount: Record<string, number> = {};
 for (const label of gold) {
   const digest: Digest = JSON.parse(
     readFileSync(join(HARNESS_DIR, "digests", `${label.session_id}.json`), "utf8"),
@@ -50,6 +51,9 @@ for (const label of gold) {
   }
   evaluated++;
   totalMs += elapsedMs;
+  if (verdict.has_learning) {
+    severityCount[verdict.severity] = (severityCount[verdict.severity] ?? 0) + 1;
+  }
   const cell = strata[label.stratum];
   if (label.has_learning && verdict.has_learning) cell.truePositive++;
   else if (label.has_learning && !verdict.has_learning) cell.falseNegative++;
@@ -75,6 +79,14 @@ for (const [name, c] of Object.entries(strata)) {
   );
 }
 if (errors > 0) console.log(`分類エラーで集計から除外: ${errors} 件`);
+// severity が単一値に縮退しているとランキングキーとして機能しないため、分布をその場で見せる
+console.log(
+  `severity 分布(true 判定のみ): ${
+    Object.entries(severityCount)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(" ") || "(true 判定なし)"
+  }`,
+);
 console.log(`平均レイテンシ: ${Math.round(totalMs / evaluated)} ms/件`);
 const digestCount = readdirSync(join(HARNESS_DIR, "digests")).filter((f) =>
   f.endsWith(".json"),
