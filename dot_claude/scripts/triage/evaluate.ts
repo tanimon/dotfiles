@@ -7,7 +7,7 @@
  *
  * 使い方: node evaluate.ts qwen3:8b
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { classifyDigest } from "./classify.ts";
@@ -76,4 +76,9 @@ for (const [name, c] of Object.entries(strata)) {
 }
 if (errors > 0) console.log(`分類エラーで集計から除外: ${errors} 件`);
 console.log(`平均レイテンシ: ${Math.round(totalMs / evaluated)} ms/件`);
-console.log(`238 件の推定所要時間: ${(((totalMs / evaluated) * 238) / 60000).toFixed(1)} 分`);
+const digestCount = readdirSync(join(HARNESS_DIR, "digests")).filter((f) =>
+  f.endsWith(".json"),
+).length;
+console.log(
+  `全 ${digestCount} 件の推定所要時間: ${(((totalMs / evaluated) * digestCount) / 60000).toFixed(1)} 分`,
+);
