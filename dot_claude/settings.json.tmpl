@@ -28,9 +28,12 @@
       "Bash(docker logs:*)",
       "Bash(docker ps:*)",
       "Bash(fd:*)",
+      {{/* gh api の PR レビュー投稿エンドポイントのみ allow。Bash ルールの `*` は「スペースを含む任意のテキスト」にマッチし `/` も跨ぐため、owner と repo をワイルドカード 2 つに分けても 1 つにまとめても動くが、絞れる分だけ 2 つに分ける形を採る。末尾 `:*` は「スペース + 任意」の意味なので、パス末尾に `/` が続く形 — レビュー削除 `.../reviews/<id> -X DELETE` や dismiss `.../reviews/<id>/dismissals -X PUT` — はマッチせず ask/クラシファイア判定に落ちる。つまりこの 2 行が無確認で通すのは「コレクションエンドポイントへの投稿」だけで、既存レビューの破壊的操作は含まれない。ただしこれはパスを先に書いた場合のみで、`gh api -X POST repos/...` のようにメソッドをパスより前に置く語順ではマッチせず毎回プロンプトが出る。 */ -}}
+      "Bash(gh api repos/*/*/pulls/*/comments:*)",
+      "Bash(gh api repos/*/*/pulls/*/reviews:*)",
       "Bash(gh issue comment:*)",
       "Bash(gh pr comment:*)",
-      "Bash(gh pr reviews:*)",
+      "Bash(gh pr review:*)",
       "Bash(gh pr view:*)",
       "Bash(gh repo list:*)",
       "Bash(git -c core.fsmonitor=false diff:*)",
@@ -148,7 +151,7 @@
       "Edit(/etc/sudoers)"
     ],
     {{/* Package/module install gate: installing new code is a supply-chain event, so it goes through a human. Precedence is deny > ask > allow, so the broad Bash(npm:*)/Bash(pnpm:*)/Bash(mise:*) entries in allow stay and these narrower ask entries win. Two deliberate holes: (1) Claude Code permissions match the Bash string the agent issues, NOT its subprocesses — `just lint` (Bash(just:*), still in allow) invokes pnpm without prompting; acceptable because just recipes are version-controlled and reviewable. (2) Lockfile restore (bare `pnpm install`, `npm ci`) is gated too, deliberately: splitting "new deps ask, restore allow" is an illusory boundary because an agent can edit package.json then run bare `pnpm install` straight through it. curl/wget moved from deny to ask (2026-08-01): they were previously hard-blocked to close `curl … | sh`, but that also blocked legitimate one-off downloads/API calls. ask still requires explicit approval per invocation, so `curl … | sh` is not silently executable — the boundary is now human review instead of a hard block. */ -}}
-    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/merge/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh pr view is read, gh pr create is write), so a noun-level gh pr:* wildcard would over-gate reads. Read-only gh (pr view/reviews, and unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api is left unlisted: its read/write intent lives in --method, not a fixed prefix, so it can't be prefix-gated cleanly. */ -}}
+    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/merge/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh pr view is read, gh pr create is write), so a noun-level gh pr:* wildcard would over-gate reads. Read-only gh (pr view, and unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh pr review は 2026-09-03 に ask から allow へ移した(PR レビュー投稿を毎回プロンプトで止めない運用に切り替えたため)。これは意図的な緩和で、`gh pr review --approve` が無確認かつ(sandbox.excludedCommands の `gh *` により)サンドボックス外で走ることを受け入れている — 上の push や gh pr merge と違い、承認は merge 権限そのものではなく人間のマージ操作を挟むため、外向きの影響が一段小さいという判断。gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api は原則として未列挙のまま(read/write の別が --method にあり、固定 prefix でゲートできないため)。例外は allow 側に置いた PR レビュー投稿用の 2 エントリのみで、そこだけは endpoint パス自体が write 意図を表すので prefix で表現できる — 詳細は allow 側のコメント参照。 */ -}}
     "ask": [
       "Bash(aws athena start-query-execution:*)",
       "Bash(brew bundle:*)",
@@ -183,7 +186,6 @@
       "Bash(gh pr merge:*)",
       "Bash(gh pr ready:*)",
       "Bash(gh pr reopen:*)",
-      "Bash(gh pr review:*)",
       "Bash(gh release create:*)",
       "Bash(gh release delete:*)",
       "Bash(gh release edit:*)",
