@@ -2,6 +2,9 @@ LICENSE
 README.md
 CLAUDE.md
 AGENTS.md
+# CONTEXT.md は glossary の正典（mattpocock-skills の /domain-modeling 系が読み書きする）。
+# CONCEPTS.md はその前身で deprecated — どちらも repo-only（docs/agents/domain.md 参照）
+CONTEXT.md
 CONCEPTS.md
 .chezmoiremove
 
