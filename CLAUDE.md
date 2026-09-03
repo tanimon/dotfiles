@@ -126,7 +126,8 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-gh-extensions.sh`) |
 | `test/` | bats-core test suites — one `.bats` file per script under test, run via `just test-*` targets |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
-| `CONCEPTS.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts |
+| `CONTEXT.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts. Glossary format per mattpocock-skills' `CONTEXT-FORMAT.md`; see `docs/agents/domain.md` |
+| `CONCEPTS.md` | **Deprecated** predecessor of `CONTEXT.md`. Read-only archive: keeps the longer background paragraphs that don't fit `CONTEXT-FORMAT.md`'s one-to-two-sentence limit. Never add new terms here |
 
 ### Pre-commit Hooks
 
@@ -217,3 +218,17 @@ Use the `/browse` skill from gstack for **all web browsing**. Never use `mcp__cl
 ### Available Skills
 
 `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/retro`, `/investigate`, `/document-release`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (`tanimon/dotfiles`, via the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name. `triage` does not create labels itself — see the creation commands in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context, on mattpocock-skills' default layout: the glossary is `CONTEXT.md` (`CONCEPTS.md` is its deprecated predecessor, kept as a read-only archive) and ADRs live in `docs/adr/` — distinct from `docs/solutions/`, which records past breakages rather than decisions. See `docs/agents/domain.md`.
