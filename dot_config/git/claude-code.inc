@@ -15,7 +15,20 @@
 # 上書きは含まれていなかった)。GIT_CONFIG_GLOBALはsettings.json.tmplの`env`経由で
 # Claude Code自身のプロセスにのみ渡るため、通常のインタラクティブなターミナル作業では
 # ~/.gitconfigのfsmonitor=trueがそのまま有効(CLAUDECODE分岐が不要になった)。
+#
+# 背景2 (credential.helper): サンドボックスのHTTPプロキシ
+# (localhost:<ランダムポート>)向けのcredential storeがGCM経由でキーチェーンに
+# 書き込もうとして失敗し、git push等のたびに
+# `warning: Permission denied (localhost:<port>)` と
+# `fatal: Could not create new item [0x186a1]` がstderrに出る。
+# helperをラッパースクリプトに差し替え、ループバック宛だけ捨てて他はGCMへ委譲する。
+# credential.helperは多値キーなので、includeで積まれた分(~/.gitconfigのGCMと
+# /opt/homebrew/etc/gitconfigのosxkeychain)を空値でリセットしてから追加する。
+# 詳細は claude-code-credential-helper.sh のコメント参照。
 [include]
   path = ~/.gitconfig
 [core]
   fsmonitor = false
+[credential]
+  helper =
+  helper = "!~/.config/git/claude-code-credential-helper.sh"
