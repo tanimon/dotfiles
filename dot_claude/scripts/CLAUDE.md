@@ -1,8 +1,9 @@
 # Claude Code Hook Scripts
 
 Guidance for `dot_claude/scripts/`. Moved out of the project root `CLAUDE.md` (2026-07-26) —
-narrowly scoped to this directory's notification hook, so it only needs to load when working
-here. See `.claude/rules/shell-scripts.md` for general hook-script conventions.
+narrowly scoped to this directory's hooks (notification delivery, worktree seeding), so it
+only needs to load when working here. See `.claude/rules/shell-scripts.md` for general
+hook-script conventions.
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` is wired to
 `Notification` (permission requests, idle waits) and `StopFailure` (the turn ended because
@@ -39,3 +40,30 @@ because `message` is always empty for `StopFailure`. Suppressed invocations log 
 an empty log inside an orca workspace is the expected result rather than evidence the hook is
 broken.
 Design: `docs/superpowers/specs/2026-07-25-notification-hook-redesign-design.md`.
+
+**Worktree seeding hook** — `dot_claude/scripts/executable_worktree-include.sh` is wired to
+`SessionStart` (`startup|resume|clear`) and copies the files a repository's `.worktreeinclude`
+lists from the **main** worktree into the linked worktree the session is running in.
+`.worktreeinclude` is git-worktree-runner's convention, but only `gtr new` acts on it — a
+worktree created by orca or by plain `git worktree add` starts without the gitignored local
+files a session needs (`CLAUDE.local.md`, `.claude/settings.local.json`). Firing at
+SessionStart rather than at worktree-creation time is deliberate: orca exposes no
+create-time hook, and the later trigger also heals worktrees that already exist.
+**Copy-if-absent, never overwrite** — SessionStart fires again on every resume and `/clear`,
+and Claude Code itself writes `.claude/settings.local.json` inside the worktree whenever the
+user picks "always allow"; an overwriting sync would erase that on the next resume. This is
+also why the hook does not simply shell out to `git gtr copy`, whose `cp` is unconditional
+(and which is absent in CI). Every guard exits 0 — a missing `.worktreeinclude`, a
+non-worktree cwd, a main-worktree cwd — and stdout stays empty unless a file was actually
+copied, because SessionStart stdout becomes the session's additional context.
+Pattern semantics deliberately diverge from gtr in one place: a **leading `/` is read as
+"anchored at the repo root"** the way `.gitignore` does it, whereas gtr classifies it as an
+absolute path and silently drops the line (verified: `git gtr copy --dry-run` reports
+`Skipping unsafe pattern … /.claude/settings.local.json`). Those `.worktreeinclude` lines have
+therefore never been honored by gtr itself; on the **work** profile the defect was masked
+because `dot_gitconfig.tmpl` separately sets `gtr.copy.include = .claude/settings.local.json`,
+which `gtr new` does act on — so the file appeared anyway and nobody noticed the dropped line.
+`..` segments are still refused, directories are skipped (regular files
+only), and `**` is not supported. `gtr.copy.include` from gitconfig is deliberately **not**
+read — reimplementing gtr's merge rules would double-copy under `gtr new`.
+Tested by `just test-scripts` (`test/worktree-include.bats`).
