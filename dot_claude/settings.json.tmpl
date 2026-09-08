@@ -312,6 +312,11 @@
           {
             "type": "command",
             "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/harness-briefing.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/worktree-include.sh\" 2>>\"$HOME/.claude/logs/worktree-include-errors.log\" || true'",
+            "timeout": 10
           }
         ]
       },

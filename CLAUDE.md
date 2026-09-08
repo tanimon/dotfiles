@@ -83,6 +83,8 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` wires notification delivery to `Notification`/`StopFailure` only. See `dot_claude/scripts/CLAUDE.md` for the full detail (matcher filtering, orca handoff, delivery backend fallback).
 
+**Worktree seeding hook** — `dot_claude/scripts/executable_worktree-include.sh` runs at `SessionStart` and copies the files a repo's `.worktreeinclude` lists from the main worktree into the linked worktree, filling the gap left when a worktree is created by anything other than `gtr new` (orca, plain `git worktree add`). Copy-if-absent, never overwrite. See `dot_claude/scripts/CLAUDE.md` for the full detail (why not `git gtr copy`, the deliberate leading-`/` divergence from gtr, pattern semantics).
+
 **Automated security alert handling** — `.github/workflows/security-alerts.yml` runs a weekly Saturday sweep (schedule) and supports manual dispatch (`gh workflow run security-alerts.yml`). Uses `claude-code-action` to analyze all open security alerts (Dependabot, code scanning, secret scanning) and either auto-fix (low-risk Dependabot/code scanning → PR) or escalate (high-risk/secret scanning → issue with `security` label).
 
 **Scheduled workflow failure alerting** — The scheduled workflow
