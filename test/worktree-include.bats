@@ -90,6 +90,74 @@ hook() {
     refute [ -e "$WT/escape.txt" ]
 }
 
+@test "a symlinked file is refused instead of having its target copied" {
+    # The ".." check only sees what the pattern spells; a symlink reaches
+    # outside the main worktree without spelling anything.
+    printf 'OUTSIDE\n' >"$BATS_TEST_TMPDIR/secret.txt"
+    ln -s "$BATS_TEST_TMPDIR/secret.txt" "$MAIN/leak.txt"
+    printf 'leak.txt\n' >"$MAIN/.worktreeinclude"
+
+    run hook "$WT"
+    assert_success
+    assert_output --partial 'resolves outside the main worktree'
+    refute [ -e "$WT/leak.txt" ]
+}
+
+@test "a symlinked directory component is refused" {
+    # Non-symlink leaf, symlinked parent — the leaf-only check misses this.
+    mkdir -p "$BATS_TEST_TMPDIR/outside"
+    printf 'OUTSIDE\n' >"$BATS_TEST_TMPDIR/outside/hosts"
+    ln -s "$BATS_TEST_TMPDIR/outside" "$MAIN/sub"
+    printf 'sub/hosts\n' >"$MAIN/.worktreeinclude"
+
+    run hook "$WT"
+    assert_success
+    assert_output --partial 'resolves outside the main worktree'
+    refute [ -e "$WT/sub/hosts" ]
+}
+
+@test "a symlinked destination directory is refused before mkdir runs" {
+    mkdir -p "$BATS_TEST_TMPDIR/outside2" "$MAIN/dst"
+    printf 'LANDED\n' >"$MAIN/dst/settings.local.json"
+    ln -s "$BATS_TEST_TMPDIR/outside2" "$WT/dst"
+    printf 'dst/settings.local.json\n' >"$MAIN/.worktreeinclude"
+
+    run hook "$WT"
+    assert_success
+    assert_output --partial 'destination resolves outside'
+    refute [ -e "$BATS_TEST_TMPDIR/outside2/settings.local.json" ]
+}
+
+@test "a dangling symlink in the worktree is not written through" {
+    printf 'CLAUDE.local.md\n' >"$MAIN/.worktreeinclude"
+    printf 'from main\n' >"$MAIN/CLAUDE.local.md"
+    # Not -e, so an -e-only guard would let cp follow it out of the worktree.
+    ln -s "$BATS_TEST_TMPDIR/pwned.txt" "$WT/CLAUDE.local.md"
+
+    run hook "$WT"
+    assert_success
+    assert_output ''
+    refute [ -e "$BATS_TEST_TMPDIR/pwned.txt" ]
+}
+
+@test "a listed name containing a space is copied" {
+    printf 'my file.local\n' >"$MAIN/.worktreeinclude"
+    printf 'spaced\n' >"$MAIN/my file.local"
+
+    run hook "$WT"
+    assert_success
+    assert [ -f "$WT/my file.local" ]
+}
+
+@test "trailing whitespace and a CR are not part of the pattern" {
+    printf 'CLAUDE.local.md  \r\n' >"$MAIN/.worktreeinclude"
+    printf 'local notes\n' >"$MAIN/CLAUDE.local.md"
+
+    run hook "$WT"
+    assert_success
+    assert [ -f "$WT/CLAUDE.local.md" ]
+}
+
 @test "a glob pattern copies every match" {
     printf 'env/*.local\n' >"$MAIN/.worktreeinclude"
     mkdir -p "$MAIN/env"
