@@ -1,6 +1,6 @@
 [".claude/skills/gstack"]
   type = "archive"
-  url = "https://github.com/garrytan/gstack/archive/94993f74012782fd94416dd44b8314f6363a13a4.tar.gz"
+  url = "https://github.com/garrytan/gstack/archive/71f6048e8ada25180e61438abc1d98cb151fe9a7.tar.gz"
   # renovate: branch=main
   stripComponents = 1
   refreshPeriod = "168h"
