@@ -541,6 +541,8 @@
         "/var/folders",
         "~/.cache",
         "~/.cargo",
+        {{/* PR レビュー自動化ループの state ルート。ループは work/<repo> に作業コピーを作り、locks/ logs/ reviews/ failures/ へも書き込む。これらは cwd 外への書き込みになるため、既定の write 境界（cwd + セッション $TMPDIR）では silent deny になる。上の temp/scratch 群とは許可の根拠が別（OS 管理の一時領域ではなくツール固有の state ディレクトリ）で、$PATH 上の実行ファイル・システム設定・シェル rc は含まないため付与して安全。 */ -}}
+        "~/.local/state/pr-review-automation-loop",
         "~/.npm",
         "~/.rustup",
         "~/Library/pnpm/store",
