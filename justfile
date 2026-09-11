@@ -41,7 +41,7 @@ shellcheck:
     if command -v shellcheck >/dev/null 2>&1; then
         if [ -n "{{shell_files}}" ]; then
             echo "Running shellcheck..."
-            shellcheck {{shell_files}}
+            shellcheck -x {{shell_files}}
         else
             echo "No shell files found"
         fi
