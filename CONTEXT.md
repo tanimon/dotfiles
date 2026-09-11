@@ -62,6 +62,18 @@ _Avoid_: 一括同期、上書き
 製品のバージョン文字列ではなく、実際の挙動(`--help` 出力等)で必須機能の有無を確かめる検査。存在しない・minVersion 未満・capability 欠落は FAIL、maxVerifiedVersion 超は WARN。
 _Avoid_: バージョンチェック、互換性チェック
 
+**Harness Policy**:
+Harness Manifest に構造化して置く、機械検証可能なポリシー(runtime 要件、Target と Owner、後続チケットで権限・hook・MCP の意図)。自然言語の指示は含まない。
+_Avoid_: 設定、ルール(無限定)
+
+**Content Module**:
+再利用可能な自然言語の指示を収めた Markdown。Runtime Adapter が製品ごとの指示ファイルに render する Source。
+_Avoid_: テンプレート、指示ファイル(生成物と区別がつかない)
+
+**Managed Project**:
+`harness init` で明示的に登録され、プロジェクト固有の Source を自分で所有し、生成された Target を commit するリポジトリ。未登録のリポジトリは同期対象にならない。
+_Avoid_: 対象リポ、管理対象(無限定)
+
 ### Profiles
 
 **Machine Profile**:

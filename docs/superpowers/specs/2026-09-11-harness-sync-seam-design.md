@@ -96,12 +96,12 @@ test/
 | `runtimes.<name>.versionArgs` | 任意 | 既定 `["--version"]` |
 | `runtimes.<name>.capabilities[]` | 任意 | `name` / `args`(配列)/ `pattern`(ERE)。`bin args` の stdout+stderr を `grep -E pattern` で照合 |
 | `targets` | 必須 | 配列(空可) |
-| `targets[].path` | 必須 | `--root` からの相対パス。**重複は reject** |
+| `targets[].path` | 必須 | `--root` からの相対パス。**重複は reject**。絶対パス・`.`/`..` セグメント・`//` は reject(正規化はしない) |
 | `targets[].runtime` | 必須 | `runtimes` に存在するキー。無ければ reject |
 | `targets[].owner` | 必須 | adapter 名。`<adapterDir>/<owner>.sh` が実行可能でなければ reject |
 | `targets[].source` 等 | 任意 | adapter 固有。`file` adapter は `source`(`--source-dir` からの相対パス)を必須とする |
 
-検証エラーはすべて `manifest: <理由>` 形式で stderr に出し exit 2。理由文はどのフィールド・どの値が問題かを含める(例: `manifest: targets[].path "AGENTS.md" の owner が重複しています (file, copy)`)。
+検証エラーはすべて `manifest: <理由>` 形式で stderr に出し exit 2。理由文はどのフィールド・どの値が問題かを含める(例: `manifest: target "AGENTS.md" の owner が重複しています (file, copy)`)。
 
 ## Runtime Adapter 契約
 
@@ -113,7 +113,7 @@ test/
 - adapter は `<staging-file>` に Target の完全な内容を書き、exit 0 で返す。
 - 非 0 exit、または `<staging-file>` が生成されなかった場合は render 失敗。
 - adapter ディレクトリの解決順: `HARNESS_ADAPTER_DIR`(設定時)→ `harness/adapters`。テストは前者で fixture adapter を差し込む。
-- `file` adapter: `$HARNESS_SOURCE_DIR/<target.source>` を `<staging-file>` に `cp` する。`source` 欠落・ファイル無しは exit 1 とメッセージ。
+- `file` adapter: `$HARNESS_SOURCE_DIR/<target.source>` を `<staging-file>` に `cp` する。`source` 欠落・ファイル無しは exit 1 とメッセージ。`source` にも `targets[].path` と同じ拒否ルール(絶対パス・`.`/`..` セグメント・`//`)を適用し、`HARNESS_SOURCE_DIR` の外を読ませない。
 
 ## `sync` の手順(Atomic Sync)
 
@@ -121,7 +121,7 @@ test/
 2. `mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX"` で staging を作り、`trap` で必ず削除する。
 3. 全 target について adapter を実行し `staging/<index>` に render する。**1 つでも失敗したら**その target と owner と exit code を `FAIL` で報告し、live に触れず exit 1。
 4. 全体検証: 全 `staging/<index>` が通常ファイルとして存在することを確認する。
-5. 置換: target ごとに `cmp -s staging live` が一致なら `unchanged`。異なれば親ディレクトリを作成し、`live` と同じディレクトリに一時ファイルを書いて `mv -f` で置換(同一ファイルシステム内の rename なので原子的)、`updated` と報告。
+5. 置換: target ごとに `cmp -s staging live` が一致なら `unchanged`。異なれば親ディレクトリを作成し、`live` と同じディレクトリに一時ファイルを書いて `mv -f` で置換(同一ファイルシステム内の rename なので原子的)、`updated` と報告。モードは既存 live に合わせ、新規は 0644。置換に失敗した target は `FAIL` で報告して残りの target は続け、最後に exit 1。live が symlink の target が 1 つでもあれば、置換前に全体を `FAIL` で止める(#309 では symlink Target 未対応)。
 6. `harness sync: N updated, M unchanged` を出して exit 0。
 
 `init` / `update` は `harness <cmd>: 未実装です (#322 / #323 で実装)` を stderr に出して exit 64。
@@ -149,13 +149,13 @@ test/
 
 すべて `harness/bin/harness.sh` を外部コマンドとして呼ぶ。内部関数は直接呼ばない(#308 Testing Decisions「primary test seam is the external harness command surface」)。
 
-- `HOME=$BATS_TEST_TMPDIR`、`PATH="$BATS_TEST_TMPDIR/bin:$PATH"` で stub 実行ファイル(`claude` / `codex` / `cursor` / `apm`)を生成し、`--version` と `--help` の出力を制御する。
-- fixture adapter `flaky.sh` は環境変数 `HARNESS_FIXTURE_FAIL=1` のとき exit 1、それ以外は target の `content` フィールドを書く。
+- `HOME=$BATS_TEST_TMPDIR`、`PATH="$BATS_TEST_TMPDIR/bin:$PATH"` で stub 実行ファイル(`fixture-claude` / `fixture-codex` / `fixture-cursor` / `fixture-apm`)を生成し、`--version` と `--help` の出力を制御する。`claude`/`codex` 等の本物の名前を使うと、stub を消した「欠落」テストが PATH 上の本物にフォールスルーして再現できない(ローカルで失敗し CI で通るテストになる)ため `fixture-*` にする。
+- fixture adapter `flaky.sh` は環境変数 `HARNESS_FIXTURE_FAIL=1` のとき exit 7、それ以外は target の `content` フィールドを書く。
 - Contrast Pair(#308「Every Safety Invariant that could fail open will have a Contrast Pair」):
   - Atomic Sync: `HARNESS_FIXTURE_FAIL=1` で全 live Target のハッシュが不変、フラグなしで同じ manifest が全 Target を更新する。
   - Target Owner: `path` 重複 manifest は reject、重複を除いた同じ manifest は通る。
   - runtime 明示: `runtimes` 欠落は reject、明示すれば通る。
-- 冪等性: `sync` を 2 回実行し、2 回目が `0 updated` かつ全 Target の `stat` mtime が不変。
+- 冪等性: `sync` を 2 回実行し、2 回目が `0 updated` かつ全 Target の `stat` mtime が不変。モードは既存 live に合わせ、新規は 0644。
 - drift: `sync` 後に 1 Target を手で書き換え、`check` が exit 1 で `DRIFT` 行に owner 名を含む。`check` 後に live が書き換えられていないこと。
 - `just lint` に `test-harness-sync` を組み込む(AC「existing lint entry point runs the new behavior tests」)。CI は `lint.yml` に 1 job 追加(既存 `harness-loop-scripts` job と同型)。
 
