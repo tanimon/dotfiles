@@ -38,7 +38,7 @@ instructions の実生成(#310/#311)、MCP 配布(#312)、権限ポリシー(#31
 
 ## 用語(CONTEXT.md に追加する)
 
-#308 は「用語は glossary に記録済み」と述べているが、実際の `CONTEXT.md` には Risk Tier と Contrast Pair しか無い。#309 のコードが導入する以下 5 語を `CONTEXT.md` に追加する(ADR は #308 全体の決定なので本チケットでは書かない)。
+#308 は「用語は glossary に記録済み」と述べているが、実際の `CONTEXT.md` には Risk Tier と Contrast Pair しか無い。#309 のコードが導入する以下 5 語を `CONTEXT.md` に追加する。方式の決定は `docs/adr/0001`〜`0003` に記録した。
 
 - **Harness Manifest**: runtime・capability・Target とその Owner を機械検証可能に宣言する JSON。
 - **Target Owner**: ある Target の最終内容を書く唯一のコンポーネント(adapter)。manifest で 1 target につき 1 owner。
@@ -177,4 +177,4 @@ test/
 - `sync` の drift 拒否(unapproved drift)と state 記録は #310/#322 で扱う。
 - `chezmoi apply` からの `harness sync` 呼び出し(fatal / escape hatch)は #324。`harness/` は repo-only なので `run_` スクリプトは `{{ .chezmoi.sourceDir }}/harness/bin/harness.sh` を呼べばよい。
 - runtime-mixed ファイル(`~/.claude.json` 等)の snapshot 付き部分更新は本設計に含めない。
-- ADR(semantic core / 単一 Target Owner の決定)は #308 の完了時に書く。
+- ADR: semantic core / 単一 Target Owner(`docs/adr/0001`)、Atomic Sync とロールバック方針(`0002`)、bash 3.2 + jq / JSON manifest(`0003`)を記録済み。
