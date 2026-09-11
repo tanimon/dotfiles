@@ -82,12 +82,14 @@ EOF
     chmod +x "$STUB_BIN/$name"
 }
 
-# stub_all: 4 runtime すべてを write_manifest の範囲内のバージョンで用意する
+# stub_all: 4 runtime すべてを write_manifest の範囲内のバージョンで用意する。
+# bin 名は fixture-* にする: "codex" のままだと stub を消しても PATH 上の本物の codex が
+# 見つかって「欠落」を再現できない(ローカルでは失敗し CI では通る、というテストになる)
 stub_all() {
-    make_stub claude 2.1.268 "  --settings <file>  Load settings"
-    make_stub codex 0.147.0
-    make_stub cursor 3.17.21
-    make_stub apm 0.30.0
+    make_stub fixture-claude 2.1.268 "  --settings <file>  Load settings"
+    make_stub fixture-codex 0.147.0
+    make_stub fixture-cursor 3.17.21
+    make_stub fixture-apm 0.30.0
 }
 
 # write_manifest [TARGETS_JSON]: 4 runtime を宣言した manifest を書く(targets は引数、既定は空)
@@ -97,12 +99,12 @@ write_manifest() {
   "version": 1,
   "runtimes": {
     "claude": {
-      "bin": "claude", "minVersion": "2.0.0", "maxVerifiedVersion": "2.5.0",
+      "bin": "fixture-claude", "minVersion": "2.0.0", "maxVerifiedVersion": "2.5.0",
       "capabilities": [ { "name": "settings", "args": ["--help"], "pattern": "--settings" } ]
     },
-    "codex":  { "bin": "codex",  "minVersion": "0.100.0", "maxVerifiedVersion": "0.200.0" },
-    "cursor": { "bin": "cursor", "minVersion": "3.0.0",   "maxVerifiedVersion": "3.99.0" },
-    "apm":    { "bin": "apm",    "minVersion": "0.30.0",  "maxVerifiedVersion": "0.30.0" }
+    "codex":  { "bin": "fixture-codex",  "minVersion": "0.100.0", "maxVerifiedVersion": "0.200.0" },
+    "cursor": { "bin": "fixture-cursor", "minVersion": "3.0.0",   "maxVerifiedVersion": "3.99.0" },
+    "apm":    { "bin": "fixture-apm",    "minVersion": "0.30.0",  "maxVerifiedVersion": "0.30.0" }
   },
   "targets": ${1:-[]}
 }
@@ -320,8 +322,10 @@ manifest_target() {
 # adapter_path OWNER: adapter 実行ファイルのパスを出力。
 # 解決順は HARNESS_ADAPTER_DIR(設定時)→ $HARNESS_HOME/adapters。無ければ return 1
 adapter_path() {
-    local owner=$1 dir candidate
-    for dir in ${HARNESS_ADAPTER_DIR:+"$HARNESS_ADAPTER_DIR"} "$HARNESS_HOME/adapters"; do
+    local owner=$1 dir candidate dirs=()
+    [ -z "${HARNESS_ADAPTER_DIR:-}" ] || dirs+=("$HARNESS_ADAPTER_DIR")
+    dirs+=("$HARNESS_HOME/adapters")
+    for dir in "${dirs[@]}"; do
         candidate="$dir/$owner.sh"
         if [ -x "$candidate" ]; then
             printf '%s\n' "$candidate"
@@ -393,6 +397,12 @@ set -euo pipefail
 HARNESS_HOME=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export HARNESS_HOME
 
+# staging ディレクトリはスクリプト全体で 1 つ。trap は関数を抜けた後(スクリプト終了時)に評価されるので
+# local ではなくグローバルに持つ(local だと set -u で未定義になり削除されない)
+HARNESS_STAGING=""
+trap 'rm -rf "${HARNESS_STAGING:-}"' EXIT
+
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/report.bash
 source "$HARNESS_HOME/lib/report.bash"
 # shellcheck source=../lib/manifest.bash
@@ -491,8 +501,8 @@ harness
 
 - [ ] **Step 7: テストと lint を通す**
 
-Run: `just test-harness-sync && just shellcheck && just shfmt && chezmoi ignored --source "$(pwd)" | grep -x harness`
-Expected: bats 11 件 PASS、shellcheck / shfmt エラーなし、`harness` が ignored に出る
+Run: `just test-harness-sync && just shellcheck && just shfmt && chezmoi ignored --source "$(pwd)" | grep -q '^harness' && [ "$(chezmoi managed --source "$(pwd)" | grep -c '^harness')" = 0 ]`
+Expected: bats 11 件 PASS、shellcheck / shfmt エラーなし、`harness` が ignored に出て managed には 1 件も出ない(`--source "$(pwd)"` は必須。無いと main の source を見て vacuous に通る — CLAUDE.md「Known Pitfalls」)
 
 - [ ] **Step 8: Commit**
 
@@ -535,18 +545,18 @@ git commit -m "feat(harness): Harness Manifest の検証と harness.sh 入口を
 
 @test "runtime が 1 つでも無ければ full check は FAIL し、残りは報告される" {
     stub_all
-    rm "$STUB_BIN/codex"
+    rm "$STUB_BIN/fixture-codex"
     write_manifest
     run harness check --manifest "$MANIFEST" --root "$ROOT"
     assert_failure 1
-    assert_line 'FAIL runtime codex: 見つかりません (bin: codex)'
+    assert_line 'FAIL runtime codex: 見つかりません (bin: fixture-codex)'
     assert_line 'OK   runtime claude 2.1.268'
     assert_line 'harness check: 1 failures, 0 warnings'
 }
 
 @test "minVersion 未満は FAIL" {
     stub_all
-    make_stub cursor 2.0.0
+    make_stub fixture-cursor 2.0.0
     write_manifest
     run harness check --manifest "$MANIFEST" --root "$ROOT"
     assert_failure 1
@@ -555,7 +565,7 @@ git commit -m "feat(harness): Harness Manifest の検証と harness.sh 入口を
 
 @test "maxVerifiedVersion 超は WARN だけで exit 0" {
     stub_all
-    make_stub claude 2.9.0 "  --settings <file>"
+    make_stub fixture-claude 2.9.0 "  --settings <file>"
     write_manifest
     run harness check --manifest "$MANIFEST" --root "$ROOT"
     assert_success
@@ -565,7 +575,7 @@ git commit -m "feat(harness): Harness Manifest の検証と harness.sh 入口を
 
 @test "capability の pattern が help に無ければ FAIL" {
     stub_all
-    make_stub claude 2.1.268 "  --nothing-here"
+    make_stub fixture-claude 2.1.268 "  --nothing-here"
     write_manifest
     run harness check --manifest "$MANIFEST" --root "$ROOT"
     assert_failure 1
@@ -574,7 +584,7 @@ git commit -m "feat(harness): Harness Manifest の検証と harness.sh 入口を
 
 @test "バージョンを解釈できなければ FAIL" {
     stub_all
-    make_stub apm unknown
+    make_stub fixture-apm unknown
     write_manifest
     run harness check --manifest "$MANIFEST" --root "$ROOT"
     assert_failure 1
@@ -583,13 +593,13 @@ git commit -m "feat(harness): Harness Manifest の検証と harness.sh 入口を
 
 @test "versionArgs で --version 以外のサブコマンドも使える" {
     stub_all
-    cat >"$STUB_BIN/apm" <<'EOF'
+    cat >"$STUB_BIN/fixture-apm" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" = version ] && echo "apm 0.30.0"
 EOF
-    chmod +x "$STUB_BIN/apm"
+    chmod +x "$STUB_BIN/fixture-apm"
     cat >"$MANIFEST" <<'EOF'
-{ "version": 1, "runtimes": { "apm": { "bin": "apm", "minVersion": "0.30.0", "versionArgs": ["version"] } }, "targets": [] }
+{ "version": 1, "runtimes": { "apm": { "bin": "fixture-apm", "minVersion": "0.30.0", "versionArgs": ["version"] } }, "targets": [] }
 EOF
     run harness check --manifest "$MANIFEST" --root "$ROOT"
     assert_success
@@ -598,7 +608,7 @@ EOF
 
 @test "--runtime で 1 runtime だけを明示選択でき、他の欠落は無視される" {
     stub_all
-    rm "$STUB_BIN/codex"
+    rm "$STUB_BIN/fixture-codex"
     write_manifest
     run harness check --manifest "$MANIFEST" --root "$ROOT" --runtime claude
     assert_success
@@ -607,7 +617,7 @@ EOF
 
     run harness check --manifest "$MANIFEST" --root "$ROOT" --runtime codex
     assert_failure 1
-    assert_line 'FAIL runtime codex: 見つかりません (bin: codex)'
+    assert_line 'FAIL runtime codex: 見つかりません (bin: fixture-codex)'
     refute_output --partial 'claude'
 }
 
@@ -765,7 +775,8 @@ git commit -m "feat(harness): runtime の Capability Probe を check に追加 (
 - Produces:
   - `render_all STAGING_DIR [RUNTIME_FILTER]`: 対象 target を `STAGING_DIR/<index>` に render。失敗 target は `report_fail` して最後に return 1(live は触らない)
   - `validate_staging STAGING_DIR [RUNTIME_FILTER]`: 対象 target 全件の staging ファイルが通常ファイルとして存在すれば 0
-  - `replace_all STAGING_DIR`: staging を live に反映。`HARNESS_UPDATED` / `HARNESS_UNCHANGED` に件数を集計し、target ごとに `updated   <path>` / `unchanged <path>` を出力
+  - `replace_all STAGING_DIR`: staging を live に反映。target ごとに `updated   <path>` / `unchanged <path>` を出力し、最後に `harness sync: N updated, M unchanged` を出力
+  - staging ディレクトリはスクリプト全体で 1 つのグローバル `HARNESS_STAGING`(Task 1 の `harness.sh` 冒頭で宣言・trap 済み)。`cmd_sync` / `cmd_check` はこれに `mktemp -d` の結果を代入する
   - `target_selected TARGET_JSON RUNTIME_FILTER`: filter が空か runtime が一致すれば 0(Task 4 の compare も使う)
   - adapter 契約: `<adapter> render <staging-file> <target-json>`(env: `HARNESS_MANIFEST` / `HARNESS_ROOT` / `HARNESS_SOURCE_DIR`)
   - `adapters/file.sh`: target の `source`(`HARNESS_SOURCE_DIR` 相対)を staging に `cp`
@@ -887,10 +898,10 @@ Expected: Task 3 の 6 件が FAIL(`cmd_sync` 未定義で `command not found`)�
 #   source 欠落・不在は exit 1(spec「Runtime Adapter 契約」)。
 set -euo pipefail
 
-[ "${1:-}" = render ] && [ $# -eq 3 ] || {
+if ! { [ "${1:-}" = render ] && [ $# -eq 3 ]; }; then
     echo "file adapter: 使い方: file.sh render <staging-file> <target-json>" >&2
     exit 64
-}
+fi
 staging=$2
 target=$3
 
@@ -963,18 +974,16 @@ validate_staging() {
 }
 
 # replace_all STAGING_DIR: staging を live に反映する。内容が同じなら mv せず mtime も変えない。
-# 件数は HARNESS_UPDATED / HARNESS_UNCHANGED に集計する
+# 最後に "harness sync: N updated, M unchanged" を出力する
 replace_all() {
-    local staging=$1 count i path live tmp
-    HARNESS_UPDATED=0
-    HARNESS_UNCHANGED=0
+    local staging=$1 count i path live tmp updated=0 unchanged=0
     count=$(manifest_target_count)
     for ((i = 0; i < count; i++)); do
         path=$(manifest_target "$i" | jq -r .path)
         live="$HARNESS_ROOT/$path"
         if [ -f "$live" ] && cmp -s "$staging/$i" "$live"; then
             printf 'unchanged %s\n' "$path"
-            HARNESS_UNCHANGED=$((HARNESS_UNCHANGED + 1))
+            unchanged=$((unchanged + 1))
             continue
         fi
         mkdir -p "$(dirname "$live")"
@@ -984,8 +993,9 @@ replace_all() {
         cp "$staging/$i" "$tmp"
         mv -f "$tmp" "$live"
         printf 'updated   %s\n' "$path"
-        HARNESS_UPDATED=$((HARNESS_UPDATED + 1))
+        updated=$((updated + 1))
     done
+    printf 'harness sync: %d updated, %d unchanged\n' "$updated" "$unchanged"
 }
 ```
 
@@ -1004,15 +1014,12 @@ source "$HARNESS_HOME/lib/render.bash"
 # cmd_sync RUNTIME_FILTER: Atomic Sync。RUNTIME_FILTER は受け取るが sync は常に全 target を対象にする
 # (1 runtime だけ新版に進む状態を作らないため。#308「a failure cannot leave only one product on a new policy version」)
 cmd_sync() {
-    local staging
-    staging=$(mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX")
-    trap 'rm -rf "$staging"' EXIT
+    HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX")
 
-    if ! render_all "$staging" || ! validate_staging "$staging"; then
+    if ! render_all "$HARNESS_STAGING" || ! validate_staging "$HARNESS_STAGING"; then
         die 1 "harness sync: render に失敗したため Target を変更しませんでした"
     fi
-    replace_all "$staging"
-    printf 'harness sync: %d updated, %d unchanged\n' "$HARNESS_UPDATED" "$HARNESS_UNCHANGED"
+    replace_all "$HARNESS_STAGING"
 }
 ```
 
@@ -1155,11 +1162,9 @@ compare_all() {
 
 ```bash
     # drift: 対象 runtime の target を staging に render して live と比較する(live は変更しない)
-    local staging
-    staging=$(mktemp -d "${TMPDIR:-/tmp}/harness-check-XXXXXX")
-    trap 'rm -rf "$staging"' EXIT
-    render_all "$staging" "$filter" || true
-    compare_all "$staging" "$filter"
+    HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-check-XXXXXX")
+    render_all "$HARNESS_STAGING" "$filter" || true
+    compare_all "$HARNESS_STAGING" "$filter"
 ```
 
 `cmd_check` の冒頭コメントを「runtime の Capability Probe と Target の drift 比較」に直す。
