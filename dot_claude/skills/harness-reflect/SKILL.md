@@ -59,7 +59,9 @@ this; the review skill parses `^## ` headers and `- **Key:**` fields):
 - **Source:** session <session_id>
 ```
 
-Write entries in English (they feed English-language rules and docs).
+Write entry bodies in Japanese, per `~/.claude/rules/common/documentation-language.md`.
+Keep the field labels above (`## [date] title`, `- **What happened:**` …) verbatim — the
+review skill parses them.
 
 ## Bookkeeping (after appending)
 

@@ -23,6 +23,9 @@
 .claude/scripts/notify.mts
 .claude/scripts/notify.mjs
 
+# gemini CLI is not installed anywhere (Brewfile / mise / PATH); the command was dead
+.claude/commands/gemini-search.md
+
 # Retired sandbox wrappers, replaced by nono (see .config/nono/profiles/claude-seal.json)
 .config/safehouse
 .config/cco

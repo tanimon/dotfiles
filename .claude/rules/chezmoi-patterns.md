@@ -56,4 +56,4 @@ For files managed by external tools (plugins, extensions):
 
 Examples: gh extensions (`dot_config/gh/extensions.txt` + `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` + `scripts/update-gh-extensions.sh`)
 
-複数のツールが同じ設定ファイルに書き込む場合は、ハッシュゲート(`run_onchange_`)ではなく無条件で毎回実行する`run_after_`を使う（例: `apm-install`。APMが書くフックが`settings.json.tmpl`の完全管理と競合するため、`apm.yml`の変化有無に関わらず毎apply後に再同期する必要がある）。
+外部ツールが書き込む設定ファイルを、chezmoi 所有の `.tmpl` も毎 apply で再レンダリングする（= 2 者が同じファイルを取り合う）場合だけ、ハッシュゲート(`run_onchange_`)ではなく無条件で毎回実行する `run_after_` を使う。競合する `.tmpl` が無ければ `run_onchange_` で足りる。例: `apm-install` は `~/.claude.json` の `mcpServers` だけを書き、そのファイルを chezmoi は管理しないので `run_onchange_after_apm-install.sh.tmpl`。判断基準の詳細は `docs/solutions/architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md`。
