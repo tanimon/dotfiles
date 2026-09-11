@@ -171,3 +171,103 @@ harness() {
     assert_failure 2
     assert_output --partial 'runtime "gemini" は runtimes に宣言されていません'
 }
+
+# ---------- Task 2: Capability Probe ----------
+
+@test "4 runtime が揃っていれば OK 行 4 つで exit 0" {
+    stub_all
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_success
+    assert_line 'OK   runtime apm 0.30.0'
+    assert_line 'OK   runtime claude 2.1.268'
+    assert_line 'OK   runtime codex 0.147.0'
+    assert_line 'OK   runtime cursor 3.17.21'
+    assert_line 'harness check: 0 failures, 0 warnings'
+}
+
+@test "runtime が 1 つでも無ければ full check は FAIL し、残りは報告される" {
+    stub_all
+    rm "$STUB_BIN/fixture-codex"
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 1
+    assert_line 'FAIL runtime codex: 見つかりません (bin: fixture-codex)'
+    assert_line 'OK   runtime claude 2.1.268'
+    assert_line 'harness check: 1 failures, 0 warnings'
+}
+
+@test "minVersion 未満は FAIL" {
+    stub_all
+    make_stub fixture-cursor 2.0.0
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 1
+    assert_line 'FAIL runtime cursor 2.0.0: minVersion 3.0.0 未満'
+}
+
+@test "maxVerifiedVersion 超は WARN だけで exit 0" {
+    stub_all
+    make_stub fixture-claude 2.9.0 "  --settings <file>"
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_success
+    assert_line 'WARN runtime claude 2.9.0: maxVerifiedVersion 2.5.0 を超えています (再検証が必要)'
+    assert_line 'harness check: 0 failures, 1 warnings'
+}
+
+@test "capability の pattern が help に無ければ FAIL" {
+    stub_all
+    make_stub fixture-claude 2.1.268 "  --nothing-here"
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 1
+    assert_line 'FAIL runtime claude 2.1.268: capability settings がありません (pattern: --settings)'
+}
+
+@test "バージョンを解釈できなければ FAIL" {
+    stub_all
+    make_stub fixture-apm unknown
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 1
+    assert_output --partial 'FAIL runtime apm: バージョンを解釈できません'
+}
+
+@test "versionArgs で --version 以外のサブコマンドも使える" {
+    stub_all
+    cat >"$STUB_BIN/fixture-apm" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = version ] && echo "apm 0.30.0"
+EOF
+    chmod +x "$STUB_BIN/fixture-apm"
+    cat >"$MANIFEST" <<'EOF'
+{ "version": 1, "runtimes": { "apm": { "bin": "fixture-apm", "minVersion": "0.30.0", "versionArgs": ["version"] } }, "targets": [] }
+EOF
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_success
+    assert_line 'OK   runtime apm 0.30.0'
+}
+
+@test "--runtime で 1 runtime だけを明示選択でき、他の欠落は無視される" {
+    stub_all
+    rm "$STUB_BIN/fixture-codex"
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT" --runtime claude
+    assert_success
+    assert_line 'OK   runtime claude 2.1.268'
+    refute_output --partial 'codex'
+
+    run harness check --manifest "$MANIFEST" --root "$ROOT" --runtime codex
+    assert_failure 1
+    assert_line 'FAIL runtime codex: 見つかりません (bin: fixture-codex)'
+    refute_output --partial 'claude'
+}
+
+@test "--runtime に manifest に無い名前を渡すと exit 2" {
+    stub_all
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$ROOT" --runtime gemini
+    assert_failure 2
+    assert_output --partial 'runtime "gemini" は manifest に宣言されていません'
+}

@@ -19,6 +19,9 @@ source "$HARNESS_HOME/lib/report.bash"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/manifest.bash
 source "$HARNESS_HOME/lib/manifest.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../lib/probe.bash
+source "$HARNESS_HOME/lib/probe.bash"
 
 usage() {
     cat <<'EOF'
@@ -38,8 +41,24 @@ options:
 EOF
 }
 
-# cmd_check RUNTIME_FILTER: Task 1 時点では manifest 検証と summary のみ(Task 2 / 4 で拡張)
+# cmd_check RUNTIME_FILTER: runtime の Capability Probe(Task 4 で drift 比較を追加)。
+# RUNTIME_FILTER が空なら manifest の全 runtime、指定があればその 1 つだけ(明示選択)
 cmd_check() {
+    local filter=$1 name runtimes=()
+    if [ -n "$filter" ]; then
+        # shellcheck disable=SC2016 # $n は jq 自身の --arg 変数(シェル変数ではない)
+        [ "$(manifest_query --arg n "$filter" '.runtimes | has($n)')" = "true" ] ||
+            die 2 "harness check: runtime \"$filter\" は manifest に宣言されていません"
+        runtimes=("$filter")
+    else
+        while IFS= read -r name; do
+            runtimes+=("$name")
+        done < <(manifest_runtimes)
+    fi
+    for name in "${runtimes[@]}"; do
+        probe_runtime "$name"
+    done
+
     report_summary check
     [ "$HARNESS_FAILURES" -eq 0 ]
 }
