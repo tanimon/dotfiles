@@ -107,6 +107,8 @@ monitoring is deterministic shell — the briefing prints a status line every se
 silence itself signals a dead hook. Design:
 `docs/superpowers/specs/2026-07-06-harness-engineering-rebuild-design.md`.
 
+**Harness sync seam (`harness/`)** — Claude Code / Codex / Cursor / APM の harness 設定を 1 つの Harness Manifest(`harness/manifest.json`)から検証・同期する repo-only ツール(#308 の基盤、#309)。`bash harness/bin/harness.sh check` が 4 runtime の Capability Probe と Target の drift を報告し、`sync` が Atomic Sync(staging → 全体検証 → 置換)で Target を更新する。`init` / `update` は未実装(#322 / #323)。`harness/` は `.chezmoiignore` で除外され `~/` には配置されない。#309 時点では `targets` は空で、live の harness は変更しない。adapter は `harness/adapters/<owner>.sh render <staging-file> <target-json>` の契約で追加する。設計: `docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md`
+
 ### `.chezmoiignore`
 
 Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache, etc.) so only curated config files are managed. Also excludes repo-only files like `docs/`, `package.json`, `node_modules/`.
@@ -125,6 +127,7 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 | `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), rules, commands, plugins, scripts (hooks), keybindings |
 | `dot_apm/` | APM (microsoft/apm) global manifest: `apm.yml` — declares MCP servers only (`dependencies.mcp`), deployed to `~/.apm/apm.yml`. Skills/plugins are managed via native Claude Code marketplace (`enabledPlugins`/`extraKnownMarketplaces` in `dot_claude/settings.json.tmpl`), not APM |
 | `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
+| `harness/` | Harness Manifest(`manifest.json`)と同期・検証ツール(`bin/harness.sh`、`lib/`、`adapters/`)。repo-only、`~/` に配置されない |
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-gh-extensions.sh`) |
 | `test/` | bats-core test suites — one `.bats` file per script under test, run via `just test-*` targets |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
@@ -152,6 +155,7 @@ just zizmor                    # Security audit GitHub Actions workflows
 just test-modify               # Smoke test modify_ scripts
 just test-scripts              # Smoke test harness scripts
 just test-harness-scripts      # Smoke test harness loop scripts (trigger/briefing/doctor)
+just test-harness-sync         # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 just check-templates           # Validate chezmoi .tmpl files
 just scan-sensitive            # Scan every file for PII, credentials, and literal work-org / account names
 just test-sensitive            # Smoke test sensitive info scanner

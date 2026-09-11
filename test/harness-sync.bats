@@ -436,3 +436,16 @@ check() {
     assert_success
     assert_equal "$(find "$TMPDIR" -mindepth 1 | wc -l | tr -d ' ')" '0'
 }
+
+# ---------- Task 5: 本物の manifest ----------
+
+@test "リポジトリの harness/manifest.json は検証を通り、apm の probe 形式が実際の help 出力と合う" {
+    # apm --help の実出力(2026-09-11, v0.30.0)の該当行を模した stub。他 3 runtime は --runtime apm で対象外
+    make_stub apm 0.30.0 '  audit         Scan installed primitives
+  install       Install APM, MCP, and LSP dependencies
+  prune         Remove APM packages absent from the resolved dependency'
+    run harness check --manifest "$BATS_TEST_DIRNAME/../harness/manifest.json" --root "$ROOT" --runtime apm
+    assert_success
+    assert_line 'OK   runtime apm 0.30.0'
+    assert_line 'harness check: 0 failures, 0 warnings'
+}

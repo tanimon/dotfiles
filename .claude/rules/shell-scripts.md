@@ -5,6 +5,7 @@ paths:
   - ".chezmoiscripts/**"
   - "scripts/**"
   - "dot_claude/scripts/**"
+  - "harness/**"
 ---
 
 # Shell Scripts

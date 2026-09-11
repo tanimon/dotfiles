@@ -40,6 +40,28 @@ _Avoid_: ホスト実行許可、bypass、除外リスト
 fail open で無効化されうる仕組みを検証する手法。対象の許可や設定を1つだけ取り除いた実行で結果が反転することまで確認して、初めて仕組みが機能している証拠になる。
 _Avoid_: 対比ペア、対照検証
 
+### Harness sync
+
+**Harness Manifest**:
+runtime・必須 capability・Target とその Owner を機械検証可能に宣言する JSON(`harness/manifest.json`)。runtime は明示必須で、暗黙検出は reject される。
+_Avoid_: 設定ファイル(無限定)、マニフェスト(無限定)
+
+**Target Owner**:
+ある Target の最終内容を書く唯一のコンポーネント。Harness Manifest では 1 target につき 1 つの adapter 名で指名し、同じ path を 2 つの owner が持つ manifest は無効。
+_Avoid_: 生成元、担当
+
+**Runtime Adapter**:
+Harness Policy を製品固有の表現に render する実行体(`harness/adapters/<owner>.sh render <staging-file> <target-json>`)。Target Owner として指名される。
+_Avoid_: ジェネレータ、プラグイン
+
+**Atomic Sync**:
+全 Target を staging に render し、全体が検証に通った後だけ live を置換する同期方式。1 つでも render に失敗すれば既存 Target は 1 つも変わらない。
+_Avoid_: 一括同期、上書き
+
+**Capability Probe**:
+製品のバージョン文字列ではなく、実際の挙動(`--help` 出力等)で必須機能の有無を確かめる検査。存在しない・minVersion 未満・capability 欠落は FAIL、maxVerifiedVersion 超は WARN。
+_Avoid_: バージョンチェック、互換性チェック
+
 ### Profiles
 
 **Machine Profile**:
