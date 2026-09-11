@@ -13,6 +13,7 @@
 # HARNESS_MANIFEST_JSON(compact JSON)を設定する
 manifest_load() {
     local path=$1
+    command -v jq >/dev/null 2>&1 || die 2 "manifest: jq が必要です (brew install jq)"
     [ -f "$path" ] || die 2 "manifest: ファイルがありません: $path"
     HARNESS_MANIFEST_JSON=$(jq -c . "$path" 2>/dev/null) || die 2 "manifest: JSON として解釈できません: $path"
     HARNESS_MANIFEST="$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
@@ -101,6 +102,15 @@ manifest_validate() {
         [ -n "$path" ] || die 2 "manifest: targets[$i].path が必要です"
         [ -n "$runtime" ] || die 2 "manifest: targets[$i].runtime が必要です"
         [ -n "$owner" ] || die 2 "manifest: targets[$i].owner が必要です"
+
+        # path は正規化せず拒否する(realpath は macOS 標準に無い): 絶対パス・"."/".." セグメント・
+        # 空セグメント(//)・改行を含む path は、"./AGENTS.md" のような別表記で重複検出(生パスの
+        # 文字列一致)をすり抜け、1 Target に 2 owner を許してしまう(#309 レビュー Critical-1)
+        local path_invalid
+        path_invalid=$(manifest_query --argjson i "$i" '.targets[$i].path | test("^/|(^|/)\\.\\.?(/|$)|//|\n")')
+        [ "$path_invalid" = "false" ] ||
+            die 2 "manifest: target \"$path\" の path は正規化された相対パスでなければなりません (先頭の /、. や .. のセグメント、// は使えません)"
+
         [ "$(manifest_query --arg n "$runtime" '.runtimes | has($n)')" = "true" ] ||
             die 2 "manifest: target \"$path\" の runtime \"$runtime\" は runtimes に宣言されていません"
         adapter_path "$owner" >/dev/null ||

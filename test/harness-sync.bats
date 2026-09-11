@@ -172,6 +172,48 @@ harness() {
     assert_output --partial 'runtime "gemini" は runtimes に宣言されていません'
 }
 
+@test "./AGENTS.md と AGENTS.md を別 owner で持つ manifest は path 形式の段階で reject される" {
+    stub_all
+    write_manifest '[
+      { "path": "./AGENTS.md", "runtime": "codex", "owner": "flaky", "content": "a" },
+      { "path": "AGENTS.md", "runtime": "codex", "owner": "other", "content": "b" }
+    ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'path は正規化された相対パスでなければなりません'
+}
+
+@test "../ を含む path は reject され --root の外に書かれない" {
+    write_manifest '[ { "path": "../escaped.md", "runtime": "codex", "owner": "flaky", "content": "escaped" } ]'
+    run sync
+    assert_failure 2
+    assert_output --partial 'path は正規化された相対パスでなければなりません'
+    assert [ ! -e "$BATS_TEST_TMPDIR/escaped.md" ]
+}
+
+@test "file adapter は ../ を含む source を拒否する" {
+    printf 'escaped\n' >"$BATS_TEST_TMPDIR/escaped.md"
+    write_manifest '[ { "path": "AGENTS.md", "runtime": "codex", "owner": "file", "source": "../escaped.md" } ]'
+    run sync
+    assert_failure 1
+    assert_line 'FAIL target AGENTS.md: adapter file が exit 1'
+    assert_output --partial 'は正規化された相対パスでなければなりません'
+}
+
+@test "値のないオプションは exit 64" {
+    run harness check --manifest
+    assert_failure 64
+    assert_output --partial 'には値が必要です'
+}
+
+@test "HOME 未設定で --root も無ければ exit 2" {
+    stub_all
+    write_manifest
+    run env -u HOME bash "$HARNESS" check --manifest "$MANIFEST"
+    assert_failure 2
+    assert_output --partial 'HOME 未設定なら --root を指定してください'
+}
+
 # ---------- Task 2: Capability Probe ----------
 
 @test "4 runtime が揃っていれば OK 行 4 つで exit 0" {
@@ -274,7 +316,9 @@ EOF
 
 # ---------- Task 3: Atomic Sync ----------
 
-# two_targets: file adapter と flaky adapter の target を 1 つずつ持つ manifest と source を用意する
+# two_targets: file adapter と flaky adapter の target を 1 つずつ持つ manifest と source を用意する。
+# flaky を最後(index 1)に置くのは意図的: 「1 件目を置換してから 2 件目で失敗する」実装を
+# Contrast Pair テストで捕まえるため、順序を変えないこと
 two_targets() {
     printf 'from source v1\n' >"$SRC/agents.md"
     write_manifest '[
@@ -368,6 +412,35 @@ EOF
     assert_line 'FAIL target x.md: adapter silent が出力を生成しませんでした'
 }
 
+@test "sync --runtime は使えない" {
+    two_targets
+    run sync --runtime codex
+    assert_failure 64
+    assert_output --partial 'harness sync: --runtime は sync では使えません'
+}
+
+@test "live Target が symlink なら sync は何も置換せず FAIL" {
+    two_targets
+    printf 'elsewhere\n' >"$BATS_TEST_TMPDIR/elsewhere.md"
+    mkdir -p "$ROOT"
+    ln -s "$BATS_TEST_TMPDIR/elsewhere.md" "$ROOT/AGENTS.md"
+    run sync
+    assert_failure 1
+    assert_output --partial 'symlink の Target は #309 では未対応です'
+    assert [ ! -e "$ROOT/.cursor/rules/shared.mdc" ]
+    assert [ -L "$ROOT/AGENTS.md" ]
+}
+
+@test "置換したファイルのモードは既存 live を引き継ぐ" {
+    two_targets
+    sync
+    chmod 600 "$ROOT/AGENTS.md"
+    printf 'from source v2\n' >"$SRC/agents.md"
+    run sync
+    assert_success
+    assert_equal "$(stat -f '%Lp' "$ROOT/AGENTS.md" 2>/dev/null || stat -c '%a' "$ROOT/AGENTS.md")" '600'
+}
+
 # ---------- Task 4: drift 検出 ----------
 
 check() {
@@ -426,6 +499,17 @@ check() {
     assert_failure 1
     assert_line 'FAIL target .cursor/rules/shared.mdc: adapter flaky が exit 7'
     assert_line 'OK   target AGENTS.md'
+}
+
+@test "check も symlink Target を FAIL で報告する" {
+    stub_all
+    two_targets
+    printf 'elsewhere\n' >"$BATS_TEST_TMPDIR/elsewhere.md"
+    mkdir -p "$ROOT"
+    ln -s "$BATS_TEST_TMPDIR/elsewhere.md" "$ROOT/AGENTS.md"
+    run check
+    assert_failure 1
+    assert_output --partial 'symlink の Target は #309 では未対応です'
 }
 
 @test "check は staging を残さない" {

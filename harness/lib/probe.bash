@@ -15,8 +15,9 @@ version_lt() {
 }
 
 # extract_version TEXT: 最初の X.Y.Z を出力。無ければ return 1
+# (head -n1 は pipefail 下で SIGPIPE による偽陰性を持ちうるため sed -n 1p を使う)
 extract_version() {
-    grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$1" | head -n1 | grep .
+    grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$1" | sed -n 1p | grep .
 }
 
 # run_capture BIN ARGS...: stdout+stderr を結合して出力。exit code は握りつぶす

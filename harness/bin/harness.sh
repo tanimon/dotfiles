@@ -74,12 +74,13 @@ cmd_check() {
 # cmd_sync RUNTIME_FILTER: Atomic Sync。RUNTIME_FILTER は受け取るが sync は常に全 target を対象にする
 # (1 runtime だけ新版に進む状態を作らないため。#308「a failure cannot leave only one product on a new policy version」)
 cmd_sync() {
+    [ -z "$1" ] || die 64 "harness sync: --runtime は sync では使えません (sync は常に全 Target を対象にします)"
     HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX")
 
     if ! render_all "$HARNESS_STAGING" || ! validate_staging "$HARNESS_STAGING"; then
         die 1 "harness sync: render に失敗したため Target を変更しませんでした"
     fi
-    replace_all "$HARNESS_STAGING"
+    replace_all "$HARNESS_STAGING" || die 1 "harness sync: 一部の Target を置換できませんでした (上の FAIL 行を確認してください)"
 }
 
 main() {
@@ -90,22 +91,26 @@ main() {
     local command=$1
     shift
 
-    local manifest="$HARNESS_HOME/manifest.json" root="$HOME" source_dir="$HARNESS_HOME/.." runtime=""
+    local manifest="$HARNESS_HOME/manifest.json" root=${HOME:-} source_dir="$HARNESS_HOME/.." runtime=""
     while [ $# -gt 0 ]; do
         case $1 in
         --manifest)
+            [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
             manifest=$2
             shift 2
             ;;
         --root)
+            [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
             root=$2
             shift 2
             ;;
         --source-dir)
+            [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
             source_dir=$2
             shift 2
             ;;
         --runtime)
+            [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
             runtime=$2
             shift 2
             ;;
@@ -128,7 +133,7 @@ main() {
     *) die 64 "harness: 不明なコマンド: $command" ;;
     esac
 
-    [ -d "$root" ] || die 2 "harness: --root がディレクトリではありません: $root"
+    [ -d "$root" ] || die 2 "harness: --root がディレクトリではありません (HOME 未設定なら --root を指定してください): $root"
     [ -d "$source_dir" ] || die 2 "harness: --source-dir がディレクトリではありません: $source_dir"
     HARNESS_ROOT=$(cd "$root" && pwd)
     HARNESS_SOURCE_DIR=$(cd "$source_dir" && pwd)

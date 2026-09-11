@@ -17,6 +17,12 @@ source_rel=$(jq -r '.source // empty' <<<"$target")
     echo "file adapter: target に source がありません: $target" >&2
     exit 1
 }
+# source も manifest の path と同じ拒否ルール(HARNESS_SOURCE_DIR の外を読ませない)
+if [[ "$source_rel" =~ ^/ ]] || [[ "$source_rel" =~ (^|/)\.\.?(/|$) ]] ||
+    [[ "$source_rel" == *//* ]] || [[ "$source_rel" == *$'\n'* ]]; then
+    echo "file adapter: source \"$source_rel\" は正規化された相対パスでなければなりません" >&2
+    exit 1
+fi
 source_path="$HARNESS_SOURCE_DIR/$source_rel"
 [ -f "$source_path" ] || {
     echo "file adapter: source がありません: $source_path" >&2
