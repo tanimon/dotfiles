@@ -22,6 +22,9 @@ source "$HARNESS_HOME/lib/manifest.bash"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/probe.bash
 source "$HARNESS_HOME/lib/probe.bash"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../lib/render.bash
+source "$HARNESS_HOME/lib/render.bash"
 
 usage() {
     cat <<'EOF'
@@ -61,6 +64,17 @@ cmd_check() {
 
     report_summary check
     [ "$HARNESS_FAILURES" -eq 0 ]
+}
+
+# cmd_sync RUNTIME_FILTER: Atomic Sync。RUNTIME_FILTER は受け取るが sync は常に全 target を対象にする
+# (1 runtime だけ新版に進む状態を作らないため。#308「a failure cannot leave only one product on a new policy version」)
+cmd_sync() {
+    HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX")
+
+    if ! render_all "$HARNESS_STAGING" || ! validate_staging "$HARNESS_STAGING"; then
+        die 1 "harness sync: render に失敗したため Target を変更しませんでした"
+    fi
+    replace_all "$HARNESS_STAGING"
 }
 
 main() {

@@ -271,3 +271,99 @@ EOF
     assert_failure 2
     assert_output --partial 'runtime "gemini" は manifest に宣言されていません'
 }
+
+# ---------- Task 3: Atomic Sync ----------
+
+# two_targets: file adapter と flaky adapter の target を 1 つずつ持つ manifest と source を用意する
+two_targets() {
+    printf 'from source v1\n' >"$SRC/agents.md"
+    write_manifest '[
+      { "path": "AGENTS.md", "runtime": "codex", "owner": "file", "source": "agents.md" },
+      { "path": ".cursor/rules/shared.mdc", "runtime": "cursor", "owner": "flaky", "content": "flaky v1" }
+    ]'
+}
+
+sync() {
+    harness sync --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" "$@"
+}
+
+sha() {
+    shasum -a 256 "$1" | cut -d' ' -f1
+}
+
+@test "sync は全 target を render して配置し、親ディレクトリも作る" {
+    two_targets
+    run sync
+    assert_success
+    assert_equal "$(cat "$ROOT/AGENTS.md")" 'from source v1'
+    assert_equal "$(cat "$ROOT/.cursor/rules/shared.mdc")" 'flaky v1'
+    assert_line 'updated   AGENTS.md'
+    assert_line 'updated   .cursor/rules/shared.mdc'
+    assert_line 'harness sync: 2 updated, 0 unchanged'
+}
+
+@test "adapter が 1 つでも失敗すると既存 Target は 1 つも変わらず、失敗を除けば全部進む(Contrast Pair)" {
+    two_targets
+    sync
+    local before_agents before_rules
+    before_agents=$(sha "$ROOT/AGENTS.md")
+    before_rules=$(sha "$ROOT/.cursor/rules/shared.mdc")
+
+    # Source を進めたうえで flaky だけを失敗させる: file 側の候補も live に出てはいけない
+    printf 'from source v2\n' >"$SRC/agents.md"
+    HARNESS_FIXTURE_FAIL=1 run sync
+    assert_failure 1
+    assert_line 'FAIL target .cursor/rules/shared.mdc: adapter flaky が exit 7'
+    assert_output --partial 'Target を変更しませんでした'
+    assert_equal "$(sha "$ROOT/AGENTS.md")" "$before_agents"
+    assert_equal "$(sha "$ROOT/.cursor/rules/shared.mdc")" "$before_rules"
+
+    # 対照: 同じ manifest・同じ Source で失敗を外せば両方進む
+    run sync
+    assert_success
+    assert_equal "$(cat "$ROOT/AGENTS.md")" 'from source v2'
+    assert_line 'harness sync: 1 updated, 1 unchanged'
+}
+
+@test "sync を 2 回実行しても 2 回目は何も変更しない(冪等)" {
+    two_targets
+    sync
+    local marker="$BATS_TEST_TMPDIR/marker"
+    sleep 1
+    touch "$marker"
+    run sync
+    assert_success
+    assert_line 'unchanged AGENTS.md'
+    assert_line 'harness sync: 0 updated, 2 unchanged'
+    # mtime が marker より新しい Target が 1 つも無い = mv すら起きていない
+    assert_equal "$(find "$ROOT" -type f -newer "$marker" | wc -l | tr -d ' ')" '0'
+}
+
+@test "sync は manifest に無いファイルに触れず、staging を残さない" {
+    two_targets
+    printf 'mine\n' >"$ROOT/notes.txt"
+    run sync
+    assert_success
+    assert_equal "$(cat "$ROOT/notes.txt")" 'mine'
+    assert_equal "$(find "$TMPDIR" -mindepth 1 | wc -l | tr -d ' ')" '0'
+}
+
+@test "file adapter は source が無ければ失敗し、sync は Target を作らない" {
+    write_manifest '[ { "path": "AGENTS.md", "runtime": "codex", "owner": "file", "source": "missing.md" } ]'
+    run sync
+    assert_failure 1
+    assert_line 'FAIL target AGENTS.md: adapter file が exit 1'
+    assert [ ! -e "$ROOT/AGENTS.md" ]
+}
+
+@test "adapter が staging ファイルを書かなければ失敗扱い" {
+    cat >"$HARNESS_ADAPTER_DIR/silent.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$HARNESS_ADAPTER_DIR/silent.sh"
+    write_manifest '[ { "path": "x.md", "runtime": "codex", "owner": "silent" } ]'
+    run sync
+    assert_failure 1
+    assert_line 'FAIL target x.md: adapter silent が出力を生成しませんでした'
+}
