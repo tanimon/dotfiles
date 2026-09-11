@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync test-nono-profile
 
 # Scan for leaked secrets
 @secretlint:
@@ -154,6 +154,10 @@ check-templates:
 # Smoke test harness loop scripts (reflect-trigger, briefing, doctor)
 @test-harness-scripts:
     pnpm exec bats test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats
+
+# Smoke test the harness sync/check seam (harness/bin/harness.sh)
+@test-harness-sync:
+    LC_ALL=C pnpm exec bats test/harness-sync.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:
