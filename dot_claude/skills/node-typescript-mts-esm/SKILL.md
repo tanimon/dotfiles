@@ -80,10 +80,3 @@ executable_hook.mts → ~/.claude/scripts/hook.mts  # clean execution
 - If running via a wrapper that copies to `/tmp`, preserve the `.mts` extension
   in the cached copy — Node.js uses the extension, not file content, to determine
   module type
-- For Seatbelt sandbox EPERM issues with `--experimental-strip-types`: Node's
-  `realpathSync` calls `lstat($HOME)` during module loading, which a sandbox deny
-  rule on `$HOME` rejects. The workaround is to cache the `.mts` source outside
-  `$HOME` and run it from there, preserving the `.mts` extension in the cached copy.
-  (This repo formerly shipped `executable_notify-wrapper.sh` doing exactly that; the
-  notification scripts were later rewritten in plain bash, so no in-repo example
-  remains.)

@@ -63,7 +63,8 @@ of caution are noise — deprecate aggressively; git history preserves them.
 ## Step 5: Implement and open ONE PR
 
 1. Create a branch `harness/review-YYYY-MM-DD` off `main`.
-2. Apply all adopted changes (new rules in English, following
+2. Apply all adopted changes (new rules in Japanese per
+   `~/.claude/rules/common/documentation-language.md`, structured per
    `~/.claude/rules/common/harness-engineering.md` writing guidelines).
 3. Run `just lint` and fix findings.
 4. Open one PR (body in Japanese) listing: adopted entries with their queue

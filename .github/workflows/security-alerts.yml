@@ -168,7 +168,7 @@ jobs:
                gh issue list --label security --state open --json number,title --limit 50
                ```
 
-            3. For each unhandled alert, follow the same logic as the individual handlers:
+            3. For each unhandled alert:
                - **Dependabot**: Check for Renovate PRs, attempt fix or create issue
                - **Code scanning**: Analyze and fix if low-risk, create issue if high-risk
                - **Secret scanning**: Always create high-priority issue

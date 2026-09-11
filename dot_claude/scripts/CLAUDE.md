@@ -1,9 +1,8 @@
 # Claude Code Hook Scripts
 
-Guidance for `dot_claude/scripts/`. Moved out of the project root `CLAUDE.md` (2026-07-26) —
-narrowly scoped to this directory's hooks (notification delivery, worktree seeding), so it
-only needs to load when working here. See `.claude/rules/shell-scripts.md` for general
-hook-script conventions.
+Guidance for `dot_claude/scripts/`, narrowly scoped to this directory's hooks (notification
+delivery, worktree seeding) so it only needs to load when working here. See
+`.claude/rules/shell-scripts.md` for general hook-script conventions.
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` is wired to
 `Notification` (permission requests, idle waits) and `StopFailure` (the turn ended because

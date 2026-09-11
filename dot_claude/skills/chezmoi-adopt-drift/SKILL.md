@@ -74,7 +74,7 @@ chezmoi source-path "$HOME/.zshrc"   # -> .../dot_zshrc  (or dot_zshrc.tmpl, etc
 | starts `symlink_`          | symlink         | skip                                   |
 
 Classify by inspecting the basename `chezmoi source-path` returns. Do not judge
-`modify_dot_claude.json` by its `.json` extension — the `modify_` prefix wins;
+`modify_karabiner.json` by its `.json` extension — the `modify_` prefix wins;
 it is a script.
 
 ### 3. Show the drift and let the user choose
@@ -135,8 +135,9 @@ shape:
   Preserve existing `{{ ... }}` regions. Read the file first to match its
   templating style.
 - **`modify_`:** the source is a script that transforms the current target on
-  stdin (see `modify_dot_claude.json`, which uses `jq` to own only a subset of
-  keys). Drift here means the *managed* portion changed. Only reflect the
+  stdin (see `dot_config/karabiner/modify_karabiner.json`, which uses `jq` to own
+  only `profiles[*].complex_modifications.rules`). Drift here means the *managed*
+  portion changed. Only reflect the
   change if it falls inside the keys the script owns; if the drift is in a
   key the script deliberately passes through untouched, there is nothing to
   adopt — tell the user. Never overwrite the script with target content.
