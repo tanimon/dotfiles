@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AI エージェント(Claude Code 等)が git commit 署名に使うローカル SSH 鍵を、
+# 無ければ生成する。~/.gitconfig の 1Password 署名は据え置き、Claude Code の git
+# だけが dot_config/git/claude-code.inc 経由でこの鍵を使う(背景はそのファイル参照)。
+#
+# - パスフレーズ無し: 人間不在で署名を通すのが目的なので、対話要素を持たせない。
+#   秘密鍵はエージェントが読める平文ファイルになる。GitHub の signing key は認証に
+#   使えず、マシン単位で revoke できることを緩和策として受容する
+#   (dot_config/nono/CLAUDE.md の Accepted security residuals 参照)。
+# - ~/.ssh 外に置く: 両サンドボックスが ~/.ssh の読み取りを拒否しているため。
+# - run_once_: 鍵は再生成すると GitHub 側の登録と食い違うので、一度だけ走らせる。
+#   存在チェックも入れ、既存鍵は決して上書きしない。
+# - 秘密鍵は chezmoi 管理外(.chezmoiignore の .config/git/signing)。GitHub への
+#   公開鍵登録は人手ステップ(gh に admin:ssh_signing_key スコープが必要で対話的)。
+
+key_dir="{{ .chezmoi.homeDir }}/.config/git/signing"
+key_path="${key_dir}/ai-agent"
+
+if [ -f "${key_path}" ]; then
+    echo "ai-agent signing key already exists: ${key_path}"
+    exit 0
+fi
+
+mkdir -p "${key_dir}"
+chmod 700 "${key_dir}"
+ssh-keygen -t ed25519 -N "" -C "ai-agent git signing ($(hostname -s))" -f "${key_path}"
+
+cat <<MSG
+
+Generated ai-agent git signing key: ${key_path}
+Register the PUBLIC key on GitHub as a *signing* key (not an authentication key):
+  gh auth refresh -h github.com -s admin:ssh_signing_key
+  gh ssh-key add "${key_path}.pub" --type signing --title "ai-agent ($(hostname -s))"
+or via https://github.com/settings/ssh/new with "Key type: Signing Key".
+Until it is registered, commits signed by Claude Code show as Unverified.
+MSG

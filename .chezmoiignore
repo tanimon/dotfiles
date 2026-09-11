@@ -18,6 +18,11 @@ windows/
 .config/gh/extensions.txt
 .config/nono/packs.txt
 
+# ~/.config/git/signing/ holds the AI-agent commit-signing private key, generated
+# on the machine by run_once_generate-ai-agent-signing-key.sh.tmpl. Never let
+# `chezmoi add`/`re-add` pull it into the (public) source tree.
+.config/git/signing
+
 # ~/.config/nono/packages/ is nono's own pack store (pulled by
 # run_onchange_after_pull-nono-packs.sh.tmpl, not managed by chezmoi)
 .config/nono/packages

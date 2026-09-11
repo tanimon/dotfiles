@@ -72,7 +72,10 @@
       "$XDG_STATE_HOME/gh/device-id",
       "$HOME/.vimrc",
       "$HOME/.tmux.conf",
-      "$HOME/.cVimrc"
+      "$HOME/.cVimrc",
+      "$XDG_CONFIG_HOME/git/claude-code.inc",
+      "$XDG_CONFIG_HOME/git/claude-code-credential-helper.sh",
+      "$XDG_CONFIG_HOME/git/signing/ai-agent"
     ],
     "bypass_protection": [
       "$HOME/.bashrc",

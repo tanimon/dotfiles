@@ -38,3 +38,33 @@ setup() {
     assert_success
     assert_output --partial "ALLOWED"
 }
+
+@test "claude-seal profile allows read on the ai-agent git signing key" {
+    if ! command -v nono >/dev/null 2>&1; then
+        skip "nono not installed"
+    fi
+    # Claude Code の git は claude-code.inc 経由でこの鍵(~/.ssh 外に置いた
+    # AI エージェント専用の署名鍵)で commit 署名する。~/.config/git 自体は
+    # プロファイルで grant されていない(path_not_granted)ため、read_file への
+    # 明示追加が無いと ssh-keygen -Y sign が鍵を読めず署名に失敗する。
+    run nono why --path "$HOME/.config/git/signing/ai-agent" --op read --profile "$PROFILE"
+    assert_success
+    assert_output --partial "ALLOWED"
+}
+
+@test "claude-seal profile allows read on the Claude Code git config override (GIT_CONFIG_GLOBAL)" {
+    if ! command -v nono >/dev/null 2>&1; then
+        skip "nono not installed"
+    fi
+    # settings.json.tmpl の env GIT_CONFIG_GLOBAL は ~/.config/git/claude-code.inc を
+    # 指す。git はこのファイルを読めないと(存在するのに EPERM)
+    # `fatal: unable to access '.../claude-code.inc': Operation not permitted` で
+    # あらゆるサブコマンドが失敗する(nono 内で実測、2026-09-11)。~/.config/git は
+    # git_config グループの grant 対象外なので、ファイル単位の read_file が必要。
+    run nono why --path "$HOME/.config/git/claude-code.inc" --op read --profile "$PROFILE"
+    assert_success
+    assert_output --partial "ALLOWED"
+    run nono why --path "$HOME/.config/git/claude-code-credential-helper.sh" --op read --profile "$PROFILE"
+    assert_success
+    assert_output --partial "ALLOWED"
+}
