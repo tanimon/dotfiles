@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AI エージェント(Claude Code 等)が git commit 署名に使うローカル SSH 鍵を、
+# 無ければ生成する。~/.gitconfig の 1Password 署名は据え置き、Claude Code の git
+# だけが dot_config/git/claude-code.inc 経由でこの鍵を使う。設計の背景(パスフレーズ
+# 無し・~/.ssh 外に置く理由)はそのファイルの「背景3」、受容する残存リスクは
+# dot_config/nono/CLAUDE.md の Accepted security residuals (4) を参照。
+#
+# 実行タイミング(run_onchange_): 下の hash 行は鍵ファイルの有無で内容が変わるため、
+# 鍵が消えた(バックアップ復元漏れ、GitHub 側で revoke して削除した等)次の
+# `chezmoi apply` で再実行され、新しい鍵と登録手順を出す。run_once_ だと chezmoi は
+# スクリプト内容のハッシュしか見ないので、鍵を消しても二度と走らず、Claude Code の
+# `git commit` が `Couldn't load public key` で恒久的に失敗する。
+# 「既存鍵を上書きしない」不変条件は下の `-f` チェックが担う(鍵を再生成すると
+# GitHub 側の登録と食い違うため、既存鍵には決して触らない)。
+# 秘密鍵は chezmoi 管理外(.chezmoiignore の .config/git/signing)。GitHub への
+# 公開鍵登録は人手ステップ(gh に admin:ssh_signing_key スコープが必要で対話的)。
+
+# ai-agent key present: {{ if stat (joinPath .chezmoi.homeDir ".config/git/signing/ai-agent") }}yes{{ else }}no{{ end }}
+
+key_dir="{{ .chezmoi.homeDir }}/.config/git/signing"
+key_path="${key_dir}/ai-agent"
+
+if [ -f "${key_path}" ]; then
+    echo "ai-agent signing key already exists: ${key_path}"
+    exit 0
+fi
+
+host="$(hostname -s)"
+mkdir -p "${key_dir}"
+chmod 700 "${key_dir}"
+ssh-keygen -t ed25519 -N "" -C "ai-agent git signing (${host})" -f "${key_path}"
+
+cat <<MSG
+
+Generated ai-agent git signing key: ${key_path}
+Register the PUBLIC key on GitHub as a *signing* key (not an authentication key):
+  gh auth refresh -h github.com -s admin:ssh_signing_key
+  gh ssh-key add "${key_path}.pub" --type signing --title "ai-agent (${host})"
+or via https://github.com/settings/ssh/new with "Key type: Signing Key".
+Until it is registered, commits signed by Claude Code show as Unverified.
+MSG
