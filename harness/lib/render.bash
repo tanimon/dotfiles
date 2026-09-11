@@ -72,3 +72,25 @@ replace_all() {
     done
     printf 'harness sync: %d updated, %d unchanged\n' "$updated" "$unchanged"
 }
+
+# compare_all STAGING_DIR [RUNTIME_FILTER]: staging と live を比較して drift を報告する。live は変更しない。
+# render に失敗した target(staging が無い)は render_all が FAIL 済みなので飛ばす
+compare_all() {
+    local staging=$1 filter=${2:-} count i target path owner live
+    count=$(manifest_target_count)
+    for ((i = 0; i < count; i++)); do
+        target=$(manifest_target "$i")
+        target_selected "$target" "$filter" || continue
+        [ -f "$staging/$i" ] || continue
+        path=$(jq -r .path <<<"$target")
+        owner=$(jq -r .owner <<<"$target")
+        live="$HARNESS_ROOT/$path"
+        if [ ! -f "$live" ]; then
+            report_drift "target $path: 存在しません (owner: $owner)"
+        elif ! cmp -s "$staging/$i" "$live"; then
+            report_drift "target $path: 内容が Source と異なります (owner: $owner)"
+        else
+            report_ok "target $path"
+        fi
+    done
+}

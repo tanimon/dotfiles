@@ -44,7 +44,7 @@ options:
 EOF
 }
 
-# cmd_check RUNTIME_FILTER: runtime の Capability Probe(Task 4 で drift 比較を追加)。
+# cmd_check RUNTIME_FILTER: runtime の Capability Probe と Target の drift 比較。
 # RUNTIME_FILTER が空なら manifest の全 runtime、指定があればその 1 つだけ(明示選択)
 cmd_check() {
     local filter=$1 name runtimes=()
@@ -61,6 +61,11 @@ cmd_check() {
     for name in "${runtimes[@]}"; do
         probe_runtime "$name"
     done
+
+    # drift: 対象 runtime の target を staging に render して live と比較する(live は変更しない)
+    HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-check-XXXXXX")
+    render_all "$HARNESS_STAGING" "$filter" || true
+    compare_all "$HARNESS_STAGING" "$filter"
 
     report_summary check
     [ "$HARNESS_FAILURES" -eq 0 ]

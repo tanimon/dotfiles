@@ -367,3 +367,72 @@ EOF
     assert_failure 1
     assert_line 'FAIL target x.md: adapter silent が出力を生成しませんでした'
 }
+
+# ---------- Task 4: drift 検出 ----------
+
+check() {
+    harness check --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" "$@"
+}
+
+@test "sync 直後の check は全 target が OK" {
+    stub_all
+    two_targets
+    sync
+    run check
+    assert_success
+    assert_line 'OK   target AGENTS.md'
+    assert_line 'OK   target .cursor/rules/shared.mdc'
+    assert_line 'harness check: 0 failures, 0 warnings'
+}
+
+@test "Target を直接編集すると check は owner 名付きの DRIFT で exit 1 し、Target は直さない" {
+    stub_all
+    two_targets
+    sync
+    printf 'hand edited\n' >"$ROOT/AGENTS.md"
+    run check
+    assert_failure 1
+    assert_line 'DRIFT target AGENTS.md: 内容が Source と異なります (owner: file)'
+    assert_line 'OK   target .cursor/rules/shared.mdc'
+    assert_equal "$(cat "$ROOT/AGENTS.md")" 'hand edited'
+}
+
+@test "Target が無ければ DRIFT(存在しません)" {
+    stub_all
+    two_targets
+    run check
+    assert_failure 1
+    assert_line 'DRIFT target AGENTS.md: 存在しません (owner: file)'
+    assert_line 'DRIFT target .cursor/rules/shared.mdc: 存在しません (owner: flaky)'
+    assert_line 'harness check: 2 failures, 0 warnings'
+}
+
+@test "--runtime を指定すると drift もその runtime の target だけを見る" {
+    stub_all
+    two_targets
+    sync
+    printf 'hand edited\n' >"$ROOT/AGENTS.md"
+    run check --runtime cursor
+    assert_success
+    assert_line 'OK   target .cursor/rules/shared.mdc'
+    refute_output --partial 'AGENTS.md'
+}
+
+@test "check 中の adapter 失敗は FAIL として報告し、他の target の比較は続ける" {
+    stub_all
+    two_targets
+    sync
+    HARNESS_FIXTURE_FAIL=1 run check
+    assert_failure 1
+    assert_line 'FAIL target .cursor/rules/shared.mdc: adapter flaky が exit 7'
+    assert_line 'OK   target AGENTS.md'
+}
+
+@test "check は staging を残さない" {
+    stub_all
+    two_targets
+    sync
+    run check
+    assert_success
+    assert_equal "$(find "$TMPDIR" -mindepth 1 | wc -l | tr -d ' ')" '0'
+}
