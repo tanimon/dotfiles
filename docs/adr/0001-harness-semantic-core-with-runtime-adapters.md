@@ -20,4 +20,4 @@ APM(v0.30)の採用範囲は **Dependency Plane に限定**する: 外部依存�
 - Managed Project は明示登録のみ(未登録リポジトリを走査・変更しない)。生成 Target への直接編集は drift として `check` が Owner 名付きで報告し、修正は Source 側で行う。
 - 「1 Target 1 Owner」を文字列一致で検査できるように、manifest の `path` は正規化せず、絶対パス・`.`/`..` セグメント・`//` を **拒否**する(`./AGENTS.md` と `AGENTS.md` の併存を許さない)。
 - Project policy は global policy を足すか強めるだけで、緩める mapping は無効。Safety Invariant は同等以上の Enforcement Grade にしか写せない。
-- 最初の end-to-end 経路(#309)の設計は `docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md`。用語は `CONTEXT.md` の「Harness sync」節。
+- 最初の end-to-end 経路(#309)の設計は `docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md`。用語は `CONTEXT.md` の「Agent harness」節。
