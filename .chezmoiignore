@@ -18,6 +18,11 @@ windows/
 .config/gh/extensions.txt
 .config/nono/packs.txt
 
+# ~/.config/git/signing/ には AI エージェントの commit 署名用秘密鍵が入る
+# (run_onchange_generate-ai-agent-signing-key.sh.tmpl がマシン上で生成)。
+# `chezmoi add`/`re-add` で public なソースツリーに取り込まれないよう除外する。
+.config/git/signing
+
 # ~/.config/nono/packages/ is nono's own pack store (pulled by
 # run_onchange_after_pull-nono-packs.sh.tmpl, not managed by chezmoi)
 .config/nono/packages

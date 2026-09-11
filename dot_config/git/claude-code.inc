@@ -32,3 +32,24 @@
 [credential]
   helper =
   helper = "!~/.config/git/claude-code-credential-helper.sh"
+
+# 背景3 (commit 署名): ~/.gitconfig は 1Password SSH agent (op-ssh-sign) で署名
+# するが、1Password がロック中だと署名ごとに認証ダイアログが出て、人間不在の
+# 自律実行が `git commit` で止まる。Claude Code から呼ばれる git だけ、ローカルの
+# AI エージェント専用署名鍵 (~/.config/git/signing/ai-agent、パスフレーズ無し) と
+# 素の ssh-keygen に差し替える。対話ターミナルの署名は 1Password のまま。
+# 鍵は run_onchange_generate-ai-agent-signing-key.sh.tmpl が生成し、公開鍵を GitHub に
+# **signing key** として登録する必要がある(登録しないと Verified にならず、
+# required_signatures ルールのあるリポジトリではマージ不可)。
+# 置き場所を ~/.ssh にしないのは、両サンドボックス(ネイティブ denyRead / nono
+# deny_credentials)が ~/.ssh の読み取りを拒否しており、その保護を崩したくないため。
+# nono 側は claude-seal.json の filesystem.read で ~/.config/git をディレクトリごと
+# grant している(このファイル自身と include 先の personal.inc も同じ理由で必要)。
+# program は絶対パスで指定する: PATH 先頭の ~/.local/bin 等が将来どちらかの
+# サンドボックスで書き込み可になっても、署名バイナリを差し替えられないようにする
+# (macOS 標準の /usr/bin/ssh-keygen は -Y sign 対応、nono でも読める)。
+# user.signingkey はファイルパスとして解釈され、git が ~ を展開する(実測済み)。
+[user]
+  signingkey = ~/.config/git/signing/ai-agent
+[gpg "ssh"]
+  program = /usr/bin/ssh-keygen

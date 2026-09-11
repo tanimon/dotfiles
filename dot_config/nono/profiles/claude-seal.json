@@ -41,6 +41,7 @@
       "$XDG_CONFIG_HOME/cmux",
       "$XDG_CONFIG_HOME/gh",
       "$XDG_CONFIG_HOME/ghostty",
+      "$XDG_CONFIG_HOME/git",
       "$XDG_CONFIG_HOME/helix",
       "$XDG_CONFIG_HOME/karabiner",
       "$XDG_CONFIG_HOME/opencode",
@@ -69,6 +70,7 @@
       "$HOME/.zshrc",
       "$HOME/.zprofile",
       "$HOME/.gitignore",
+      "$HOME/.gitignore_personal",
       "$XDG_STATE_HOME/gh/device-id",
       "$HOME/.vimrc",
       "$HOME/.tmux.conf",
@@ -104,17 +106,19 @@
   "environment": {
     "set_vars": {
       "INSIDE_NONO_SANDBOX": "1",
-      "GIT_CONFIG_COUNT": "5",
+      "GIT_CONFIG_COUNT": "6",
       "GIT_CONFIG_KEY_0": "url.https://github.com/.insteadOf",
       "GIT_CONFIG_VALUE_0": "git@github.com:",
       "GIT_CONFIG_KEY_1": "credential.helper",
-      "GIT_CONFIG_VALUE_1": "!gh auth git-credential",
-      "GIT_CONFIG_KEY_2": "credential.interactive",
-      "GIT_CONFIG_VALUE_2": "false",
-      "GIT_CONFIG_KEY_3": "credential.guiPrompt",
+      "GIT_CONFIG_VALUE_1": "",
+      "GIT_CONFIG_KEY_2": "credential.helper",
+      "GIT_CONFIG_VALUE_2": "!gh auth git-credential",
+      "GIT_CONFIG_KEY_3": "credential.interactive",
       "GIT_CONFIG_VALUE_3": "false",
-      "GIT_CONFIG_KEY_4": "core.fsmonitor",
-      "GIT_CONFIG_VALUE_4": "false"
+      "GIT_CONFIG_KEY_4": "credential.guiPrompt",
+      "GIT_CONFIG_VALUE_4": "false",
+      "GIT_CONFIG_KEY_5": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_5": "false"
     }
   }
 }
