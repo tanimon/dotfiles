@@ -13,6 +13,9 @@
 # shellcheck source=path.bash
 source "$HARNESS_HOME/lib/path.bash"
 
+# minVersion / maxVerifiedVersion の形式(spec「Harness Manifest スキーマ」: semver X.Y.Z)
+HARNESS_SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+
 # 検証済みの target 一覧。index が manifest の targets[] の添字と一致し、staging/<index> にも使う。
 # bash 3.2 には連想配列が無いので、並行する index 配列で持つ(render / replace / compare の各ループで
 # target ごとに jq を起動しないため)
@@ -84,8 +87,9 @@ manifest_load_targets() {
 
 manifest_validate() {
     local version reason
-    version=$(manifest_query '.version // "missing"')
-    [ "$version" = "1" ] || die 2 "manifest: version は 1 でなければなりません (現在: $version)"
+    # -r を付けずに JSON 表記で受け、数値の 1 だけを通す("1" は "\"1\"" になるので通らない)
+    version=$(jq -c 'if has("version") then .version else empty end' <<<"$HARNESS_MANIFEST_JSON")
+    [ "$version" = "1" ] || die 2 "manifest: version は 1 でなければなりません (現在: ${version:-未設定})"
 
     # runtime の暗黙検出は許さない: runtimes は非空オブジェクトで、"*" キーや bin:"auto" を含まない
     [ "$(manifest_query '.runtimes | type')" = "object" ] ||
@@ -97,15 +101,21 @@ manifest_validate() {
 
     # 形の検査は jq 1 回で「最初の理由」だけを受け取る。値の型を見てから index するので、
     # 型が違っても jq のエラー(exit 5)ではなく "manifest: <理由>" で exit 2 になる
-    reason=$(manifest_query '
+    # 理由に埋め込む名前・path は @json で 1 行に収める(制御文字を含む値でも sed -n 1p で途中で切れない)。
+    # minVersion / maxVerifiedVersion は X.Y.Z 形式に限る(version_lt の sort -V は任意文字列を黙って並べる)
+    reason=$(manifest_query --arg semver_re "$HARNESS_SEMVER_RE" '
         .runtimes | to_entries[] | .key as $n | .value as $r
-        | if ($r | type) != "object" then "runtimes.\($n) はオブジェクトでなければなりません"
-          elif ($n | test("^[A-Za-z0-9_.-]+$") | not) then "runtimes の名前 \"\($n)\" は英数字・_・.・- のみ使えます"
+        | if ($n | test("^[A-Za-z0-9_.-]+$") | not) then "runtimes の名前 \($n | @json) は英数字・_・.・- のみ使えます"
+          elif ($r | type) != "object" then "runtimes.\($n) はオブジェクトでなければなりません"
           elif ($r.bin | type) != "string" or $r.bin == "" then "runtimes.\($n).bin が必要です (文字列)"
           elif $r.bin == "auto" then "runtimes.\($n).bin に \"auto\" は使えません (実行ファイル名を明示してください)"
           elif ($r.minVersion | type) != "string" or $r.minVersion == "" then "runtimes.\($n).minVersion が必要です (文字列)"
+          elif ($r.minVersion | test($semver_re) | not)
+               then "runtimes.\($n).minVersion は X.Y.Z 形式でなければなりません (現在: \($r.minVersion | @json))"
           elif $r.maxVerifiedVersion != null and ($r.maxVerifiedVersion | type) != "string"
                then "runtimes.\($n).maxVerifiedVersion は文字列でなければなりません"
+          elif $r.maxVerifiedVersion != null and ($r.maxVerifiedVersion | test($semver_re) | not)
+               then "runtimes.\($n).maxVerifiedVersion は X.Y.Z 形式でなければなりません (現在: \($r.maxVerifiedVersion | @json))"
           elif $r.versionArgs != null and (($r.versionArgs | type) != "array" or ([$r.versionArgs[] | strings] | length) != ($r.versionArgs | length))
                then "runtimes.\($n).versionArgs は文字列の配列でなければなりません"
           elif $r.capabilities != null and ($r.capabilities | type) != "array"
@@ -128,11 +138,11 @@ manifest_validate() {
           elif ($t.runtime | type) != "string" or $t.runtime == "" then "targets[\($i)].runtime が必要です (文字列)"
           elif ($t.owner | type) != "string" or $t.owner == "" then "targets[\($i)].owner が必要です (文字列)"
           elif ($t.path | test($re))
-               then "target \"\($t.path)\" の path は正規化された相対パスでなければなりません (\($rule))"
+               then "target \($t.path | @json) の path は正規化された相対パスでなければなりません (\($rule))"
           elif ($t.owner | test($owner_re) | not)
-               then "target \"\($t.path)\" の owner \"\($t.owner)\" は adapter 名 (英数字・_・-) でなければなりません"
+               then "target \($t.path | @json) の owner \($t.owner | @json) は adapter 名 (英数字・_・-) でなければなりません"
           elif ($rts | has($t.runtime) | not)
-               then "target \"\($t.path)\" の runtime \"\($t.runtime)\" は runtimes に宣言されていません"
+               then "target \($t.path | @json) の runtime \($t.runtime | @json) は runtimes に宣言されていません"
           else empty end' | sed -n 1p)
     [ -z "$reason" ] || die 2 "manifest: $reason"
 

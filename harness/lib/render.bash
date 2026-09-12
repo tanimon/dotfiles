@@ -106,7 +106,13 @@ replace_all() {
     done
     [ "$blocked" -eq 0 ] || return 1
 
+    # INT / TERM / HUP で中断されたら、書きかけの一時ファイルを live ディレクトリに残さない。
+    # main は subshell で走る(harness.sh)ので、この trap はその subshell にだけ効き、staging の削除は親が行う
+    # (親に届いたシグナルは harness.sh が subshell へ転送する)。
+    # EXIT trap ではないので bash 3.2 の set -u 終了コードの問題(ADR 0003)には当たらない
     local mode tmp updated=0 unchanged=0 failed=0
+    HARNESS_REPLACE_TMP=
+    trap '[ -z "${HARNESS_REPLACE_TMP:-}" ] || rm -f "$HARNESS_REPLACE_TMP"; exit 130' INT TERM HUP
     for ((i = 0; i < ${#HARNESS_TARGET_PATHS[@]}; i++)); do
         path=${HARNESS_TARGET_PATHS[$i]}
         owner=${HARNESS_TARGET_OWNERS[$i]}
@@ -130,15 +136,19 @@ replace_all() {
             failed=1
             continue
         fi
+        HARNESS_REPLACE_TMP=$tmp
         if ! cat "$staging/$i" >"$tmp" || ! chmod "$mode" "$tmp" || ! mv -f "$tmp" "$live"; then
             rm -f "$tmp"
+            HARNESS_REPLACE_TMP=
             report_fail "target $path: 置換に失敗しました (owner: $owner)"
             failed=1
             continue
         fi
+        HARNESS_REPLACE_TMP=
         printf 'updated   %s\n' "$path"
         updated=$((updated + 1))
     done
+    trap - INT TERM HUP
     printf 'harness sync: %d updated, %d unchanged\n' "$updated" "$unchanged"
     [ "$failed" -eq 0 ]
 }

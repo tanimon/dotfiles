@@ -33,6 +33,13 @@ options:
   --root DIR         Target のルート(既定: $HOME)
   --source-dir DIR   Content Module 等の Source ルート(既定: リポジトリルート)
   --runtime NAME     check の対象を 1 runtime に限定する(既定: manifest の全 runtime)
+
+exit codes:
+  0    成功(check は WARN のみでも 0)
+  1    check: FAIL / DRIFT が 1 件以上。sync: render または置換の失敗(FAIL 行を確認)
+  2    manifest の不備、--root / --source-dir がディレクトリでない、jq が無い
+  64   使い方の誤り(不明なコマンド・オプション、値の欠落、sync --runtime、未実装の init / update)
+  130  INT / TERM / HUP による中断(staging と書きかけの一時ファイルは削除する)
 USAGE
 }
 
@@ -129,14 +136,20 @@ main() {
 # set -u 違反(unbound variable)の終了ステータスが 0 に潰れるため(ステータス保存型の trap でも直らない)。
 # このツールの契約は終了コードなので、偽の成功を構造的に起こさない形にする
 HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-XXXXXX")
-trap 'rm -rf "$HARNESS_STAGING"; exit 130' INT TERM HUP
+# INT / TERM / HUP は main の subshell に転送してから staging を消す(親だけが死んで subshell が
+# 消えた staging の上で走り続けないため。subshell 側は replace_all の trap で書きかけの一時ファイルを消す)。
 # `(main) || status=$?` の形にしない: || の左側では subshell 内の set -e が無効になる。
-# 親で set +e にしてから subshell の中で set -e を立て直し、終了ステータスを $? で受ける
+# 親で set +e にしてから subshell の中で set -e を立て直し、終了ステータスを wait で受ける。
+# background(&)の subshell は既定で stdin が /dev/null になるので <&0 で親の stdin を引き継ぐ
+HARNESS_MAIN_PID=
+trap 'if [ -n "$HARNESS_MAIN_PID" ]; then kill -TERM "$HARNESS_MAIN_PID" 2>/dev/null; wait "$HARNESS_MAIN_PID" 2>/dev/null; fi; rm -rf "$HARNESS_STAGING"; exit 130' INT TERM HUP
 set +e
 (
     set -e
     main "$@"
-)
+) <&0 &
+HARNESS_MAIN_PID=$!
+wait "$HARNESS_MAIN_PID"
 status=$?
 rm -rf "$HARNESS_STAGING"
 exit "$status"

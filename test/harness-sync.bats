@@ -141,6 +141,33 @@ harness() {
     assert_output --partial 'version は 1 でなければなりません'
 }
 
+@test "version が文字列の \"1\" でも reject (数値 1 のみ)" {
+    printf '{ "version": "1", "runtimes": { "apm": { "bin": "apm", "minVersion": "0.30.0" } }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'version は 1 でなければなりません (現在: "1")'
+}
+
+@test "minVersion / maxVerifiedVersion が X.Y.Z 形式でなければ reject (sort -V は任意文字列を黙って通す)" {
+    printf '{ "version": 1, "runtimes": { "apm": { "bin": "apm", "minVersion": "latest" } }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'runtimes.apm.minVersion は X.Y.Z 形式でなければなりません (現在: "latest")'
+
+    printf '{ "version": 1, "runtimes": { "apm": { "bin": "apm", "minVersion": "0.30.0", "maxVerifiedVersion": "v0.31" } }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'runtimes.apm.maxVerifiedVersion は X.Y.Z 形式でなければなりません (現在: "v0.31")'
+}
+
+@test "path に改行を含む target の拒否理由は 1 行に収まり、path は JSON エスケープで表示される" {
+    stub_all
+    write_manifest '[ { "path": "AGENTS.md\nevil", "runtime": "codex", "owner": "flaky", "content": "a" } ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_line 'manifest: target "AGENTS.md\nevil" の path は正規化された相対パスでなければなりません (先頭の /、. や .. のセグメント、//、末尾の /、制御文字は使えません)'
+}
+
 @test "同じ path を 2 つの owner が持つ manifest は reject し、重複を除けば通る(Contrast Pair)" {
     stub_all
     write_manifest '[
@@ -154,6 +181,9 @@ harness() {
     write_manifest '[ { "path": "AGENTS.md", "runtime": "codex", "owner": "flaky", "content": "a" } ]'
     run harness check --manifest "$MANIFEST" --root "$ROOT"
     refute_output --partial 'owner が重複'
+    # manifest 検証は通り、drift 比較まで進んでいる(live が無いので DRIFT で exit 1)
+    assert_failure 1
+    assert_line 'DRIFT target AGENTS.md: 存在しません (owner: flaky)'
 }
 
 @test "adapter が見つからない owner は reject" {
@@ -212,6 +242,31 @@ harness() {
     run env -u HOME bash "$HARNESS" check --manifest "$MANIFEST"
     assert_failure 2
     assert_output --partial 'HOME 未設定なら --root を指定してください'
+}
+
+@test "不明なオプションは exit 64" {
+    run harness check --frobnicate
+    assert_failure 64
+    assert_output --partial '不明なオプション: --frobnicate'
+}
+
+@test "--root がディレクトリでなければ exit 2" {
+    stub_all
+    write_manifest
+    run harness check --manifest "$MANIFEST" --root "$BATS_TEST_TMPDIR/nope"
+    assert_failure 2
+    assert_output --partial '--root がディレクトリではありません'
+}
+
+@test "-h / --help は使い方(exit code 一覧つき)を出して exit 0" {
+    run harness -h
+    assert_success
+    assert_output --partial '使い方'
+    assert_output --partial 'exit codes:'
+    assert_output --partial '64'
+    run harness check --help
+    assert_success
+    assert_output --partial 'exit codes:'
 }
 
 # ---------- Task 2: Capability Probe ----------
@@ -637,6 +692,37 @@ EOF2
     refute_output --partial 'DRIFT target .cursor/rules/shared.mdc'
 }
 
+@test "置換中に INT / TERM で中断されても live ディレクトリに書きかけの一時ファイルを残さない" {
+    stub_all
+    two_targets
+    # 2 つ目の target(staging/1)の cat だけを遅らせる stub(PATH の先頭 STUB_BIN で解決される)。
+    # 1 つ目(AGENTS.md)は先に置換され、他の cat(usage の heredoc 等)は素通し
+    cat >"$STUB_BIN/cat" <<'EOF2'
+#!/usr/bin/env bash
+case "${1:-}" in */harness-*/1) sleep 20 ;; esac
+exec /bin/cat "$@"
+EOF2
+    chmod +x "$STUB_BIN/cat"
+    # supervisor からの kill と同じく親(harness.sh)だけに送る。harness.sh が main の subshell へ転送する
+    bash "$HARNESS" sync --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" >"$BATS_TEST_TMPDIR/out" 2>&1 &
+    local pid=$! i=0
+    # 2 つ目の target の一時ファイルが現れる(= 遅らせた cat の途中)まで待つ。
+    # 1 つ目の一時ファイルで判定すると、プロセス起動が遅い環境では 1 つ目の置換中に kill してしまう
+    tmp_count() { find "$ROOT/.cursor/rules" -name '.shared.mdc.harness-tmp.*' 2>/dev/null | wc -l | tr -d ' '; }
+    while [ "$(tmp_count)" = 0 ] && [ "$i" -lt 200 ]; do
+        sleep 0.05
+        i=$((i + 1))
+    done
+    assert_equal "$(tmp_count)" '1'
+    kill -TERM "$pid"
+    wait "$pid" || true
+    assert_equal "$(find "$ROOT" -name '.*.harness-tmp.*' | wc -l | tr -d ' ')" '0'
+    # 先に置換済みの AGENTS.md はそのまま(中断時の巻き戻しはしない: ADR 0002)、遅らせた target は未作成
+    assert [ -f "$ROOT/AGENTS.md" ]
+    assert [ ! -e "$ROOT/.cursor/rules/shared.mdc" ]
+    assert_equal "$(find "${TMPDIR:?}" -maxdepth 1 -name 'harness-*' | wc -l | tr -d ' ')" '0'
+}
+
 @test "置換フェーズの環境要因の失敗 (親ディレクトリが読み取り専用) は FAIL で報告し、他の target は続けて exit 1" {
     stub_all
     two_targets
@@ -674,13 +760,25 @@ EOF2
 
 # ---------- Task 5: 本物の manifest ----------
 
-@test "リポジトリの harness/manifest.json は検証を通り、apm の probe 形式が実際の help 出力と合う" {
-    # apm --help の実出力(2026-09-11, v0.30.0)の該当行を模した stub。他 3 runtime は --runtime apm で対象外
+@test "リポジトリの harness/manifest.json は検証を通り、4 runtime の probe 形式が実際の help 出力と合う" {
+    # 各 runtime の --help 実出力(2026-09-12 時点、manifest の maxVerifiedVersion と同じ版)の該当行を模した stub。
+    # 行頭の桁位置・複数行折り返しは実物のまま。pattern を変えるときはここも実物から取り直す
+    make_stub claude 2.1.268 '  --mcp-config <configs...>             Load MCP servers from JSON files or
+  --plugin-dir <path>                   Load a plugin from a directory or .zip
+  --settings <file-or-json>             Path to a settings JSON file or a JSON'
+    make_stub codex 0.147.0 '  exec            Run Codex non-interactively [aliases: e]
+  mcp             Manage external MCP servers for Codex
+  sandbox         Run commands within a Codex-provided sandbox'
+    make_stub cursor 3.17.21 '  --user-data-dir <dir>                      Specifies the directory that user
+  --install-extension <ext-id | path> Installs or updates an extension. The'
     make_stub apm 0.30.0 '  audit         Scan installed primitives
   install       Install APM, MCP, and LSP dependencies
   prune         Remove APM packages absent from the resolved dependency'
-    run harness check --manifest "$BATS_TEST_DIRNAME/../harness/manifest.json" --root "$ROOT" --runtime apm
+    run harness check --manifest "$BATS_TEST_DIRNAME/../harness/manifest.json" --root "$ROOT"
     assert_success
+    assert_line 'OK   runtime claude 2.1.268'
+    assert_line 'OK   runtime codex 0.147.0'
+    assert_line 'OK   runtime cursor 3.17.21'
     assert_line 'OK   runtime apm 0.30.0'
     assert_line 'harness check: 0 failures, 0 warnings'
 }
