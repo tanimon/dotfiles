@@ -696,16 +696,18 @@ EOF2
     stub_all
     two_targets
     # 2 つ目の target(staging/1)の cat だけを遅らせる stub(PATH の先頭 STUB_BIN で解決される)。
-    # 1 つ目(AGENTS.md)は先に置換され、他の cat(usage の heredoc 等)は素通し
+    # 1 つ目(AGENTS.md)は先に置換され、他の cat(usage の heredoc 等)は素通し。
+    # bash は trap 済みシグナルを実行中の前景コマンド(この cat)の完了後に処理するので、
+    # このテストの所要時間 ≒ sleep の秒数(プロセス起動遅延の 10 倍程度あれば十分)
     cat >"$STUB_BIN/cat" <<'EOF2'
 #!/usr/bin/env bash
-case "${1:-}" in */harness-*/1) sleep 20 ;; esac
+case "${1:-}" in */harness-*/1) sleep 5 ;; esac
 exec /bin/cat "$@"
 EOF2
     chmod +x "$STUB_BIN/cat"
-    # supervisor からの kill と同じく親(harness.sh)だけに送る。harness.sh が main の subshell へ転送する。
-    # 3>&-: kill 後も sleep 中の stub cat(孫)が残るので、bats の出力 fd 3 を掴ませない
-    bash "$HARNESS" sync --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" >"$BATS_TEST_TMPDIR/out" 2>&1 3>&- &
+    # supervisor からの kill と同じく親(harness.sh)だけに送る。harness.sh が main の subshell へ転送し、
+    # subshell の trap は cat 完了後に走って書き終えた一時ファイルを mv せずに消す
+    bash "$HARNESS" sync --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" >"$BATS_TEST_TMPDIR/out" 2>&1 &
     local pid=$! i=0
     # 2 つ目の target の一時ファイルが現れる(= 遅らせた cat の途中)まで待つ。
     # 1 つ目の一時ファイルで判定すると、プロセス起動が遅い環境では 1 つ目の置換中に kill してしまう
