@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # 報告行の出力と集計。harness.sh から source される(set は呼び出し側に従う)。
 #
-# 出力形式は spec「check の手順」の通り固定: 先頭トークンの幅を揃えるため
-# OK は後ろにスペース 3 つ、WARN / FAIL / DRIFT は 1 つ。
+# 出力形式は spec「check の手順」の通り固定: OK / WARN / FAIL は先頭トークンを 5 桁に揃える
+# (OK は後ろにスペース 3 つ)。DRIFT は spec が固定したトークンなので 6 桁のまま揃えない。
+# bats が行の完全一致で検証しているので、桁数を変えないこと。
 
 HARNESS_FAILURES=0
 HARNESS_WARNINGS=0

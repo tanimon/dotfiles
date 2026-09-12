@@ -53,6 +53,7 @@ harness/
   bin/harness.sh          # 入口(サブコマンド分岐・オプション解析)
   lib/report.bash         # OK/WARN/FAIL/DRIFT 行の出力と集計
   lib/manifest.bash       # manifest の読み込み・検証・問い合わせ(jq)
+  lib/path.bash           # path / source / owner に共通の拒否ルール(manifest.bash と adapter が source)
   lib/probe.bash          # Capability Probe(存在・バージョン・capability)
   lib/render.bash         # adapter 実行・staging・全体検証・置換・drift 比較
   adapters/file.sh        # 組み込み adapter: source ファイルをそのまま Target にする
@@ -89,16 +90,16 @@ test/
 | フィールド | 必須 | 意味 |
 |---|---|---|
 | `version` | 必須 | `1` 固定。それ以外は reject |
-| `runtimes` | 必須 | 非空オブジェクト。キーが runtime 名 |
+| `runtimes` | 必須 | 非空オブジェクト。キーが runtime 名(`[A-Za-z0-9_.-]+`。値はオブジェクト) |
 | `runtimes.<name>.bin` | 必須 | `PATH` から探す実行ファイル名。`"auto"` は reject |
 | `runtimes.<name>.minVersion` | 必須 | semver。未満は FAIL |
 | `runtimes.<name>.maxVerifiedVersion` | 任意 | semver。超えると WARN。省略時は上限なし |
 | `runtimes.<name>.versionArgs` | 任意 | 既定 `["--version"]` |
 | `runtimes.<name>.capabilities[]` | 任意 | `name` / `args`(配列)/ `pattern`(ERE)。`bin args` の stdout+stderr を `grep -E pattern` で照合 |
 | `targets` | 必須 | 配列(空可) |
-| `targets[].path` | 必須 | `--root` からの相対パス。**重複は reject**。絶対パス・`.`/`..` セグメント・`//` は reject(正規化はしない) |
+| `targets[].path` | 必須 | `--root` からの相対パス。**重複は reject**(大文字小文字を区別せず比較。主対象の APFS が区別しないため)。絶対パス・`.`/`..` セグメント・`//`・末尾 `/`・制御文字は reject(正規化はしない。規則は `lib/path.bash` に 1 つ) |
 | `targets[].runtime` | 必須 | `runtimes` に存在するキー。無ければ reject |
-| `targets[].owner` | 必須 | adapter 名。`<adapterDir>/<owner>.sh` が実行可能でなければ reject |
+| `targets[].owner` | 必須 | adapter 名(`[A-Za-z0-9_-]+` の 1 セグメント。`/` や `..` を含めば reject — adapters/ の外の実行ファイルを adapter にしない)。`<adapterDir>/<owner>.sh` が実行可能でなければ reject |
 | `targets[].source` 等 | 任意 | adapter 固有。`file` adapter は `source`(`--source-dir` からの相対パス)を必須とする |
 
 検証エラーはすべて `manifest: <理由>` 形式で stderr に出し exit 2。理由文はどのフィールド・どの値が問題かを含める(例: `manifest: target "AGENTS.md" の owner が重複しています (file, copy)`)。
@@ -109,19 +110,19 @@ test/
 <adapterDir>/<owner>.sh render <staging-file> <target-json>
 ```
 
-- 環境変数: `HARNESS_MANIFEST`(manifest の絶対パス)、`HARNESS_ROOT`(Target のルート)、`HARNESS_SOURCE_DIR`(Content Module 等の Source ルート)。
-- adapter は `<staging-file>` に Target の完全な内容を書き、exit 0 で返す。
+- 環境変数: `HARNESS_HOME`(`harness/` の絶対パス。`lib/path.bash` を source するのに使う)、`HARNESS_MANIFEST`(manifest の絶対パス)、`HARNESS_ROOT`(Target のルート)、`HARNESS_SOURCE_DIR`(Content Module 等の Source ルート)。
+- adapter は `<staging-file>` に Target の完全な内容を書き、exit 0 で返す。stdin は `/dev/null`(引数と環境変数だけで動く)。
 - 非 0 exit、または `<staging-file>` が生成されなかった場合は render 失敗。
 - adapter ディレクトリの解決順: `HARNESS_ADAPTER_DIR`(設定時)→ `harness/adapters`。テストは前者で fixture adapter を差し込む。
-- `file` adapter: `$HARNESS_SOURCE_DIR/<target.source>` を `<staging-file>` に `cp` する。`source` 欠落・ファイル無しは exit 1 とメッセージ。`source` にも `targets[].path` と同じ拒否ルール(絶対パス・`.`/`..` セグメント・`//`)を適用し、`HARNESS_SOURCE_DIR` の外を読ませない。
+- `file` adapter: `$HARNESS_SOURCE_DIR/<target.source>` を `<staging-file>` に `cp` する。`source` 欠落・ファイル無しは exit 1 とメッセージ。`source` にも `targets[].path` と同じ拒否ルールを適用し、`HARNESS_SOURCE_DIR` の外を読ませない(ルールは `/lib/path.bash` を source して共有する)。
 
 ## `sync` の手順(Atomic Sync)
 
 1. manifest を読み検証する(失敗は exit 2、何も変更しない)。
 2. `mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX"` で staging を作り、`trap` で必ず削除する。
 3. 全 target について adapter を実行し `staging/<index>` に render する。**1 つでも失敗したら**その target と owner と exit code を `FAIL` で報告し、live に触れず exit 1。
-4. 全体検証: 全 `staging/<index>` が通常ファイルとして存在することを確認する。
-5. 置換: target ごとに `cmp -s staging live` が一致なら `unchanged`。異なれば親ディレクトリを作成し、`live` と同じディレクトリに一時ファイルを書いて `mv -f` で置換(同一ファイルシステム内の rename なので原子的)、`updated` と報告。モードは既存 live に合わせ、新規は 0644。置換に失敗した target は `FAIL` で報告して残りの target は続け、最後に exit 1。live が symlink の target が 1 つでもあれば、置換前に全体を `FAIL` で止める(#309 では symlink Target 未対応)。
+4. 全体検証: 全 `staging/<index>` が通常ファイルとして存在することを確認する(render 段で adapter が非 0 で終わった target の部分出力は消すので、「staging がある ⇔ render 成功」が成り立つ。検証は render_all の戻り値 0 で表す)。
+5. 置換: target ごとに `cmp -s staging live` が一致なら `unchanged`。異なれば親ディレクトリを作成し、`live` と同じディレクトリに一時ファイルを書いて `mv -f` で置換(同一ファイルシステム内の rename なので原子的)、`updated` と報告。モードは既存 live に合わせ、新規は 0644。置換に失敗した target は `FAIL` で報告して残りの target は続け、最後に exit 1。live が「存在するが通常ファイルでない」target(symlink・directory・fifo 等)が 1 つでもあれば、置換前に全体を `FAIL` で止める(#309 では symlink Target 未対応。directory は `mv -f` が一時ファイルをその中へ移して偽の `updated` になるため)。
 6. `harness sync: N updated, M unchanged` を出して exit 0。
 
 `init` / `update` は `harness <cmd>: 未実装です (#322 / #323 で実装)` を stderr に出して exit 64。

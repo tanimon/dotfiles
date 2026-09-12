@@ -21,6 +21,10 @@ All scripts must start with:
 set -euo pipefail
 ```
 
+例外: `source` 専用のライブラリ(`harness/lib/*.bash`)は shebang だけを持ち、`set` は呼び出し側
+(`harness/bin/harness.sh`)に従う。ライブラリ側で `set` すると呼び出し側のシェルオプションを書き換える
+副作用になるため。ヘッダコメントに「set は呼び出し側に従う」と明記すること。
+
 ## run_onchange_ Scripts
 
 - Track content hashes in comments: `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`
@@ -42,6 +46,7 @@ command -v pnpm >/dev/null 2>&1 || { echo "WARNING: pnpm not found, skipping"; e
 - Must pass shellcheck and shfmt (`shfmt -i 4`)
 - Place in `scripts/` for repo-only helpers
 - Place in `.chezmoiscripts/` for chezmoi lifecycle scripts
+- harness sync seam(`harness/bin/`・`harness/lib/`・`harness/adapters/`)は `harness/` 配下に置く(repo-only。adapter は `harness/adapters/<owner>.sh` の契約で `adapter_path` が解決するため `scripts/` に置かない)
 
 ## CI Enforcement
 

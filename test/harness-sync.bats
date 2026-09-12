@@ -373,7 +373,8 @@ sha() {
     two_targets
     sync
     local marker="$BATS_TEST_TMPDIR/marker"
-    sleep 1
+    # 1 回目の Target の mtime を過去に倒してから marker を作る(sleep 1 で待つ代わり)
+    find "$ROOT" -type f -exec touch -t 202001010000 {} +
     touch "$marker"
     run sync
     assert_success
@@ -438,7 +439,7 @@ EOF
     printf 'from source v2\n' >"$SRC/agents.md"
     run sync
     assert_success
-    assert_equal "$(stat -f '%Lp' "$ROOT/AGENTS.md" 2>/dev/null || stat -c '%a' "$ROOT/AGENTS.md")" '600'
+    assert_equal "$(stat -c '%a' "$ROOT/AGENTS.md" 2>/dev/null || stat -f '%Lp' "$ROOT/AGENTS.md")" '600'
 }
 
 # ---------- Task 4: drift 検出 ----------
@@ -519,6 +520,122 @@ check() {
     run check
     assert_success
     assert_equal "$(find "$TMPDIR" -mindepth 1 | wc -l | tr -d ' ')" '0'
+}
+
+# ---------- レビュー(PR #328)で見つかった穴 ----------
+
+@test "型の違う manifest も manifest: の理由付きで exit 2 (jq のエラーで exit 5 にならない)" {
+    stub_all
+    write_manifest '[ { "path": 5, "runtime": "codex", "owner": "flaky" } ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'manifest: targets[0].path'
+
+    write_manifest '[ "AGENTS.md" ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'manifest: targets[0]'
+
+    printf '{ "version": 1, "runtimes": { "claude": "auto" }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'manifest: runtimes.claude'
+
+    printf '{ "version": 1, "runtimes": { "claude": { "bin": "fixture-claude", "minVersion": "1.0.0", "versionArgs": "--version" } }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'manifest: runtimes.claude.versionArgs'
+}
+
+@test "pattern の無い capability や空の pattern は reject (literal null / 全件一致で偽 OK にならない)" {
+    stub_all
+    printf '{ "version": 1, "runtimes": { "claude": { "bin": "fixture-claude", "minVersion": "1.0.0", "capabilities": [ { "name": "settings", "args": ["--help"] } ] } }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'manifest: runtimes.claude.capabilities'
+
+    printf '{ "version": 1, "runtimes": { "claude": { "bin": "fixture-claude", "minVersion": "1.0.0", "capabilities": [ { "name": "settings", "pattern": "" } ] } }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'manifest: runtimes.claude.capabilities'
+}
+
+@test "owner に / や .. を含む target は reject (adapters/ の外の実行ファイルを adapter にしない)" {
+    stub_all
+    mkdir -p "$HARNESS_ADAPTER_DIR/sub"
+    cp "$HARNESS_ADAPTER_DIR/flaky.sh" "$HARNESS_ADAPTER_DIR/sub/evil.sh"
+    write_manifest '[ { "path": "x.md", "runtime": "codex", "owner": "sub/evil", "content": "o" } ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'owner "sub/evil"'
+
+    write_manifest '[ { "path": "x.md", "runtime": "codex", "owner": "../adapters/flaky", "content": "o" } ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'owner "../adapters/flaky"'
+}
+
+@test "末尾 / の path と、大文字小文字だけ違う path の併存は reject" {
+    stub_all
+    write_manifest '[ { "path": "foo/", "runtime": "codex", "owner": "flaky", "content": "a" } ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'path は正規化された相対パスでなければなりません'
+
+    write_manifest '[
+      { "path": "AGENTS.md", "runtime": "codex", "owner": "flaky", "content": "a" },
+      { "path": "agents.md", "runtime": "codex", "owner": "file", "source": "agents.md" }
+    ]'
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 2
+    assert_output --partial 'owner が重複しています'
+}
+
+@test "versionArgs が空でバージョンを解釈できない runtime は FAIL で exit 1 (bash 3.2 の EXIT trap で exit 0 に潰れない)" {
+    cat >"$STUB_BIN/fixture-noversion" <<'EOF2'
+#!/usr/bin/env bash
+echo usage
+EOF2
+    chmod +x "$STUB_BIN/fixture-noversion"
+    printf '{ "version": 1, "runtimes": { "x": { "bin": "fixture-noversion", "minVersion": "1.0.0", "versionArgs": [] } }, "targets": [] }\n' >"$MANIFEST"
+    run harness check --manifest "$MANIFEST" --root "$ROOT"
+    assert_failure 1
+    assert_output --partial 'FAIL runtime x: バージョンを解釈できません'
+    assert_line 'harness check: 1 failures, 0 warnings'
+}
+
+@test "live Target がディレクトリなら sync は何も置換せず FAIL し、check も FAIL で報告する" {
+    stub_all
+    two_targets
+    mkdir -p "$ROOT/AGENTS.md"
+    run sync
+    assert_failure 1
+    assert_output --partial 'target AGENTS.md: 通常ファイルではありません'
+    assert [ -d "$ROOT/AGENTS.md" ]
+    assert_equal "$(ls -A "$ROOT/AGENTS.md" | wc -l | tr -d ' ')" '0'
+    assert [ ! -e "$ROOT/.cursor/rules/shared.mdc" ]
+
+    run check
+    assert_failure 1
+    assert_line 'FAIL target AGENTS.md: 通常ファイルではありません (owner: file)'
+}
+
+@test "staging を書いてから失敗した adapter の target は check で FAIL 1 行だけ (DRIFT / OK を重ねない)" {
+    stub_all
+    cat >"$HARNESS_ADAPTER_DIR/partial.sh" <<'EOF2'
+#!/usr/bin/env bash
+printf 'partial\n' >"$2"
+exit 3
+EOF2
+    chmod +x "$HARNESS_ADAPTER_DIR/partial.sh"
+    write_manifest '[ { "path": "x.md", "runtime": "codex", "owner": "partial" } ]'
+    printf 'partial\n' >"$ROOT/x.md"
+    run check
+    assert_failure 1
+    assert_line 'FAIL target x.md: adapter partial が exit 3'
+    refute_output --partial 'DRIFT target x.md'
+    refute_output --partial 'OK   target x.md'
+    assert_line 'harness check: 1 failures, 0 warnings'
 }
 
 # ---------- Task 5: 本物の manifest ----------

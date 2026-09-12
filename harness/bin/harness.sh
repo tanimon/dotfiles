@@ -3,31 +3,23 @@
 # 1 つの Harness Manifest から検証・同期する(spec: docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md)。
 #
 # 使い方: harness.sh <check|sync|init|update> [--manifest PATH] [--root DIR] [--source-dir DIR] [--runtime NAME]
+# shellcheck source-path=SCRIPTDIR
 set -euo pipefail
 
 HARNESS_HOME=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export HARNESS_HOME
 
-# staging ディレクトリはスクリプト全体で 1 つ。trap は関数を抜けた後(スクリプト終了時)に評価されるので
-# local ではなくグローバルに持つ(local だと set -u で未定義になり削除されない)
-HARNESS_STAGING=""
-trap 'rm -rf "${HARNESS_STAGING:-}"' EXIT
-
-# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/report.bash
 source "$HARNESS_HOME/lib/report.bash"
-# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/manifest.bash
 source "$HARNESS_HOME/lib/manifest.bash"
-# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/probe.bash
 source "$HARNESS_HOME/lib/probe.bash"
-# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/render.bash
 source "$HARNESS_HOME/lib/render.bash"
 
 usage() {
-    cat <<'EOF'
+    cat <<'USAGE'
 使い方: harness.sh <command> [options]
 
 commands:
@@ -41,7 +33,7 @@ options:
   --root DIR         Target のルート(既定: $HOME)
   --source-dir DIR   Content Module 等の Source ルート(既定: リポジトリルート)
   --runtime NAME     check の対象を 1 runtime に限定する(既定: manifest の全 runtime)
-EOF
+USAGE
 }
 
 # cmd_check RUNTIME_FILTER: runtime の Capability Probe と Target の drift 比較。
@@ -63,7 +55,6 @@ cmd_check() {
     done
 
     # drift: 対象 runtime の target を staging に render して live と比較する(live は変更しない)
-    HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-check-XXXXXX")
     render_all "$HARNESS_STAGING" "$filter" || true
     compare_all "$HARNESS_STAGING" "$filter"
 
@@ -75,11 +66,8 @@ cmd_check() {
 # (1 runtime だけ新版に進む状態を作らないため。#308「a failure cannot leave only one product on a new policy version」)
 cmd_sync() {
     [ -z "$1" ] || die 64 "harness sync: --runtime は sync では使えません (sync は常に全 Target を対象にします)"
-    HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX")
-
-    if ! render_all "$HARNESS_STAGING" || ! validate_staging "$HARNESS_STAGING"; then
-        die 1 "harness sync: render に失敗したため Target を変更しませんでした"
-    fi
+    # render_all が 0 を返した時点で全 target の staging が通常ファイルとして揃っている(全体検証)
+    render_all "$HARNESS_STAGING" || die 1 "harness sync: render に失敗したため Target を変更しませんでした"
     replace_all "$HARNESS_STAGING" || die 1 "harness sync: 一部の Target を置換できませんでした (上の FAIL 行を確認してください)"
 }
 
@@ -94,24 +82,14 @@ main() {
     local manifest="$HARNESS_HOME/manifest.json" root=${HOME:-} source_dir="$HARNESS_HOME/.." runtime=""
     while [ $# -gt 0 ]; do
         case $1 in
-        --manifest)
+        --manifest | --root | --source-dir | --runtime)
             [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
-            manifest=$2
-            shift 2
-            ;;
-        --root)
-            [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
-            root=$2
-            shift 2
-            ;;
-        --source-dir)
-            [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
-            source_dir=$2
-            shift 2
-            ;;
-        --runtime)
-            [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
-            runtime=$2
+            case $1 in
+            --manifest) manifest=$2 ;;
+            --root) root=$2 ;;
+            --source-dir) source_dir=$2 ;;
+            --runtime) runtime=$2 ;;
+            esac
             shift 2
             ;;
         -h | --help)
@@ -140,7 +118,25 @@ main() {
     export HARNESS_ROOT HARNESS_SOURCE_DIR
 
     manifest_load "$manifest"
-    "cmd_$command" "$runtime"
+    case $command in
+    check) cmd_check "$runtime" ;;
+    sync) cmd_sync "$runtime" ;;
+    esac
 }
 
-main "$@"
+# staging ディレクトリはスクリプト全体で 1 つ。親シェルで作り、main を subshell で走らせてから親が消す。
+# EXIT trap で消す形にしないのは、bash 3.2(macOS の /bin/bash)では EXIT trap があると関数内の
+# set -u 違反(unbound variable)の終了ステータスが 0 に潰れるため(ステータス保存型の trap でも直らない)。
+# このツールの契約は終了コードなので、偽の成功を構造的に起こさない形にする
+HARNESS_STAGING=$(mktemp -d "${TMPDIR:-/tmp}/harness-XXXXXX")
+trap 'rm -rf "$HARNESS_STAGING"; exit 130' INT TERM HUP
+# `(main) || status=$?` の形にしない: || の左側では subshell 内の set -e が無効になる。
+# 親で set +e にしてから subshell の中で set -e を立て直し、終了ステータスを $? で受ける
+set +e
+(
+    set -e
+    main "$@"
+)
+status=$?
+rm -rf "$HARNESS_STAGING"
+exit "$status"

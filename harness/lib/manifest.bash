@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Harness Manifest(JSON)の読み込み・検証・問い合わせ。harness.sh から source される。
-# 依存: report.bash(die)、jq、HARNESS_HOME(harness/ の絶対パス)
+# 依存: report.bash(die)、path.bash、jq、HARNESS_HOME(harness/ の絶対パス)
 #
 # スキーマは docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md
 # 「Harness Manifest スキーマ(version 1)」。検証エラーはすべて "manifest: <理由>" で exit 2。
@@ -9,8 +9,19 @@
 # ファイル全体: jq クエリ中の $var はシェル変数ではなく jq 自身の --arg/--argjson 変数なので、
 # シングルクォートのまま展開させない(SC2016 は意図した挙動への誤検知)。
 
+# shellcheck source-path=SCRIPTDIR/../lib
+# shellcheck source=path.bash
+source "$HARNESS_HOME/lib/path.bash"
+
+# 検証済みの target 一覧。index が manifest の targets[] の添字と一致し、staging/<index> にも使う。
+# bash 3.2 には連想配列が無いので、並行する index 配列で持つ(render / replace / compare の各ループで
+# target ごとに jq を起動しないため)
+HARNESS_TARGET_PATHS=()
+HARNESS_TARGET_RUNTIMES=()
+HARNESS_TARGET_OWNERS=()
+
 # manifest_load PATH: 読み込んで検証し、HARNESS_MANIFEST(絶対パス)と
-# HARNESS_MANIFEST_JSON(compact JSON)を設定する
+# HARNESS_MANIFEST_JSON(compact JSON)と HARNESS_TARGET_* を設定する
 manifest_load() {
     local path=$1
     command -v jq >/dev/null 2>&1 || die 2 "manifest: jq が必要です (brew install jq)"
@@ -36,11 +47,7 @@ manifest_runtime_field() {
     manifest_query --arg n "$1" --arg f "$2" '.runtimes[$n][$f] // empty'
 }
 
-manifest_target_count() {
-    manifest_query '.targets | length'
-}
-
-# manifest_target INDEX: targets[INDEX] を compact JSON で出力
+# manifest_target INDEX: targets[INDEX] を compact JSON で出力(adapter に渡す)
 manifest_target() {
     manifest_query -c --argjson i "$1" '.targets[$i]'
 }
@@ -61,8 +68,22 @@ adapter_path() {
     return 1
 }
 
+# manifest_load_targets: 検証済みの targets[] を HARNESS_TARGET_* に展開する。
+# 区切りは US(0x1f)。path / owner は制御文字を拒否済み、runtime 名は英数字等に限定済みなので衝突しない
+manifest_load_targets() {
+    local us=$'\x1f' path runtime owner
+    HARNESS_TARGET_PATHS=()
+    HARNESS_TARGET_RUNTIMES=()
+    HARNESS_TARGET_OWNERS=()
+    while IFS="$us" read -r path runtime owner; do
+        HARNESS_TARGET_PATHS+=("$path")
+        HARNESS_TARGET_RUNTIMES+=("$runtime")
+        HARNESS_TARGET_OWNERS+=("$owner")
+    done < <(manifest_query --arg us "$us" '.targets[] | [.path, .runtime, .owner] | join($us)')
+}
+
 manifest_validate() {
-    local version
+    local version reason
     version=$(manifest_query '.version // "missing"')
     [ "$version" = "1" ] || die 2 "manifest: version は 1 でなければなりません (現在: $version)"
 
@@ -74,46 +95,60 @@ manifest_validate() {
     [ "$(manifest_query '.runtimes | has("*")')" = "false" ] ||
         die 2 'manifest: runtimes に "*" は使えません (runtime を明示してください)'
 
-    local name bin min
-    while IFS= read -r name; do
-        bin=$(manifest_runtime_field "$name" bin)
-        min=$(manifest_runtime_field "$name" minVersion)
-        [ -n "$bin" ] || die 2 "manifest: runtimes.$name.bin が必要です"
-        [ "$bin" != "auto" ] || die 2 "manifest: runtimes.$name.bin に \"auto\" は使えません (実行ファイル名を明示してください)"
-        [ -n "$min" ] || die 2 "manifest: runtimes.$name.minVersion が必要です"
-    done < <(manifest_runtimes)
+    # 形の検査は jq 1 回で「最初の理由」だけを受け取る。値の型を見てから index するので、
+    # 型が違っても jq のエラー(exit 5)ではなく "manifest: <理由>" で exit 2 になる
+    reason=$(manifest_query '
+        .runtimes | to_entries[] | .key as $n | .value as $r
+        | if ($r | type) != "object" then "runtimes.\($n) はオブジェクトでなければなりません"
+          elif ($n | test("^[A-Za-z0-9_.-]+$") | not) then "runtimes の名前 \"\($n)\" は英数字・_・.・- のみ使えます"
+          elif ($r.bin | type) != "string" or $r.bin == "" then "runtimes.\($n).bin が必要です (文字列)"
+          elif $r.bin == "auto" then "runtimes.\($n).bin に \"auto\" は使えません (実行ファイル名を明示してください)"
+          elif ($r.minVersion | type) != "string" or $r.minVersion == "" then "runtimes.\($n).minVersion が必要です (文字列)"
+          elif $r.maxVerifiedVersion != null and ($r.maxVerifiedVersion | type) != "string"
+               then "runtimes.\($n).maxVerifiedVersion は文字列でなければなりません"
+          elif $r.versionArgs != null and (($r.versionArgs | type) != "array" or ([$r.versionArgs[] | strings] | length) != ($r.versionArgs | length))
+               then "runtimes.\($n).versionArgs は文字列の配列でなければなりません"
+          elif $r.capabilities != null and ($r.capabilities | type) != "array"
+               then "runtimes.\($n).capabilities は配列でなければなりません"
+          elif ([($r.capabilities // [])[]
+                 | select((type != "object") or (.name | type) != "string" or .name == ""
+                          or (.pattern | type) != "string" or .pattern == ""
+                          or (.args != null and ((.args | type) != "array" or ([.args[] | strings] | length) != (.args | length))))]
+                 | length) > 0
+               then "runtimes.\($n).capabilities[] には name と pattern (空でない文字列) が必要です (args は文字列の配列)"
+          else empty end' | sed -n 1p)
+    [ -z "$reason" ] || die 2 "manifest: $reason"
 
     [ "$(manifest_query '.targets | type')" = "array" ] || die 2 "manifest: targets は配列でなければなりません"
+    reason=$(manifest_query --arg re "$HARNESS_RELPATH_REJECT_RE" --arg rule "$HARNESS_RELPATH_RULE_TEXT" --arg owner_re "$HARNESS_OWNER_RE" '
+        .runtimes as $rts
+        | .targets | to_entries[] | .key as $i | .value as $t
+        | if ($t | type) != "object" then "targets[\($i)] はオブジェクトでなければなりません"
+          elif ($t.path | type) != "string" or $t.path == "" then "targets[\($i)].path が必要です (文字列)"
+          elif ($t.runtime | type) != "string" or $t.runtime == "" then "targets[\($i)].runtime が必要です (文字列)"
+          elif ($t.owner | type) != "string" or $t.owner == "" then "targets[\($i)].owner が必要です (文字列)"
+          elif ($t.path | test($re))
+               then "target \"\($t.path)\" の path は正規化された相対パスでなければなりません (\($rule))"
+          elif ($t.owner | test($owner_re) | not)
+               then "target \"\($t.path)\" の owner \"\($t.owner)\" は adapter 名 (英数字・_・-) でなければなりません"
+          elif ($rts | has($t.runtime) | not)
+               then "target \"\($t.path)\" の runtime \"\($t.runtime)\" は runtimes に宣言されていません"
+          else empty end' | sed -n 1p)
+    [ -z "$reason" ] || die 2 "manifest: $reason"
 
-    # Target Owner は 1 target につき 1 つ: 同じ path が 2 回出たら manifest 全体を reject
+    # Target Owner は 1 target につき 1 つ: 同じ path が 2 回出たら manifest 全体を reject。
+    # 主対象の macOS(APFS 既定)は大文字小文字を区別しないので、比較も区別せずに行う
     local dup owners
-    dup=$(manifest_query '[.targets[].path] | group_by(.) | map(select(length > 1) | .[0]) | .[0] // empty')
+    dup=$(manifest_query '[.targets[].path] | group_by(ascii_downcase) | map(select(length > 1) | .[0]) | .[0] // empty')
     if [ -n "$dup" ]; then
-        owners=$(manifest_query --arg p "$dup" '[.targets[] | select(.path == $p) | .owner] | join(", ")')
+        owners=$(manifest_query --arg p "$dup" '[.targets[] | select((.path | ascii_downcase) == ($p | ascii_downcase)) | .owner] | join(", ")')
         die 2 "manifest: target \"$dup\" の owner が重複しています ($owners)"
     fi
 
-    local i count path runtime owner
-    count=$(manifest_target_count)
-    for ((i = 0; i < count; i++)); do
-        path=$(manifest_query --argjson i "$i" '.targets[$i].path // empty')
-        runtime=$(manifest_query --argjson i "$i" '.targets[$i].runtime // empty')
-        owner=$(manifest_query --argjson i "$i" '.targets[$i].owner // empty')
-        [ -n "$path" ] || die 2 "manifest: targets[$i].path が必要です"
-        [ -n "$runtime" ] || die 2 "manifest: targets[$i].runtime が必要です"
-        [ -n "$owner" ] || die 2 "manifest: targets[$i].owner が必要です"
-
-        # path は正規化せず拒否する(realpath は macOS 標準に無い): 絶対パス・"."/".." セグメント・
-        # 空セグメント(//)・改行を含む path は、"./AGENTS.md" のような別表記で重複検出(生パスの
-        # 文字列一致)をすり抜け、1 Target に 2 owner を許してしまう(#309 レビュー Critical-1)
-        local path_invalid
-        path_invalid=$(manifest_query --argjson i "$i" '.targets[$i].path | test("^/|(^|/)\\.\\.?(/|$)|//|\n")')
-        [ "$path_invalid" = "false" ] ||
-            die 2 "manifest: target \"$path\" の path は正規化された相対パスでなければなりません (先頭の /、. や .. のセグメント、// は使えません)"
-
-        [ "$(manifest_query --arg n "$runtime" '.runtimes | has($n)')" = "true" ] ||
-            die 2 "manifest: target \"$path\" の runtime \"$runtime\" は runtimes に宣言されていません"
-        adapter_path "$owner" >/dev/null ||
-            die 2 "manifest: target \"$path\" の owner \"$owner\" に対応する adapter がありません"
+    manifest_load_targets
+    local i
+    for ((i = 0; i < ${#HARNESS_TARGET_PATHS[@]}; i++)); do
+        adapter_path "${HARNESS_TARGET_OWNERS[$i]}" >/dev/null ||
+            die 2 "manifest: target \"${HARNESS_TARGET_PATHS[$i]}\" の owner \"${HARNESS_TARGET_OWNERS[$i]}\" に対応する adapter がありません"
     done
 }
