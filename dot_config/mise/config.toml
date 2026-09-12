@@ -2,7 +2,7 @@
 bun = "latest"
 herdr = "0.7.3"
 node = "24"
-pnpm = "11.26.0"
+pnpm = "12.4.1"
 prek = "latest"
 
 [settings]
