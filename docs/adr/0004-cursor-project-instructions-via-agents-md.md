@@ -16,4 +16,5 @@ Cursor は project root の `AGENTS.md` をネイティブに読む(公式ドキ
 ## Consequences
 
 - `AGENTS.md` の Target は manifest 上 `runtime: codex` だが、実際には Cursor もこのファイルから共有内容を受け取る。Target Owner(`compose`)は 1 つのままで矛盾しないが、「1 Target = 1 runtime」という manifest の形と実際の読み手が 1 対 1 でない例外として記録しておく。
+- 上の帰結として、`harness check --runtime cursor` は `.cursor/rules/dotfiles.mdc` しか検査しない。`AGENTS.md` は manifest 上 `runtime: codex` なのでフィルタから外れるが、Cursor が実際に受け取る内容の大半はそちらにある。Cursor への入力全体を検証したいときは `--runtime` を付けずに実行すること。呼び出し側(#324 の chezmoi 統合など)が `--runtime cursor` の結果を「Cursor の Target は同期済み」と読むと取り違える。Target が複数の runtime に属せる形(`target.runtimes`)を manifest スキーマに入れるかどうかは #322 で検討する。
 - Claude Code は `AGENTS.md` を読まないことを実測で確認している(2026-09-12)。将来 Claude Code が `AGENTS.md` を読むようになると Claude 側で二重ロードが発生するので、`CLAUDE.md` と `AGENTS.md` の両方を生成する構成はその時点で再検討が要る。

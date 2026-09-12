@@ -170,6 +170,27 @@ EOF
     [ ! -e "$ROOT/OUT.md" ]
 }
 
+@test "compose は同一 Target 内の modules 重複を拒否する(Contrast Pair)" {
+    # 重複を通すと同じ節が 2 回 Target に出るが、Source と Target は一致したままなので
+    # drift 検出では永久に捕まらない。AGENTS.md では重複がそのまま 32 KiB の
+    # ヘッドルームを食い潰し、切り捨ての不変条件を先に壊す
+    module a.md '# A'
+    module b.md '# B'
+    write_manifest '[{"path":"OUT.md","runtime":"claude","owner":"compose","modules":["modules/a.md","modules/b.md","modules/a.md"]}]'
+    run sync_fixture
+    assert_failure 1
+    assert_output --partial '重複'
+    [ ! -e "$ROOT/OUT.md" ]
+
+    # Contrast: 同じモジュールでも重複していなければ通る(重複そのものを見ていることの確認)
+    write_manifest '[{"path":"OUT.md","runtime":"claude","owner":"compose","modules":["modules/a.md","modules/b.md"]}]'
+    run sync_fixture
+    assert_success
+    run cat "$ROOT/OUT.md"
+    assert_output --partial '# A'
+    assert_output --partial '# B'
+}
+
 @test "compose は frontmatter の壊れたキーと空の frontmatter を拒否する" {
     module a.md '# A'
     # 改行を含むキーは --- ブロックを途中で閉じ、alwaysApply を本文へ落としてしまう
@@ -347,9 +368,15 @@ repo_check() {
 
 @test "AGENTS.md は Codex の切り捨て(32 KiB)の内側に「Key Patterns 以外の全セクション」を収める" {
     # codex は project_doc_max_bytes(既定 32768 バイト)で AGENTS.md を黙って切る。
-    # モジュールの並びは「切り捨てが 35-key-patterns の内側でだけ起きる」ように決めてあるので、
-    # それ以外のセクションの見出しが先頭 32 KiB に全部入っていることを不変条件として強制する。
-    # 共有モジュールが太っても、このテストが落ちて並べ替えを促す
+    # モジュールの並びは「切り捨てが 35-key-patterns の内側でだけ起きる」ように決めてある。
+    # マーカーは 2 種類あり、捕まえる壊れ方が違う(どちらも必要):
+    #   - 各セクションの見出し … 並べ替えを捕まえる。35-key-patterns を前に動かすと、
+    #     後ろに押し出されたセクション(例: '## Agent docs')が先頭 32 KiB から落ちる
+    #   - '### Key Patterns'  … 共有モジュールの増量を捕まえる。これは 35-key-patterns.md の
+    #     1 行目で、AGENTS.md では同モジュールが**最後**に置かれているので、「先頭 32 KiB に
+    #     ある」= 「それより前の全モジュールが完全に収まっている」と同値になる。
+    #     見出しだけを見ていると、見出しは内側・本文の末尾は外側という窓(最後の共有モジュール
+    #     60-agent-docs.md の幅)が空き、文の途中で切られていても通ってしまう
     local head_bytes marker
     head_bytes=$(head -c 32768 "$REPO/AGENTS.md")
     for marker in \
@@ -361,14 +388,15 @@ repo_check() {
         '## Architecture' \
         '## Verification' \
         '## Known Pitfalls' \
-        '## Agent docs'; do
+        '## Agent docs' \
+        '### Key Patterns'; do
         printf '%s' "$head_bytes" | grep -qF -- "$marker" ||
-            fail "AGENTS.md の先頭 32768 バイトに \"$marker\" がありません (モジュールの並びを見直してください)"
+            fail "AGENTS.md の先頭 32768 バイトに \"$marker\" がありません。AGENTS.md は Key Patterns 以外の全モジュールを既に前へ寄せてあり並べ替えの余地は無いので、共有モジュールの分割・散文の圧縮・docs/ への外出しで先頭 32 KiB を空けてください"
     done
     # Contrast: 末尾に置いた Key Patterns は実際に切り捨てられている
-    # (切り捨てが起きていないなら、上の不変条件は自明に成り立つだけで何も検証していない)
-    run grep -qF -- '### Key Patterns' "$REPO/AGENTS.md"
-    assert_success
+    # (切り捨てが起きていないなら、上の不変条件は自明に成り立つだけで何も検証していない)。
+    # 「'### Key Patterns' は内側」と対にすることで、切断が 35-key-patterns.md の内側で
+    # だけ起きていることが言える
     printf '%s' "$head_bytes" | grep -qF -- '**Harness sync seam' &&
         fail "AGENTS.md が 32 KiB に収まっているなら、この検査と codex-extension.md の説明を更新してください"
     return 0

@@ -62,6 +62,19 @@ repos:
         files: '^(CLAUDE\.md|AGENTS\.md|\.cursor/rules/.*\.mdc|justfile|harness/(modules/.*|project\.json|adapters/.*|bin/.*|lib/.*))$'
         pass_filenames: false
         types: [file]
+      # check-instructions は「Target が Source と一致しているか」しか見ない。
+      # 一致したまま壊れる不変条件が 2 つあり、それはこのスイートだけが捕まえる:
+      #   - AGENTS.md の 32 KiB 切り捨てが 35-key-patterns の内側で起きること
+      #     (共有モジュールが太ると、再生成しても一致するのでこちらは緑のまま落ちる)
+      #   - harness/manifest.json と project.json の runtime 宣言が一致していること
+      #     (check-instructions は manifest.json を読まないので、足しても空振りになる)
+      - id: test-harness-instructions
+        name: test-harness-instructions
+        entry: bash -c 'if command -v just &>/dev/null; then just test-harness-instructions; else echo "just not found, skipping"; fi' --
+        language: system
+        files: '^(CLAUDE\.md|AGENTS\.md|\.cursor/rules/.*\.mdc|justfile|test/harness-instructions\.bats|harness/(modules/.*|manifest\.json|project\.json|adapters/.*|bin/.*|lib/.*))$'
+        pass_filenames: false
+        types: [file]
       # Not restricted to .md: a literal org path is most likely to land in a
       # template or config (settings.json.tmpl, nono profiles, gitconfig).
       # The pattern/allowlist files are excluded because they hold

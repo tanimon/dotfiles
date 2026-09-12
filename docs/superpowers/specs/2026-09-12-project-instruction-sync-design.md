@@ -65,7 +65,9 @@ Claude Code が `AGENTS.md` を読まないことは実測で確認した(後述
 
 - **モジュール分割**: 旧 `30-architecture.md` の中で圧倒的に長い「Key Patterns」(17.5 KB)を `35-key-patterns.md` として独立させた。残りの構造的な記述(Template Variables / `.chezmoiignore` / `.chezmoiexternal.toml` / Directory Layout / Pre-commit Hooks)は 3.7 KB に収まる。
 - **順序**: `AGENTS.md` だけ `modules` の並びが違う。Runtime Extension を先頭に、`35-key-patterns.md` を末尾に置く。これで **切り捨ては 1 つの宣言されたモジュールの内側でだけ起きる**。実測(`codex debug prompt-input`)で、`## What This Is` / `## Common Commands` / `## chezmoi Naming Conventions` / `## Architecture` / `## Verification` / `## Known Pitfalls` / `## Agent docs` はすべて Codex に届き、落ちるのは Key Patterns の後半だけになった(この並べ替え前は Template Syntax・Script Safety・External Constraints・nono Sandbox の Known Pitfalls と `## Agent docs` がまるごと落ちていた)。
-- **検査**: bats が「先頭 32,768 バイトに上記の見出しが全部ある」ことと、「`Harness sync seam`(Key Patterns の後半)は先頭 32 KiB に**無い**」ことの両方を見る。後者が Contrast Pair で、切り捨てが実際に起きていない状態なら前者は自明に成り立つだけになるため。共有モジュールが太れば前者が落ち、並べ替えを促す。
+- **検査**: bats が「先頭 32,768 バイトに上記の見出しが全部ある」ことと、「`Harness sync seam`(Key Patterns の後半)は先頭 32 KiB に**無い**」ことの両方を見る。後者が Contrast Pair で、切り捨てが実際に起きていない状態なら前者は自明に成り立つだけになるため。共有モジュールが太れば前者が落ちる。
+
+  **2026-09-12 追記(PR レビューでの修正)**: 見出しだけを並べたマーカー群では足りなかった。「見出しは内側・本文の末尾は外側」という窓が、最後の共有モジュール(`60-agent-docs.md`、668 バイト)の幅ぶん空いており、文の途中で切られていてもテストが通る。`50-pitfalls.md` を約 4.7 KB 太らせる摂動で再現した。マーカーに `### Key Patterns`(`35-key-patterns.md` の 1 行目。`AGENTS.md` ではこれが最後のモジュール)を加えて塞いだ — 「先頭 32 KiB にある」が「それより前の全モジュールが完全に収まっている」と同値になるため。あわせて **この時点で `AGENTS.md` の並べ替えの余地は使い切っている**(Key Patterns 以外はすべて前に寄せてある)ので、上の「並べ替えを促す」はもう成り立たない。残る手はモジュールの分割・散文の圧縮・`docs/` への外出しで、テストの失敗メッセージもそう案内する。
 - **可視化**: Runtime Extension の冒頭で、切り捨てられるのが Key Patterns の後半であること、全文は `harness/modules/project/35-key-patterns.md` をリポジトリルートから読めばよいこと、セッション単位で上げるなら `codex -c project_doc_max_bytes=200000` であることを明記する。
 - **恒久対応は先送り**: `project_doc_max_bytes` を上げるには `~/.codex/config.toml` を変更する必要があり、Codex のグローバル設定はこのリポジトリがまだ所有していない(#311 の担当)。
 

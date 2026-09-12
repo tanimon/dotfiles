@@ -1,7 +1,7 @@
 ---
 title: A verification that resolves a different path than the artifact under test passes vacuously
 date: 2026-07-25
-last_updated: 2026-08-06
+last_updated: 2026-09-12
 category: workflow-issues
 module: verification-design
 problem_type: workflow_issue
@@ -16,6 +16,7 @@ applies_when:
   - "Diagnosing unexplained drift between a deployed target and its source when more than one checkout of the same repo exists on the machine"
   - "Running `nono why`/`nono run --profile <name>` with a bare profile NAME (not a path) while editing that profile's source file in a git worktree that differs from chezmoi's deployed copy at ~/.config/nono/profiles/<name>.json"
   - "Writing or reviewing a bats/CI contrast-verification test for a nono profile that references the profile by name rather than by absolute source path"
+  - "pre-commit フックや CI ジョブの path filter(`files:` / `paths:`)にパスを足して、そのフックがそのファイルを検査するようになったと判断しようとしているとき"
 symptoms:
   - "\"chezmoi managed | grep <new-entry>\" reports the expected result even though the entry exists only on a branch chezmoi is not reading"
   - "Unexplained drift between ~/ and the source tree, misdiagnosed as a concurrent session editing files"
@@ -23,6 +24,8 @@ symptoms:
   - "A tool reports ALLOWED or PASS for something that is in fact impossible or never ran"
   - "A bats test using \"nono why --profile <name> ...\" stays passing even after deliberately removing the allow entry it is supposed to depend on, in the repository's own profile JSON"
   - "nono profile list reveals that --profile <name> resolves to ~/.config/nono/profiles/<name>.json (the chezmoi-deployed copy) rather than the repository's own dot_config/nono/profiles/<name>.json source file being edited"
+  - "pre-commit のフックが、そのフックが一切読まないファイルに対して Passed と表示される（発火はしたが検査していない）"
+  - "ドキュメントが「このテストが強制する」と書いている不変条件が、実際には CI でしか評価されず commit 時点では素通りする"
 tags:
   - verification
   - vacuous-check
@@ -34,6 +37,7 @@ tags:
   - nono
   - bats
   - contrast-test
+  - pre-commit
 related_components:
   - tooling
   - documentation
@@ -195,6 +199,21 @@ the chezmoi one:
   read as "upstream did not touch this file" — when in fact upstream had changed it by 43 lines.
   Use `git diff --no-ext-diff` when a command needs unified output. See the corresponding entry
   in `CLAUDE.md`'s Known Pitfalls.
+- **フックの `files:` に、そのフックが読まないパスを足しても空振りする**(2026-09-12、#310 の PR
+  レビュー)。`.pre-commit-config.yaml` の `check-instructions` フックは `just check-instructions`
+  を走らせるが、これは「生成 Target が Source と一致しているか」しか見ず `harness/manifest.json`
+  を一切読まない。レビューで挙がった「`files:` の正規表現に `manifest\.json` を足す」という修正は、
+  フックを**発火させて緑にする**だけで、`manifest.json` と `project.json` の runtime 宣言の不一致
+  (見ているのは `test/harness-instructions.bats` の別テスト)は素通しのまま残る。
+  **発火 ≠ 検査**であり、`Passed` というフック名の行はそのフックが対象を見た証拠にならない。
+  対処は「そのパスを実際に読む検査」を走らせるフックを別に足すこと(`just test-harness-instructions`)、
+  そして `prek run <id> --files <path>` で発火することと、無関係なファイルでは `Skipped` になることを
+  対で確かめること。**同じ調査でより大きな空振りが見つかった**: `AGENTS.md` の 32 KiB 切り捨ての
+  不変条件も、共有モジュールを太らせた commit では `check-instructions` が緑のままだった
+  ——再生成すれば Source と Target は一致するため。つまり `CLAUDE.md` が「`test/harness-instructions.bats`
+  が強制する」と書いていた不変条件を、commit 時点では誰も見ていなかった。
+  **一般形**: path filter を足すときは「このフックは、私が今足したファイルの何を実際に読むのか」を、
+  発火したことと区別して確かめる。ファイル集合を広げる修正は、検査を広げる修正とは限らない。
 - **`nono why`/`nono run --profile <name>` は名前解決であり、worktree の編集ではなく chezmoi がデプロイした側を読む**
   （2026-08-06、issue #210 / PR #272）。`test/nono-profile.bats` に追加した deny/allow 対比ペアのテストで
   `--profile claude-seal`（プロファイル**名**指定）を使ったところ、対比検証
@@ -310,6 +329,14 @@ fault injections.
 `nono why` を独立に再実行し再現・確認した（`test/nono-profile.bats` への変更は PR
 [tanimon/dotfiles#272](https://github.com/tanimon/dotfiles/pull/272) に含まれる。本追記時点で
 同PRは未マージ — コミットSHAはrebase/squashで変わりうるためPR番号を正としている）。
+
+**2026-09-12 追記の検証状況**: `check-instructions` が `harness/manifest.json` を読まないことは
+`justfile` のレシピ(`harness.sh check --manifest harness/project.json`)から確定。置き換えた
+`test-harness-instructions` フックは `prek run test-harness-instructions --files harness/manifest.json`
+と `--files harness/modules/project/50-pitfalls.md` で `Passed`、`--files README.md` で
+`Skipped` になることを実行して確認した。32 KiB の窓(`60-agent-docs.md` 幅の盲点)は `$TMPDIR` の
+複製リポジトリで `50-pitfalls.md` を約 4.7 KB 太らせて再現し、マーカー追加あり = FAIL /
+マーカーを外すと PASS の対で、修正が実際にその状態を検出することを確認した。
 
 ## Related
 

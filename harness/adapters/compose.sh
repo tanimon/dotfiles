@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 組み込み Runtime Adapter "compose": 複数の Content Module を 1 つの Target に連結する。
 # 契約: compose.sh render <staging-file> <target-json>
-#   target.modules[]   (必須) HARNESS_SOURCE_DIR からの相対パス。宣言順に連結する
+#   target.modules[]   (必須) HARNESS_SOURCE_DIR からの相対パス。宣言順に連結する。重複不可
 #   target.frontmatter (任意) 空でないオブジェクト。--- で囲んだ YAML として先頭に出す(値はスカラーのみ)
 #   target.banner      (任意) 1 行の文字列。frontmatter の直後に <!-- ... --> として出す
 # 詳細: docs/superpowers/specs/2026-09-12-project-instruction-sync-design.md
@@ -33,6 +33,7 @@ fail() {
 # shellcheck disable=SC2016 # $re / $rule は jq の --arg 変数(シェル変数ではない)
 reason=$(jq -r --arg re "$HARNESS_RELPATH_REJECT_RE" --arg rule "$HARNESS_RELPATH_RULE_TEXT" '
     def bad_paths: [.modules[] | select(test($re))];
+    def dup_paths: [.modules | group_by(.)[] | select(length > 1) | .[0]];
     if (has("modules") | not) or (.modules | type) != "array"
         then "target に modules (文字列の配列) がありません"
     elif ([.modules[] | strings | select(. != "")] | length) != (.modules | length)
@@ -41,6 +42,8 @@ reason=$(jq -r --arg re "$HARNESS_RELPATH_REJECT_RE" --arg rule "$HARNESS_RELPAT
         then "target の modules が空です (連結するモジュールを 1 つ以上並べてください)"
     elif (bad_paths | length) > 0
         then "modules の \(bad_paths[0] | @json) は正規化された相対パスでなければなりません (\($rule))"
+    elif (dup_paths | length) > 0
+        then "target の modules に重複があります: \(dup_paths[0] | @json) (同じ節が 2 回 Target に出るが、Source と Target は一致したままなので drift 検出では捕まらない)"
     elif has("frontmatter") and (.frontmatter | type) != "object"
         then "target の frontmatter はオブジェクトでなければなりません"
     elif has("frontmatter") and (.frontmatter | length) == 0
