@@ -703,8 +703,9 @@ case "${1:-}" in */harness-*/1) sleep 20 ;; esac
 exec /bin/cat "$@"
 EOF2
     chmod +x "$STUB_BIN/cat"
-    # supervisor からの kill と同じく親(harness.sh)だけに送る。harness.sh が main の subshell へ転送する
-    bash "$HARNESS" sync --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" >"$BATS_TEST_TMPDIR/out" 2>&1 &
+    # supervisor からの kill と同じく親(harness.sh)だけに送る。harness.sh が main の subshell へ転送する。
+    # 3>&-: kill 後も sleep 中の stub cat(孫)が残るので、bats の出力 fd 3 を掴ませない
+    bash "$HARNESS" sync --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" >"$BATS_TEST_TMPDIR/out" 2>&1 3>&- &
     local pid=$! i=0
     # 2 つ目の target の一時ファイルが現れる(= 遅らせた cat の途中)まで待つ。
     # 1 つ目の一時ファイルで判定すると、プロセス起動が遅い環境では 1 つ目の置換中に kill してしまう
