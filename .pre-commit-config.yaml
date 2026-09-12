@@ -8,7 +8,11 @@ repos:
         types: [text]
       - id: shellcheck
         name: shellcheck
-        entry: bash -c 'if command -v shellcheck &>/dev/null; then shellcheck "$@"; else echo "shellcheck not found, skipping"; fi' --
+        # -x: source で読み込むファイルがこの commit で staged になっていなくても
+        # ディスク上のファイルを追跡させる。harness/lib/*.bash のように複数ファイルが
+        # source し合う構成では、一部だけを変更する commit で他方が staged
+        # されないと SC1091(info)が誤って出るため(#309 Task 2 で発覚)。
+        entry: bash -c 'if command -v shellcheck &>/dev/null; then shellcheck -x "$@"; else echo "shellcheck not found, skipping"; fi' --
         language: system
         files: '(\.sh$|\.bash$|\.chezmoiscripts/|executable_)'
         exclude: '(\.tmpl$|\.mts$|\.ts$|\.mjs$)'

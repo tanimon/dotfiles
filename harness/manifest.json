@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "runtimes": {
+    "claude": {
+      "bin": "claude",
+      "minVersion": "2.1.268",
+      "maxVerifiedVersion": "2.1.268",
+      "capabilities": [
+        { "name": "settings-flag", "args": ["--help"], "pattern": "--settings" },
+        { "name": "mcp-config-flag", "args": ["--help"], "pattern": "--mcp-config" },
+        { "name": "plugin-dir-flag", "args": ["--help"], "pattern": "--plugin-dir" }
+      ]
+    },
+    "codex": {
+      "bin": "codex",
+      "minVersion": "0.147.0",
+      "maxVerifiedVersion": "0.147.0",
+      "capabilities": [
+        { "name": "mcp-subcommand", "args": ["--help"], "pattern": "^ +mcp " },
+        { "name": "exec-subcommand", "args": ["--help"], "pattern": "^ +exec " },
+        { "name": "sandbox-subcommand", "args": ["--help"], "pattern": "^ +sandbox " }
+      ]
+    },
+    "cursor": {
+      "bin": "cursor",
+      "minVersion": "3.17.21",
+      "maxVerifiedVersion": "3.17.21",
+      "capabilities": [
+        { "name": "user-data-dir-flag", "args": ["--help"], "pattern": "--user-data-dir" },
+        { "name": "install-extension-flag", "args": ["--help"], "pattern": "--install-extension" }
+      ]
+    },
+    "apm": {
+      "bin": "apm",
+      "minVersion": "0.30.0",
+      "maxVerifiedVersion": "0.30.0",
+      "capabilities": [
+        { "name": "install-subcommand", "args": ["--help"], "pattern": "^ +install " },
+        { "name": "audit-subcommand", "args": ["--help"], "pattern": "^ +audit " },
+        { "name": "prune-subcommand", "args": ["--help"], "pattern": "^ +prune " }
+      ]
+    }
+  },
+  "targets": []
+}

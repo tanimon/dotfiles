@@ -6,6 +6,10 @@ AGENTS.md
 # CONCEPTS.md はその前身で deprecated — どちらも repo-only（docs/agents/domain.md 参照）
 CONTEXT.md
 CONCEPTS.md
+
+# harness/ は repo-only の同期・検証ツール(docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md)。
+# ~/harness/ には配置しない
+harness
 .chezmoiremove
 
 .agents/
