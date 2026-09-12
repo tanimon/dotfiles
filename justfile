@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-nono-profile test-triage
 
 # Scan for leaked secrets
 @secretlint:
@@ -158,3 +158,7 @@ check-templates:
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:
     pnpm exec bats test/nono-profile.bats
+
+# Run the session-triage TypeScript tests (quoted glob: Node expands it, not the shell)
+@test-triage:
+    node --test 'test/*.test.ts'
