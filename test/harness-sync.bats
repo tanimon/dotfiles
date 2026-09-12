@@ -620,6 +620,40 @@ EOF2
     assert_line 'FAIL target AGENTS.md: 通常ファイルではありません (owner: file)'
 }
 
+@test "Target の祖先が通常ファイルなら sync は何も置換せず FAIL し、check も FAIL で報告する" {
+    stub_all
+    two_targets
+    : >"$ROOT/.cursor"
+    run sync
+    assert_failure 1
+    assert_output --partial 'target .cursor/rules/shared.mdc: 親ディレクトリを作れません (.cursor が通常ファイルです)'
+    refute_output --partial 'updated'
+    assert [ ! -e "$ROOT/AGENTS.md" ]
+    assert [ -f "$ROOT/.cursor" ]
+
+    run check
+    assert_failure 1
+    assert_line 'FAIL target .cursor/rules/shared.mdc: 親ディレクトリを作れません (.cursor が通常ファイルです) (owner: flaky)'
+    refute_output --partial 'DRIFT target .cursor/rules/shared.mdc'
+}
+
+@test "置換フェーズの環境要因の失敗 (親ディレクトリが読み取り専用) は FAIL で報告し、他の target は続けて exit 1" {
+    stub_all
+    two_targets
+    mkdir -p "$ROOT/.cursor/rules"
+    chmod 555 "$ROOT/.cursor/rules"
+    run sync
+    chmod 755 "$ROOT/.cursor/rules"
+    assert_failure 1
+    assert_line 'updated   AGENTS.md'
+    assert_line 'FAIL target .cursor/rules/shared.mdc: 置換に失敗しました (owner: flaky)'
+    assert_line 'harness sync: 1 updated, 0 unchanged'
+    assert_output --partial '一部の Target を置換できませんでした'
+    assert [ -f "$ROOT/AGENTS.md" ]
+    assert [ ! -e "$ROOT/.cursor/rules/shared.mdc" ]
+    assert_equal "$(ls -A "$ROOT/.cursor/rules" | wc -l | tr -d ' ')" '0'
+}
+
 @test "staging を書いてから失敗した adapter の target は check で FAIL 1 行だけ (DRIFT / OK を重ねない)" {
     stub_all
     cat >"$HARNESS_ADAPTER_DIR/partial.sh" <<'EOF2'

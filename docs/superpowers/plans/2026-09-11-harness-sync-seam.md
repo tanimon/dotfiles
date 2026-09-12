@@ -17,6 +17,7 @@
 - `*.sh` / `*.bash` は `just shellcheck` と `just shfmt`(`shfmt -i 4`)を**必ず**通す。`*.json` は `just oxfmt` を通す(`pnpm exec oxfmt --write <file>` で整形してよい)
 - **live の harness を変更しない**: `dot_claude/`、`dot_apm/`、`~/` 配下、`.chezmoiscripts/` を触らない。`harness/` は `.chezmoiignore` に追加して `~/harness/` へ配置されないようにする
 - 一時ファイルは `mktemp -d "${TMPDIR:-/tmp}/harness-xxx-XXXXXX"` の形(`/tmp` 直書き禁止)。`trap 'rm -rf "$staging"' EXIT` で必ず削除
+  - **実装時の変更(e2512e7)**: EXIT trap は採らず、親シェルで staging を作って `main` を subshell 実行し親が削除する形にした(bash 3.2 の EXIT trap は `set -u` 違反を exit 0 に潰す。ADR 0002 / 0003 と spec が現行の記述)。本プランの以降の trap 記述は履歴として残す
 - 新規ドキュメント・コメント・テスト名はすべて日本語(`~/.claude/rules/common/documentation-language.md`)。`@test` 名に日本語を使うので bats 実行は `LC_ALL=C pnpm exec bats ...`(`.claude/rules/shell-scripts.md` の locale バグ回避)
 - リテラルの `/Users/<名前>`、`ghq/github.com/<literal>`、`-Users-<名前>--` をコード・fixture・ドキュメントに書かない(`just scan-sensitive` が落ちる)
 - 出力行の形式は spec の通り厳守: `OK   `(スペース 3 つ)/ `WARN ` / `FAIL ` / `DRIFT ` で始まり、summary は `harness check: <F> failures, <W> warnings` / `harness sync: <U> updated, <N> unchanged`

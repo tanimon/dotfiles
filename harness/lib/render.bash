@@ -55,30 +55,52 @@ live_not_regular() {
     [ -L "$1" ] || { [ -e "$1" ] && [ ! -f "$1" ]; }
 }
 
-# report_live_not_regular PATH OWNER LIVE: live_not_regular の理由を FAIL で報告する
-report_live_not_regular() {
-    if [ -L "$3" ]; then
-        report_fail "target $1: symlink の Target は #309 では未対応です (owner: $2)"
+# blocked_ancestor PATH: HARNESS_ROOT/PATH の祖先ディレクトリのうち、存在するのにディレクトリでない
+# 最初の要素を(PATH からの相対で)出力して 0。無ければ 1。
+# 置換フェーズの mkdir -p が失敗する条件のうち、manifest と live の形だけで事前に決まるもの
+blocked_ancestor() {
+    local rel=$1 ancestor
+    while [ "${rel%/*}" != "$rel" ]; do
+        rel=${rel%/*}
+        ancestor="$HARNESS_ROOT/$rel"
+        if [ -e "$ancestor" ] && [ ! -d "$ancestor" ]; then
+            printf '%s\n' "$rel"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# live_blocked PATH OWNER: 置換すると壊れる(または置換できない)ことが事前に分かる target を
+# FAIL で報告して 0。symlink / 通常ファイル以外の live、および祖先が通常ファイルの場合。
+# replace_all の事前パスと compare_all で同じ判定を使う
+live_blocked() {
+    local path=$1 owner=$2 live="$HARNESS_ROOT/$1" ancestor
+    if [ -L "$live" ]; then
+        report_fail "target $path: symlink の Target は #309 では未対応です (owner: $owner)"
+    elif live_not_regular "$live"; then
+        report_fail "target $path: 通常ファイルではありません (owner: $owner)"
+    elif ancestor=$(blocked_ancestor "$path"); then
+        report_fail "target $path: 親ディレクトリを作れません ($ancestor が通常ファイルです) (owner: $owner)"
     else
-        report_fail "target $1: 通常ファイルではありません (owner: $2)"
+        return 1
     fi
 }
 
 # replace_all STAGING_DIR: staging を live に反映する。内容が同じなら mv せず mtime も変えない。
-# 事前パスで live が「存在するが通常ファイルでない」target が 1 つでもあれば、何も置換せず return 1
+# 事前パスで live_blocked な target(live が「存在するが通常ファイルでない」、または祖先が通常ファイル)が
+# 1 つでもあれば、何も置換せず return 1
 # (symlink は #309 では未対応。cmp は symlink を辿るため内容一致時だけ黙ってトポロジが壊れる。
-# directory だと mv -f が一時ファイルをその中へ移して「updated」と偽報告する)。
-# 個々の置換失敗は report_fail して他の target は続け、最後に
-# "harness sync: N updated, M unchanged" を出力し、失敗が 1 件でもあれば return 1。
+# directory だと mv -f が一時ファイルをその中へ移して「updated」と偽報告する。
+# 祖先が通常ファイルだと mkdir -p が失敗し、先に処理した target だけ新版になる)。
+# 事前に判定できない置換失敗(権限・disk full 等の環境要因)は report_fail して他の target は続け、最後に
+# "harness sync: N updated, M unchanged" を出力し、失敗が 1 件でもあれば return 1(ADR 0002)。
 # モードは既存 live に合わせ、新規は 0644
 replace_all() {
     local staging=$1 i path owner live blocked=0
 
     for ((i = 0; i < ${#HARNESS_TARGET_PATHS[@]}; i++)); do
-        path=${HARNESS_TARGET_PATHS[$i]}
-        live="$HARNESS_ROOT/$path"
-        if live_not_regular "$live"; then
-            report_live_not_regular "$path" "${HARNESS_TARGET_OWNERS[$i]}" "$live"
+        if live_blocked "${HARNESS_TARGET_PATHS[$i]}" "${HARNESS_TARGET_OWNERS[$i]}"; then
             blocked=1
         fi
     done
@@ -131,8 +153,8 @@ compare_all() {
         path=${HARNESS_TARGET_PATHS[$i]}
         owner=${HARNESS_TARGET_OWNERS[$i]}
         live="$HARNESS_ROOT/$path"
-        if live_not_regular "$live"; then
-            report_live_not_regular "$path" "$owner" "$live"
+        if live_blocked "$path" "$owner"; then
+            :
         elif [ ! -f "$live" ]; then
             report_drift "target $path: 存在しません (owner: $owner)"
         elif ! cmp -s "$staging/$i" "$live"; then

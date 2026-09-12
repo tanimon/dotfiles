@@ -119,10 +119,10 @@ test/
 ## `sync` の手順(Atomic Sync)
 
 1. manifest を読み検証する(失敗は exit 2、何も変更しない)。
-2. `mktemp -d "${TMPDIR:-/tmp}/harness-sync-XXXXXX"` で staging を作り、`trap` で必ず削除する。
+2. 親シェルで `mktemp -d "${TMPDIR:-/tmp}/harness-XXXXXX"` により staging を作り、`main` を subshell で実行して終了後に親が必ず削除する(INT/TERM/HUP でも削除)。EXIT trap は使わない: bash 3.2 では EXIT trap があると `set -u` 違反の終了コードが 0 に潰れる(ADR 0003)。
 3. 全 target について adapter を実行し `staging/<index>` に render する。**1 つでも失敗したら**その target と owner と exit code を `FAIL` で報告し、live に触れず exit 1。
 4. 全体検証: 全 `staging/<index>` が通常ファイルとして存在することを確認する(render 段で adapter が非 0 で終わった target の部分出力は消すので、「staging がある ⇔ render 成功」が成り立つ。検証は render_all の戻り値 0 で表す)。
-5. 置換: target ごとに `cmp -s staging live` が一致なら `unchanged`。異なれば親ディレクトリを作成し、`live` と同じディレクトリに一時ファイルを書いて `mv -f` で置換(同一ファイルシステム内の rename なので原子的)、`updated` と報告。モードは既存 live に合わせ、新規は 0644。置換に失敗した target は `FAIL` で報告して残りの target は続け、最後に exit 1。live が「存在するが通常ファイルでない」target(symlink・directory・fifo 等)が 1 つでもあれば、置換前に全体を `FAIL` で止める(#309 では symlink Target 未対応。directory は `mv -f` が一時ファイルをその中へ移して偽の `updated` になるため)。
+5. 置換: target ごとに `cmp -s staging live` が一致なら `unchanged`。異なれば親ディレクトリを作成し、`live` と同じディレクトリに一時ファイルを書いて `mv -f` で置換(同一ファイルシステム内の rename なので原子的)、`updated` と報告。モードは既存 live に合わせ、新規は 0644。置換に失敗した target は `FAIL` で報告して残りの target は続け、最後に exit 1。live が「存在するが通常ファイルでない」target(symlink・directory・fifo 等)、または祖先に通常ファイルがあり親ディレクトリを作れない target が 1 つでもあれば、置換前に全体を `FAIL` で止める(#309 では symlink Target 未対応。directory は `mv -f` が一時ファイルをその中へ移して偽の `updated` になり、祖先が通常ファイルだと `mkdir -p` が失敗して先行 target だけ新版になるため)。`check` も同じ判定で `FAIL` を報告する。
 6. `harness sync: N updated, M unchanged` を出して exit 0。
 
 `init` / `update` は `harness <cmd>: 未実装です (#322 / #323 で実装)` を stderr に出して exit 64。
@@ -143,7 +143,7 @@ test/
    - 差分 → `DRIFT target <path>: 内容が Source と異なります (owner: <owner>)`
    - render 失敗 → `FAIL target <path>: adapter <owner> が exit <n>`
    - 一致 → `OK   target <path>`
-   - **live を変更しない**(staging は trap で削除)。
+   - **live を変更しない**(staging は `sync` と同じく親シェルが削除)。
 5. `harness check: <F> failures, <W> warnings` を出す。FAIL / DRIFT が 1 つでもあれば exit 1、WARN のみなら exit 0。
 
 ## テスト方針(bats)

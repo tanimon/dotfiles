@@ -17,4 +17,5 @@ date: 2026-09-11
 
 - live Target が symlink の場合、rename は symlink 自体を通常ファイルに置き換えてしまう(このリポジトリが `~/.claude.json` で踏んだ事故)。#309 では置換前に検出して全体を `FAIL` で止め、symlink Target の扱いは後続チケットに委ねる。
 - 一時ファイルは `mktemp` で作るため、置換後のモードは既存 Target のものを引き継ぎ、新規作成は 0644。adapter は Target のモードを指定できない。
-- staging は `$TMPDIR` 配下で、成功・失敗のどちらでも EXIT trap が削除する。
+- 祖先が通常ファイルで親ディレクトリを作れない Target も、manifest と live の形だけで事前に決まるので、symlink・directory と同じく置換前に検出して全体を `FAIL` で止める。置換フェーズで残る失敗は権限・disk full などの環境要因だけになる。
+- staging は `$TMPDIR` 配下で、親シェルが `mktemp -d` してから `main` を subshell で実行し、成功・失敗のどちらでも親が削除する。EXIT trap で削除しないのは、bash 3.2 では EXIT trap があると `set -u` 違反の終了コードが 0 に潰れるため(ADR 0003)。
