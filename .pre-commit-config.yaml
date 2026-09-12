@@ -50,6 +50,18 @@ repos:
         language: system
         files: '\.github/workflows/.*\.yml$'
         types: [file]
+      # CLAUDE.md / AGENTS.md / .cursor/rules は harness/modules/ からの生成物。
+      # 手編集を commit 時点で止める(検出だけ。再生成は `just harness-sync`)。
+      # pass_filenames: false — `just check-instructions` はレシピ引数を取らない。
+      - id: check-instructions
+        name: check-instructions
+        entry: bash -c 'if command -v just &>/dev/null; then just check-instructions; else echo "just not found, skipping"; fi' --
+        language: system
+        # Source(modules / project.json)だけでなく、生成する側(adapter・harness 本体・
+        # レシピ)の変更でも発火させる。renderer を変えると Target が古くなるため
+        files: '^(CLAUDE\.md|AGENTS\.md|\.cursor/rules/.*\.mdc|justfile|harness/(modules/.*|project\.json|adapters/.*|bin/.*|lib/.*))$'
+        pass_filenames: false
+        types: [file]
       # Not restricted to .md: a literal org path is most likely to land in a
       # template or config (settings.json.tmpl, nono profiles, gitconfig).
       # The pattern/allowlist files are excluded because they hold

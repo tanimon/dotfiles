@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "runtimes": {
+    "claude": {
+      "bin": "claude",
+      "minVersion": "2.1.268",
+      "maxVerifiedVersion": "2.1.268",
+      "capabilities": [
+        {
+          "name": "settings-flag",
+          "args": ["--help"],
+          "pattern": "--settings"
+        },
+        {
+          "name": "mcp-config-flag",
+          "args": ["--help"],
+          "pattern": "--mcp-config"
+        },
+        {
+          "name": "plugin-dir-flag",
+          "args": ["--help"],
+          "pattern": "--plugin-dir"
+        }
+      ]
+    },
+    "codex": {
+      "bin": "codex",
+      "minVersion": "0.147.0",
+      "maxVerifiedVersion": "0.147.0",
+      "capabilities": [
+        {
+          "name": "mcp-subcommand",
+          "args": ["--help"],
+          "pattern": "^ +mcp "
+        },
+        {
+          "name": "exec-subcommand",
+          "args": ["--help"],
+          "pattern": "^ +exec "
+        },
+        {
+          "name": "sandbox-subcommand",
+          "args": ["--help"],
+          "pattern": "^ +sandbox "
+        }
+      ]
+    },
+    "cursor": {
+      "bin": "cursor",
+      "minVersion": "3.17.21",
+      "maxVerifiedVersion": "3.17.21",
+      "capabilities": [
+        {
+          "name": "user-data-dir-flag",
+          "args": ["--help"],
+          "pattern": "--user-data-dir"
+        },
+        {
+          "name": "install-extension-flag",
+          "args": ["--help"],
+          "pattern": "--install-extension"
+        }
+      ]
+    }
+  },
+  "targets": [
+    {
+      "path": "CLAUDE.md",
+      "runtime": "claude",
+      "owner": "compose",
+      "banner": "自動生成 — 直接編集しないこと。Source: harness/modules/ + harness/project.json。再生成: just harness-sync / 検査: just check-instructions",
+      "modules": [
+        "harness/modules/runtime/claude-preamble.md",
+        "harness/modules/project/00-overview.md",
+        "harness/modules/project/10-commands.md",
+        "harness/modules/project/20-chezmoi-conventions.md",
+        "harness/modules/project/30-architecture.md",
+        "harness/modules/project/35-key-patterns.md",
+        "harness/modules/project/40-verification.md",
+        "harness/modules/project/50-pitfalls.md",
+        "harness/modules/project/60-agent-docs.md",
+        "harness/modules/runtime/claude-extension.md"
+      ]
+    },
+    {
+      "path": "AGENTS.md",
+      "runtime": "codex",
+      "owner": "compose",
+      "banner": "自動生成 — 直接編集しないこと。Source: harness/modules/ + harness/project.json。再生成: just harness-sync / 検査: just check-instructions",
+      "modules": [
+        "harness/modules/runtime/codex-preamble.md",
+        "harness/modules/runtime/codex-extension.md",
+        "harness/modules/project/00-overview.md",
+        "harness/modules/project/10-commands.md",
+        "harness/modules/project/20-chezmoi-conventions.md",
+        "harness/modules/project/30-architecture.md",
+        "harness/modules/project/40-verification.md",
+        "harness/modules/project/50-pitfalls.md",
+        "harness/modules/project/60-agent-docs.md",
+        "harness/modules/project/35-key-patterns.md"
+      ]
+    },
+    {
+      "path": ".cursor/rules/dotfiles.mdc",
+      "runtime": "cursor",
+      "owner": "compose",
+      "frontmatter": {
+        "description": "dotfiles リポジトリの Cursor 固有ルール。共通の指示は project root の AGENTS.md にある",
+        "alwaysApply": true
+      },
+      "banner": "自動生成 — 直接編集しないこと。Source: harness/modules/runtime/cursor-extension.md + harness/project.json。再生成: just harness-sync / 検査: just check-instructions",
+      "modules": ["harness/modules/runtime/cursor-extension.md"]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+## Claude Code specifics
+
+Everything above applies to every agent working in this repository. This section is the Claude Code Runtime Extension — mechanisms that exist only on Claude Code's launch path and are not available to Codex or Cursor.
+
+### Slash commands and the harness loop
+
+```sh
+/harness-reflect                     # Extract session learnings into ~/.claude/harness/queue.md
+/harness-review                      # Health check + queue triage -> one PR (7-day cadence)
+bash ~/.claude/scripts/harness-doctor.sh  # Deterministic liveness check
+```
+
+The loop itself (SessionEnd hook, queue, briefing) is described under "Harness self-improvement loop" above; these are the Claude Code entry points into it.
+
+### Sandbox
+
+The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` so that **this session is running inside nono** (macOS Seatbelt, deny-all default) unless it was launched by a path that bypasses the wrapper, in which case Claude Code's own native Bash sandbox applies. Exactly one boundary is in effect per launch path. Read `dot_config/nono/CLAUDE.md` before assuming a path or host is reachable.
+
+### Browsing
+
+Use the `/browse` skill from gstack for **all web browsing**, and do not use `mcp__claude-in-chrome__*` tools. This is gstack's own convention (its README asks for exactly this block), and the nono sandbox policy is written on the assumption that it holds — whether `/browse` actually keeps web fetches inside nono's egress allowlist is still an open question (`dot_config/nono/CLAUDE.md`, row 8), so do not route around it with another browsing tool.
+
+### Global configuration
+
+Claude Code also loads `~/.claude/CLAUDE.md` and `~/.claude/rules/**` (deployed from `dot_claude/`). Those are user-global, not repository-specific; global instruction synchronization across products is a separate change (#311).

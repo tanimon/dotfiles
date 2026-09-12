@@ -1,0 +1,14 @@
+## Notes for non-Claude agents
+
+This section comes first deliberately: **Codex truncates this file at `project_doc_max_bytes` (default 32 KiB)** and the file is larger than that, so anything placed at the end would be dropped without a warning. Verified with `codex debug prompt-input` on 2026-09-12 (codex 0.147.0): the tail was missing by default and present with `codex -c project_doc_max_bytes=200000`. Consequences you should know about:
+
+- **What you are missing is the tail of "Key Patterns".** The module order for this file is chosen so that every other section — Common Commands, chezmoi Naming Conventions, Architecture, Verification, Known Pitfalls, Agent docs — fits inside the limit, and the cut lands inside the single "Key Patterns" section, which is last. If you need the rationale behind a chezmoi mechanism and cannot find it here, read `harness/modules/project/35-key-patterns.md` from the repository root; it is never truncated. (Markdown links inside the module files are written relative to the repository root, not to the module's own directory, because the modules are composed into files that live at the root — resolve them from there.)
+- To load the whole file in one session: `codex -c project_doc_max_bytes=200000`. Setting it permanently means editing `~/.codex/config.toml`, which this repository does not manage yet (#311).
+- Cursor reads this file too. Whether Cursor applies a size limit of its own has not been verified.
+
+The rest of this section records what does **not** apply to you, because the repository also configures Claude Code and it is easy to mistake its machinery for repository-wide instructions.
+
+- **Claude Code slash commands do not exist here.** `/harness-reflect`, `/harness-review`, `/browse` and similar are Claude Code entry points. Use the `just` recipes (`just lint`, `just harness-sync`, `just check-instructions`) and the documents under `docs/` directly.
+- **`~/.claude/` is a deploy target, not your configuration.** Paths under `~/.claude/` are described below because this repository generates them from `dot_claude/`. They are not where your own settings live, and editing them does not change your behavior.
+- **The nono wrapper is on Claude Code's launch path only.** `dot_config/zsh/sandbox.zsh` wraps the `claude` command. Whatever isolation you run under is configured by your own product, not by this repository. Do not assume the grants in `dot_config/nono/profiles/claude-seal.json` apply to you.
+- **Global instructions are out of scope for this file.** `AGENTS.md` here covers this repository only. Synchronizing user-global instructions across Claude Code, Codex and Cursor is tracked separately (#311); until then your global configuration is whatever you already had.

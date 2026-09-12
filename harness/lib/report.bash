@@ -27,9 +27,18 @@ report_drift() {
     HARNESS_FAILURES=$((HARNESS_FAILURES + 1))
 }
 
-# report_summary CMD: "harness <cmd>: N failures, M warnings"
+# report_skip: 検査を省略したことの告知。失敗にも警告にも数えないが、必ず 1 行出す
+# (黙って省略すると、何も検証していない実行が「clean」に見える)
+report_skip() {
+    printf 'SKIP %s\n' "$*"
+}
+
+# report_summary CMD [NOTE]: "harness <cmd>: N failures, M warnings[ (NOTE)]"
+# NOTE は省略した検査がある実行にだけ付ける。`^harness <cmd>:` だけを見る呼び出し側が、
+# 「何も検証していない 0 failures」を綺麗な合格と読み違えないようにするため
 report_summary() {
-    printf 'harness %s: %d failures, %d warnings\n' "$1" "$HARNESS_FAILURES" "$HARNESS_WARNINGS"
+    printf 'harness %s: %d failures, %d warnings%s\n' "$1" "$HARNESS_FAILURES" "$HARNESS_WARNINGS" \
+        "${2:+ ($2)}"
 }
 
 # die CODE MSG...: MSG を stderr に出して CODE で終了
