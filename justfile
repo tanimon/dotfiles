@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-harness-global-instructions test-nono-profile
 
 # Scan for leaked secrets
 @secretlint:
@@ -176,6 +176,26 @@ check-templates:
 # Smoke test the project instruction sync (compose adapter, --no-probe, generated Targets)
 @test-harness-instructions:
     LC_ALL=C pnpm exec bats test/harness-instructions.bats
+
+# Regenerate the GLOBAL instruction Targets (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md)
+# from harness/modules/global/ + harness/manifest.json. --root defaults to $HOME.
+# Not part of `lint` — this writes to the live home directory. Until #324 wires it
+# into `chezmoi apply`, a new machine needs this run once.
+@harness-sync-global:
+    bash harness/bin/harness.sh sync --manifest harness/manifest.json \
+        --source-dir {{ justfile_directory() }}
+
+# Fail if a global instruction Target in $HOME was hand-edited. Local only — the
+# global Targets live in $HOME and are not committed, so CI has nothing to compare.
+# `test-harness-global-instructions` is the CI-side check: it renders the same
+# manifest into a fixture root and asserts the Source invariants.
+@check-global-instructions:
+    bash harness/bin/harness.sh check --manifest harness/manifest.json \
+        --source-dir {{ justfile_directory() }} --no-probe
+
+# Smoke test the global instruction sync (#311) against a fixture root — never $HOME
+@test-harness-global-instructions:
+    LC_ALL=C pnpm exec bats test/harness-global-instructions.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:

@@ -777,7 +777,14 @@ EOF2
     make_stub apm 0.30.0 '  audit         Scan installed primitives
   install       Install APM, MCP, and LSP dependencies
   prune         Remove APM packages absent from the resolved dependency'
-    run harness check --manifest "$BATS_TEST_DIRNAME/../harness/manifest.json" --root "$ROOT"
+    # manifest.json はグローバル Target を持つ(#311)。ここで見たいのは probe の形なので、
+    # 先に fixture root へ sync して drift を潰してから check する(live の $HOME は使わない)。
+    # Target そのものの検査は test/harness-global-instructions.bats の担当
+    run harness sync --manifest "$BATS_TEST_DIRNAME/../harness/manifest.json" \
+        --root "$ROOT" --source-dir "$BATS_TEST_DIRNAME/.."
+    assert_success
+    run harness check --manifest "$BATS_TEST_DIRNAME/../harness/manifest.json" \
+        --root "$ROOT" --source-dir "$BATS_TEST_DIRNAME/.."
     assert_success
     assert_line 'OK   runtime claude 2.1.268'
     assert_line 'OK   runtime codex 0.147.0'

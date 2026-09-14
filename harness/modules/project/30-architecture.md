@@ -26,7 +26,7 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 | `dot_apm/` | APM (microsoft/apm) global manifest: `apm.yml` — declares MCP servers only (`dependencies.mcp`), deployed to `~/.apm/apm.yml`. Skills/plugins are managed via native Claude Code marketplace (`enabledPlugins`/`extraKnownMarketplaces` in `dot_claude/settings.json.tmpl`), not APM |
 | `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
 | `harness/` | Harness Manifest(グローバル用 `manifest.json` / このリポジトリ用 `project.json`)、Content Module(`modules/`)、同期・検証ツール(`bin/harness.sh`、`lib/`、`adapters/`)。repo-only、`~/` に配置されない |
-| `harness/modules/` | エージェント指示の Source。`project/` は 3 製品共通、`runtime/` は製品固有の Runtime Extension。`CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` はここから生成される |
+| `harness/modules/` | エージェント指示の Source。`project/` はこのリポジトリの 3 製品共通、`global/` はプロジェクト横断の共通、`runtime/` は製品固有の Runtime Extension。`CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` と `~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md` はここから生成される |
 | `.cursor/rules/` | 生成される Cursor の Project Rule(`.mdc`)。chezmoi からは不可視(source 直下の `.` 始まりは `.chezmoi*` を除き source state に入らない)なので `.chezmoiignore` の記載は不要 |
 | `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-gh-extensions.sh`) |
 | `test/` | bats-core test suites — one `.bats` file per script under test, run via `just test-*` targets |
