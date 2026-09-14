@@ -2,7 +2,7 @@
 # harness の入口。Claude Code / Codex / Cursor / APM の harness 設定を
 # 1 つの Harness Manifest から検証・同期する(spec: docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md)。
 #
-# 使い方: harness.sh <check|sync|init|update> [--manifest PATH] [--root DIR] [--source-dir DIR] [--runtime NAME]
+# 使い方: harness.sh <check|sync|init|update> [--manifest PATH] [--root DIR] [--source-dir DIR] [--runtime NAME] [--no-probe]
 # shellcheck source-path=SCRIPTDIR
 set -euo pipefail
 
@@ -33,46 +33,59 @@ options:
   --root DIR         Target のルート(既定: $HOME)
   --source-dir DIR   Content Module 等の Source ルート(既定: リポジトリルート)
   --runtime NAME     check の対象を 1 runtime に限定する(既定: manifest の全 runtime)
+  --no-probe         check で Capability Probe を行わず Target の drift だけを見る
+                     (製品が入っていない CI 用。「同期済み」の主張には使えない)
 
 exit codes:
   0    成功(check は WARN のみでも 0)
   1    check: FAIL / DRIFT が 1 件以上。sync: render または置換の失敗(FAIL 行を確認)
   2    manifest の不備、--root / --source-dir がディレクトリでない、jq が無い
-  64   使い方の誤り(不明なコマンド・オプション、値の欠落、sync --runtime、未実装の init / update)
+  64   使い方の誤り(不明なコマンド・オプション、値の欠落、sync --runtime / --no-probe、未実装の init / update)
   130  INT / TERM / HUP による中断(staging と書きかけの一時ファイルは削除する)
 USAGE
 }
 
-# cmd_check RUNTIME_FILTER: runtime の Capability Probe と Target の drift 比較。
-# RUNTIME_FILTER が空なら manifest の全 runtime、指定があればその 1 つだけ(明示選択)
+# cmd_check RUNTIME_FILTER NO_PROBE: runtime の Capability Probe と Target の drift 比較。
+# RUNTIME_FILTER が空なら manifest の全 runtime、指定があればその 1 つだけ(明示選択)。
+# NO_PROBE が 1 なら Capability Probe を飛ばす(製品が入っていない CI 用)。
+# 省略したことは必ず 1 行出す: 黙って通すと「3 製品とも同期済み」に見えてしまう
 cmd_check() {
-    local filter=$1 name runtimes=()
+    local filter=$1 no_probe=$2 name runtimes=() note=""
+    # --runtime の妥当性は probe を省略しても検査する(綴り違いを黙って全件扱いにしない)
     if [ -n "$filter" ]; then
         # shellcheck disable=SC2016 # $n は jq 自身の --arg 変数(シェル変数ではない)
         [ "$(manifest_query --arg n "$filter" '.runtimes | has($n)')" = "true" ] ||
             die 2 "harness check: runtime \"$filter\" は manifest に宣言されていません"
-        runtimes=("$filter")
-    else
-        while IFS= read -r name; do
-            runtimes+=("$name")
-        done < <(manifest_runtimes)
     fi
-    for name in "${runtimes[@]}"; do
-        probe_runtime "$name"
-    done
+    if [ "$no_probe" -eq 1 ]; then
+        note="Capability Probe 省略"
+        report_skip "runtime probe (--no-probe: 製品のロードは検証していません)"
+    else
+        if [ -n "$filter" ]; then
+            runtimes=("$filter")
+        else
+            while IFS= read -r name; do
+                runtimes+=("$name")
+            done < <(manifest_runtimes)
+        fi
+        for name in "${runtimes[@]}"; do
+            probe_runtime "$name"
+        done
+    fi
 
     # drift: 対象 runtime の target を staging に render して live と比較する(live は変更しない)
     render_all "$HARNESS_STAGING" "$filter" || true
     compare_all "$HARNESS_STAGING" "$filter"
 
-    report_summary check
+    report_summary check "$note"
     [ "$HARNESS_FAILURES" -eq 0 ]
 }
 
-# cmd_sync RUNTIME_FILTER: Atomic Sync。RUNTIME_FILTER は受け取るが sync は常に全 target を対象にする
+# cmd_sync RUNTIME_FILTER NO_PROBE: Atomic Sync。RUNTIME_FILTER は受け取るが sync は常に全 target を対象にする
 # (1 runtime だけ新版に進む状態を作らないため。#308「a failure cannot leave only one product on a new policy version」)
 cmd_sync() {
     [ -z "$1" ] || die 64 "harness sync: --runtime は sync では使えません (sync は常に全 Target を対象にします)"
+    [ "$2" -eq 0 ] || die 64 "harness sync: --no-probe は sync では使えません (sync は Capability Probe を行いません)"
     # render_all が 0 を返した時点で全 target の staging が通常ファイルとして揃っている(全体検証)
     render_all "$HARNESS_STAGING" || die 1 "harness sync: render に失敗したため Target を変更しませんでした"
     replace_all "$HARNESS_STAGING" || die 1 "harness sync: 一部の Target を置換できませんでした (上の FAIL 行を確認してください)"
@@ -86,9 +99,13 @@ main() {
     local command=$1
     shift
 
-    local manifest="$HARNESS_HOME/manifest.json" root=${HOME:-} source_dir="$HARNESS_HOME/.." runtime=""
+    local manifest="$HARNESS_HOME/manifest.json" root=${HOME:-} source_dir="$HARNESS_HOME/.." runtime="" no_probe=0
     while [ $# -gt 0 ]; do
         case $1 in
+        --no-probe)
+            no_probe=1
+            shift
+            ;;
         --manifest | --root | --source-dir | --runtime)
             [ $# -ge 2 ] || die 64 "harness: $1 には値が必要です"
             case $1 in
@@ -126,8 +143,8 @@ main() {
 
     manifest_load "$manifest"
     case $command in
-    check) cmd_check "$runtime" ;;
-    sync) cmd_sync "$runtime" ;;
+    check) cmd_check "$runtime" "$no_probe" ;;
+    sync) cmd_sync "$runtime" "$no_probe" ;;
     esac
 }
 

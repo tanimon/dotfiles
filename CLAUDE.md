@@ -1,3 +1,5 @@
+<!-- 自動生成 — 直接編集しないこと。Source: harness/modules/ + harness/project.json。再生成: just harness-sync / 検査: just check-instructions -->
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -18,16 +20,15 @@ chezmoi managed                # List all managed files
 chezmoi data                   # Show template data (profile, ghOrg, etc.)
 
 # Linting (mirrors CI — also runs on commit via prek; requires `just`, installed via darwin/Brewfile)
-just lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan + nono profile)
+just lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan + nono profile + instruction drift)
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
+
+# Agent instructions (CLAUDE.md / AGENTS.md / .cursor/rules are GENERATED — see below)
+just harness-sync              # Regenerate them from harness/modules/ + harness/project.json
+just check-instructions        # Fail if a generated file was hand-edited (drift)
 
 # Security alerts (scheduled weekly in CI, also manual)
 gh workflow run security-alerts.yml  # Trigger security alert sweep manually
-
-# Harness self-improvement loop (local, PR-gated)
-/harness-reflect                     # Extract session learnings into ~/.claude/harness/queue.md
-/harness-review                      # Health check + queue triage -> one PR (7-day cadence)
-bash ~/.claude/scripts/harness-doctor.sh  # Deterministic liveness check
 ```
 
 ## chezmoi Naming Conventions
@@ -51,6 +52,37 @@ Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
 - `.profile` — `"work"` or `"personal"` (controls gitconfig work overrides)
 - `.ghOrg` — GitHub org name (used in permissions and directory paths)
 - `.chezmoi.homeDir` — Home directory path
+
+### `.chezmoiignore`
+
+Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache, etc.) so only curated config files are managed. Also excludes repo-only files like `docs/`, `package.json`, `node_modules/`.
+
+### `.chezmoiexternal.toml`
+
+Pulls external archives (currently gstack skills) into the managed tree with auto-refresh. Each entry uses `type = "archive"` with the commit SHA embedded in the GitHub archive URL for supply-chain safety. Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved.
+
+### Directory Layout
+
+| Directory | Purpose |
+|-----------|---------|
+| `darwin/` | macOS-specific resources: `Brewfile`, `DefaultKeyBinding.dict`, `defaults.sh` |
+| `windows/` | Windows-specific resources: `alacritty.yml`, `chocolatey` |
+| `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
+| `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), rules, commands, plugins, scripts (hooks), keybindings |
+| `dot_apm/` | APM (microsoft/apm) global manifest: `apm.yml` — declares MCP servers only (`dependencies.mcp`), deployed to `~/.apm/apm.yml`. Skills/plugins are managed via native Claude Code marketplace (`enabledPlugins`/`extraKnownMarketplaces` in `dot_claude/settings.json.tmpl`), not APM |
+| `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
+| `harness/` | Harness Manifest(グローバル用 `manifest.json` / このリポジトリ用 `project.json`)、Content Module(`modules/`)、同期・検証ツール(`bin/harness.sh`、`lib/`、`adapters/`)。repo-only、`~/` に配置されない |
+| `harness/modules/` | エージェント指示の Source。`project/` は 3 製品共通、`runtime/` は製品固有の Runtime Extension。`CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` はここから生成される |
+| `.cursor/rules/` | 生成される Cursor の Project Rule(`.mdc`)。chezmoi からは不可視(source 直下の `.` 始まりは `.chezmoi*` を除き source state に入らない)なので `.chezmoiignore` の記載は不要 |
+| `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-gh-extensions.sh`) |
+| `test/` | bats-core test suites — one `.bats` file per script under test, run via `just test-*` targets |
+| `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
+| `CONTEXT.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts. Glossary format per mattpocock-skills' `CONTEXT-FORMAT.md`; see `docs/agents/domain.md` |
+| `CONCEPTS.md` | **Deprecated** predecessor of `CONTEXT.md`. Read-only archive: keeps the longer background paragraphs that don't fit `CONTEXT-FORMAT.md`'s one-to-two-sentence limit — **read the relevant section before deciding on permission rules, boundary exclusions, verification design, or `modify_` partial ownership** (inventory in `docs/agents/domain.md`). Never add new terms here |
+
+### Pre-commit Hooks
+
+Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Dependencies managed via pnpm. The `run_onchange_install-pre-commit-hooks.sh.tmpl` script auto-installs when `package.json` or `.pre-commit-config.yaml` change.
 
 ### Key Patterns
 
@@ -97,9 +129,9 @@ permission.
 
 **Harness self-improvement loop** — Local-only, PR-gated. A SessionEnd hook
 (`harness-reflect-trigger.sh`) records substantial sessions (>= 10 assistant turns) to
-`~/.claude/harness/pending.jsonl` — deterministic, no LLM. `/harness-reflect` extracts
-learnings from the current session and pending transcripts into
-`~/.claude/harness/queue.md`. `/harness-review` (nudged by the SessionStart briefing when
+`~/.claude/harness/pending.jsonl` — deterministic, no LLM. Claude Code's `/harness-reflect`
+slash command extracts learnings from the current session and pending transcripts into
+`~/.claude/harness/queue.md`. Claude Code's `/harness-review` (nudged by the SessionStart briefing when
 overdue >7 days) runs `harness-doctor.sh`, triages the queue against existing rules, and
 opens one PR per run; humans review and merge — no auto-apply. Runtime state in
 `~/.claude/harness/` is chezmoi-ignored; only rule changes are version-controlled. All
@@ -107,36 +139,9 @@ monitoring is deterministic shell — the briefing prints a status line every se
 silence itself signals a dead hook. Design:
 `docs/superpowers/specs/2026-07-06-harness-engineering-rebuild-design.md`.
 
-**Harness sync seam (`harness/`)** — Claude Code / Codex / Cursor / APM の harness 設定を 1 つの Harness Manifest(`harness/manifest.json`)から検証・同期する repo-only ツール(#308 の基盤、#309)。`bash harness/bin/harness.sh check` が 4 runtime の Capability Probe と Target の drift を報告し、`sync` が Atomic Sync(staging → 全体検証 → 置換)で Target を更新する。`init` / `update` は未実装(#322 / #323)。`harness/` は `.chezmoiignore` で除外され `~/` には配置されない。#309 時点では `targets` は空で、live の harness は変更しない。adapter は `harness/adapters/<owner>.sh render <staging-file> <target-json>` の契約で追加する。設計: `docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md`
+**Harness sync seam (`harness/`)** — Claude Code / Codex / Cursor / APM の harness 設定を Harness Manifest から検証・同期する repo-only ツール(#308 の基盤、#309)。`bash harness/bin/harness.sh check` が runtime の Capability Probe と Target の drift を報告し、`sync` が Atomic Sync(staging → 全体検証 → 置換)で Target を更新する。`--no-probe` を付けると Capability Probe を飛ばして Target の drift だけを見る(製品が入っていない CI 用。省略したことは出力に必ず出る)。`init` / `update` は未実装(#322 / #323)。`harness/` は `.chezmoiignore` で除外され `~/` には配置されない。manifest は 2 つある: `harness/manifest.json` はグローバル用(runtime 宣言のみ、`targets` は空。#311 が足す)、`harness/project.json` はこのリポジトリを Managed Project として扱うもので、下の「Generated agent instructions」の 3 Target を持つ。adapter は `harness/adapters/<owner>.sh render <staging-file> <target-json>` の契約で追加する。設計: `docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md`
 
-### `.chezmoiignore`
-
-Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache, etc.) so only curated config files are managed. Also excludes repo-only files like `docs/`, `package.json`, `node_modules/`.
-
-### `.chezmoiexternal.toml`
-
-Pulls external archives (currently gstack skills) into the managed tree with auto-refresh. Each entry uses `type = "archive"` with the commit SHA embedded in the GitHub archive URL for supply-chain safety. Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved.
-
-### Directory Layout
-
-| Directory | Purpose |
-|-----------|---------|
-| `darwin/` | macOS-specific resources: `Brewfile`, `DefaultKeyBinding.dict`, `defaults.sh` |
-| `windows/` | Windows-specific resources: `alacritty.yml`, `chocolatey` |
-| `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
-| `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), rules, commands, plugins, scripts (hooks), keybindings |
-| `dot_apm/` | APM (microsoft/apm) global manifest: `apm.yml` — declares MCP servers only (`dependencies.mcp`), deployed to `~/.apm/apm.yml`. Skills/plugins are managed via native Claude Code marketplace (`enabledPlugins`/`extraKnownMarketplaces` in `dot_claude/settings.json.tmpl`), not APM |
-| `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
-| `harness/` | Harness Manifest(`manifest.json`)と同期・検証ツール(`bin/harness.sh`、`lib/`、`adapters/`)。repo-only、`~/` に配置されない |
-| `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-gh-extensions.sh`) |
-| `test/` | bats-core test suites — one `.bats` file per script under test, run via `just test-*` targets |
-| `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
-| `CONTEXT.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts. Glossary format per mattpocock-skills' `CONTEXT-FORMAT.md`; see `docs/agents/domain.md` |
-| `CONCEPTS.md` | **Deprecated** predecessor of `CONTEXT.md`. Read-only archive: keeps the longer background paragraphs that don't fit `CONTEXT-FORMAT.md`'s one-to-two-sentence limit — **read the relevant section before deciding on permission rules, boundary exclusions, verification design, or `modify_` partial ownership** (inventory in `docs/agents/domain.md`). Never add new terms here |
-
-### Pre-commit Hooks
-
-Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Dependencies managed via pnpm. The `run_onchange_install-pre-commit-hooks.sh.tmpl` script auto-installs when `package.json` or `.pre-commit-config.yaml` change.
+**Generated agent instructions (`CLAUDE.md` / `AGENTS.md` / `.cursor/rules/dotfiles.mdc`)** — この 3 ファイルは**生成物**であり、直接編集してはいけない。Source は `harness/modules/` の Content Module 群で、`harness/project.json` が「どの Target がどのモジュールを、どの順で持つか」を宣言する。`just harness-sync` で再生成し、`just check-instructions`(`just lint` と CI に組み込み済み)が手編集を drift として検出する。分割の原則は **「このリポジトリについての事実」= `harness/modules/project/` の共有モジュール / 「あなた(この製品)がここでどう動くか」= `harness/modules/runtime/` の Runtime Extension**。`dot_claude/` や `~/.claude/` への言及も、リポジトリの中身の説明であるかぎり共有側に置く(Codex がこのリポジトリを編集するのに必要な事実だから)。Cursor は project root の `AGENTS.md` をネイティブに読むので、`.cursor/rules/dotfiles.mdc` には Cursor 固有の記述だけを置き、共有内容を二重にロードさせない(`docs/adr/0004-cursor-project-instructions-via-agents-md.md`)。**Codex は `AGENTS.md` を `project_doc_max_bytes`(既定 32 KiB)で黙って切り捨てる**(`codex debug prompt-input` で実測)。生成後の `AGENTS.md` は 32 KiB を超えるので、`AGENTS.md` の `modules` だけ順序が違う: Runtime Extension を先頭に置き、この「Key Patterns」モジュールを末尾に置いて、**切り捨てが 1 つの宣言されたモジュールの内側で起きる**ようにしてある。並びを変えるときはこの不変条件を壊さないこと(`test/harness-instructions.bats` が強制する)。設計: `docs/superpowers/specs/2026-09-12-project-instruction-sync-design.md`
 
 ## Verification
 
@@ -156,6 +161,8 @@ just test-modify               # Smoke test modify_ scripts
 just test-scripts              # Smoke test harness scripts
 just test-harness-scripts      # Smoke test harness loop scripts (trigger/briefing/doctor)
 just test-harness-sync         # Smoke test the harness sync/check seam (harness/bin/harness.sh)
+just check-instructions        # Fail if a generated agent instruction Target was hand-edited
+just test-harness-instructions # Smoke test the project instruction sync (compose adapter, --no-probe)
 just check-templates           # Validate chezmoi .tmpl files
 just scan-sensitive            # Scan every file for PII, credentials, and literal work-org / account names
 just test-sensitive            # Smoke test sensitive info scanner
@@ -175,6 +182,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 - **Repo-only files need `.chezmoiignore`** — Files like `CLAUDE.md`, `README.md` at repo root are excluded via `.chezmoiignore` so they don't deploy to `~/`. New repo-only files must be added there.
 - **`.chezmoiignore` bare filenames match target paths** — `.chezmoiignore` evaluates target paths, not source filenames. Adding `.gitignore` blocks `dot_gitignore` → `~/.gitignore` deployment because the target path is `.gitignore`. Likewise, regular non-prefixed source files (e.g., `README.md`, `LICENSE`) are still managed by chezmoi and need explicit `.chezmoiignore` entries to prevent deployment to `~/`. `dot_`, `private_`, etc. are mapping conventions for how source names translate to targets, not a gate for whether chezmoi considers a file a source.
 - **Choosing chezmoi file patterns** — Regular `.tmpl` for fully-owned files. `create_` for provision-once. `modify_` for runtime-mutable files (IDE configs). `.chezmoiignore` to exclude entirely. For files modified by external tools (plugins), prefer `.chezmoiignore` + declarative `run_onchange_` scripts over bidirectional sync.
+- **`CLAUDE.md`, `AGENTS.md`, and `.cursor/rules/*.mdc` are generated — never edit them directly** — Their Source is `harness/modules/` plus `harness/project.json`. Edit the module, then run `just harness-sync`. A hand edit survives locally but `just check-instructions` (part of `just lint` and CI) fails with `DRIFT target <path>`, and the next `harness sync` overwrites it. To find which module owns a passage, grep `harness/modules/`. Shared repository facts go in `harness/modules/project/`; product-specific operating instructions go in `harness/modules/runtime/`.
 - **Never edit deployed targets directly** — Always edit the chezmoi source file (under `~/.local/share/chezmoi/`), never the deployed target (under `~/`). For example, edit `dot_claude/scripts/executable_harness-briefing.sh`, not `~/.claude/scripts/harness-briefing.sh`. Changes to deployed targets are overwritten on next `chezmoi apply` and are not version-controlled. Use `chezmoi source-path <target>` to find the source file for any managed target.
 - **`docs/` is tracked** — Both `docs/plans/` and `docs/solutions/` are committed. Plan files created by `ce:plan` and solution documents are version-controlled. Ensure no PII or sensitive information is included — `just scan-sensitive` checks every file in the repo (see "Identity leak guard" above).
 - **Do not judge `modify_*` files by extension** — `dot_config/karabiner/modify_karabiner.json` has a `.json` extension but is a bash script. Add `! -name 'modify_*'` exclusions to file-type-based linter/formatter globs (`*.json`, `*.yaml`, etc.). Also include `modify_` patterns in pre-commit excludes.
@@ -200,7 +208,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 - **Inline hook commands: keep simple or use jq** — Inline `bash -c` hook commands in `settings.json.tmpl` have two layers of escaping (JSON `\"` + shell quoting) that are extremely error-prone. Avoid complex grep/sed patterns; use `jq` (already a dependency) or extract logic into external script files.
 - **`git diff | grep '^[+-]'` verifies nothing here** — `diff.external = difft` (difftastic) is configured globally, so `git diff` emits no `+`/`-` line prefixes. Any verification that pipes `git diff` into a `^[+-]` grep matches zero lines and therefore *looks like it passed* while checking nothing. Use `git diff --no-ext-diff` when a command needs unified output; `git diff --stat`, `git show --stat`, and `chezmoi diff` are unaffected. This is the same species as the chezmoi-source pitfall above — a check that resolves something other than what it appears to and so reports a green result while verifying nothing; [verification through the wrong resolution path](docs/solutions/workflow-issues/verification-through-the-wrong-resolution-path.md) collects the instances and the prevention rule.
 - **Moving an entry out of `permissions.ask` widens more than the `deny` prefixes catch** — Permission rules are prefix matches, so a narrow `deny` such as `Bash(git push --force:*)` only fires when the flag immediately follows the command. While a broad `Bash(git push:*)` sat in `ask`, *every* spelling prompted; moving it to `allow` silently permitted `git push origin main --force`, `git push origin +main`, and `git push --delete origin foo` — none of which match any `deny` entry. Before moving any entry out of `ask`, enumerate the argument spellings the remaining `deny` rules do **not** match. If write intent can migrate into a flag position, the entry stays in `ask`; a narrow `deny` is not a substitute for a broad `ask`. See the Tier 1 enforceability requirement in `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md`.
-- **Verify GitHub Actions template output** — Workflows generated from templates (e.g., `claude-code-action`) default to read-only permissions. Posting comments requires `pull-requests: write` / `issues: write`. Do not use template output as-is — verify permissions match the intended use. See `~/.claude/rules/common/github-actions.md` for expression syntax constraints.
+- **Verify GitHub Actions template output** — Workflows generated from templates (e.g., `claude-code-action`) default to read-only permissions. Posting comments requires `pull-requests: write` / `issues: write`. Do not use template output as-is — verify permissions match the intended use. See `dot_claude/rules/common/github-actions.md` (deployed to `~/.claude/rules/`) for expression syntax constraints.
 - **Never hardcode node/pnpm versions in CI** — All pnpm/node jobs in `lint.yml` must use `node-version-file: '.node-version'` and `packageManager` auto-detection. Direct `version:` or `node-version:` inputs are prohibited. Version sources: `.node-version` (node), `package.json` `packageManager` (pnpm).
 
 ### nono Sandbox
@@ -216,11 +224,7 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 - **Verify Homebrew formula names before uninstalling** — the formula for safehouse was `agent-safehouse`, not `safehouse`; `brew uninstall safehouse` silently no-ops and leaves the tool installed. Confirm with `brew list | grep <name>` after any removal.
 - **`.chezmoiremove` with `path/**` can break `chezmoi apply` outright** — a leftover Unix socket under a directory removed via the `path/**` convention produced `unsupported file type socket` and exit 1. Bare directory entries (no `/**`) worked.
 
-## gstack
-
-Use the `/browse` skill from gstack for **all web browsing**, and do not use `mcp__claude-in-chrome__*` tools. This is gstack's own convention (its README asks for exactly this block), and the nono sandbox policy is written on the assumption that it holds — whether `/browse` actually keeps web fetches inside nono's egress allowlist is still an open question (`dot_config/nono/CLAUDE.md`, row 8), so do not route around it with another browsing tool.
-
-## Agent skills
+## Agent docs
 
 ### Issue tracker
 
@@ -233,3 +237,29 @@ The five canonical triage roles, each label string equal to its name. `triage` d
 ### Domain docs
 
 Single-context, on mattpocock-skills' default layout: the glossary is `CONTEXT.md` (`CONCEPTS.md` is its deprecated predecessor, kept as a read-only archive) and ADRs live in `docs/adr/` — distinct from `docs/solutions/`, which records past breakages rather than decisions. See `docs/agents/domain.md`.
+
+## Claude Code specifics
+
+Everything above applies to every agent working in this repository. This section is the Claude Code Runtime Extension — mechanisms that exist only on Claude Code's launch path and are not available to Codex or Cursor.
+
+### Slash commands and the harness loop
+
+```sh
+/harness-reflect                     # Extract session learnings into ~/.claude/harness/queue.md
+/harness-review                      # Health check + queue triage -> one PR (7-day cadence)
+bash ~/.claude/scripts/harness-doctor.sh  # Deterministic liveness check
+```
+
+The loop itself (SessionEnd hook, queue, briefing) is described under "Harness self-improvement loop" above; these are the Claude Code entry points into it.
+
+### Sandbox
+
+The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` so that **this session is running inside nono** (macOS Seatbelt, deny-all default) unless it was launched by a path that bypasses the wrapper, in which case Claude Code's own native Bash sandbox applies. Exactly one boundary is in effect per launch path. Read `dot_config/nono/CLAUDE.md` before assuming a path or host is reachable.
+
+### Browsing
+
+Use the `/browse` skill from gstack for **all web browsing**, and do not use `mcp__claude-in-chrome__*` tools. This is gstack's own convention (its README asks for exactly this block), and the nono sandbox policy is written on the assumption that it holds — whether `/browse` actually keeps web fetches inside nono's egress allowlist is still an open question (`dot_config/nono/CLAUDE.md`, row 8), so do not route around it with another browsing tool.
+
+### Global configuration
+
+Claude Code also loads `~/.claude/CLAUDE.md` and `~/.claude/rules/**` (deployed from `dot_claude/`). Those are user-global, not repository-specific; global instruction synchronization across products is a separate change (#311).

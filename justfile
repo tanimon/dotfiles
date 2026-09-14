@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-nono-profile
 
 # Scan for leaked secrets
 @secretlint:
@@ -158,6 +158,24 @@ check-templates:
 # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 @test-harness-sync:
     LC_ALL=C pnpm exec bats test/harness-sync.bats
+
+# Regenerate the agent instruction Targets (CLAUDE.md / AGENTS.md / .cursor/rules)
+# from harness/modules/ + harness/project.json. Not part of `lint` — `lint` only
+# checks for drift, it never rewrites tracked files.
+@harness-sync:
+    bash harness/bin/harness.sh sync --manifest harness/project.json \
+        --root {{ justfile_directory() }} --source-dir {{ justfile_directory() }}
+
+# Fail if a generated agent instruction Target was hand-edited.
+# --no-probe skips the Capability Probe because CI has no claude/codex/cursor
+# installed; the skip is printed, so a green run never claims the products loaded.
+@check-instructions:
+    bash harness/bin/harness.sh check --manifest harness/project.json \
+        --root {{ justfile_directory() }} --source-dir {{ justfile_directory() }} --no-probe
+
+# Smoke test the project instruction sync (compose adapter, --no-probe, generated Targets)
+@test-harness-instructions:
+    LC_ALL=C pnpm exec bats test/harness-instructions.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:

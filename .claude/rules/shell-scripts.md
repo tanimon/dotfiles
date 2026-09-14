@@ -48,6 +48,44 @@ command -v pnpm >/dev/null 2>&1 || { echo "WARNING: pnpm not found, skipping"; e
 - Place in `.chezmoiscripts/` for chezmoi lifecycle scripts
 - harness sync seam(`harness/bin/`・`harness/lib/`・`harness/adapters/`)は `harness/` 配下に置く(repo-only。adapter は `harness/adapters/<owner>.sh` の契約で `adapter_path` が解決するため `scripts/` に置かない)
 
+## 「静かに逆の結果になる」bash の書き方
+
+shellcheck も shfmt も通るのに、意図と逆の挙動になる書き方。どちらも #310 で実際に踏んだ。
+
+### 改行をパターンに埋めるときは `$'\n'`。`"$(printf '\n')"` は使わない
+
+コマンド置換は末尾の改行を落とすので、`"$(printf '\n')"` は**空文字**になる。`case` パターンに埋めると
+`*""*` = `*` に潰れ、「改行を含む値を拒否する」つもりのガードが**全件を拒否**する。
+
+```bash
+# 誤: 空文字に潰れて banner が常に拒否される
+case $banner in *"$(printf '\n')"* | *'-->'*) fail "改行と --> は使えません" ;; esac
+
+# 正: bash の $'...' はリテラルの改行に展開される
+case $banner in *$'\n'* | *'-->'*) fail "改行と --> は使えません" ;; esac
+```
+
+値が JSON 由来なら、そもそも jq 側の `test("[[:cntrl:]]")` でまとめて弾くほうが確実
+(`harness/lib/path.bash` の `HARNESS_RELPATH_REJECT_RE` がその形)。
+
+### `"$(cmd)"` をそのまま別コマンドの引数にすると、`cmd` の失敗が消える
+
+`printf '%s\n' "$(cat "$f")"` は `cat` が失敗しても `printf` が成功するため、
+**`set -euo pipefail` でも止まらない**。読めないファイルが「空の出力」として下流へ流れ、
+呼び出し側は成功と報告する。必ず先に代入して終了ステータスを見る。
+
+```bash
+# 誤: cat の失敗が printf の成功に隠れ、空セクションが Target に書き込まれる
+printf '%s\n' "$(cat "$path")"
+
+# 正
+content=$(cat "$path") || fail "モジュールを読めません: $path"
+printf '%s\n' "$content"
+```
+
+同じ形は `echo "$(...)"`・`foo "$(...)"` すべてに当てはまる。`$(cat f)` を使うのは
+「末尾改行を 1 つに正規化する」目的では正しいので、代入に分けるだけでよい。
+
 ## CI Enforcement
 
 These rules are enforced automatically — not just advisory:
