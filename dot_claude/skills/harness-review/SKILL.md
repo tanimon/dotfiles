@@ -40,9 +40,13 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
    specific, actionable, and likely to recur? Vague or one-off → verdict
    `rejected (<reason>)`.
 3. **Placement:** cross-project behavior → `dot_claude/rules/common/` (or
-   `harness/modules/global/` for behavioral guidelines, then
-   `just harness-sync-global`); this-repo pitfall →
-   `harness/modules/project/50-pitfalls.md` (then `just harness-sync`) or
+   `harness/modules/global/` for behavioral guidelines — edit the module in
+   this PR, but run `just harness-sync-global` only **after the PR merges**,
+   from a worktree on `main`: it writes the live `$HOME`, so running it here
+   would put unmerged text into every project's global instructions);
+   this-repo pitfall →
+   `harness/modules/project/50-pitfalls.md` (then `just harness-sync`, which
+   regenerates committed files and so belongs in this PR) or
    `.claude/rules/`; incident record →
    `docs/solutions/`. Scope `project:<other-repo>` → verdict
    `handoff (belongs in <repo>)`; tell the user what to add there — do not

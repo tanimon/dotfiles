@@ -118,6 +118,11 @@ GLOBAL_MARKERS=('# 複数視点での意思決定' '# ルール構成' '# ユー
     assert_success
     run grep -q '~/\.claude/rules/' "$GROOT/.codex/AGENTS.md"
     assert_success
+    # ただし上の grep は共有モジュール global/10 の記述にもマッチするので、これだけでは
+    # Runtime Extension について何も検査していない(AC2 の逐語 baseline が既に守っている
+    # 範囲)。訂正本文にしか出ない文言でもう一度当てる。
+    run grep -q '自動で読み込むのは Claude Code だけ' "$GROOT/.codex/AGENTS.md"
+    assert_success
 }
 
 @test "AC3: グローバル AGENTS.md が存在しない ralph-wiggum / ralph-loop skill を案内しない" {
@@ -134,10 +139,25 @@ GLOBAL_MARKERS=('# 複数視点での意思決定' '# ルール構成' '# ユー
 @test "AC3: グローバル AGENTS.md が Claude 専用ツールを自分のものとして案内しない" {
     run global_sync
     assert_success
-    # AskUserQuestion 自体は共有モジュールに出てくるが、Claude Code のツールであることを
-    # 先に断る Runtime Extension が無ければ Codex は自分に有ると読む
-    run grep -q 'Claude Code' "$GROOT/.codex/AGENTS.md"
+    # AskUserQuestion 自体は共有モジュール global/20 に出てくるが、Claude Code のツールで
+    # あることを先に断る Runtime Extension が無ければ Codex は自分に有ると読む。
+    # 'Claude Code' だけで当てるとモジュールの見出し行にマッチして本文が消えても通るので、
+    # 訂正そのものの文言で当てる。
+    run grep -q 'AskUserQuestion.*は Claude Code のツールで、あなたには無い' "$GROOT/.codex/AGENTS.md"
     assert_success
+}
+
+@test "AC3: 上2つのアサート文言が Runtime Extension 固有である(検査が共有モジュールに当たっていないことの確認)" {
+    # AC3 の検査は「Runtime Extension の訂正が届いているか」を見るものなので、
+    # 共有モジュールにも出てくる文言で当ててはいけない(#310 / #311 で 2 回踏んだ形)。
+    # 文言が共有側へ移動したらこのテストが落ち、AC3 が空虚になったことに気づける。
+    local marker
+    for marker in '自動で読み込むのは Claude Code だけ' 'は Claude Code のツールで、あなたには無い'; do
+        run grep -rl -- "$marker" "$REPO/harness/modules/global/"
+        assert_failure
+        run grep -q -- "$marker" "$REPO/harness/modules/runtime/non-claude-global-extension.md"
+        assert_success
+    done
 }
 
 # ---------- AC: Global and project instruction scopes compose without duplicating ----------

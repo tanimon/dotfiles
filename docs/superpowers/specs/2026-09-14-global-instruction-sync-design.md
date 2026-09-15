@@ -119,7 +119,11 @@ harness/modules/
 
 ### #324 までの空白(既知・意図的)
 
-`chezmoi apply` はもう `~/.claude/CLAUDE.md` を作らない。**新しいマシンでは `just harness-sync-global` を 1 度実行するまでグローバル指示が存在しない。** これを `chezmoi apply` に統合して fatal にするのが #324 の担当であり、#311 では埋めない(tracer-bullet の分割どおり)。空白は README ではなく `50-pitfalls.md`(= 生成される `CLAUDE.md` / `AGENTS.md`)に書いて、エージェント自身が気づける場所に置く。
+`chezmoi apply` はもう `~/.claude/CLAUDE.md` を作らない。**新しいマシンでは `just harness-sync-global` を 1 度実行するまでグローバル指示が存在しない。** これを `chezmoi apply` に統合して fatal にするのが #324 の担当であり、#311 では埋めない(tracer-bullet の分割どおり)。
+
+ただし**空白の解消を #324 へ送ることと、空白の検出まで送ることは別**である。当初は `50-pitfalls.md`(= 生成される `CLAUDE.md` / `AGENTS.md`)に書けば「エージェント自身が気づける場所」だとしていたが、この根拠は成立していない — そのテキストが届くのは**このリポジトリで作業しているとき**だけで、グローバル指示を欠いたエージェントは定義上どこか別のリポジトリにいる。「silence itself signals a dead hook」というこのリポジトリ自身のルールに照らすと、静かに欠けたままになる。
+
+そこで**検出だけは #311 に入れる**: `dot_claude/scripts/executable_harness-briefing.sh`(`SessionStart` のグローバルフック)が 2 つの Target の実在を確認し、欠けているものを名指しして `just harness-sync-global` を促す。これはリポジトリに依らず毎セッション動く唯一の経路である。回帰テストは `test/harness-briefing.bats` の 3 件(各 Target の不在 + 両方在るときに警告しない Contrast Pair)。`50-pitfalls.md` の記述もこの経路に触れるよう更新した。
 
 ### worktree からグローバル sync を実行するときの注意
 
@@ -183,3 +187,33 @@ Cursor が実際にグローバルポリシーをロードしたことは自動�
 ## ADR
 
 - `docs/adr/0005-global-policy-reaches-cursor-via-project-rules.md`: Cursor にはグローバル面が無いため、グローバルポリシーを Managed Project の `.cursor/rules/*.mdc` から配送する決定(ADR 0004 の「`.mdc` は Cursor 固有の Runtime Extension 専用」を、スコープを限って改める)。
+
+## 付録: 移管前の `~/.codex/AGENTS.md`(全文・570 バイト)
+
+Claude 側の旧 `dot_claude/CLAUDE.md` は `test/fixtures/global-claude-baseline.md` に凍結され、AC2 の逐語テストが守っている。Codex 側の旧ファイルは**どのリポジトリにも存在しない手書きファイル**で、初回の `just harness-sync-global` が上書きすると唯一のコピーが消える。内容を捨てる判断は上記「Content Module の分割」のとおりだが、**捨てたものに価値が無かったことを後から検証できる状態**にしておくためここに全文を残す。
+
+fixture にはしない — これは baseline ではなく破棄記録であり、テストがこの文面に依存すると「捨てた記述」を将来の Target が満たすべき契約に格上げしてしまう(現に `~/.Codex/rules/` と `ralph-wiggum` は AC3 が**不在**を要求している文字列である)。
+
+```markdown
+# Multi-Perspective Decision Making
+
+- Treat user opinions as one perspective among many — consider other viewpoints and sources
+- Push back and suggest alternatives when warranted, rather than defaulting to agreement
+
+# Rule Structure
+
+Detailed coding rules, test policies, and security guidelines live in `~/.Codex/rules/`, organized by domain (`web/`) and shared (`common/`). This file contains only cross-project behavioral guidelines.
+
+# Compound Engineering Plugin Notes
+
+The `ralph-wiggum` skill may appear as `ralph-loop`. Launch via `/ralph-loop:ralph-loop`.
+```
+
+移管後の Target との対応:
+
+| 旧の節 | 移管後 |
+|---|---|
+| Multi-Perspective Decision Making | `global/00-decision-making.md`(日本語の原文へ回帰) |
+| Rule Structure | `global/10-rule-structure.md` + `runtime/non-claude-global-extension.md` の訂正(`~/.Codex/rules/` → `~/.claude/rules/`、自動ロードは Claude Code だけ) |
+| Compound Engineering Plugin Notes | **持ち込まない**(実測で不在の skill。#308「obsolete mechanisms and broken references are excluded」) |
+| (欠落していた「ユーザーへの確認」) | `global/20-user-confirmation.md` + Runtime Extension の `AskUserQuestion` 訂正 |

@@ -82,6 +82,24 @@ if [[ "$QUEUE_COUNT" -gt "$QUEUE_MAX" ]]; then
     WARNINGS+=("improvement queue piling up (${QUEUE_COUNT} unprocessed) — run /harness-review")
 fi
 
+# Global instructions are harness-owned Targets under $HOME (#311): chezmoi
+# apply no longer creates them, so a fresh machine has none until
+# `just harness-sync-global` runs once (#324 wires it into apply). The gap is
+# also written into this repo's generated CLAUDE.md, but that text only reaches
+# an agent working *in* this repo — an agent missing its global instructions is
+# by definition somewhere else. This hook is the only check that travels.
+MISSING_GLOBAL=()
+# The tildes are display text for the printed warning, never passed to a
+# command — this repo's docs name these Targets as `~/.claude/CLAUDE.md`, and
+# the message should match what the reader will grep for.
+# shellcheck disable=SC2088
+[[ -f "$HOME/.claude/CLAUDE.md" ]] || MISSING_GLOBAL+=("~/.claude/CLAUDE.md")
+# shellcheck disable=SC2088
+[[ -f "$HOME/.codex/AGENTS.md" ]] || MISSING_GLOBAL+=("~/.codex/AGENTS.md")
+if [[ ${#MISSING_GLOBAL[@]} -gt 0 ]]; then
+    WARNINGS+=("global instructions missing (${MISSING_GLOBAL[*]}) — run 'just harness-sync-global' in the chezmoi source repo")
+fi
+
 if [[ ${#WARNINGS[@]} -eq 0 ]]; then
     printf 'Harness: OK | queue: %s | pending: %s | last review: %s\n' \
         "$QUEUE_COUNT" "$PENDING_COUNT" "$LAST_REVIEW_TEXT"
