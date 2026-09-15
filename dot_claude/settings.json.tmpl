@@ -32,8 +32,19 @@
       "Bash(gh api repos/*/*/pulls/*/comments:*)",
       "Bash(gh api repos/*/*/pulls/*/reviews:*)",
       "Bash(gh issue comment:*)",
+      {{/* gh pr の write 系は 2026-09-15 に ask から allow へ移した(merge / revert のみ deny。上の deny のコメント参照)。Tier 2(共有オブジェクトの状態遷移)を ask に置く原則からの意図的な逸脱で、判断基準は「他のエンジニアと CI へ実際に外向き作用があるか」に絞り直したもの: PR を作る・閉じる・再オープンする・ready にするだけでは他人のキューには載らず、影響が出るのは明示的な review request(`--reviewer` / `--add-reviewer`)を伴うときだけ、という整理。ただしその review request 自体はプレフィックス照合では切り出せない(`gh pr edit --add-reviewer ...` は当たっても `gh pr edit 123 --add-reviewer ...` は当たらない。`gh pr create --reviewer` も同様)ため、Tier 1 の「rule syntax で強制できること」要件を満たせず、ここはゲートせず受け入れている。read 系(checkout/checks/diff/list/status)も同時に明示 allow して defaultMode: auto のクラシファイア判定を経由させない。lock / unlock / update-branch は未列挙のまま — 前者は他人のコメントを止め、後者は PR head を進めて CI を焚くため、クラシファイア判定に残す。 */ -}}
+      "Bash(gh pr checkout:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr close:*)",
       "Bash(gh pr comment:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr ready:*)",
+      "Bash(gh pr reopen:*)",
       "Bash(gh pr review:*)",
+      "Bash(gh pr status:*)",
       "Bash(gh pr view:*)",
       "Bash(gh repo list:*)",
       "Bash(git -c core.fsmonitor=false diff:*)",
@@ -130,6 +141,11 @@
       {{/* gh repo delete/archive are irreversible remote ops with no legitimate agent use — hard-blocked in deny (not merely ask) for parity with the publish/force-push tier above. deny cannot be click-through-approved like ask. Reversible gh repo verbs (create/edit/fork/rename/sync) stay in ask. */ -}}
       "Bash(gh repo delete:*)",
       "Bash(gh repo archive:*)",
+      {{/* gh pr merge / revert は 2026-09-15 に ask から deny へ移した。deny の他エントリ(repo delete/archive・publish・force-push)が「不可逆」を基準にするのに対し、この 2 つの基準は「他のエンジニアと CI へ外向きに作用する」 — merge は共有ブランチを進めてデプロイまで連鎖し、revert は revert PR を作って他人のレビュー待ち行列に載る。同じ Tier 2 でも create/close/edit/ready/reopen は同日に allow へ移した(下の ask のコメント参照)ので、PR 操作の中でここだけが承認不可の線になる。ask ではなく deny なのは、頻繁に出る承認プロンプトを減らすのが今回の変更の目的であり、「押せば通る」ゲートを残すとそこだけプロンプトが復活するため — merge/revert は人間が GitHub UI か自分の端末で行う前提。引数なしのベアコマンド(`gh pr merge` はカレントブランチから PR を推論する)も確実に塞ぐため、`:*` 付きと完全一致の両形を並べる。制約: deny はプレフィックス照合なので `gh api repos/O/R/pulls/N/merge -X PUT` や `gh api graphql` の markPullRequestReadyForReview 相当は素通りし、未列挙の `gh api` として defaultMode: auto のクラシファイア判定に落ちる。この穴は ask だった頃から同じで deny 化で新たに生じたものではないが、deny を境界として扱う以上、埋まっていない点として認識しておくこと。 */ -}}
+      "Bash(gh pr merge)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr revert)",
+      "Bash(gh pr revert:*)",
       "Edit(/etc/**)",
       "Edit(/usr/**)",
       "Edit(/var/**)",
@@ -151,7 +167,7 @@
       "Edit(/etc/sudoers)"
     ],
     {{/* Package/module install gate: installing new code is a supply-chain event, so it goes through a human. Precedence is deny > ask > allow, so the broad Bash(npm:*)/Bash(pnpm:*)/Bash(mise:*) entries in allow stay and these narrower ask entries win. Two deliberate holes: (1) Claude Code permissions match the Bash string the agent issues, NOT its subprocesses — `just lint` (Bash(just:*), still in allow) invokes pnpm without prompting; acceptable because just recipes are version-controlled and reviewable. (2) Lockfile restore (bare `pnpm install`, `npm ci`) is gated too, deliberately: splitting "new deps ask, restore allow" is an illusory boundary because an agent can edit package.json then run bare `pnpm install` straight through it. curl/wget moved from deny to ask (2026-08-01): they were previously hard-blocked to close `curl … | sh`, but that also blocked legitimate one-off downloads/API calls. ask still requires explicit approval per invocation, so `curl … | sh` is not silently executable — the boundary is now human review instead of a hard block. */ -}}
-    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/merge/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh pr view is read, gh pr create is write), so a noun-level gh pr:* wildcard would over-gate reads. Read-only gh (pr view, and unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh pr review は 2026-09-03 に ask から allow へ移した(PR レビュー投稿を毎回プロンプトで止めない運用に切り替えたため)。これは意図的な緩和で、`gh pr review --approve` が無確認かつ(sandbox.excludedCommands の `gh *` により)サンドボックス外で走ることを受け入れている — 上の push や gh pr merge と違い、承認は merge 権限そのものではなく人間のマージ操作を挟むため、外向きの影響が一段小さいという判断。gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api は原則として未列挙のまま(read/write の別が --method にあり、固定 prefix でゲートできないため)。例外は allow 側に置いた PR レビュー投稿用の 2 エントリのみで、そこだけは endpoint パス自体が write 意図を表すので prefix で表現できる — 詳細は allow 側のコメント参照。 */ -}}
+    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh issue view is read, gh issue create is write), so a noun-level gh issue:* wildcard would over-gate reads. Read-only gh (unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh pr の write 系は 2026-09-15 にこの表からまるごと抜けた: close/create/edit/ready/reopen は allow へ、merge/revert は deny へ移したため、ask に残る gh pr エントリは無い(理由は allow / deny 側の該当コメント参照)。gh issue の同名動詞が ask に残っているのは非対称だが意図的で、緩和は PR 操作の頻度に対する措置である。gh pr review は 2026-09-03 に ask から allow へ移した(PR レビュー投稿を毎回プロンプトで止めない運用に切り替えたため)。これは意図的な緩和で、`gh pr review --approve` が無確認かつ(sandbox.excludedCommands の `gh *` により)サンドボックス外で走ることを受け入れている — 上の push や(deny に置いた)gh pr merge と違い、承認は merge 権限そのものではなく人間のマージ操作を挟むため、外向きの影響が一段小さいという判断。gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api は原則として未列挙のまま(read/write の別が --method にあり、固定 prefix でゲートできないため)。例外は allow 側に置いた PR レビュー投稿用の 2 エントリのみで、そこだけは endpoint パス自体が write 意図を表すので prefix で表現できる — 詳細は allow 側のコメント参照。 */ -}}
     "ask": [
       "Bash(aws athena start-query-execution:*)",
       "Bash(brew bundle:*)",
@@ -180,12 +196,6 @@
       "Bash(gh label create:*)",
       "Bash(gh label delete:*)",
       "Bash(gh label edit:*)",
-      "Bash(gh pr close:*)",
-      "Bash(gh pr create:*)",
-      "Bash(gh pr edit:*)",
-      "Bash(gh pr merge:*)",
-      "Bash(gh pr ready:*)",
-      "Bash(gh pr reopen:*)",
       "Bash(gh release create:*)",
       "Bash(gh release delete:*)",
       "Bash(gh release edit:*)",
