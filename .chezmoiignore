@@ -95,11 +95,17 @@ renovate.json
 justfile
 test/
 
-# repo-only nested CLAUDE.md context files (Check 4 migration, 2026-07-26) — unlike
-# dot_claude/CLAUDE.md (the user's real ~/.claude/CLAUDE.md, must stay deployed), these
+# repo-only nested CLAUDE.md context files (Check 4 migration, 2026-07-26) — these
 # exist only for Claude Code to load contextually when working in this repo
 .config/nono/CLAUDE.md
 .claude/scripts/CLAUDE.md
+
+# ~/.claude/CLAUDE.md の Target Owner は chezmoi ではなく harness(#311)。
+# `harness sync --manifest harness/manifest.json` が harness/modules/global/ から
+# 生成する(`just harness-sync-global`)。dot_claude/CLAUDE.md は削除済みなので
+# この行が無くても配置はされないが、将来 `chezmoi add ~/.claude/CLAUDE.md` で
+# 2 つ目の Target Owner が生えるのを防ぐために明示しておく
+.claude/CLAUDE.md
 
 # secretlint / prek
 package.json

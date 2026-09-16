@@ -16,6 +16,8 @@ pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 # Agent instructions (CLAUDE.md / AGENTS.md / .cursor/rules are GENERATED — see below)
 just harness-sync              # Regenerate them from harness/modules/ + harness/project.json
 just check-instructions        # Fail if a generated file was hand-edited (drift)
+just harness-sync-global       # Regenerate ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md (writes to $HOME)
+just check-global-instructions # Drift check for those two (local only — they are not committed)
 
 # Security alerts (scheduled weekly in CI, also manual)
 gh workflow run security-alerts.yml  # Trigger security alert sweep manually

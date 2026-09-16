@@ -41,5 +41,29 @@
       ]
     }
   },
-  "targets": []
+  "targets": [
+    {
+      "path": ".claude/CLAUDE.md",
+      "runtime": "claude",
+      "owner": "compose",
+      "banner": "自動生成 — 直接編集しないこと。Source: dotfiles リポジトリの harness/modules/global/ + harness/manifest.json。再生成: just harness-sync-global / 検査: just check-global-instructions",
+      "modules": [
+        "harness/modules/global/00-decision-making.md",
+        "harness/modules/global/10-rule-structure.md",
+        "harness/modules/global/20-user-confirmation.md"
+      ]
+    },
+    {
+      "path": ".codex/AGENTS.md",
+      "runtime": "codex",
+      "owner": "compose",
+      "banner": "自動生成 — 直接編集しないこと。Source: dotfiles リポジトリの harness/modules/global/ + harness/modules/runtime/ + harness/manifest.json。再生成: just harness-sync-global / 検査: just check-global-instructions",
+      "modules": [
+        "harness/modules/runtime/non-claude-global-extension.md",
+        "harness/modules/global/00-decision-making.md",
+        "harness/modules/global/10-rule-structure.md",
+        "harness/modules/global/20-user-confirmation.md"
+      ]
+    }
+  ]
 }
