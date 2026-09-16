@@ -170,6 +170,47 @@ decision() {
     assert_output --partial -- '--force'
 }
 
+# Shell punctuation that glues onto a token or splits a segment used to make the
+# scan fail open — `(cd dir && git push … --force)` is a routine agent idiom, so
+# these are the realistic evasions rather than exotic ones.
+
+@test "a force push inside a subshell group is denied" {
+    run hook '(cd /tmp/repo && git push origin main --force)'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a force push in a bare subshell is denied" {
+    run hook '(git push --force)'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a force push in a brace group is denied" {
+    run hook '{ git push --force; }'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a redirect before the force flag does not split the segment" {
+    run hook 'git push origin main 2>&1 --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a backslash-newline continuation does not split the segment" {
+    run hook 'git push origin main \
+  --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a subshell group around a safe push still produces no decision" {
+    run hook '(cd /tmp/repo && git push origin feature)'
+    assert_success
+    assert_output ''
+}
+
 # --- ask: fail-closed on what the token scan cannot read ----------------------
 
 @test "a variable in the push segment falls back to ask" {

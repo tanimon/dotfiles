@@ -77,9 +77,23 @@ NEEDS_ASK=0
 # Split into command segments. `git commit -m wip && git push --force` must not
 # hide behind the first verb, and over-splitting only ever produces segments
 # that fail the `git push` test below, which is the safe direction.
+# Normalize before splitting. Each of these was a fail-open hole: shell
+# punctuation either glues onto a flag (`--force)` no longer matches `--force`)
+# or splits a segment so that the half carrying the flag no longer starts with
+# `git`. `(cd dir && git push … --force)` is a routine agent idiom, so this is
+# not a theoretical concern.
+NORMALIZED=$COMMAND
+# A backslash-newline continuation is not a separator.
+NORMALIZED=${NORMALIZED//\\$'\n'/ }
+# Redirect operators contain & but do not separate commands (2>&1, &>f, >&2).
+NORMALIZED=$(printf '%s' "$NORMALIZED" | sed -E 's/[<>]&|&>/ /g')
+# Grouping punctuation is noise for this scan. Spacing it out rather than
+# deleting it keeps `$` intact, so the substitution check below still fires.
+NORMALIZED=$(printf '%s' "$NORMALIZED" | tr '(){}' '    ')
+
 # tr pads a short replacement set with its last character, so all three map to
 # a newline; the command's own newlines are already separators.
-SEGMENTS=$(printf '%s' "$COMMAND" | tr ';&|' '\n')
+SEGMENTS=$(printf '%s' "$NORMALIZED" | tr ';&|' '\n')
 
 while IFS= read -r segment || [[ -n "$segment" ]]; do
     [[ -z "$segment" ]] && continue

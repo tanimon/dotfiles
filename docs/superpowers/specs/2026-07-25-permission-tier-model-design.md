@@ -271,13 +271,15 @@ The correct label is **hook-enforced**, a third category alongside the rule-enfo
 | Residual | Status |
 |---|---|
 | A force refspec reached through a shell alias or function | Not covered. The token scan reads the literal command only. |
+| A wrapper that displaces `git` from position 0 — `env X=y git push …`, `command git`, `time git`, `nohup git` | Not covered; the segment is skipped as "not git". `(cd … && git push …)` **is** covered — grouping punctuation is normalized away before the split, because that one is a routine idiom. |
+| `eval "…"` or `bash -c "…"` wrapping the push | Not covered. The inner string is opaque to the scan and the outer segment is not a `git` invocation. |
 | `gh api` performing the equivalent server-side operation | Not covered; the pre-existing #225 residual. |
 | `$(…)` containing `&&`, which breaks the segment split | Not covered; the segment would be mis-split. Low realism. |
 | Plain `git push` now runs **outside the sandbox with no prompt** | **Newly accepted.** `sandbox.excludedCommands` contains `git push *`, and the `ask` prompt was what suppressed that bypass of `network.allowedDomains`. The follow-up is to remove `git push *` from `excludedCommands` (the `insteadOf` flip should have made push HTTPS), but that is only verifiable in a fresh session and belongs in its own PR. |
 
 ### Verification
 
-- `test/git-push-guard.bats` (35 cases), wired into `just test-scripts` and therefore
+- `test/git-push-guard.bats` (41 cases), wired into `just test-scripts` and therefore
   `just lint` and CI. The suite is built as a **contrast pair**: the deny/ask cases are
   paired with cases that must produce *no* output (`git push -u origin feature`,
   `--dry-run`, `--no-force-with-lease`, a safe push after `&&`, a non-git command carrying
