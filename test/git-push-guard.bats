@@ -1,6 +1,10 @@
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_git-push-guard.sh"
+    # The script opens an error log under $HOME. Point it at the per-test
+    # directory so a run never writes into the real home.
+    export HOME="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$HOME"
 }
 
 # Run the hook the way Claude Code does: the whole decision comes from the
@@ -273,4 +277,161 @@ decision() {
     run bash -c 'printf "%s" "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/x\"}}" | bash "$1"' _ "$SCRIPT"
     assert_success
     assert_output ''
+}
+
+# --- the segment must be recognized wherever `git` sits in it -----------------
+# `eb8ffc5` closed three ways a segment stops starting with `git` (grouping
+# punctuation, redirect operators, line continuations). Shell keywords and
+# command prefixes are a fourth: they are ordinary tokens that simply precede
+# the binary, and a one-line loop or condition is something an agent writes
+# routinely.
+
+@test "a one-line for loop body is not a hiding place" {
+    run hook 'for r in a b; do git push $r main --force; done'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a one-line while loop body is not a hiding place" {
+    run hook 'while true; do git push origin main --force; done'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a one-line if body is not a hiding place" {
+    run hook 'if true; then git push origin main --force; fi'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "an if condition is not a hiding place" {
+    run hook 'if git push origin main --force; then echo done; fi'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "an environment assignment prefix is not a hiding place" {
+    run hook 'GIT_SSH_COMMAND=ssh git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the env wrapper is not a hiding place" {
+    run hook 'env GIT_TRACE=1 git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the command wrapper is not a hiding place" {
+    run hook 'command git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the time wrapper is not a hiding place" {
+    run hook 'time git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the nohup wrapper is not a hiding place" {
+    run hook 'nohup git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the sudo wrapper is not a hiding place" {
+    run hook 'sudo git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a safe push inside a one-line loop produces no decision" {
+    run hook 'for r in a b; do git push origin feature; done'
+    assert_success
+    assert_output ''
+}
+
+# --- the fail-closed floor for an unrecognized command position ---------------
+# When `git` is neither in command position nor behind a known prefix, this scan
+# cannot tell whether it will execute. A dangerous spelling there becomes `ask`
+# rather than silence — and, deliberately, not `deny`: prose in a PR body parses
+# the same way.
+
+@test "an unrecognized wrapper carrying a force flag falls back to ask" {
+    run hook 'xargs -n1 git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "prose naming git push without a dangerous flag produces no decision" {
+    run hook 'gh pr create --body "$(cat <<EOF
+- git push の ask を外す
+EOF
+)"'
+    assert_success
+    assert_output ''
+}
+
+@test "prose naming a force push falls back to ask rather than deny" {
+    run hook 'gh pr create --body "$(cat <<EOF
+- git push --force を deny する
+EOF
+)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# --- config that makes a plain push destructive -------------------------------
+
+@test "a -c mirror override falls back to ask" {
+    run hook 'git -c remote.origin.mirror=true push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "the inline -c mirror form falls back to ask" {
+    run hook 'git -cremote.origin.mirror=true push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# --- spellings the scan implements but nothing pinned -------------------------
+
+@test "--force-if-includes is denied" {
+    run hook 'git push origin main --force-if-includes'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the short -d delete form is denied" {
+    run hook 'git push -d origin feature'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# --- logging must never be able to suppress the decision ----------------------
+
+@test "an unwritable HOME does not suppress the decision" {
+    [[ $EUID -eq 0 ]] && skip "root ignores the directory mode"
+    export HOME="$BATS_TEST_TMPDIR/readonly-home"
+    mkdir -p "$HOME"
+    chmod 500 "$HOME"
+    run hook 'git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# --- backtick substitution runs, so it is a command and not text --------------
+
+@test "a backtick substitution carrying a force flag is denied" {
+    run hook '`git push origin main --force`'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a backtick substitution inside another command falls back to ask" {
+    run hook 'echo `git push origin main --force`'
+    assert_success
+    assert_equal "$(decision "$output")" ask
 }

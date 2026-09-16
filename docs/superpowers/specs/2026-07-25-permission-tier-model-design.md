@@ -271,15 +271,19 @@ The correct label is **hook-enforced**, a third category alongside the rule-enfo
 | Residual | Status |
 |---|---|
 | A force refspec reached through a shell alias or function | Not covered. The token scan reads the literal command only. |
-| A wrapper that displaces `git` from position 0 — `env X=y git push …`, `command git`, `time git`, `nohup git` | Not covered; the segment is skipped as "not git". `(cd … && git push …)` **is** covered — grouping punctuation is normalized away before the split, because that one is a routine idiom. |
-| `eval "…"` or `bash -c "…"` wrapping the push | Not covered. The inner string is opaque to the scan and the outer segment is not a `git` invocation. |
+| A wrapper or keyword that displaces `git` from position 0 — `env X=y git push …`, `VAR=v git push …`, `command`/`time`/`nohup`/`sudo`/`nice`/`exec`, and the one-line `for … do git push …; done` / `if …; then …; fi` forms | **Covered** (2026-09-16 review). The scan skips leading assignments and a fixed list of shell keywords and command prefixes before reading the binary, so these `deny` like any other push. `(cd … && git push …)` is covered by the same normalization pass that handles grouping punctuation. A prefix outside that list (`xargs -n1 git push … --force`) falls to `ask`, not silence. |
+| `eval "…"` or `bash -c "…"` wrapping the push | Not covered. The inner string is opaque to the scan and the outer segment's `git` is quoted, which the fallback deliberately treats as text. |
 | `gh api` performing the equivalent server-side operation | Not covered; the pre-existing #225 residual. |
-| `$(…)` containing `&&`, which breaks the segment split | Not covered; the segment would be mis-split. Low realism. |
+| `$(…)` containing `&&`, which breaks the segment split | Not covered; the segment would be mis-split. Low realism. `$(git push … --force)` and the backtick form without `&&` fall to `ask` via the fallback — a substitution executes, so its delimiters are stripped, unlike the quotes around `echo "git push --force"`. |
+| `git config remote.<name>.push …` or `git remote set-url …` in the same command string, followed by a plain push | **Not covered.** The `-c` form of the same redirection is caught (`ask`), the persistent form is not. Tracked as follow-up. |
+| `git -c remote.<name>.url=…` redirecting the push to another remote | **Not covered.** The `-c` scan asks on `push` and `mirror` values only; `url` was left out because the substring is common enough in unrelated config that the false-`ask` rate is unmeasured. Same class as the row above. |
+| A flag spelled through quoting or escapes — `--f'or'ce`, `--fo\rce` | Not covered. The scan is lexical, not a shell-accurate unquote; only one layer of surrounding quotes is stripped. Adversarial-only. |
+| A command string long enough to exceed the hook's 5 s timeout | **Not covered.** `unquote` forks per token, so the scan is linear in token count and crosses 5 s at roughly 9,500 tokens; a timeout is a missing decision, i.e. fail-open. Far outside any real push. Tracked as follow-up. |
 | Plain `git push` now runs **outside the sandbox with no prompt** | **Newly accepted.** `sandbox.excludedCommands` contains `git push *`, and the `ask` prompt was what suppressed that bypass of `network.allowedDomains`. The follow-up is to remove `git push *` from `excludedCommands` (the `insteadOf` flip should have made push HTTPS), but that is only verifiable in a fresh session and belongs in its own PR. |
 
 ### Verification
 
-- `test/git-push-guard.bats` (41 cases), wired into `just test-scripts` and therefore
+- `test/git-push-guard.bats` (62 cases), wired into `just test-scripts` and therefore
   `just lint` and CI. The suite is built as a **contrast pair**: the deny/ask cases are
   paired with cases that must produce *no* output (`git push -u origin feature`,
   `--dry-run`, `--no-force-with-lease`, a safe push after `&&`, a non-git command carrying
@@ -287,7 +291,11 @@ The correct label is **hook-enforced**, a third category alongside the rule-enfo
   and still make the setting unusable.
 - The rendered `settings.json` was checked for valid JSON, the presence of the hook entry,
   the absence of any `git push` entry in `ask`, and the retention of the three `deny` rules.
-- The deployed wrapper command was smoke-tested against a fixture `$HOME`.
+- The deployed hook command is the script path itself. An earlier
+  `mkdir -p … && script 2>>log` wrapper was removed: a failed redirection abandons the whole
+  command, so an unwritable log directory would have skipped the script entirely and turned a
+  logging problem into a missing decision. The log target now lives inside the script, guarded,
+  and `test/git-push-guard.bats` pins that an unwritable `$HOME` still produces the `deny`.
 - **Not verifiable on this branch:** that Claude Code actually invokes the hook.
   `chezmoi apply` deploys from `main`, and `settings.json` is read at session start. Confirm
   in a fresh session after merge that `git push origin <branch>` runs without a prompt and

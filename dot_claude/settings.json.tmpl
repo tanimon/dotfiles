@@ -433,13 +433,13 @@
       }
     ],
     "PreToolUse": [
-      {{/* git push の破壊的な綴りだけをゲートするフック。`Bash(git push:*)` を permissions.ask に置いていた頃は日常の push まで毎回プロンプトになっていたが、ask を外すだけでは `git push origin main --force` / `+main` / `--delete` / `--mirror` が無ゲートになる — deny はプレフィックス照合なので、フラグが `git push` の直後に来る綴りしか捕まえられないため(2026-07-25 の tier model spec が push を Tier 1 から撤回した理由そのもの)。フックはコマンド文字列全体を受け取るので、引数位置に依存しない判定が書ける。素の push は無出力 exit 0 で defaultMode: auto のクラシファイア判定に落ち、プロンプトは出ない。複数の PreToolUse が一致した場合の合成は deny > ask > allow なので、下の orca フック(matcher "*")と併存して問題ない。残存: スクリプトが未配置・クラッシュした場合は無出力=判定なしとなりフェイルオープンする(deny 側に残した先頭フラグ形の 3 行が最後の砦)。 */ -}}
+      {{/* git push の破壊的な綴りだけをゲートするフック。`Bash(git push:*)` を permissions.ask に置いていた頃は日常の push まで毎回プロンプトになっていたが、ask を外すだけでは `git push origin main --force` / `+main` / `--delete` / `--mirror` が無ゲートになる — deny はプレフィックス照合なので、フラグが `git push` の直後に来る綴りしか捕まえられないため(2026-07-25 の tier model spec が push を Tier 1 から撤回した理由そのもの)。フックはコマンド文字列全体を受け取るので、引数位置に依存しない判定が書ける。素の push は無出力 exit 0 で defaultMode: auto のクラシファイア判定に落ち、プロンプトは出ない。複数の PreToolUse が一致した場合の合成は deny > ask > allow なので、下の orca フック(matcher "*")と併存して問題ない。残存: スクリプトが未配置・クラッシュした場合は無出力=判定なしとなりフェイルオープンする(deny 側に残した先頭フラグ形の 3 行が最後の砦)。ラッパーを噛ませずスクリプトを直接呼ぶ: `mkdir -p … && script 2>>log` の形はログディレクトリを作れないとリダイレクトの失敗でスクリプト自体が走らず、ログの問題が判定なし=フェイルオープンに化ける。ログ先の決定はスクリプト内に持たせてある。 */ -}}
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/git-push-guard.sh\" 2>>\"$HOME/.claude/logs/git-push-guard-errors.log\"'",
+            "command": "\"$HOME/.claude/scripts/git-push-guard.sh\"",
             "timeout": 5
           }
         ]
