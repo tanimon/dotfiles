@@ -55,7 +55,7 @@ _Avoid_: 同期（文字列一致や双方向同期と区別できない）、�
 _Avoid_: 共通設定、Claude 設定
 
 **Harness Manifest**:
-権限、フック、MCP など、機械的な検証と変換が必要な Harness Policy を記述する構造化された Source。自然言語の指示本文は Content Module として分離する。
+対象製品の存在・バージョン・必要機能の検査条件と、生成する Target の一覧を記述する構造化された Source。自然言語の指示本文は Content Module として分離する。
 _Avoid_: 共通 JSON、設定一覧
 
 **Content Module**:
@@ -74,10 +74,6 @@ _Avoid_: 変換スクリプト（実装方式に限定される）、同期処�
 1つの Target を生成・更新する責任を単独で持つ仕組み。部分更新を行う Target でも、merge 処理を実行する Target Owner は1つに限定する。
 _Avoid_: writer、共同所有
 
-**Portable Hook**:
-複数のエージェント製品で共有する処理本体と実行意図を持ち、製品ごとのイベント名・入出力・終了条件への登録は Runtime Adapter に委ねるフック。
-_Avoid_: 共通 hook 設定、APM hook
-
 **Runtime Extension**:
 1つのエージェント製品だけが持つ機能を利用する、その製品専用の Harness Asset。Harness Policy の代替ではなく、共通化できない追加の振る舞いを表す。
 _Avoid_: 例外設定、固有設定
@@ -86,14 +82,6 @@ _Avoid_: 例外設定、固有設定
 エージェント製品自身が実行中に生成・更新する可変データ。履歴、キャッシュ、利用統計、インストール済みプラグインの記録などが該当し、Source の所有対象外とする。
 _Avoid_: 自動生成設定、動的ファイル
 
-**Safety Invariant**:
-すべての対象製品で維持されなければならない安全上の制約。Runtime Adapter が表現できない場合は警告へ劣化させず、Target の生成または検証を失敗させる。
-_Avoid_: 安全設定、必須ルール
-
-**Enforcement Grade**:
-Harness Policy が実行時にどの強さで強制されるかを表す区分。決定論的、best-effort、利用不可を区別し、Safety Invariant は同等以上の区分へしか写像できない。
-_Avoid_: 対応状況、サポートレベル
-
 **Capability Probe**:
 対象製品のバージョン表記ではなく、必要な設定、イベント、強制機構が実際に利用可能であることを確認する検査。
 _Avoid_: バージョンチェック、対応確認
@@ -101,10 +89,6 @@ _Avoid_: バージョンチェック、対応確認
 **Atomic Sync**:
 すべての Target を一時領域で生成・検証し、全体が成功した場合だけ既存 Target と入れ替える同期。失敗時は同期前の Target を維持する。
 _Avoid_: 一括生成、順次反映
-
-**Credential Reference**:
-環境変数や OS の credential store から秘密値を解決するための参照。秘密値そのものは Source、Target、lockfile のいずれにも含めない。
-_Avoid_: secret、認証設定
 
 **Project Harness**:
 対象プロジェクト自身が所有する、そのプロジェクト固有の Harness Asset。共通基盤と生成機構は dotfiles が提供するが、プロジェクトの知識はコードと同じリポジトリに残す。
