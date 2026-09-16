@@ -1,0 +1,33 @@
+{{/*
+  ~/.codex/AGENTS.md(Codex のグローバル指示)。
+  構成: この前置き → 共有本文(.chezmoitemplates/agent-instructions-common)→
+  dot_claude/rules/common/*.md の連結。共有本文は ~/.claude/CLAUDE.md と同一の Source。
+
+  rules は `glob` ではなく `include` で 1 件ずつ列挙する。chezmoi の `glob` は
+  カレントディレクトリ相対で評価されるため、`chezmoi apply` の実行位置によっては
+  黙って空リストを返し、ルールが 1 件も入らない AGENTS.md が生成される
+  (実測: source を明示しても cwd が別ならマッチ 0)。`include` は source-dir 相対。
+  ファイルを追加したらここにも 1 行足すこと — test/global-instructions.bats が
+  ディレクトリの実体を数えて突き合わせるので、忘れるとテストが落ちる。
+*/ -}}
+# このファイルについて
+
+このファイルは chezmoi が dotfiles リポジトリから生成する。直接編集せず、次のいずれかを直す:
+
+- 共有本文(Claude Code と共通): `.chezmoitemplates/agent-instructions-common`
+- この前置き: `dot_codex/AGENTS.md.tmpl`
+- 後半のルール群: `dot_claude/rules/common/*.md`
+
+# ルール構成
+
+コーディングの詳細なルール、テスト方針、セキュリティガイドラインは、このファイルの後半に連結してある。前半はプロジェクトを横断する振る舞いのガイドライン。
+
+# 他エージェント製品向けの記述の扱い
+
+後半のルール群は Claude Code と共有する Source から生成しているため、`~/.claude/` 配下のパスや、`/harness-reflect` のような Claude Code のスラッシュコマンドが説明として登場する。これらは Codex には存在しない。仕組みの説明として読み、実行可能な指示としては扱わない。
+
+{{ template "agent-instructions-common" }}
+{{ include "dot_claude/rules/common/documentation-language.md" }}
+{{ include "dot_claude/rules/common/github-actions.md" }}
+{{ include "dot_claude/rules/common/harness-engineering.md" }}
+{{ include "dot_claude/rules/common/shell-scripting.md" }}

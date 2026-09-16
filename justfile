@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-nono-profile
 
 # Scan for leaked secrets
 @secretlint:
@@ -181,6 +181,12 @@ check-templates:
 # Smoke test the project instruction sync (compose adapter, --no-probe, generated Targets)
 @test-harness-instructions:
     LC_ALL=C pnpm exec bats test/harness-instructions.bats
+
+# Smoke test the global instruction composition (~/.claude/CLAUDE.md + ~/.codex/AGENTS.md).
+# Needs chezmoi — the suite fails (not skips) without it, so a green run never
+# claims the templates rendered when they were never executed.
+@test-global-instructions:
+    LC_ALL=C pnpm exec bats test/global-instructions.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:
