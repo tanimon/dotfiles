@@ -120,7 +120,13 @@ check-templates:
     #!/usr/bin/env bash
     if command -v chezmoi >/dev/null 2>&1; then
         echo "Validating chezmoi templates..."
-        tmpconfig=$(mktemp "${TMPDIR:-/tmp}/chezmoi-test-XXXXXX.toml") || { echo "FAIL: mktemp failed"; exit 1; }
+        # chezmoi は --config の拡張子から形式を判別するので .toml が要るが、BSD mktemp
+        # (macOS) はテンプレートの X が末尾にないと置換せず literal なファイル名を作る。
+        # そのため直接 '...-XXXXXX.toml' を渡すと毎回同じ名前になり、クラッシュ後の残骸や
+        # 並行実行で "mkstemp failed: File exists" で落ちる。ディレクトリ側をランダム化する。
+        tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/chezmoi-test-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }
+        trap 'rm -rf "$tmpdir"' EXIT
+        tmpconfig="$tmpdir/chezmoi-test.toml"
         printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' > "$tmpconfig"
         fail=0
         for file in {{tmpl_files}}; do
@@ -134,7 +140,6 @@ check-templates:
                     ;;
             esac
         done
-        rm -f "$tmpconfig"
         if [ "$fail" -eq 1 ]; then exit 1; fi
         echo "PASS: all templates valid"
     else
