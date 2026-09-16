@@ -53,20 +53,26 @@ render_codex() {
 }
 
 @test "共有本文は製品名も製品固有のツール名も含まない" {
-    # 共有テンプレートが無ければ grep は必ず失敗する = この検査が空振りする
-    [ -s "$SHARED" ] || fail "共有テンプレートがありません: $SHARED"
-    local word
+    # Source を直接 grep せず、seam(execute-template)を通した結果を見る。
+    # Source を見ていると、テンプレート側で製品名を注入する変更に気づけない
+    local shared word
+    shared=$(printf '{{ template "agent-instructions-common" }}' |
+        chezmoi execute-template --config "$CONFIG" --source "$REPO")
+    [ -n "$shared" ] || fail "共有本文が空です(grep が必ず失敗して空振りする)"
     for word in Claude claude Codex codex Cursor cursor AskUserQuestion; do
-        run grep -n -- "$word" "$SHARED"
-        assert_failure
+        printf '%s\n' "$shared" | grep -q -- "$word" &&
+            fail "共有本文に製品固有の語があります: $word"
     done
+    return 0
 }
 
 @test "AGENTS.md に共有 rules の全ファイルが全行入っている" {
     # ファイルを 1 件ずつ、かつ全行で見る。「どれか 1 ファイルの見出しが出ている」で
     # 満足すると、include の並びから 1 行落ちても気づけない。
     # 列挙は Source ディレクトリの実体から行う(テンプレートの include 一覧からではない)
-    # ので、新しい rules ファイルを足して include を忘れるとここで落ちる
+    # ので、新しい rules ファイルを足して include を忘れるとここで落ちる。
+    # 各ファイルの先頭行・末尾行も「全行」に含まれるので、末尾改行の無いファイルが
+    # 次のファイルの見出しとくっついて 1 行になった場合も grep -x で落ちる
     local codex file line count=0
     codex=$(render_codex)
     while IFS= read -r file; do
@@ -80,23 +86,6 @@ render_codex() {
     [ "$count" -gt 0 ] || fail "共有 rules が 1 件も見つかりません"
 }
 
-@test "AGENTS.md は連結の境目で見出しを前の段落にくっつけない" {
-    # include はファイルの中身をそのまま返すので、末尾改行の無いファイルがあると
-    # 次のファイルの見出しが前の行に続いてしまい、Markdown の見出しでなくなる
-    # 境目は「前のファイルの最終行」と「次のファイルの先頭行」なので、両端が
-    # それぞれ独立した 1 行として出ていることを確認する。grep -x(完全一致)で
-    # 見ているので、連結されて 1 行になっていれば落ちる
-    local codex file edge
-    codex=$(render_codex)
-    while IFS= read -r file; do
-        for edge in "$(head -n1 "$file")" "$(grep -v '^[[:space:]]*$' "$file" | tail -n1)"; do
-            [ -n "$edge" ] || continue
-            printf '%s\n' "$codex" | grep -qxF -- "$edge" ||
-                fail "AGENTS.md で $file の端の行が独立した行になっていません: $edge"
-        done
-    done < <(find "$RULES_DIR" -type f -name '*.md' | sort)
-}
-
 @test "AskUserQuestion は CLAUDE.md の出力にだけ現れる(Contrast Pair)" {
     run bash -c 'set -o pipefail; chezmoi execute-template --config "$1" --source "$2" <"$2/dot_claude/CLAUDE.md.tmpl" | grep -c AskUserQuestion' _ "$CONFIG" "$REPO"
     assert_success
@@ -105,21 +94,35 @@ render_codex() {
     assert_failure
 }
 
-@test "CLAUDE.md の出力は従来の本文を失っていない" {
-    # #311 で許した差分は AskUserQuestion 節の言い換えだけ。他の段落は 1 字も変えない
-    local claude
-    claude=$(render_claude)
-    local line
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        printf '%s\n' "$claude" | grep -qxF -- "$line" ||
-            fail "CLAUDE.md から従来の行が失われています: $line"
-    done <<'EOF'
+@test "CLAUDE.md の出力が #311 で合意した全文と一致する" {
+    # #311 の AC は「AskUserQuestion 節の言い換え以外、変更前と差分が無い」。
+    # 「従来の各行が含まれる」だけを見る検査は、節の並べ替えにも節の追加にも
+    # 反応しない — つまり実際に起きた逸脱をちょうど素通りする。全文で固定する。
+    #
+    # 変更前(dot_claude/CLAUDE.md)からの意図した差分はここに見えるとおり 2 点だけ:
+    #   1. 「ユーザーへの確認」が製品非依存の文面になり、共有本文の一部として
+    #      「ルール構成」より前に出る(共有本文は 1 つの連続ブロックなので、
+    #      Claude 固有の「ルール構成」を間に挟んだ元の並びは再現できない)
+    #   2. AskUserQuestion は Claude 固有なので末尾の「ユーザーへの確認に使うツール」へ
+    run render_claude
+    assert_success
+    assert_output - <<'EOF'
 # 複数視点での意思決定
+
 - ユーザーの意見は数ある視点の一つとして扱い、他の視点やソースも検討する。単一の視点は、同意によって補強されても本人が気づいていない死角を生みやすく、代替案・既存のベストプラクティス・別のソースを参照することでその死角を拾える。
 - 状況に応じて反論し、代替案を提案する。デフォルトで同意しない。黙って同意すると死角がそのまま残ってしまうため、率直に指摘して選択肢を示す。
+
+# ユーザーへの確認
+
+ユーザーに意思決定の確認や選択肢からの選択を求めたいときは、自由記述の問いかけより、番号付きの選択肢を提示する形を優先する。構造化された選択可能な形にすることで意思決定を明確にできるため。選択肢では表現できないケース(自由記述の入力が必要な場合など)には、自由記述の問いかけを使う。
+
 # ルール構成
+
 コーディングの詳細なルール、テスト方針、セキュリティガイドラインは `~/.claude/rules/` にあり、共通(`common/`)とドメイン別ディレクトリ(`web/`、`golang/`、`typescript/`等。プロジェクト固有のシンボリックリンクが追加される場合もある)で整理されている。このファイルには、プロジェクトを横断する振る舞いに関するガイドラインのみを記載する。
+
+# ユーザーへの確認に使うツール
+
+上の「ユーザーへの確認」で番号付きの選択肢を提示するときは、`AskUserQuestion` ツールを使う。Claude Code はこのツールで選択肢を構造化して提示できる。
 EOF
 }
 
@@ -142,18 +145,21 @@ EOF
         fail "AGENTS.md が ${bytes} バイトで 32768 を超えています"
 }
 
-@test "AGENTS.md には仕事用のマシン固有ルールが入らない" {
+@test "AGENTS.md のテンプレートは common/ 以外の rules を取り込まない" {
     # ~/.claude/rules/ には仕事リポジトリの rules が symlink で差し込まれるが、
-    # Source は dot_claude/rules/common/ だけ。symlink 由来のディレクトリを
-    # 参照していないことをテンプレート側で確認する
-    run grep -n 'rules/[a-z-]*/' "$REPO/dot_codex/AGENTS.md.tmpl"
-    assert_output --partial 'rules/common/'
+    # Source は dot_claude/rules/common/ だけ。取り込まれていないことは出力からは
+    # 言えない(symlink はこのリポジトリに存在しない)ので、ここだけは Source を見る。
+    # 検査は 2 つ: (1) common/ 以外を指す include がゼロ、(2) include の数が
+    # common/ の実ファイル数と一致(足したのに include し忘れた、を捕まえる)
+    run grep -c 'include "dot_claude/rules/common/' "$REPO/dot_codex/AGENTS.md.tmpl"
+    assert_success
+    local common_includes=$output
     run grep -c 'include "dot_claude/rules/' "$REPO/dot_codex/AGENTS.md.tmpl"
     assert_success
-    local includes=$output
+    assert_equal "$output" "$common_includes"
     local files
     files=$(find "$RULES_DIR" -type f -name '*.md' | wc -l | tr -d ' ')
-    assert_equal "$includes" "$files"
+    assert_equal "$common_includes" "$files"
 }
 
 @test "chezmoi managed に .codex/AGENTS.md が出る" {

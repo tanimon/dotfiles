@@ -40,7 +40,10 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
    specific, actionable, and likely to recur? Vague or one-off → verdict
    `rejected (<reason>)`.
 3. **Placement:** cross-project behavior → `dot_claude/rules/common/` (or
-   `dot_claude/CLAUDE.md` for behavioral guidelines); this-repo pitfall →
+   `dot_claude/CLAUDE.md.tmpl` / the shared body
+   `.chezmoitemplates/agent-instructions-common` for behavioral guidelines —
+   product-neutral guidance goes in the shared body, Claude-only tool names in
+   the `.tmpl`); this-repo pitfall →
    repo `CLAUDE.md` Known Pitfalls or `.claude/rules/`; incident record →
    `docs/solutions/`. Scope `project:<other-repo>` → verdict
    `handoff (belongs in <repo>)`; tell the user what to add there — do not
