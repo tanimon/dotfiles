@@ -1,0 +1,235 @@
+setup() {
+    load 'helpers/setup'
+    SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_git-push-guard.sh"
+}
+
+# Run the hook the way Claude Code does: the whole decision comes from the
+# PreToolUse payload on stdin.
+hook() {
+    jq -n --arg c "$1" \
+        '{tool_name:"Bash",tool_input:{command:$c}}' | bash "$SCRIPT"
+}
+
+decision() {
+    printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // empty'
+}
+
+# --- the contrast half: everyday pushes must stay prompt-free -----------------
+# Without these, a guard that denies unconditionally would pass every test
+# below and still make the setting unusable.
+
+@test "bare git push produces no decision" {
+    run hook 'git push'
+    assert_success
+    assert_output ''
+}
+
+@test "git push -u origin feature produces no decision" {
+    run hook 'git push -u origin feature'
+    assert_success
+    assert_output ''
+}
+
+@test "git push --dry-run produces no decision" {
+    run hook 'git push --dry-run origin main'
+    assert_success
+    assert_output ''
+}
+
+@test "explicit non-empty refspec produces no decision" {
+    run hook 'git push origin HEAD:refs/heads/main'
+    assert_success
+    assert_output ''
+}
+
+@test "--no-force-with-lease is not matched as a force flag" {
+    run hook 'git push --no-force-with-lease origin main'
+    assert_success
+    assert_output ''
+}
+
+@test "a non-git command is ignored even when it carries -f" {
+    run hook 'rm -f build/artifact'
+    assert_success
+    assert_output ''
+}
+
+@test "a read-only git subcommand is ignored" {
+    run hook 'git log --oneline -n 5'
+    assert_success
+    assert_output ''
+}
+
+@test "the string git push inside another command is not a push" {
+    run hook 'echo "git push --force"'
+    assert_success
+    assert_output ''
+}
+
+@test "a safe push in a compound command produces no decision" {
+    run hook 'git commit -m wip && git push origin feature'
+    assert_success
+    assert_output ''
+}
+
+# --- deny: the spellings prefix rules cannot reach ----------------------------
+
+@test "leading --force is denied" {
+    run hook 'git push --force origin main'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "trailing --force is denied (evades the prefix deny rule)" {
+    run hook 'git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "trailing -f is denied" {
+    run hook 'git push origin main -f'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "bundled short options containing f are denied" {
+    run hook 'git push -fu origin main'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "trailing --force-with-lease is denied" {
+    run hook 'git push origin main --force-with-lease'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "--force-with-lease with a value is denied" {
+    run hook 'git push origin main --force-with-lease=main:abc123'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a plus-prefixed refspec is denied" {
+    run hook 'git push origin +main'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a quoted plus-prefixed refspec is denied" {
+    run hook 'git push origin "+main"'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "--delete is denied" {
+    run hook 'git push --delete origin feature'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the colon form of remote branch deletion is denied" {
+    run hook 'git push origin :feature'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "--mirror is denied" {
+    run hook 'git push --mirror origin'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "--prune is denied" {
+    run hook 'git push --prune origin main'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a force push hidden in the second half of a compound command is denied" {
+    run hook 'git commit -m wip && git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a force push after a semicolon is denied" {
+    run hook 'git status; git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "git -C <dir> push --force is denied" {
+    run hook 'git -C /tmp/repo push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "the deny reason names the offending token" {
+    run hook 'git push origin main --force'
+    assert_success
+    assert_output --partial -- '--force'
+}
+
+# --- ask: fail-closed on what the token scan cannot read ----------------------
+
+@test "a variable in the push segment falls back to ask" {
+    run hook 'git push origin $BRANCH'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "command substitution in the push segment falls back to ask" {
+    run hook 'git push origin $(git branch --show-current)'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a variable outside the push segment does not trigger ask" {
+    run hook 'git commit -m "$(date)" && git push origin feature'
+    assert_success
+    assert_output ''
+}
+
+@test "a -c override mentioning push falls back to ask" {
+    run hook 'git -c remote.origin.push=+refs/heads/main push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "the inline -c form mentioning push falls back to ask" {
+    run hook 'git -cremote.origin.push=+refs/heads/main push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a -c override unrelated to push does not trigger ask" {
+    run hook 'git -c core.pager=cat push origin feature'
+    assert_success
+    assert_output ''
+}
+
+@test "unparseable stdin falls back to ask" {
+    run bash -c 'printf "not json" | bash "$1"' _ "$SCRIPT"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "deny wins over ask when both are present" {
+    run hook 'git push origin $BRANCH --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# --- shape of the output ------------------------------------------------------
+
+@test "the emitted JSON carries the PreToolUse event name" {
+    run hook 'git push origin main --force'
+    assert_success
+    assert_equal "$(printf '%s' "$output" | jq -r '.hookSpecificOutput.hookEventName')" PreToolUse
+}
+
+@test "a non-Bash payload produces no decision" {
+    run bash -c 'printf "%s" "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/x\"}}" | bash "$1"' _ "$SCRIPT"
+    assert_success
+    assert_output ''
+}

@@ -126,16 +126,20 @@ unchanged.
 | `gh pr review` | 2 | Approve / request-changes can be submitted on anyone's PR and survive dismissal in the record. |
 | `gh pr merge` | 2 | Unchanged from #224. |
 | `gh issue delete`, `gh issue transfer` | 3 | Irreversible or hard to undo. |
-| `git push` | not Tier 1 | A plain `git push` does append to an existing branch, but the append-only property is not expressible in prefix rules. The `deny` entries `Bash(git push --force:*)`, `--force-with-lease`, and `-f` match only when the flag immediately follows `git push`; `git push origin main --force`, `git push origin main -f`, and `git push origin +main` are all force pushes that evade them, and `git push --delete origin foo`, `git push origin :foo`, `git push --mirror`, `git push --prune` delete remote refs outright. Granting `push` would make every one of those silent. Same flag-position problem as `git reset` below and `gh api`. The `deny` entries are retained, but they close only the leading-flag spellings — the `ask` gate is what actually covers the rest. |
+| `git push` (**superseded 2026-09-16 — see the addendum at the end of this document; it left `ask` and is now hook-enforced**) | not Tier 1 | A plain `git push` does append to an existing branch, but the append-only property is not expressible in prefix rules. The `deny` entries `Bash(git push --force:*)`, `--force-with-lease`, and `-f` match only when the flag immediately follows `git push`; `git push origin main --force`, `git push origin main -f`, and `git push origin +main` are all force pushes that evade them, and `git push --delete origin foo`, `git push origin :foo`, `git push --mirror`, `git push --prune` delete remote refs outright. Granting `push` would make every one of those silent. Same flag-position problem as `git reset` below and `gh api`. The `deny` entries are retained, but they close only the leading-flag spellings — the `ask` gate is what actually covers the rest. |
 | `git reset` | 3 | `--hard` destroys uncommitted work unrecoverably. Splitting `Bash(git reset --hard:*)` into `ask` while allowing `Bash(git reset:*)` is defeated by `git reset HEAD~1 --hard` — the flag-position problem again. |
 | `git rebase`, `git cherry-pick`, `git filter-branch` | 3 | History rewriting. |
 | `gh release` / `secret` / `variable` / `workflow` / `repo` / `label` / `gist` / `run` / `cache` verbs | 2–3 | Unchanged. Applying the tier model to them produces the same placement they already have. |
 
 ### Explicit `allow` enumeration
 
-Under `defaultMode: auto`, removing an entry from `ask` is sufficient to make it
-auto-approved — an unlisted command is auto-approved. The five entries are nonetheless
-enumerated in `allow` for:
+Under `defaultMode: auto`, removing an entry from `ask` is sufficient to make it run without
+a permission prompt. (**2026-09-16 correction:** this section originally said "an unlisted
+command is auto-approved". That is imprecise — an unlisted command is routed to auto mode's
+classifier, which decides per invocation and can still prompt. The distinction matters for
+the addendum below: delegating to the classifier is a probabilistic gate, not the absence of
+one, and it is not reproducible enough to test deterministically.) The five entries are
+nonetheless enumerated in `allow` for:
 
 - visibility in `/permissions`
 - recording intent, so a future reader sees a deliberate grant rather than an accidental omission
@@ -202,5 +206,87 @@ preserving the list's existing alphabetical order.
 - No audit of the remaining 44 `ask` entries. Applying the tier model to them yields their
   current placement, so there is nothing to change.
 - No change to `deny`.
-- `gh api` remains unlisted and therefore auto-approved under `defaultMode: auto` — the known
-  residual tracked in issue #225. Unaffected by this change.
+- `gh api` remains unlisted and therefore falls to auto mode's classifier under
+  `defaultMode: auto` — the known residual tracked in issue #225. Unaffected by this change.
+
+---
+
+## Addendum — 2026-09-16: `git push` moves out of `ask`, gated by a `PreToolUse` hook
+
+**Status:** Approved. Supersedes the "No PreToolUse permission hook" line in *Out of scope*
+above and moves `Bash(git push:*)` out of the *What deliberately stays in `ask`* table.
+
+### Problem
+
+The blanket `Bash(git push:*)` in `ask` prompted on every push, including the routine
+append-only case that is most of them. That is approval fatigue, and approval fatigue is
+itself a security problem: a gate that fires constantly gets click-through-approved without
+reading.
+
+The obvious fix — drop the entry and let auto mode's classifier decide — is the exact move
+this document retracted in its 2026-07-25 correction, only with a probabilistic gate in place
+of no gate. It leaves `git push origin main --force`, `git push origin +main`,
+`git push --delete origin foo`, `git push origin :foo`, `--mirror`, and `--prune` to LLM
+judgment, and that judgment cannot be tested deterministically (a fresh session per trial,
+non-reproducible), which conflicts with this repository's rule that monitoring is
+deterministic shell and LLM judgment runs only where failures are visible.
+
+### Decision
+
+Split the two cases rather than choosing between them.
+
+- `Bash(git push:*)` is removed from `ask`.
+- `dot_claude/scripts/executable_git-push-guard.sh` runs as a `PreToolUse` hook with
+  `matcher: "Bash"`. It reads the whole command string, so it finds the dangerous flag
+  **wherever it sits** — the property prefix matching structurally cannot provide.
+- Decisions: `deny` for `--force` / `--force-with-lease[=…]` / `--force-if-includes` /
+  `--delete` / `--mirror` / `--prune`, a bundled short option containing `f` or `d`, a
+  `+`-prefixed refspec, and a `:`-prefixed (empty-source) refspec. `ask` when the push
+  segment cannot be read through — a variable, a command substitution, or a `-c` override
+  mentioning `push`. No output otherwise, so a plain push falls to the classifier without a
+  prompt.
+- Segments are split on `;`, `&`, `|`, and newlines, so a force push hidden after `&&` is
+  still seen.
+- `deny` for the destructive spellings (rather than `ask`) follows the 2026-09-15 precedent
+  set for `gh pr merge` / `revert`: leaving a click-through gate is where the prompts come
+  back, and force push is a thing the human does from their own terminal.
+
+### Why this is not Tier 1
+
+Tier 1 membership requires the safety property be **enforceable by the rule syntax
+available**. A hook is a different channel with two properties a rule does not have:
+
+1. **It can fail open.** If the script is absent (a machine before `chezmoi apply`),
+   unwired, or crashes, it emits nothing and the tool call proceeds through the normal
+   permission flow. A rule is always evaluated. This is why the three leading-flag `deny`
+   entries (`--force`, `--force-with-lease`, `-f`) are **retained** rather than deleted as
+   redundant — they are the floor when the hook is not there.
+2. **Its coverage is a token scan, not a semantic one.** It reads the command string the
+   agent issues, not what that string ultimately does.
+
+The correct label is **hook-enforced**, a third category alongside the rule-enforced tiers.
+
+### Residuals (unchanged or newly accepted)
+
+| Residual | Status |
+|---|---|
+| A force refspec reached through a shell alias or function | Not covered. The token scan reads the literal command only. |
+| `gh api` performing the equivalent server-side operation | Not covered; the pre-existing #225 residual. |
+| `$(…)` containing `&&`, which breaks the segment split | Not covered; the segment would be mis-split. Low realism. |
+| Plain `git push` now runs **outside the sandbox with no prompt** | **Newly accepted.** `sandbox.excludedCommands` contains `git push *`, and the `ask` prompt was what suppressed that bypass of `network.allowedDomains`. The follow-up is to remove `git push *` from `excludedCommands` (the `insteadOf` flip should have made push HTTPS), but that is only verifiable in a fresh session and belongs in its own PR. |
+
+### Verification
+
+- `test/git-push-guard.bats` (35 cases), wired into `just test-scripts` and therefore
+  `just lint` and CI. The suite is built as a **contrast pair**: the deny/ask cases are
+  paired with cases that must produce *no* output (`git push -u origin feature`,
+  `--dry-run`, `--no-force-with-lease`, a safe push after `&&`, a non-git command carrying
+  `-f`). Without that half, a guard that denied unconditionally would pass every assertion
+  and still make the setting unusable.
+- The rendered `settings.json` was checked for valid JSON, the presence of the hook entry,
+  the absence of any `git push` entry in `ask`, and the retention of the three `deny` rules.
+- The deployed wrapper command was smoke-tested against a fixture `$HOME`.
+- **Not verifiable on this branch:** that Claude Code actually invokes the hook.
+  `chezmoi apply` deploys from `main`, and `settings.json` is read at session start. Confirm
+  in a fresh session after merge that `git push origin <branch>` runs without a prompt and
+  `git push origin <branch> --force` is refused.

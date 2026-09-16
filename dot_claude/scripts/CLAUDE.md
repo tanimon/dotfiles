@@ -88,3 +88,40 @@ Tested by `just test-scripts` (`test/worktree-include.bats`).
 `.gitignore` 同様に末尾空白を無視する明示的なトリム(`${pattern%"${pattern##*[![:space:]]}"}`)を
 対にして入れてある。`[[:space:]]` は CR を含むため、CRLF でチェックアウトされた
 `.worktreeinclude` もこれで通る。
+
+**git push guard hook** — `dot_claude/scripts/executable_git-push-guard.sh` は `PreToolUse`
+(`matcher: "Bash"`)で走る**許可判定フック**。他の2つのフック(notify / worktree-include)と違い、
+これは副作用のための hook ではなく `hookSpecificOutput.permissionDecision` を返して**ツール呼び出しを
+止める**ためのもの。存在理由は `permissions` のプレフィックス照合の限界で、`Bash(git push --force:*)`
+は `git push origin main --force` に当たらない — write intent がフラグ位置に移動できるため、
+`Bash(git push:*)` を `ask` に置く以外に塞ぐ手が無く、その結果として日常の push まで毎回プロンプトに
+なっていた。フックはコマンド文字列**全体**を受け取るので、引数位置に依存しない判定が書ける。
+
+判定は3値。`deny` は `--force` / `--force-with-lease[=…]` / `--force-if-includes` / `--delete` /
+`--mirror` / `--prune`、`f` か `d` を含む束ねた短オプション、`+` 始まりの refspec、`:` 始まり
+(src が空 = リモート ref 削除)の refspec。`ask` は**読み切れなかったとき**の fail-closed 値で、
+push セグメント内の変数・コマンド置換、および `push` に言及する `-c` 上書き
+(`-c remote.origin.push=+refs/…` は引数走査では見えない)。それ以外は**無出力 exit 0** で
+`defaultMode: auto` のクラシファイア判定に落ちる。`ask` は auto mode でもプロンプトを出す
+(公式ドキュメントの PreToolUse 契約)ので、フェイルクローズが実際に閉じる。
+
+実装上の要点:
+
+- **セグメント分割**(`tr ';&|' '\n'`)を先に行う。`git commit -m wip && git push --force` を
+  1つの文字列として見ると最初の動詞しか読めない。過剰分割は「`git push` 判定に落ちる」方向にしか
+  転ばないので安全側。
+- **`$`/バッククォートの検査は push セグメントに限定する。** コマンド全体に広げると
+  `git commit -m "$(date)" && git push origin x` まで `ask` になり、承認疲れの解消という目的を
+  自分で潰す。一方 `F=--force; git push $F` は push セグメント側に `$` が出るので捕まる。
+- **長オプションは完全一致で見る。** 部分一致にすると `--no-force-with-lease` を force として
+  誤検出する。
+- **トークンの引用符は1層だけ剥がす**(`unquote`)。`git push origin "+main"` のトークンは
+  `"+main"` のままなので、剥がさないと `+` 始まり判定が外れる。再実行はしないので、シェル忠実な
+  unquote である必要はない。
+
+フックが未配置・クラッシュした場合は無出力=判定なしで**フェイルオープン**する。そのため
+`settings.json.tmpl` の `deny` にある先頭フラグ形3行(`--force` / `--force-with-lease` / `-f`)は
+冗長に見えても**残してある**(多層防御の床)。`just test-scripts`(`test/git-push-guard.bats`)が
+テストする。テストは危険な綴りだけでなく**無出力になるべきケース**と対で書くこと — 片側だけだと
+「常に deny するフック」が全テストを通過してしまう。
+設計: `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の 2026-09-16 addendum。

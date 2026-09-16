@@ -137,6 +137,7 @@
       "Bash(sudo -i:*)",
       "Bash(sudo su:*)",
       "Bash(rm -rf .git)",
+      {{/* force push の先頭フラグ形。2026-09-16 に `Bash(git push:*)` を ask から外し、代わりに PreToolUse フック(hooks の該当コメント参照)がフラグ位置に依存しない判定を持つようになったが、この 3 行は**残す** — フックが未配置・未配線・クラッシュした環境ではフックが無出力=判定なしになりフェイルオープンするため、最も一般的な綴りだけでも rule 側で塞いでおく多層防御。フック側は同じ綴りを deny で返すので、通常は先に rule が当たって結果は変わらない。 */ -}}
       "Bash(git push --force-with-lease:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
@@ -173,7 +174,7 @@
       "Edit(/etc/sudoers)"
     ],
     {{/* Package/module install gate: installing new code is a supply-chain event, so it goes through a human. Precedence is deny > ask > allow, so the broad Bash(npm:*)/Bash(pnpm:*)/Bash(mise:*) entries in allow stay and these narrower ask entries win. Two deliberate holes: (1) Claude Code permissions match the Bash string the agent issues, NOT its subprocesses — `just lint` (Bash(just:*), still in allow) invokes pnpm without prompting; acceptable because just recipes are version-controlled and reviewable. (2) Lockfile restore (bare `pnpm install`, `npm ci`) is gated too, deliberately: splitting "new deps ask, restore allow" is an illusory boundary because an agent can edit package.json then run bare `pnpm install` straight through it. curl/wget moved from deny to ask (2026-08-01): they were previously hard-blocked to close `curl … | sh`, but that also blocked legitimate one-off downloads/API calls. ask still requires explicit approval per invocation, so `curl … | sh` is not silently executable — the boundary is now human review instead of a hard block. */ -}}
-    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate push + history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. push stays gated because the force-push deny rules are prefix-only: trailing-flag force (git push origin main --force), +refspec, and --delete/:branch all evade them, so push is not append-only. gh: gate state-changing subcommands (create/edit/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh issue view is read, gh issue create is write), so a noun-level gh issue:* wildcard would over-gate reads. Read-only gh (unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh pr の write 系は 2026-09-15 にこの表からまるごと抜けた: close/create/edit/ready/reopen は allow へ、merge/revert は deny へ移したため、ask に残る gh pr エントリは無い(理由は allow / deny 側の該当コメント参照)。gh issue の同名動詞が ask に残っているのは非対称だが意図的で、緩和は PR 操作の頻度に対する措置である。gh pr review は 2026-09-03 に ask から allow へ移した(PR レビュー投稿を毎回プロンプトで止めない運用に切り替えたため)。これは意図的な緩和で、`gh pr review --approve` が無確認かつ(sandbox.excludedCommands の `gh *` により)サンドボックス外で走ることを受け入れている — 上の push や(deny に置いた)gh pr merge と違い、承認は merge 権限そのものではなく人間のマージ操作を挟むため、外向きの影響が一段小さいという判断。gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api は原則として未列挙のまま(read/write の別が --method にあり、固定 prefix でゲートできないため)。例外は allow 側に置いた PR レビュー投稿用の 2 エントリのみで、そこだけは endpoint パス自体が write 意図を表すので prefix で表現できる — 詳細は allow 側のコメント参照。 */ -}}
+    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. `Bash(git push:*)` は 2026-09-16 にこの表から外した。外した理由は承認疲れ(日常の push が毎回プロンプトになる)だが、単に外すと force-push deny がプレフィックス照合であるがゆえの穴 — trailing-flag force (git push origin main --force)、+refspec、--delete/:branch、--mirror/--prune — が無ゲートになる。そこで穴の側だけを PreToolUse フック(`~/.claude/scripts/git-push-guard.sh`)で塞ぎ、素の push はクラシファイア判定に落とす構成にした。フックはコマンド文字列全体を走査するので引数位置に依存せず、rule syntax では表現できない判定ができる — ただし Tier 1(rule syntax で強制可能)ではなく hook-enforced という別枠であり、フックが死ねばフェイルオープンする点は deny 側のコメントを参照。gh: gate state-changing subcommands (create/edit/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh issue view is read, gh issue create is write), so a noun-level gh issue:* wildcard would over-gate reads. Read-only gh (unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). gh pr の write 系は 2026-09-15 にこの表からまるごと抜けた: close/create/edit/ready/reopen は allow へ、merge/revert は deny へ移したため、ask に残る gh pr エントリは無い(理由は allow / deny 側の該当コメント参照)。gh issue の同名動詞が ask に残っているのは非対称だが意図的で、緩和は PR 操作の頻度に対する措置である。gh pr review は 2026-09-03 に ask から allow へ移した(PR レビュー投稿を毎回プロンプトで止めない運用に切り替えたため)。これは意図的な緩和で、`gh pr review --approve` が無確認かつ(sandbox.excludedCommands の `gh *` により)サンドボックス外で走ることを受け入れている — 上の push や(deny に置いた)gh pr merge と違い、承認は merge 権限そのものではなく人間のマージ操作を挟むため、外向きの影響が一段小さいという判断。gh repo delete/archive are NOT here — they sit in deny (irreversible, no click-through). gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api は原則として未列挙のまま(read/write の別が --method にあり、固定 prefix でゲートできないため)。例外は allow 側に置いた PR レビュー投稿用の 2 エントリのみで、そこだけは endpoint パス自体が write 意図を表すので prefix で表現できる — 詳細は allow 側のコメント参照。 */ -}}
     "ask": [
       "Bash(aws athena start-query-execution:*)",
       "Bash(brew bundle:*)",
@@ -223,7 +224,6 @@
       "Bash(gh workflow run:*)",
       "Bash(git cherry-pick:*)",
       "Bash(git filter-branch:*)",
-      "Bash(git push:*)",
       "Bash(git rebase:*)",
       "Bash(git reset:*)",
       "Bash(go get:*)",
@@ -433,6 +433,17 @@
       }
     ],
     "PreToolUse": [
+      {{/* git push の破壊的な綴りだけをゲートするフック。`Bash(git push:*)` を permissions.ask に置いていた頃は日常の push まで毎回プロンプトになっていたが、ask を外すだけでは `git push origin main --force` / `+main` / `--delete` / `--mirror` が無ゲートになる — deny はプレフィックス照合なので、フラグが `git push` の直後に来る綴りしか捕まえられないため(2026-07-25 の tier model spec が push を Tier 1 から撤回した理由そのもの)。フックはコマンド文字列全体を受け取るので、引数位置に依存しない判定が書ける。素の push は無出力 exit 0 で defaultMode: auto のクラシファイア判定に落ち、プロンプトは出ない。複数の PreToolUse が一致した場合の合成は deny > ask > allow なので、下の orca フック(matcher "*")と併存して問題ない。残存: スクリプトが未配置・クラッシュした場合は無出力=判定なしとなりフェイルオープンする(deny 側に残した先頭フラグ形の 3 行が最後の砦)。 */ -}}
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/git-push-guard.sh\" 2>>\"$HOME/.claude/logs/git-push-guard-errors.log\"'",
+            "timeout": 5
+          }
+        ]
+      },
       {
         "matcher": "*",
         "hooks": [
@@ -578,7 +589,7 @@
         "~/.config/gh"
       ]
     },
-    {{/* `git push` はサンドボックス外で実行する。**2026-07-31 更新:** ここに書かれていた「remote が git@github.com: 形式のため github.com:22 への生TCPが必要」という前提は、dot_gitconfig.tmpl の insteadOf を https→ssh から ssh→https に反転したことで崩れた（詳細は dot_gitconfig.tmpl 側のコメント参照）。fetch/pull はこれで HTTPS 経由になり動作を実測済みだが、push については新しい gitconfig を読み込んだ fresh session でしか検証できない（sandbox設定はセッション開始時に読み込まれるため、このセッション内での確認は無意味 — CLAUDE.md の "verification through the wrong resolution path" を参照）。したがって `excludedCommands` からの `git push *` 除去は本コメント更新時点では未実施・未検証のフォローアップとする。push は permissions.ask でゲートしてあるので、サンドボックス外実行と network.allowedDomains のバイパスはプロンプトで抑止される。`git commit` は上の network.allowUnixSockets で署名が通るようになったため（2026-09-11 以降は署名がローカル鍵に切り替わりソケット自体を使わない。claude-code.inc 参照）、この一覧から外してサンドボックス内で実行する（worktree の共通 git dir への書き込みは Claude Code が自動許可するため commit 自体は成立する — 実測済み）。これにより「allow に入った git commit を経由してリポジトリ管理の pre-commit hook がサンドボックス外・無プロンプトで実行される」という残存リスクは解消した。prek/secretlint はサンドボックス内で動くため、cwd 外への書き込みや許可外ドメインへの通信を行う hook を追加する場合は allowWrite / allowedDomains 側の調整が必要になる。 */ -}}
+    {{/* `git push` はサンドボックス外で実行する。**2026-07-31 更新:** ここに書かれていた「remote が git@github.com: 形式のため github.com:22 への生TCPが必要」という前提は、dot_gitconfig.tmpl の insteadOf を https→ssh から ssh→https に反転したことで崩れた（詳細は dot_gitconfig.tmpl 側のコメント参照）。fetch/pull はこれで HTTPS 経由になり動作を実測済みだが、push については新しい gitconfig を読み込んだ fresh session でしか検証できない（sandbox設定はセッション開始時に読み込まれるため、このセッション内での確認は無意味 — CLAUDE.md の "verification through the wrong resolution path" を参照）。したがって `excludedCommands` からの `git push *` 除去は本コメント更新時点では未実施・未検証のフォローアップとする。**2026-09-16 更新:** push の抑止は permissions.ask から PreToolUse フック(`git-push-guard.sh`)へ移った。フックが止めるのは破壊的な綴り(force / delete / mirror / prune / +refspec)だけなので、**素の push がサンドボックス外で network.allowedDomains をバイパスして走る点は無確認になった** — これは残存リスクとして受容する。実害は「任意のホストへ push できる」ことだが、push 先は git remote に依存し、remote が URL 直指定のときはフックの `$`/変数チェックとは別経路で素通りする。ここを塞ぐなら `excludedCommands` から `git push *` を外してサンドボックス内に戻すのが筋で、それは fresh session でしか検証できないため別 PR のフォローアップとする(上記のとおり insteadOf 反転で HTTPS 経由になっているはずだが未検証)。`git commit` は上の network.allowUnixSockets で署名が通るようになったため（2026-09-11 以降は署名がローカル鍵に切り替わりソケット自体を使わない。claude-code.inc 参照）、この一覧から外してサンドボックス内で実行する（worktree の共通 git dir への書き込みは Claude Code が自動許可するため commit 自体は成立する — 実測済み）。これにより「allow に入った git commit を経由してリポジトリ管理の pre-commit hook がサンドボックス外・無プロンプトで実行される」という残存リスクは解消した。prek/secretlint はサンドボックス内で動くため、cwd 外への書き込みや許可外ドメインへの通信を行う hook を追加する場合は allowWrite / allowedDomains 側の調整が必要になる。 */ -}}
     "excludedCommands": [
       "docker *",
       "gcloud *",

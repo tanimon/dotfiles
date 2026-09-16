@@ -31,6 +31,8 @@
 
 **Worktree seeding hook** — `dot_claude/scripts/executable_worktree-include.sh` runs at `SessionStart` and copies the files a repo's `.worktreeinclude` lists from the main worktree into the linked worktree, filling the gap left when a worktree is created by anything other than `gtr new` (orca, plain `git worktree add`). Copy-if-absent, never overwrite. See `dot_claude/scripts/CLAUDE.md` for the full detail (why not `git gtr copy`, the deliberate leading-`/` divergence from gtr, pattern semantics).
 
+**git push guard hook** — `dot_claude/scripts/executable_git-push-guard.sh` は `PreToolUse`(`matcher: "Bash"`)で走り、`git push` の破壊的な綴り(force / delete / mirror / prune / `+refspec` / `:branch`)を**引数位置に関係なく** `deny` する。素の push は無出力 exit 0 で `defaultMode: auto` のクラシファイア判定に落ちるため、日常の push はプロンプトが出ない。これは `Bash(git push:*)` を `permissions.ask` に置いていた構成(毎回プロンプト = 承認疲れ)の置き換えで、prefix 照合では表現できない判定をフックへ逃がしたもの。読み切れない引数(変数・コマンド置換・push 関連の `-c` 上書き)は fail-closed で `ask`。詳細と残存リスクは `dot_claude/scripts/CLAUDE.md` と `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の addendum を参照。
+
 **Automated security alert handling** — `.github/workflows/security-alerts.yml` runs a weekly Saturday sweep (schedule) and supports manual dispatch (`gh workflow run security-alerts.yml`). Uses `claude-code-action` to analyze all open security alerts (Dependabot, code scanning, secret scanning) and either auto-fix (low-risk Dependabot/code scanning → PR) or escalate (high-risk/secret scanning → issue with `security` label).
 
 **Scheduled workflow failure alerting** — The scheduled workflow
