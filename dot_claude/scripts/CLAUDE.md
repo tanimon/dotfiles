@@ -88,3 +88,81 @@ Tested by `just test-scripts` (`test/worktree-include.bats`).
 `.gitignore` 同様に末尾空白を無視する明示的なトリム(`${pattern%"${pattern##*[![:space:]]}"}`)を
 対にして入れてある。`[[:space:]]` は CR を含むため、CRLF でチェックアウトされた
 `.worktreeinclude` もこれで通る。
+
+**git push guard hook** — `dot_claude/scripts/executable_git-push-guard.sh` は `PreToolUse`
+(`matcher: "Bash"`)で走る**許可判定フック**。他の2つのフック(notify / worktree-include)と違い、
+これは副作用のための hook ではなく `hookSpecificOutput.permissionDecision` を返して**ツール呼び出しを
+止める**ためのもの。存在理由は `permissions` のプレフィックス照合の限界で、`Bash(git push --force:*)`
+は `git push origin main --force` に当たらない — write intent がフラグ位置に移動できるため、
+`Bash(git push:*)` を `ask` に置く以外に塞ぐ手が無く、その結果として日常の push まで毎回プロンプトに
+なっていた。フックはコマンド文字列**全体**を受け取るので、引数位置に依存しない判定が書ける。
+
+判定は3値。`deny` は `--force` / `--force-with-lease[=…]` / `--force-if-includes` / `--delete` /
+`--mirror` / `--prune`、`f` か `d` を含む束ねた短オプション、`+` 始まりの refspec、`:` 始まり
+(src が空 = リモート ref 削除)の refspec。`ask` は**読み切れなかったとき**の fail-closed 値で、
+push セグメント内の変数・コマンド置換、`push` または `mirror` に言及する `-c` 上書き
+(`-c remote.origin.push=+refs/…` は引数走査では見えず、`-c remote.origin.mirror=true` は
+フラグを 1 つも書かずに `--mirror` 相当にする。`mirror` は `push` を部分文字列に持たないので
+別パターンが要る)、および**コマンド位置を確定できないセグメント**(下記)。それ以外は**無出力 exit 0** で
+`defaultMode: auto` のクラシファイア判定に落ちる。`ask` は auto mode でもプロンプトを出す
+(公式ドキュメントの PreToolUse 契約)ので、フェイルクローズが実際に閉じる。
+
+実装上の要点:
+
+- **セグメント分割**(`tr ';&|' '\n'`)を先に行う。`git commit -m wip && git push --force` を
+  1つの文字列として見ると最初の動詞しか読めない。
+- **分割の前に正規化が要る。** 「過剰分割は安全側に転ぶ」は**誤り**で、実際にはフェイルオープンする
+  経路が3種類あった(いずれも修正前に再現済み):
+  (1) **グルーピング記号がフラグに接着する** — `(cd dir && git push origin main --force)` の最後の
+  トークンは `--force)` になり、完全一致の deny 判定から外れる。`(git push --force)` や
+  `{ git push --force; }` では `tokens[0]` が `(git` / `{` になって「git ではない」と判定される。
+  (2) **リダイレクトの `&` が分割してしまう** — `git push origin main 2>&1 --force` は
+  `2>` と `1 --force` に割れ、フラグ側のセグメントに `git` が無くなる。
+  (3) **バックスラッシュ改行** — 継続行が別セグメントになり同様。
+  対策は分割前の3つの正規化(継続行の結合 → リダイレクト演算子の除去 → `(){}` の空白化)。
+  `(){}` は**削除ではなく空白に置換**する(隣接トークンを連結させないため)。`$` は正規化の
+  対象に**含めない** — `$(…)` が `$ …` になっても `$` が残るので、下のコマンド置換 fail-closed
+  判定はそのまま効く。`(cd dir && git push origin feature)` が無出力のままであることを、
+  対のテストで固定している。
+- **`$`/バッククォートの検査は push セグメントに限定する。** コマンド全体に広げると
+  `git commit -m "$(date)" && git push origin x` まで `ask` になり、承認疲れの解消という目的を
+  自分で潰す。一方 `F=--force; git push $F` は push セグメント側に `$` が出るので捕まる。
+- **長オプションは完全一致で見る。** 部分一致にすると `--no-force-with-lease` を force として
+  誤検出する。
+- **トークンの引用符は1層だけ剥がす**(`unquote`)。`git push origin "+main"` のトークンは
+  `"+main"` のままなので、剥がさないと `+` 始まり判定が外れる。再実行はしないので、シェル忠実な
+  unquote である必要はない。
+- **`git` がトークン0に無いセグメントを素通りさせない。** 正規化で潰した3経路
+  (グルーピング記号・リダイレクト・継続行)に加えて、**普通のトークンとして binary の前に立つもの**
+  が4つ目の経路だった。先頭の変数代入(`VAR=v git push …`)と、シェルキーワード・コマンド前置詞
+  (`if` / `then` / `elif` / `else` / `fi` / `while` / `until` / `do` / `done` / `!` / `time` /
+  `nohup` / `command` / `env` / `sudo` / `nice` / `exec`)を読み飛ばしてから binary を読む。
+  1行の `for r in …; do git push $r --force; done` や `if true; then git push --force; fi` は
+  エージェントが普通に書く綴りで、修正前はいずれも**無出力**だった。読み飛ばしは配列を
+  スライスせずインデックスを進める形で書く — bash 3.2 は `set -u` 下で空配列の展開を拒否する。
+- **認識に失敗したセグメントにも床を張る。** 上のリストに無い前置詞(`xargs -n1 git push …`)では
+  コマンド位置を確定できない。そこで、セグメント内に**生のまま**(引用符を剥がす前に)`git` と
+  読めるトークンがあれば、そこから同じ走査をやり直し、危険な綴りが見つかったら `deny` ではなく
+  **`ask`** にする。deny にしない理由は、`gh pr create --body "$(cat <<EOF … )"` の中の
+  `- git push --force を deny する` のような**散文が同じ形にトークナイズされる**ため。
+  生トークンで見るのは `echo "git push --force"` を無出力のまま保つため(引用された `git` は
+  テキスト)。ただし**バッククォートだけは剥がす** — `` `git push …` `` は実行されるので、
+  引用符とは違いテキストではない。この床のおかげで `$(git push … --force)` と
+  `` `git push … --force` `` のどちらも `ask` に落ちる。
+  初版はこの床が無く、しかも `$`/バッククォートの fail-closed 判定が「binary が git だった」
+  分岐の**内側**にあったため、認識器が外れた瞬間に fail-closed 自体が無効化されていた。
+- **ログ出力先の決定はスクリプト内に持つ。** `settings.json` 側で
+  `mkdir -p … && script 2>>log` と書くと、ログディレクトリを作れないときに
+  **リダイレクトの失敗でスクリプトごと走らない** = 判定なし = フェイルオープンになる
+  (`;` に変えても直らない。リダイレクトの失敗はそのコマンドを放棄させる)。フックの
+  `command` はスクリプトのパスそのものにして、ログは開けたときだけ `exec 2>>` で繋ぐ。
+  開けるかの判定は `-w` ではなく `(: >>"$LOG_FILE")` の実書き込みで行う — `exec` は
+  special builtin なので、開けなかった場合に**無出力でシェルごと落ちる**(= 塞ごうとしている
+  フェイルオープンそのもの)。書き込めない `$HOME` でも deny が出ることをテストで固定してある。
+
+フックが未配置・クラッシュした場合は無出力=判定なしで**フェイルオープン**する。そのため
+`settings.json.tmpl` の `deny` にある先頭フラグ形3行(`--force` / `--force-with-lease` / `-f`)は
+冗長に見えても**残してある**(多層防御の床)。`just test-scripts`(`test/git-push-guard.bats`)が
+テストする。テストは危険な綴りだけでなく**無出力になるべきケース**と対で書くこと — 片側だけだと
+「常に deny するフック」が全テストを通過してしまう。
+設計: `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の 2026-09-16 addendum。
