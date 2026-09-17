@@ -108,8 +108,14 @@
         "description": "dotfiles リポジトリの Cursor 固有ルール。共通の指示は project root の AGENTS.md にある",
         "alwaysApply": true
       },
-      "banner": "自動生成 — 直接編集しないこと。Source: harness/modules/runtime/cursor-extension.md + harness/project.json。再生成: just harness-sync / 検査: just check-instructions",
-      "modules": ["harness/modules/runtime/cursor-extension.md"]
+      "banner": "自動生成 — 直接編集しないこと。Source: harness/modules/runtime/ + harness/modules/global/ + harness/project.json。再生成: just harness-sync / 検査: just check-instructions",
+      "modules": [
+        "harness/modules/runtime/cursor-extension.md",
+        "harness/modules/runtime/non-claude-global-extension.md",
+        "harness/modules/global/00-decision-making.md",
+        "harness/modules/global/10-rule-structure.md",
+        "harness/modules/global/20-user-confirmation.md"
+      ]
     }
   ]
 }

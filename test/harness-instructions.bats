@@ -314,9 +314,13 @@ repo_check() {
 
 @test "harness/modules/ の全ファイルがどれかの Target から参照されている" {
     # 参照されていないモジュールは、存在するのに誰にも届かない。Source と Target は
-    # 一致しているので check-instructions は緑のまま — ここでしか検出できない
+    # 一致しているので check-instructions は緑のまま — ここでしか検出できない。
+    # 2 つの manifest の**和**で見る: グローバルモジュール(#311)は manifest.json から、
+    # プロジェクトモジュールは project.json から参照される。片方だけを見ると、
+    # もう片方でしか参照されていないモジュールを未参照と誤判定する
     local declared file
-    declared=$(jq -r '[.targets[].modules[]] | unique | .[]' "$REPO/harness/project.json")
+    declared=$(jq -r '[.targets[].modules[]] | unique | .[]' \
+        "$REPO/harness/project.json" "$REPO/harness/manifest.json" | sort -u)
     while IFS= read -r file; do
         printf '%s\n' "$declared" | grep -qxF -- "$file" ||
             fail "$file がどの Target の modules にも入っていません"
@@ -418,7 +422,11 @@ repo_check() {
     assert_success
 }
 
-@test "Cursor の rule は共有モジュールを重複して持たない" {
+@test "Cursor の rule は共有*プロジェクト*モジュールを重複して持たない" {
+    # 判定基準は「同じ内容が同じ runtime に 2 経路で届くか」であって「.mdc が薄いか」ではない。
+    # プロジェクト共有モジュールは AGENTS.md から Cursor に届くので .mdc には入れない。
+    # 一方グローバルモジュール(#311)は .mdc が Cursor への唯一の経路なので入っている
+    # (docs/adr/0005-global-policy-reaches-cursor-via-project-rules.md)
     run grep -q 'chezmoi Naming Conventions' "$REPO/.cursor/rules/dotfiles.mdc"
     assert_failure
 }
