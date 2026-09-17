@@ -166,3 +166,58 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 テストする。テストは危険な綴りだけでなく**無出力になるべきケース**と対で書くこと — 片側だけだと
 「常に deny するフック」が全テストを通過してしまう。
 設計: `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の 2026-09-16 addendum。
+
+**curl localhost guard hook** — `dot_claude/scripts/executable_curl-localhost-guard.sh` も
+`PreToolUse`(`matcher: "Bash"`)の許可判定フックだが、**向きが git-push-guard と逆**で、そこが
+この2つを混同しないための唯一重要な区別。git-push-guard は `ask` を外した穴をフックで塞ぐので
+フックが死ねばフェイルオープンする。こちらは `Bash(curl:*)` を `permissions.ask` に**残したまま**、
+ループバック宛のときだけ `allow` で個別に上書きする — 未配置・クラッシュ・`jq` 不在・読み切れない
+綴りのいずれでも無出力になり、`ask` が従来どおりプロンプトを出す。**フェイルクローズなので、
+`deny` 側に多層防御の床を置く必要がない。**
+
+存在理由は `permissions` のプレフィックス照合の限界で、これも git push と同じ形: URL はフラグの
+後ろ(`curl -sS -H … URL`)に来るので `Bash(curl http://localhost:*)` という allow エントリでは
+届かない。フックはコマンド文字列全体を受け取るので URL の位置に依存せず判定できる。
+
+**フックの `allow` が `permissions.ask` を上書きできることは対照ペアで実測してある**(2026-09-17、
+Claude Code 2.x)。control = `{"permissions":{"ask":["Bash(curl:*)"]}}` だけの `--settings` で
+`claude -p` に curl を実行させる → 非対話セッションのため許可待ちのままブロック。treatment =
+同じ設定に常時 `allow` を返す PreToolUse フックを足す → 実行成功。ドキュメントの一文ではなく
+この対で確かめること(片側だけでは「そもそも curl が動く環境か」しか分からない)。
+
+判定は2値 — `allow` か無出力のみで、`deny` も `ask` も返さない(`ask` は既に rule 側にある)。
+`allow` を出す条件は、コマンドの**すべての**セグメントが「ループバック宛の curl」か
+`INERT_COMMANDS` の読み取り専用フィルタ(`jq` / `grep` / `cd` など)であること。認識は全階層が
+ホワイトリスト: 未知のフラグ・未知のパイプ先・`http`/`https` 以外のスキーム・ループバック以外の
+ホストは、いずれも「たぶん安全」ではなく**プロンプト**に倒す。
+
+読み切れない綴りとして明示的に落とすもの:
+
+- `$` / バッククォート(変数・コマンド置換で宛先が変わりうる)。トークナイザがクォートを解釈して
+  よいのはこれを先に拒否しているからで、順序が逆になると嘘の解釈になる
+- `VAR=value curl …`(`http_proxy` を差し込める)、`env` / `sudo` などの前置き
+- `--resolve` / `--connect-to` / `-x`(proxy) / `-K`(config) / `--next` / `--unix-socket` —
+  URL が示す宛先を別の場所に振り替えられるフラグ
+- `http://localhost@evil.example/` のような userinfo 形(実ホストは `evil.example`)、
+  `127.0.0.1.evil.example` のようにループバックの数字で**始まるだけ**の登録可能名、URL の
+  brace globbing
+- `curl … | sh` — パイプ先ホワイトリストで落ちる
+
+宛先は `localhost` / `127.0.0.0/8` / `[::1]` のみ。`0.0.0.0`(全インターフェイス表記)と
+`host.docker.internal`(ホスト名解決依存)は意図的に対象外。`wget` も対象外で従来どおり毎回 `ask`。
+
+トークナイザは `read -ra` ではなく**クォート解釈を持つ自前の走査**。`read -ra` は空白でしか
+割らないので `-H "Accept: application/json"` が2トークンに割れ、後半が URL として読まれて
+正当なリクエストが黙ってプロンプトに落ちる(実際に初版で踏んだ)。逆に `-d '{"a":"x|y"}'` の
+`|` をパイプと誤読する問題も同じ走査で消える。リダイレクトは fd 数字を演算子トークンに
+くっつけて1トークンにまとめる — `2>&1` から `1` が孤立すると、それが URL として読まれる。
+
+残存(受容): ループバックのリスナーは外部への中継になりうるので、「宛先アドレスがループバック」は
+最終到達先の保証ではない。ただし `Bash(python3:*)` が既に `allow` にあって同じソケットを開けるため
+**これで新たな到達性が増えるわけではない**。nono 側の同じ経路は `dot_config/nono/CLAUDE.md` の
+`open_port: [0]` に記載がある。
+
+`just test-scripts`(`test/curl-localhost-guard.bats`)がテストする。git-push-guard と同じく
+**対で書くこと** — ここでは「`allow` になるべきケース」だけを書くと「常に allow するフック」が
+全件通過してしまうので、無出力になるべきケースを必ず並べる。macOS の bash 3.2 でも動くこと
+(`mapfile` なし・空配列展開なし)を実機で確認済み。
