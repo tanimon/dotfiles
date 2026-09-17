@@ -514,6 +514,51 @@ decision() {
     assert_equal "$(decision "$output")" allow
 }
 
+@test "an unquoted bracket glob in an argument keeps its prompt" {
+    # `[ab]evil.example` matches BOTH `aevil.example` and `bevil.example`, so the
+    # one token becomes two words: `-H aevil.example` plus a second, unchecked
+    # URL argument that curl fetches over http.
+    run hook 'curl -H [ab]evil.example http://localhost:3000/'
+    assert_success
+    assert_output ''
+}
+
+@test "an unquoted question-mark glob in an argument keeps its prompt" {
+    run hook 'curl -A ?evil.example http://localhost:3000/'
+    assert_success
+    assert_output ''
+}
+
+@test "a glob in the authority keeps its prompt" {
+    # Read as host `localhost` here, but the shell can expand it into a longer
+    # hostname, so the literal text does not pin the destination.
+    run hook 'curl http://localhost?x'
+    assert_success
+    assert_output ''
+}
+
+@test "a query string is still allowed" {
+    # The `?` sits after the authority, so every word an expansion could produce
+    # still begins with `http://localhost:3000/`.
+    run hook 'curl http://localhost:3000/api?a=1'
+    assert_success
+    assert_equal "$(decision "$output")" allow
+}
+
+@test "curl URL globbing in the path is still allowed" {
+    run hook 'curl http://localhost:3000/item/[1-3]'
+    assert_success
+    assert_equal "$(decision "$output")" allow
+}
+
+@test "a glob in an inert segment is still allowed" {
+    # Only curl's own arguments are read as destinations, so `jq .[0]` has
+    # nothing to break.
+    run hook 'curl -sS http://localhost:3000/api | jq .[0]'
+    assert_success
+    assert_equal "$(decision "$output")" allow
+}
+
 @test "an unquoted --write-out format keeps its prompt" {
     # Expected: the braces are the unquoted brace-expansion form. `-w` is easy
     # to write without quotes, so this is pinned rather than left to surprise.

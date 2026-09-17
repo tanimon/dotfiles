@@ -36,14 +36,22 @@
 # socket and write the same files — and the relay channel is documented for the
 # nono sandbox as well (`open_port: [0]`, dot_config/nono/CLAUDE.md).
 #
-# Residual, accepted: `?` and `[` are left unrefused outside quotes, because
-# refusing them would take `…/api?a=1` and the `[::1]` authority form with them.
-# Unlike `*`, which is refused below, neither can introduce a word that is not
-# already prefixed by the literal text around it — an expansion of
-# `http://localhost:3000/?a=1` still starts with `http://localhost:3000/`, so it
-# is still loopback. Note this residual is a different kind from the two above:
-# those bound side effects beyond the destination check, whereas a bad glob
-# would break the destination check itself, which is why `*` is not among them.
+# `?` and `[` outside quotes are pathname expansion exactly as `*` is, and the
+# tempting reading — "an expansion still starts with the literal text around it,
+# so it is still loopback" — is FALSE: a bracket expression or a `?` matches
+# several files at once, so one token becomes several WORDS, and every extra
+# word lands in curl's argument list as a second, unchecked URL. `curl -H
+# [ab]evil.example http://localhost:3000/` with `aevil.example` and
+# `bevil.example` planted in the working directory passes `-H aevil.example` and
+# then fetches `http://bevil.example/` (scheme-less, so curl assumes http).
+# They are therefore refused on the same footing as `*`, with one carve-out that
+# keeps `…/api?a=1` and the `[::1]` authority usable: a token is still read when
+# it is itself a loopback URL whose authority carries no metacharacter of its
+# own (`glob_token_is_loopback_safe` below). There the literal text really does
+# pin the destination — every word an expansion can produce still begins with
+# `http://localhost:3000/`. Unlike the two residuals above, which bound side
+# effects beyond the destination check, a glob breaks the destination check
+# itself, so it gets no residual.
 set -euo pipefail
 
 # The tokenizer marks command separators with a byte no command writes on
@@ -120,19 +128,30 @@ done
 # a stray `1` behind for the argument walk to read as a URL.
 TOKENS=()
 
+# Space-delimited indexes into TOKENS whose token carried an unquoted `?` or
+# `[`. Recorded rather than refused outright so the one safe shape — a loopback
+# URL with the glob in its path or query — survives; see
+# `glob_token_is_loopback_safe`. Only `flush` appends a word token, so this is
+# the single site that has to stay in step with TOKENS.
+GLOB_TOKEN_INDEXES=' '
+
 # Set when the walk reads something whose argument count it cannot predict.
 UNREADABLE=0
 
 tokenize() {
     local s=$1
     local length=${#s}
-    local index character quote='' current='' started=0 operator
+    local index character quote='' current='' started=0 current_glob=0 operator
 
     flush() {
         if [[ $started -eq 1 ]]; then
+            if [[ $current_glob -eq 1 ]]; then
+                GLOB_TOKEN_INDEXES+="${#TOKENS[@]} "
+            fi
             TOKENS+=("$current")
             current=''
             started=0
+            current_glob=0
         fi
     }
 
@@ -186,12 +205,21 @@ tokenize() {
             # directory, so a planted `evil.example` becomes curl's second URL —
             # and a scheme-less one, which curl fetches over http. Both are the
             # unquoted forms only, so a JSON body or an `Accept: */*` header in
-            # quotes is untouched. `?` and `[` are deliberately NOT here: they
-            # would take `…/api?a=1` and the `[::1]` authority with them, and
-            # neither can introduce a word that is not already prefixed by the
-            # literal text around it.
+            # quotes is untouched.
             UNREADABLE=1
             return
+            ;;
+        '?' | '[')
+            # The same pathname expansion as `*`, and just as able to multiply
+            # the word count (`[ab]x` matches both `ax` and `bx`, so a `-H`
+            # value becomes a header plus a second URL). Refusing them outright
+            # would take `…/api?a=1` and the `[::1]` authority with them, so the
+            # token is marked instead and the curl segment walk keeps only the
+            # shape where the literal text already pins a loopback authority —
+            # see `glob_token_is_loopback_safe`.
+            current_glob=1
+            current+=$character
+            started=1
             ;;
         "'" | '"')
             # An empty quoted string is still a token (`-d ''`).
@@ -237,6 +265,7 @@ tokenize() {
                 operator=$current
                 current=''
                 started=0
+                current_glob=0
             else
                 flush
                 operator=''
@@ -315,6 +344,39 @@ is_loopback_url() {
     esac
 
     is_loopback_host "$host"
+}
+
+# True when a token carrying an unquoted `?` or `[` can still be read. The one
+# safe shape is a loopback URL whose authority is entirely literal: pathname
+# expansion can only replace the glob, so every word it can produce still begins
+# with the same `http://localhost:3000/` and still addresses loopback. A glob
+# anywhere in the authority is refused — `http://localhost?x` reads as host
+# `localhost` here while the shell can expand it to `localhostsomething` — and a
+# token that is not a URL at all (`[ab]evil.example` as a `-H` value) is refused
+# outright, because the extra words it produces become curl's next arguments.
+glob_token_is_loopback_safe() {
+    # `--url=…` is the one flag whose value is itself the URL, so the prefix is
+    # stripped rather than making that spelling a prompt.
+    local token=${1#--url=} authority
+
+    is_loopback_url "$token" || return 1
+
+    case "$token" in
+    http://*) authority=${token#http://} ;;
+    https://*) authority=${token#https://} ;;
+    *) authority=$token ;;
+    esac
+    # Up to the first `/` only — `?` and `#` are NOT cut here, because a `?` in
+    # that position is the glob this function exists to refuse, not a query
+    # delimiter the shell knows about.
+    authority=${authority%%/*}
+    # `[::1]` is the only bracketed authority is_loopback_host accepts, and its
+    # bracket expression can match nothing but `:` or `1`.
+    authority=${authority#'[::1]'}
+    case "$authority" in
+    *'?'* | *'['* | *']'* | *'*'*) return 1 ;;
+    esac
+    return 0
 }
 
 # --- curl segment classification ---------------------------------------------
@@ -473,11 +535,15 @@ INERT_COMMANDS='jq head tail cat wc grep egrep fgrep sort uniq tr cut column ech
 
 SAW_CURL=0
 SEGMENT=()
+# Index in TOKENS of SEGMENT[0]. A segment never contains a SEP, so SEGMENT[i]
+# is TOKENS[SEGMENT_START + i] and the glob marks recorded against TOKENS
+# indexes can be read back without a second parallel array.
+SEGMENT_START=0
 
 # Classify the segment accumulated so far. Returns non-zero when the whole
 # command must keep its prompt.
 classify_segment() {
-    local binary
+    local binary index
     # bash 3.2 rejects expanding an empty array under `set -u`, so the count is
     # checked before the array is touched.
     [[ ${#SEGMENT[@]} -eq 0 ]] && return 0
@@ -491,6 +557,15 @@ classify_segment() {
     # and `./tools/curl` would otherwise let any script the agent just wrote
     # claim to be curl.
     if [[ "$binary" == "curl" ]]; then
+        # Glob marks only matter here: an inert segment's arguments are never
+        # read as destinations, so `jq .[0]` needs no prompt.
+        for ((index = 1; index < ${#SEGMENT[@]}; index++)); do
+            case "$GLOB_TOKEN_INDEXES" in
+            *" $((SEGMENT_START + index)) "*)
+                glob_token_is_loopback_safe "${SEGMENT[$index]}" || return 1
+                ;;
+            esac
+        done
         classify_curl "${SEGMENT[@]}" || return 1
         SAW_CURL=1
         return 0
@@ -509,6 +584,7 @@ while [[ $position -lt ${#TOKENS[@]} ]]; do
     if [[ "${TOKENS[$position]}" == "$SEP" ]]; then
         classify_segment || exit 0
         SEGMENT=()
+        SEGMENT_START=$((position + 1))
     else
         SEGMENT+=("${TOKENS[$position]}")
     fi
