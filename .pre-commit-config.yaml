@@ -75,6 +75,19 @@ repos:
         files: '^(CLAUDE\.md|AGENTS\.md|\.cursor/rules/.*\.mdc|justfile|test/harness-instructions\.bats|harness/(modules/.*|manifest\.json|project\.json|adapters/.*|bin/.*|lib/.*))$'
         pass_filenames: false
         types: [file]
+      # グローバル指示(~/.claude/CLAUDE.md / ~/.codex/AGENTS.md)の合成は harness/ を
+      # 通らないので check-instructions では一切見えない。共有本文の編集や
+      # dot_claude/rules/common/ へのファイル追加(= include の足し忘れ)は、この
+      # フックが無いと commit は素通りして CI でだけ落ちる。
+      # .chezmoiignore も対象: 取りこぼした ignore ルールが Target を飲み込む事故は
+      # test/global-instructions.bats の chezmoi managed 検査だけが捕まえる。
+      - id: test-global-instructions
+        name: test-global-instructions
+        entry: bash -c 'if command -v just &>/dev/null; then just test-global-instructions; else echo "just not found, skipping"; fi' --
+        language: system
+        files: '^(\.chezmoiignore|\.chezmoitemplates/agent-instructions-common|dot_claude/CLAUDE\.md\.tmpl|dot_codex/AGENTS\.md\.tmpl|dot_claude/rules/common/.*|test/global-instructions\.bats|justfile)$'
+        pass_filenames: false
+        types: [file]
       # Not restricted to .md: a literal org path is most likely to land in a
       # template or config (settings.json.tmpl, nono profiles, gitconfig).
       # The pattern/allowlist files are excluded because they hold
