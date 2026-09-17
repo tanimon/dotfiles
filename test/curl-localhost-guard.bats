@@ -492,10 +492,40 @@ decision() {
 
 # --- pins for behaviour that is correct today and must stay correct ----------
 
-@test "an uppercase host is not loopback" {
-    run hook 'curl http://LOCALHOST.EVIL.EXAMPLE/'
+@test "an uppercase loopback host is not read as loopback" {
+    # The host comparison is case-sensitive; the remote-domain form would be
+    # silent either way and so would pin nothing.
+    run hook 'curl http://LOCALHOST:3000/'
     assert_success
     assert_output ''
+}
+
+@test "an unquoted glob keeps its prompt" {
+    # `*` expands to every file in the working directory, so a planted
+    # `evil.example` becomes curl's second URL.
+    run hook 'curl -H * http://localhost:3000/'
+    assert_success
+    assert_output ''
+}
+
+@test "a quoted glob is still allowed" {
+    run hook "curl -H 'Accept: */*' http://localhost:3000/"
+    assert_success
+    assert_equal "$(decision "$output")" allow
+}
+
+@test "an unquoted --write-out format keeps its prompt" {
+    # Expected: the braces are the unquoted brace-expansion form. `-w` is easy
+    # to write without quotes, so this is pinned rather than left to surprise.
+    run hook 'curl -w %{http_code} http://localhost:3000/'
+    assert_success
+    assert_output ''
+}
+
+@test "a backslash inside single quotes is literal" {
+    run hook "curl -d 'a\\b' http://localhost:3000/"
+    assert_success
+    assert_equal "$(decision "$output")" allow
 }
 
 @test "a trailing dot host keeps its prompt" {
