@@ -18,6 +18,7 @@ just test-harness-scripts      # Smoke test harness loop scripts (trigger/briefi
 just test-harness-sync         # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 just check-instructions        # Fail if a generated agent instruction Target was hand-edited
 just test-harness-instructions # Smoke test the project instruction sync (compose adapter, --no-probe)
+just test-global-instructions  # Smoke test the global instruction composition (~/.claude/CLAUDE.md + ~/.codex/AGENTS.md)
 just check-templates           # Validate chezmoi .tmpl files
 just scan-sensitive            # Scan every file for PII, credentials, and literal work-org / account names
 just test-sensitive            # Smoke test sensitive info scanner

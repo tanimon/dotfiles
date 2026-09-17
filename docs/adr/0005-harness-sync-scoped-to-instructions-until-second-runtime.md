@@ -15,8 +15,33 @@ date: 2026-09-16
 
 ## Consequences
 
-- `~/.codex/AGENTS.md` は chezmoi が `dot_codex/AGENTS.md.tmpl` から生成する: Codex 用前置き(Runtime Extension)→ 共有本文(`.chezmoitemplates/`)→ `dot_claude/rules/common/*.md` の連結(合計約 10 KB、Codex の 32 KiB 切り捨てに余裕あり)。`dot_claude/rules/common/` は名前に製品名を含むが Source として据え置き、Codex 側は `include` で直接読む。`~/.claude/rules/` 配下に symlink で差し込まれる仕事用ルール はマシン固有なので含めない。Cursor はグローバル rules を持たないため対象外(ADR 0004)。
-- Claude 専用のツール名(`AskUserQuestion`)は Claude 用前置きに移し、共有本文には「選択肢を求めるときは番号付きの選択肢で提示する」という製品非依存の意図だけを残す。Runtime Extension は「その製品にしかない機能」に限るという ADR 0004 の線引きを共有本文にも適用する。
+- `~/.codex/AGENTS.md` は chezmoi が `dot_codex/AGENTS.md.tmpl` から生成する: Codex 用前置き(Runtime Extension)→ 共有本文(`.chezmoitemplates/`)→ `dot_claude/rules/common/*.md` の連結(合計約 10 KB、Codex の 32 KiB 切り捨てに余裕あり)。`dot_claude/rules/common/` は名前に製品名を含むが Source として据え置き、Codex 側は `include` で直接読む。`~/.claude/rules/` 配下に symlink で差し込まれる仕事用ルール はマシン固有なので含めない。Cursor はグローバル rules を持たないため対象外(ADR 0004)。**連結されるのは Source にある 4 件だけ**で、`~/.claude/rules/common/` に実在する残りのルール(`testing.md` / `security.md` / `coding-style.md` 等)は `.chezmoiscripts/run_onchange_after_install-ecc-rules.sh.tmpl` が apply 時に ECC プラグインキャッシュからコピーするものであり、Source に無いため `include` では届かない。ECC 由来のルールは Claude Code のエージェント名・スラッシュコマンドを前提にしていて Codex には翻訳しづらいので、この除外は妥当だが、Codex 側の前置き「ルール構成」はこの事実を明示する(Claude 側の「ルール構成」のように「テスト方針・セキュリティガイドラインが読める」と約束しない。実装では逆に名前を挙げたうえで「連結されない」と書いており、Codex が存在しないルールを探しに行かないという同じ目的を満たす)。
+- Claude 専用のツール名(`AskUserQuestion`)は Claude 側の Runtime Extension に移し、共有本文には「選択肢を求めるときは番号付きの選択肢で提示する」という製品非依存の意図だけを残す。Runtime Extension は「その製品にしかない機能」に限るという ADR 0004 の線引きを共有本文にも適用する。実装では Claude 側の Runtime Extension は**前置きではなく末尾セクション**になった(下の「実装時の補正」を参照)。
 - 根拠を失った #313〜#321 / #323〜#325 は決定コメント付きで close する。再開条件は「その製品が日常利用されている事実」で、その時点で permissions の翻訳器(rulesync か自前か)を改めて判断する。#308 本体は縮小版に書き換えて番号を維持する。
 - CONTEXT.md から Safety Invariant / Enforcement Grade / Portable Hook / Credential Reference を削除した。Capability Probe と Atomic Sync は `harness check` / `harness sync` に実装が現存するため残す。`harness/manifest.json` の runtime probe(claude / codex / cursor / apm)も据え置く。
 - ADR 0001 のうち「Enforcement Grade の同等以上写像」「tighten-only」「Portable Hook」は本 ADR により保留になる。0001 の他の決定(一方向生成・単一 Target Owner・APM は Dependency Plane 限定・Cursor 非公開ストレージを書かない)は有効。
+
+## 実装時の補正(2026-09-17, #311)
+
+#311 の実装で、本 ADR と issue の受け入れ条件の文言どおりには作れない箇所が 2 つ見つかった。どちらも意図的な逸脱として承認済み。
+
+**1. 共有本文が 1 箇所であることと「`~/.claude/CLAUDE.md` のレンダリング結果が言い換え以外変わらないこと」は両立しない。** 変更前の `~/.claude/CLAUDE.md` の並びは `複数視点での意思決定` → `ルール構成` → `ユーザーへの確認` で、真ん中の `ルール構成` は `~/.claude/rules/` とドメイン別ディレクトリを指すため **Claude 固有**(Codex では rules を本文に連結するので成り立たない)。共有本文は `{{ template }}` で取り込む 1 つの連続ブロックなので、その内側に Claude 固有の節を差し挟むことはできない。共有本文が 1 箇所であること(#311 の AC1、本 ADR の骨子)を優先し、並びは次のようになった:
+
+```
+# 複数視点での意思決定          ← 共有本文(変更なし)
+# ユーザーへの確認              ← 共有本文(番号付き選択肢に言い換え。元は末尾にあった)
+# ルール構成                    ← Claude 固有(バイト単位で変更なし)
+# ユーザーへの確認に使うツール   ← Claude 固有(AskUserQuestion)
+```
+
+つまり実際の差分は「言い換え」に加えて **`ユーザーへの確認` の位置が上がったこと** を含む。文面は `複数視点での意思決定` と `ルール構成` の 2 節が 1 字も変わっていない。
+
+**2. Claude 側の Runtime Extension は「前置き」ではなく末尾セクションに置いた。** 上の並びの帰結であり、生成される `CLAUDE.md` が `## Claude Code specifics` を末尾に置く既存の慣行(ADR 0004 / #310)とも揃う。Codex 側だけは前置き(ファイル冒頭)のままで、そちらは後続に rules 群が連結されるため先頭に置く必要がある。
+
+この並びは `test/global-instructions.bats` が **レンダリング結果の全文** で固定している。当初は「変更前の各行が出力に含まれる」検査だったが、それは節の並べ替えにも節の追加にも反応せず、ここで実際に起きた逸脱をちょうど素通りするため(`docs/solutions/workflow-issues/verification-through-the-wrong-resolution-path.md` と同じ形)、全文一致に置き換えた。今後この並びを変えるときは、テストの期待値を変える = 意図的な変更であることが diff に残る。
+
+## 実装時のその他の決定(2026-09-17, #311)
+
+**既存の手書き `~/.codex/AGENTS.md` にあった `# Compound Engineering Plugin Notes` は破棄する。** 内容は「`ralph-wiggum` skill は `ralph-loop` として現れることがある。`/ralph-loop:ralph-loop` で起動する」の 1 行で、現在のプラグイン一覧にこの skill は存在せず陳腐化していると判断した。同ファイルの他の 2 節は共有本文が置き換えるので失われない(うち `Rule Structure` は存在しない `~/.Codex/rules/` を指していた)。ここに記録するのは、初回 `chezmoi apply` でしか顕在化せず、後から原因を辿るのが難しいため。
+
+**連結されるルールの YAML frontmatter(`date` / `trigger`)は剥がさない。** これらは harness ループ(`/harness-reflect` の分類)用のメタデータでモデルへの指示ではないが、(1) 出現位置がファイル先頭ではないので frontmatter として誤解釈される事故は起きない、(2) 合計 200 バイト程度で 32 KiB 予算に影響しない、(3) 剥がすと `test/global-instructions.bats` の「rules の全非空行が `AGENTS.md` に入る」検査の期待値も同時に変える必要があり、検査が弱くなる。この決定によりテストが現状の挙動を固定しているので、将来剥がすなら意図的な変更として diff に残る。なお `harness/` 側の compose adapter は module の frontmatter を明示的に扱うが、chezmoi 経路には相当する処理が無い — ADR が意図的に分離した 2 つの合成機構が frontmatter の扱いで違う点は既知。
