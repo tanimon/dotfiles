@@ -436,7 +436,12 @@ classify_curl() {
         # Input redirection feeds a local file into the request body, which is
         # the same capability `-d @file` is refused for below. Refusing it here
         # keeps that rule from being a formality `-d - < /etc/passwd` walks past.
-        if [[ "$token" == *'<'* ]]; then
+        # Matched on the operator SHAPE (optional file descriptor, then `<`)
+        # rather than on `<` anywhere in the token: the tokenizer has already
+        # split every real redirection into its own token, so a `<` left inside
+        # a token can only have come from quotes, and refusing those made
+        # `curl --data='<ping/>' http://localhost/` prompt for nothing.
+        if [[ "$token" =~ ^[0-9]*\< ]]; then
             return 1
         fi
 

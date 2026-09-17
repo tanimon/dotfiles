@@ -559,6 +559,14 @@ decision() {
     assert_equal "$(decision "$output")" allow
 }
 
+@test "a quoted angle bracket in a body is still allowed" {
+    # The tokenizer has already split every real redirection into its own token,
+    # so a `<` left inside a token came from quotes and is just text.
+    run hook "curl --data='<ping/>' http://localhost:3000/api"
+    assert_success
+    assert_equal "$(decision "$output")" allow
+}
+
 @test "an unquoted --write-out format keeps its prompt" {
     # Expected: the braces are the unquoted brace-expansion form. `-w` is easy
     # to write without quotes, so this is pinned rather than left to surprise.
