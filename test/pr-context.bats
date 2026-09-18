@@ -101,12 +101,27 @@ hide_gh() {
     assert_output --partial "not inside a git worktree"
 }
 
+@test "work tree の外(.git ディレクトリの中)でも exit 1 する" {
+    make_repo
+    cd "$REPO/.git"
+    # `git rev-parse --is-inside-work-tree` は .git の中やベアリポジトリでは
+    # "false" を出して exit 0 する。終了コードだけを見ると素通りし、後続の
+    # `git status` が生の fatal を吐いて exit 128 する ——「見出しだけ出て理由が
+    # 出ない中断」という、このスクリプトが避けると謳っている形そのものになる。
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
+    assert_failure
+    assert_output --partial "not inside a git worktree"
+}
+
 @test "ブランチ名・merge-base・変更ファイルを出す" {
     make_repo
     cd "$REPO"
     run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
     assert_success
-    assert_output --partial "feature"
+    # --partial ではなく行一致。既定の偽 gh が stderr に出す
+    # 'no pull requests found for branch "feature"' が --partial "feature" を
+    # 満たしてしまい、branch セクションが壊れていても通る(実測済み)。
+    assert_line "feature"
     assert_output --partial "merge-base with origin/main"
     assert_output --partial "new-file.txt"
 
@@ -132,6 +147,26 @@ hide_gh() {
     run env PR_CONTEXT_SKIP_FETCH=0 bash "$SCRIPT"
     assert_success
     assert_output --partial "skipped: PR_CONTEXT_SKIP_FETCH is set"
+}
+
+@test "fetch が成功すると、その旨を出しリモート追跡 ref が実際に更新される" {
+    make_repo
+    cd "$REPO"
+    # upstream 側だけを進める。origin は同じディスク上のリポジトリなので
+    # ネットワークには出ない。
+    echo more >>"$BATS_TEST_TMPDIR/upstream/README.md"
+    git -C "$BATS_TEST_TMPDIR/upstream" commit -q -am more
+
+    run bash "$SCRIPT"
+    assert_success
+    assert_output --partial "fetched origin main"
+
+    # 文言だけでなく効果を見る。`git fetch <remote> <branch>` がリモート追跡 ref を
+    # 更新するという暗黙の前提(これが崩れると merge-base も diff も古い base を
+    # 見たまま緑になる)を、ここで実測しておく。
+    expected=$(git -C "$BATS_TEST_TMPDIR/upstream" rev-parse main)
+    actual=$(git rev-parse origin/main)
+    [ "$expected" = "$actual" ] || fail "origin/main が更新されていません: ${actual} != ${expected}"
 }
 
 @test "到達できない remote の fetch 失敗では中断せず、原因ごと出して続行する" {
@@ -274,14 +309,30 @@ EOF
     # permission rule からも見えなくなるため、書き込み系をここに足してはいけない。
     # commit メッセージに書いた設計判断を、文書ではなくコードで固定する。
     # (git fetch はリモート追跡 ref のみを更新する既知の例外なので対象外)
-    local pattern='(^|[^[:alnum:]_-])git +(push|commit|reset|rebase|merge|checkout|switch|restore|clean|stash|cherry-pick|am|apply|tag|gc|prune|update-ref|symbolic-ref|remote +(add|remove|rename|set-url))([^[:alnum:]_-]|$)'
+    # `git` とサブコマンドの間のグローバルオプション(`-C <dir>` / `-c k=v` / `--git-dir=…`)
+    # を読み飛ばす。ここを許さないと `git -C "$dir" push` が素通りし、ガード自身が
+    # フェイルオープンする —— このファイル自身が `git -C` を多用しているとおり、
+    # 最も書かれやすい綴りがちょうど穴になっていた。
+    local subcommands='push|commit|reset|rebase|merge|checkout|switch|restore|clean|stash|cherry-pick|am|apply|tag|gc|prune|update-ref|symbolic-ref|remote +(add|remove|rename|set-url)'
+    local pattern="(^|[^[:alnum:]_-])git( +-[^ ]+)*( +[^-][^ ]*)? +(${subcommands})([^[:alnum:]_-]|\$)"
 
     run grep -nE "$pattern" "$SCRIPT"
     [ "$status" -eq 1 ] || fail "grep が想定外の終了コード ${status} を返しました: ${output}"
 
     # 対照。regex が壊れていると上の assert は何も検査せずに通るので、
-    # 同じ regex が実際に git push を捕まえることを確かめる。
-    printf 'git push origin main\n' >"$BATS_TEST_TMPDIR/positive-control"
-    run grep -nE "$pattern" "$BATS_TEST_TMPDIR/positive-control"
+    # 同じ regex が実際に git push を捕まえることを確かめる。グローバルオプション
+    # 付きの綴りも対照に入れる —— 素の `git push` だけだと、それを読み飛ばせない
+    # regex でも通ってしまう。
+    printf 'git push origin main\ngit -C "$dir" push origin main\ngit -c core.hooksPath=/dev/null commit -m x\n' \
+        >"$BATS_TEST_TMPDIR/positive-control"
+    run grep -cE "$pattern" "$BATS_TEST_TMPDIR/positive-control"
     assert_success
+    assert_output 3
+
+    # 負の対照。上の緩和で読み取り系まで拾うようになっていないことを見る
+    # (拾っていれば、このスクリプトに書き足せなくなる)。
+    printf 'git fetch -q "$remote" "$branch"\ngit merge-base "$BASE" HEAD\ngit -C "$dir" diff --no-ext-diff --stat\ngit rev-parse --abbrev-ref HEAD\n' \
+        >"$BATS_TEST_TMPDIR/negative-control"
+    run grep -nE "$pattern" "$BATS_TEST_TMPDIR/negative-control"
+    [ "$status" -eq 1 ] || fail "読み取り系まで捕まえています: ${output}"
 }

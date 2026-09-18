@@ -37,7 +37,14 @@ set -euo pipefail
 
 BASE="${1:-${PR_CONTEXT_BASE:-origin/main}}"
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+# The exit code alone is not the answer: inside a bare repository or inside a
+# `.git` directory, `git rev-parse --is-inside-work-tree` prints "false" and
+# exits 0. Checking only the status lets both through, and the run then dies at
+# `git status` with a raw "fatal: this operation must be run in a work tree"
+# under an already-printed section heading — the unexplained abort this script
+# exists to avoid. Assigned first so a non-zero git exit is not hidden.
+inside_work_tree=$(git rev-parse --is-inside-work-tree 2>/dev/null) || inside_work_tree=false
+if [[ $inside_work_tree != true ]]; then
     echo "error: not inside a git worktree" >&2
     exit 1
 fi
