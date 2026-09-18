@@ -23,6 +23,9 @@ just check-templates           # Validate chezmoi .tmpl files
 just scan-sensitive            # Scan every file for PII, credentials, and literal work-org / account names
 just test-sensitive            # Smoke test sensitive info scanner
 just test-nono-profile         # Validate the nono sandbox profile (skipped if nono absent)
+just test-pr-context           # Smoke test scripts/pr-context.sh
 ```
 
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `just` recipes — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
+
+検証コマンドは手で組まない。`shellcheck -x <files>` や `shfmt -i 4 -d <files>` を並べず `just lint` か個別レシピを呼ぶ — 手組みは対象の漏れや `-i 4` の落としで CI と静かにずれる。ブランチ / PR の状態も同じ理由で `bash scripts/pr-context.sh` を使う。

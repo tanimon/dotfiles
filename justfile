@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-nono-profile
 
 # Scan for leaked secrets
 @secretlint:
@@ -155,6 +155,11 @@ check-templates:
 # Smoke test scan-sensitive-info.sh
 @test-sensitive:
     pnpm exec bats test/scan-sensitive-info.bats
+
+# Smoke test pr-context.sh. LC_ALL=C for the same bats-core locale bug as
+# test-scripts: this suite's @test names are in Japanese.
+@test-pr-context:
+    LC_ALL=C pnpm exec bats test/pr-context.bats
 
 # Smoke test harness loop scripts (reflect-trigger, briefing, doctor)
 @test-harness-scripts:
