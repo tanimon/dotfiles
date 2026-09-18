@@ -155,7 +155,7 @@ jobs:
       - run: just test-harness-sync
 
   harness-instructions:
-    name: agent instruction drift + smoke tests
+    name: agent instruction drift + harness/apm smoke tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,6 +171,10 @@ jobs:
         run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
       - run: just check-instructions
       - run: just test-harness-instructions
+      # CI に apm CLI は無いので配布の実測ケースは skip され、Source の静的検査
+      # (apm.yml の targets / install script の --target) だけが走る。skip した
+      # ケースと理由は bats が出力するので、緑の実行が実測を詐称しない。
+      - run: just test-apm-mcp
 
   actionlint:
     name: actionlint
