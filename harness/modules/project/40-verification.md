@@ -5,7 +5,7 @@ just lint                      # Run ALL checks locally (mirrors CI)
 chezmoi apply --dry-run        # Preview changes before applying
 ```
 
-`just --list` enumerates the individual recipes with their descriptions; each one is also a CI job, so `just lint` passing locally means CI passes. Do not maintain a copy of that list here — it drifts.
+`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also a CI job except `test-nono-profile` (CI does not install nono), so local is a superset: green locally means green in CI, not the other way round.
 
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
 

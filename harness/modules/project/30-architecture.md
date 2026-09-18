@@ -17,7 +17,7 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 
 ### Directory Layout
 
-Only directories whose contents carry a contract an `ls` would not reveal are listed; `darwin/`, `windows/`, `scripts/`, and `test/` hold exactly what their names say.
+Only directories whose contents carry a contract an `ls` would not reveal are listed. `darwin/`, `windows/`, `scripts/`, and `test/` hold exactly what their names say; all four are repo-only (`.chezmoiignore`d, never deployed to `~/`).
 
 | Directory | Purpose |
 |-----------|---------|
