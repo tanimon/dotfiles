@@ -36,6 +36,17 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 See `.chezmoiexternal.toml` for current entries (currently gstack skills only).
 
+## ここに入れないもの — 配布元がパスを所有する外部スキル
+
+`.chezmoiexternal.toml` が使えるのは、**展開先を chezmoi が単独で所有する**外部リソースだけ。専用インストーラと更新機構を持つツールのスキルは対象外で、そのツールの方式に従う。
+
+**Orca（`stablyai/orca` の `skills/*`。2026-09-18 に判断）:** `npx skills add https://github.com/stablyai/orca --skill <name> --global`（headless なら `orca skills install --skill <name>`）を使う。理由は 2 つ:
+
+- **バージョン一致が壊れる。** 公開されている `SKILL.md` は 3.5KB の discovery stub で、実体のガイドは `orca skills get <name>` がインストール済み Orca バイナリのバージョンに合わせて返す。stub をバイナリと無関係に Renovate で SHA 更新すると、この設計が意図的に避けているドリフトを自分で作ることになる。
+- **所有権が衝突する。** Orca は正本を `~/.agents/skills/<name>/` に置き、`~/.claude/skills/<name>` から相対 symlink を張り、install receipt で更新・削除・ドリフトを追跡する。Orca のドキュメントは "Orca never replaces a path it does not own" と明記しており、chezmoi が置いたファイルはアプリ内アップデータから永久に Skipped / Needs attention 扱いになる（`stablyai/orca` の `docs/reference/agent-skill-provider-paths.md`）。
+
+`~/.agents/` は `.chezmoiignore` 済みなので、この方式で入ったスキルはリポジトリに現れない。新マシンでは `npx skills add` の再実行が必要 — 宣言的な再現性より配布元の所有権を優先した判断。
+
 ## Related
 
 - `renovate.json` — Renovate configuration with regex custom manager
