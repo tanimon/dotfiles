@@ -38,7 +38,14 @@ windows/
 # itself (since 2026-07-26). Nothing in this repo targets the real file
 # directly anymore (APM's `apm install --global` owns its mcpServers key at
 # runtime); chezmoi must never touch this symlink.
+#
+# 実ファイル側も除外する。上のエントリが守るのは symlink だけで、
+# `chezmoi add ~/.claude` のような一括 add が拾うのは 0600 の実ファイル
+# (OAuth 資格情報・アカウント状態を含む) の方だから。APM が symlink を
+# 実ファイルに置き換えると両者が別内容になりうる (CLAUDE.md の Known
+# Pitfalls 参照) ので、トポロジがどちらでも両方除外されている必要がある。
 .claude.json
+.claude/claude.json
 
 # ~/.claude/ auto-managed (safeguard against accidental bulk add)
 .claude/projects
