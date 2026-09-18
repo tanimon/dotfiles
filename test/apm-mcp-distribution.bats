@@ -102,6 +102,22 @@ install_repo_manifest_with_neither_declaration() {
     (cd "$HOME" && apm install --global 2>&1)
 }
 
+# apm.yml の `targets:` と install スクリプトの `--target` を、それぞれ
+# 正規化した配布先リスト(ソート済みのカンマ区切り)として取り出す。
+# 二重宣言は「片方が壊れても fan out しない」ための冗長化なので、2 つが食い違うと
+# fail-safe ではなく silent divergence になる: `apm install --help` の解決順は
+# `--target` > apm.yml `targets:` > auto-detect なので、apm.yml 側にだけ足した
+# 配布先は本番では一切効かない。apm を必要としない静的検査なので CI でも走る。
+yml_targets() {
+    sed -n '/^targets:/,/^[^[:space:]#-]/p' "$APM_YML" |
+        sed -n 's/^[[:space:]]*-[[:space:]]*//p' | sort | paste -sd, -
+}
+
+script_targets() {
+    sed -n "s/^apm_targets='\(.*\)'\$/\1/p" "$INSTALL_SCRIPT" |
+        tr ',' '\n' | sort | paste -sd, -
+}
+
 # lock の deployments に載った配布先ランタイムを重複なく取り出して照合する。
 # ファイルシステムの副作用(`~/.kiro` が生えたか)より安定する — 検出される
 # 第 3 のランタイムがマシンごとに違っても、この集合の上限は変わらない。
@@ -111,11 +127,12 @@ assert_distributed_to_claude_and_codex_only() {
     assert_output $'  runtime: claude\n  runtime: codex'
 }
 
-@test "apm.yml は claude と codex を配布先に宣言する" {
-    run grep -A3 '^targets:' "$APM_YML"
+@test "apm.yml は claude と codex 「だけ」を配布先に宣言する" {
+    # 下限(claude と codex が居る)だけを見ると、4 つ目の配布先が足された状態でも
+    # 緑になる。上限つきで照合する。
+    run yml_targets
     assert_success
-    assert_output --partial '- claude'
-    assert_output --partial '- codex'
+    assert_output 'claude,codex'
 }
 
 @test "apm.yml は codex MCP サーバーを宣言しない" {
@@ -129,8 +146,20 @@ assert_distributed_to_claude_and_codex_only() {
     assert_failure 1
 }
 
-@test "install スクリプトは --target claude,codex を渡す" {
-    run grep -F -- '--target claude,codex' "$INSTALL_SCRIPT"
+@test "install スクリプトは apm.yml と同じ配布先を --target に渡す" {
+    # 二重宣言の一致を CI(apm 不在)でも強制する。宣言が食い違っていても
+    # 「A: targets: だけ」「B: --target だけ」の実測ケースは両方とも緑になる
+    # ため(どちらも単独では正しく限定できてしまう)、静的な照合が唯一の検出点。
+    run script_targets
+    assert_success
+    assert_output 'claude,codex'
+
+    run yml_targets
+    assert_success
+    assert_output 'claude,codex'
+
+    # 変数を宣言しただけでコマンドに渡し忘れる形を塞ぐ
+    run grep -F -- '--target "${apm_targets}"' "$INSTALL_SCRIPT"
     assert_success
 }
 

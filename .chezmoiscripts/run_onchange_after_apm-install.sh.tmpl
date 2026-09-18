@@ -23,7 +23,24 @@ if ! command -v apm &>/dev/null; then
   exit 0
 fi
 
-# 失敗メッセージに配布先を書き写さない。コマンド側だけを直したときに、
-# メッセージ側が古い配布先を案内し続ける事故を避ける。
-apm install --global --target claude,codex || echo "WARNING: apm install --global failed; re-run the command above manually to sync MCP servers" >&2
+# 配布先は 1 箇所だけに書き、コマンドと失敗メッセージの両方がそれを参照する。
+# メッセージに配布先を書き写すとコマンド側だけを直したときに古い配布先を案内し
+# 続けるが、メッセージから配布先を伏せると「手で再実行しろ」と言われた側に何を
+# 打てばよいのかが残らない(chezmoi apply の出力にスクリプト本文は出ない)。
+apm_targets='claude,codex'
+
+# APM が実際に書き込むと ~/.claude.json の symlink が通常ファイルへ置き換わり、
+# 旧 ~/.claude/claude.json が変更前の mcpServers を抱えたまま取り残される
+# (split-brain)。検出して知らせるだけにとどめ、復旧は手で行う — トポロジは
+# Claude Code 側の都合で変わるので、スクリプトが勝手に張り直すと逆に壊す。
+claude_json_was_symlink=false
+if [ -L '{{ .chezmoi.homeDir }}/.claude.json' ]; then
+  claude_json_was_symlink=true
+fi
+
+apm install --global --target "${apm_targets}" || echo "WARNING: apm install --global --target ${apm_targets} failed; re-run it manually to sync MCP servers" >&2
+
+if [ "${claude_json_was_symlink}" = true ] && [ ! -L '{{ .chezmoi.homeDir }}/.claude.json' ]; then
+  echo "WARNING: apm replaced the ~/.claude.json symlink with a regular file; ~/.claude/claude.json now holds stale mcpServers. Restore: cp ~/.claude.json ~/.claude/claude.json && rm ~/.claude.json && ln -s .claude/claude.json ~/.claude.json" >&2
+fi
 {{ end -}}
