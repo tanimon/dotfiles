@@ -31,3 +31,10 @@
 .config/cco
 .local/share/cco
 bin/cco
+
+# code-review-graph MCP サーバーは /doctor(2026-09-18)で全トランスクリプト中 0 回と
+# 判定して dot_apm/apm.yml から外した。対になる skill もここで撤去する。
+# chezmoi は管理を外しただけの target を自動削除しないので、この記載が無いと
+# ~/.claude/skills/code-review-graph/ が残り続けて読み込まれる。
+# `path/**` 形式は既知の落とし穴(socket で apply が exit 1)を踏むので bare entry にする。
+.claude/skills/code-review-graph

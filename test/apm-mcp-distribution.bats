@@ -202,20 +202,23 @@ assert_distributed_to_claude_and_codex_only() {
     refute_output $'  runtime: claude\n  runtime: codex'
 }
 
-@test "配布後、両製品に code-review-graph と deepwiki が入る" {
+@test "配布後、両製品に deepwiki が入り、宣言を外した code-review-graph は prune される" {
     require_apm
     seed_current_machine_state
     install_repo_manifest
 
+    # code-review-graph は /doctor(2026-09-18)で全トランスクリプト 0 回と判定して
+    # apm.yml から外した。fixture の旧 apm.yml には残してあるので、この検査は
+    # 「宣言を外したサーバーが両 Target から消えること」の負の対照も兼ねる。
     run cat "$HOME/.claude.json"
     assert_success
-    assert_output --partial 'code-review-graph'
     assert_output --partial 'deepwiki'
+    refute_output --partial 'code-review-graph'
 
     run cat "$HOME/.codex/config.toml"
     assert_success
-    assert_output --partial '[mcp_servers.code-review-graph]'
     assert_output --partial '[mcp_servers.deepwiki]'
+    refute_output --partial '[mcp_servers.code-review-graph]'
 }
 
 @test "配布後、claude から codex サーバーが prune される" {
