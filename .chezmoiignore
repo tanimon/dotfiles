@@ -34,11 +34,20 @@ windows/
 # gstack runtime state
 .gstack
 
-# ~/.claude.json is a symlink to ~/.claude/claude.json managed by Claude Code
-# itself (since 2026-07-26). Nothing in this repo targets the real file
-# directly anymore (APM's `apm install --global` owns its mcpServers key at
-# runtime); chezmoi must never touch this symlink.
+# ~/.claude.json は ~/.claude/claude.json への symlink (2026-07-25 までに観測。
+# 誰が作ったかは未特定で、Claude Code 自身だという一次証拠は無い)。
+# Claude Code が構築する設定パスは join(CLAUDE_CONFIG_DIR||homedir(), ".claude.json")
+# だけなので、この symlink は消せない。repo 内でこの実ファイルを直接 target する
+# ものはもう無い (APM の `apm install --global` が mcpServers キーを実行時に所有)。
+# chezmoi はこの symlink に絶対に触れてはいけない。
+#
+# 実ファイル側も除外する。上のエントリが守るのは symlink だけで、
+# `chezmoi add ~/.claude` のような一括 add が拾うのは 0600 の実ファイル
+# (OAuth 資格情報・アカウント状態を含む) の方だから。APM が symlink を
+# 実ファイルに置き換えると両者が別内容になりうる (CLAUDE.md の Known
+# Pitfalls 参照) ので、トポロジがどちらでも両方除外されている必要がある。
 .claude.json
+.claude/claude.json
 
 # ~/.claude/ auto-managed (safeguard against accidental bulk add)
 .claude/projects
