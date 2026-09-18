@@ -5,6 +5,10 @@
 # GIT_CONFIG_SYSTEM を潰すのは hermeticity のため: このマシンの ~/.gitconfig は
 # 1Password / ai-agent 鍵での commit 署名を有効にしており、それを引き継ぐと
 # テストが「スクリプトの挙動」ではなく「署名鍵が使えるか」で通ったり落ちたりする。
+#
+# gh も同じ理由で必ずテストの支配下に置く。実物が入っているマシンでは、テスト用
+# リポジトリのリモートが GitHub ではないために gh が非ゼロで落ち、ケースが
+# 「意図した枝を通ったから」ではなく「無関係な理由で落ちたから」通ってしまう。
 
 setup() {
     load 'helpers/setup'
@@ -20,6 +24,25 @@ setup() {
     : >"$GIT_CONFIG_GLOBAL"
 
     REPO="$BATS_TEST_TMPDIR/repo"
+
+    # install_gh / hide_gh が PATH を組み直すための基準。
+    ORIG_PATH="$PATH"
+
+    # 既定は「PR がまだ無いブランチ」の gh。gh の枝を見ないケースでも実物には
+    # 到達させない。gh を見るケースは install_gh / hide_gh で明示的に上書きする。
+    install_gh <<'EOF'
+#!/usr/bin/env bash
+echo 'no pull requests found for branch "feature"' >&2
+exit 1
+EOF
+}
+
+# hide_gh が組む PATH は gh を隠すために意図的に痩せている。そのまま抜けると
+# bats 自身の後片付け(rm)まで見えなくなり、全ケース ok のまま exit 1 する。
+teardown() {
+    if [[ -n ${ORIG_PATH:-} ]]; then
+        export PATH="$ORIG_PATH"
+    fi
 }
 
 # origin/main に 1 コミット、その先のブランチに 1 コミットを持つリポジトリを作る。
@@ -43,16 +66,28 @@ make_repo() {
     git -C "$REPO" commit -q -m feature
 }
 
-# gh を PATH から隠す(実物が入っているマシンでも「gh 不在」の枝を試せるように)。
+# 標準入力で渡した中身の偽 gh を PATH の先頭に置く。
+#
+# 「存在しないディレクトリを PATH に前置する」形では実物は隠れない —
+# command -v はそのディレクトリを飛ばして後ろの本物を見つける。基準の
+# $ORIG_PATH から組み直すので、同じケース内で何度呼んでも重ならない。
+install_gh() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    cat >"$BATS_TEST_TMPDIR/bin/gh"
+    chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+    export PATH="$BATS_TEST_TMPDIR/bin:$ORIG_PATH"
+}
+
+# gh だけを PATH から外す(実物が入っているマシンでも「gh 不在」の枝を試せるように)。
 # PATH を空にはしない — git も bash も見えなくなり、無関係な理由で落ちる。
 hide_gh() {
-    mkdir -p "$BATS_TEST_TMPDIR/bin"
-    cat >"$BATS_TEST_TMPDIR/bin/gh" <<'EOF'
-#!/usr/bin/env bash
-echo "this fake must be overridden by each test" >&2
-exit 127
-EOF
-    chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+    local tool resolved
+    mkdir -p "$BATS_TEST_TMPDIR/slim"
+    for tool in git bash env sed grep; do
+        resolved=$(command -v "$tool") || continue
+        ln -sf "$resolved" "$BATS_TEST_TMPDIR/slim/$tool"
+    done
+    export PATH="$BATS_TEST_TMPDIR/slim"
 }
 
 @test "git worktree の外では exit 1 して理由を stderr に出す" {
@@ -69,7 +104,7 @@ EOF
 @test "ブランチ名・merge-base・変更ファイルを出す" {
     make_repo
     cd "$REPO"
-    run env PR_CONTEXT_SKIP_FETCH=1 PATH="$BATS_TEST_TMPDIR/nonexistent-bin:$PATH" bash "$SCRIPT"
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
     assert_success
     assert_output --partial "feature"
     assert_output --partial "merge-base with origin/main"
@@ -89,7 +124,17 @@ EOF
     assert_output --partial "skipped: PR_CONTEXT_SKIP_FETCH is set"
 }
 
-@test "到達できない remote の fetch 失敗では中断せず、警告して続行する" {
+@test "PR_CONTEXT_SKIP_FETCH は値ではなく set されているかで効く" {
+    make_repo
+    cd "$REPO"
+    # scripts/scan-sensitive-info.sh と同じ規約(set されていれば値は問わない)。
+    # =0 が「スキップしない」に見える書き方だと、意図と逆に黙って fetch する。
+    run env PR_CONTEXT_SKIP_FETCH=0 bash "$SCRIPT"
+    assert_success
+    assert_output --partial "skipped: PR_CONTEXT_SKIP_FETCH is set"
+}
+
+@test "到達できない remote の fetch 失敗では中断せず、原因ごと出して続行する" {
     make_repo
     cd "$REPO"
     git remote set-url origin "$BATS_TEST_TMPDIR/does-not-exist"
@@ -97,6 +142,9 @@ EOF
     run bash "$SCRIPT"
     assert_success
     assert_output --partial "fetch failed"
+    # git 自身のメッセージが届いていること。「失敗した」だけでは、到達不能なのか
+    # 認証が切れたのかリモート名の誤りなのかが読み手に分からない。
+    assert_output --partial "does-not-exist"
     assert_output --partial "merge-base with origin/main"
 }
 
@@ -120,40 +168,76 @@ EOF
     assert_output --partial "names no remote"
 }
 
+@test "PR_CONTEXT_BASE でも差し替えられ、位置引数がそれに優先する" {
+    make_repo
+    cd "$REPO"
+    run env PR_CONTEXT_SKIP_FETCH=1 PR_CONTEXT_BASE=main bash "$SCRIPT"
+    assert_success
+    assert_output --partial "merge-base with main"
+
+    # 優先順位も対で確かめる。片側だけだと、env と位置引数のどちらか一方を
+    # 無視する実装でも通ってしまう。
+    run env PR_CONTEXT_SKIP_FETCH=1 PR_CONTEXT_BASE=no-such-ref bash "$SCRIPT" main
+    assert_success
+    assert_output --partial "merge-base with main"
+    refute_output --partial "no-such-ref"
+}
+
+@test "スラッシュを含むローカルブランチを remote/branch と誤認しない" {
+    make_repo
+    cd "$REPO"
+    git -C "$REPO" branch topic/slash main
+    # 「スラッシュがあれば remote 指定」と決め打つと remote=topic branch=slash を
+    # fetch しにいき、無関係な失敗として報告される。
+    run bash "$SCRIPT" topic/slash
+    assert_success
+    assert_output --partial "names no remote"
+    refute_output --partial "fetch failed"
+}
+
 @test "gh が PATH に無ければ、黙って終わらず名指しでスキップする" {
     make_repo
     cd "$REPO"
-    # gh だけを外した PATH を組む。git/bash は残す。
-    mkdir -p "$BATS_TEST_TMPDIR/slim"
-    for tool in git bash env sed grep; do
-        resolved=$(command -v "$tool") || continue
-        ln -sf "$resolved" "$BATS_TEST_TMPDIR/slim/$tool"
-    done
-    run env PR_CONTEXT_SKIP_FETCH=1 PATH="$BATS_TEST_TMPDIR/slim" bash "$SCRIPT"
+    hide_gh
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
     assert_success
     assert_output --partial "skipped: gh not on PATH"
 }
 
-@test "PR が無いブランチでは gh の非ゼロ終了を通常状態として扱う" {
+@test "PR が無いブランチでは gh 自身のメッセージをそのまま出す" {
     make_repo
     cd "$REPO"
-    hide_gh
-    cat >"$BATS_TEST_TMPDIR/bin/gh" <<'EOF'
+    install_gh <<'EOF'
 #!/usr/bin/env bash
-echo "no pull requests found for branch \"feature\"" >&2
+echo 'no pull requests found for branch "feature"' >&2
 exit 1
 EOF
-    chmod +x "$BATS_TEST_TMPDIR/bin/gh"
-    run env PR_CONTEXT_SKIP_FETCH=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" bash "$SCRIPT"
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
     assert_success
-    assert_output --partial "no pull request for this branch"
+    assert_output --partial "no pull requests found"
+    refute_output --partial "gh auth login"
+}
+
+@test "gh が使えないときを、PR 無しと同じ文言に潰さない" {
+    make_repo
+    cd "$REPO"
+    # 上のケースとの対。gh の非ゼロ終了を一律「no pull request for this branch」に
+    # 潰す実装は両方を同じ出力にするので、片方だけのアサートでは通ってしまう。
+    install_gh <<'EOF'
+#!/usr/bin/env bash
+echo 'To get started with GitHub CLI, please run: gh auth login' >&2
+exit 4
+EOF
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
+    assert_success
+    assert_output --partial "gh auth login"
+    refute_output --partial "no pull requests found"
 }
 
 @test "PR があれば view と checks の出力を両方出す" {
     make_repo
     cd "$REPO"
-    hide_gh
-    cat >"$BATS_TEST_TMPDIR/bin/gh" <<'EOF'
+    install_gh <<'EOF'
 #!/usr/bin/env bash
 case "$2" in
     view) echo '{"number":123,"title":"t","state":"OPEN","isDraft":false,"url":"u"}' ;;
@@ -161,8 +245,7 @@ case "$2" in
     *) exit 1 ;;
 esac
 EOF
-    chmod +x "$BATS_TEST_TMPDIR/bin/gh"
-    run env PR_CONTEXT_SKIP_FETCH=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" bash "$SCRIPT"
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
     assert_success
     assert_output --partial '"number":123'
     assert_output --partial "pull request checks"
@@ -172,8 +255,7 @@ EOF
 @test "checks が非ゼロで終了しても、その出力を捨てない" {
     make_repo
     cd "$REPO"
-    hide_gh
-    cat >"$BATS_TEST_TMPDIR/bin/gh" <<'EOF'
+    install_gh <<'EOF'
 #!/usr/bin/env bash
 case "$2" in
     view) echo '{"number":123,"title":"t","state":"OPEN","isDraft":false,"url":"u"}' ;;
@@ -181,8 +263,25 @@ case "$2" in
     *) exit 1 ;;
 esac
 EOF
-    chmod +x "$BATS_TEST_TMPDIR/bin/gh"
-    run env PR_CONTEXT_SKIP_FETCH=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" bash "$SCRIPT"
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
     assert_success
     assert_output --partial "fail"
+}
+
+@test "書き込み系の git サブコマンドを含まない" {
+    # これは「git コマンドを bash scripts/*.sh に包む」このリポジトリで最初の例。
+    # 包むと引数が dot_claude/scripts/executable_git-push-guard.sh からも
+    # permission rule からも見えなくなるため、書き込み系をここに足してはいけない。
+    # commit メッセージに書いた設計判断を、文書ではなくコードで固定する。
+    # (git fetch はリモート追跡 ref のみを更新する既知の例外なので対象外)
+    local pattern='(^|[^[:alnum:]_-])git +(push|commit|reset|rebase|merge|checkout|switch|restore|clean|stash|cherry-pick|am|apply|tag|gc|prune|update-ref|symbolic-ref|remote +(add|remove|rename|set-url))([^[:alnum:]_-]|$)'
+
+    run grep -nE "$pattern" "$SCRIPT"
+    [ "$status" -eq 1 ] || fail "grep が想定外の終了コード ${status} を返しました: ${output}"
+
+    # 対照。regex が壊れていると上の assert は何も検査せずに通るので、
+    # 同じ regex が実際に git push を捕まえることを確かめる。
+    printf 'git push origin main\n' >"$BATS_TEST_TMPDIR/positive-control"
+    run grep -nE "$pattern" "$BATS_TEST_TMPDIR/positive-control"
+    assert_success
 }

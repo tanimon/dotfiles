@@ -20,15 +20,20 @@ set -euo pipefail
 #   * `origin/main...HEAD` (three dots) diffs against the merge base, not
 #     against whatever main has drifted to since the branch was cut.
 #
-# Everything this script runs is read-only: no fetch writes to the worktree, no
-# `gh` subcommand here mutates a PR. It is safe to run at any point.
+# Nothing here changes the worktree, the index, HEAD, or branch state, and no
+# `gh` subcommand mutates a PR — so it is safe to run at any point. It is not
+# literally side-effect free: `git fetch` updates remote-tracking refs and
+# FETCH_HEAD under .git. Keep that boundary when adding to this script; a
+# command that writes to the worktree does not belong here.
 #
 # Usage:
 #   bash scripts/pr-context.sh [<base-ref>]     # default: origin/main
 #
 # Environment:
 #   PR_CONTEXT_BASE=<ref>     same as the positional argument
-#   PR_CONTEXT_SKIP_FETCH=1   do not contact the remote (offline / sandboxed runs)
+#   PR_CONTEXT_SKIP_FETCH=1   do not contact the remote (offline / sandboxed runs).
+#                             Set at all wins, value ignored — `=0` also skips.
+#                             Same convention as scripts/scan-sensitive-info.sh.
 
 BASE="${1:-${PR_CONTEXT_BASE:-origin/main}}"
 
@@ -45,20 +50,26 @@ section() {
 }
 
 section "fetch"
-if [[ -n ${PR_CONTEXT_SKIP_FETCH:-} ]]; then
+remote="${BASE%%/*}"
+branch="${BASE#*/}"
+if [[ -n ${PR_CONTEXT_SKIP_FETCH+set} ]]; then
     echo "skipped: PR_CONTEXT_SKIP_FETCH is set"
-elif [[ $BASE != */* ]]; then
+elif [[ $BASE != */* ]] || ! git remote | grep -qxF "$remote"; then
+    # Matched against the real remote list, not just against the presence of a
+    # slash: a local branch named `feature/foo` splits into a plausible-looking
+    # remote/branch pair, and fetching it would fail for a misleading reason.
     echo "skipped: base ref '${BASE}' names no remote"
 else
-    remote="${BASE%%/*}"
-    branch="${BASE#*/}"
     # A fetch failure must not abort the run: offline and sandboxed sessions
-    # still want the local half of the context. It is reported, not swallowed.
-    if git fetch -q "$remote" "$branch" 2>/dev/null; then
+    # still want the local half of the context. Report it with git's own
+    # message — "could not fetch" alone does not say whether the remote is
+    # unreachable, the credentials are gone, or the branch was deleted.
+    if fetch_error=$(git fetch -q "$remote" "$branch" 2>&1); then
         echo "fetched ${remote} ${branch}"
     else
         echo "WARNING: could not fetch ${remote} ${branch} — local refs may be stale" >&2
-        echo "fetch failed (see stderr); continuing with local refs"
+        echo "fetch failed; continuing with local refs:"
+        printf '%s\n' "$fetch_error"
     fi
 fi
 
@@ -81,7 +92,14 @@ else
 fi
 
 section "merge-base with ${BASE}"
-git merge-base "$BASE" HEAD
+# `git merge-base` prints nothing and exits 1 when the two have no common
+# ancestor (an orphan branch, unrelated histories). Left bare, `set -e` aborts
+# here under an empty section heading that reads as "the tool found nothing".
+if ! merge_base=$(git merge-base "$BASE" HEAD); then
+    echo "error: no common ancestor between ${BASE} and HEAD" >&2
+    exit 1
+fi
+printf '%s\n' "$merge_base"
 
 section "changed files vs ${BASE}"
 stat=$(git diff --no-ext-diff --stat "${BASE}...HEAD")
@@ -97,10 +115,16 @@ if ! command -v gh >/dev/null 2>&1; then
     exit 0
 fi
 
-# `gh pr view` exits non-zero when the branch has no PR, which is an ordinary
-# state (a branch before its PR exists), not an error worth aborting on.
-if ! pr=$(gh pr view --json number,title,state,isDraft,url 2>/dev/null); then
-    echo "no pull request for this branch"
+# `gh pr view` exits non-zero for two unrelated reasons: the ordinary state of a
+# branch that has no PR yet, and a real failure (not logged in, no network, the
+# remote is not GitHub). Neither is worth aborting on, but collapsing both into
+# "no pull request for this branch" is exactly the silent-skip shape this script
+# exists to avoid — the second would read as the first. Print gh's own message
+# instead of classifying it; "no pull requests found" and "gh auth login" tell
+# the reader apart on their own.
+if ! pr=$(gh pr view --json number,title,state,isDraft,url 2>&1); then
+    echo "gh pr view exited non-zero — no PR for this branch, or gh could not reach it:"
+    printf '%s\n' "$pr"
     exit 0
 fi
 printf '%s\n' "$pr"
