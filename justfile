@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-nono-profile
 
 # Scan for leaked secrets
 @secretlint:
@@ -187,6 +187,13 @@ check-templates:
 # claims the templates rendered when they were never executed.
 @test-global-instructions:
     LC_ALL=C pnpm exec bats test/global-instructions.bats
+
+# Smoke test the MCP distribution to claude + codex (dot_apm/apm.yml + install script).
+# The static Source checks always run; the behaviour checks need the apm CLI and
+# skip without it — bats prints the skip reason, so a green run never claims the
+# distribution was measured when apm was absent.
+@test-apm-mcp:
+    LC_ALL=C pnpm exec bats test/apm-mcp-distribution.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:

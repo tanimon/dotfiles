@@ -7,14 +7,21 @@ set -euo pipefail
 # dependencies.apm (Skill/plugin管理)はネイティブmarketplace方式
 # (settings.json.tmplのenabledPlugins/extraKnownMarketplaces)に移行済みのため、
 # apm.ymlにはdependencies.mcpのみが残る。MCPサーバーの展開先は~/.claude.jsonの
-# mcpServersキーで、chezmoiはこのファイルを.tmplとして所有していない(競合する
-# 完全所有テンプレートが存在しない)ため、apm.ymlのハッシュ変化時のみ実行すれば
-# 十分(run_after_ではなくrun_onchange_で問題ない)。
+# mcpServersキーと~/.codex/config.tomlの[mcp_servers.*]テーブルで、chezmoiは
+# どちらも.tmplとして所有していない(競合する完全所有テンプレートが存在しない)ため、
+# apm.ymlのハッシュ変化時のみ実行すれば十分(run_after_ではなくrun_onchange_で問題ない)。
+#
+# --target は apm.yml の targets: と意図的に二重宣言している。--target を省略すると
+# APM は auto-detect にフォールバックし、検出した「global-capable」な全ランタイム
+# (Gemini CLI・Kiro 等)へ fan out する。宣言が apm.yml 側だけだと、キー名の変更や
+# 書式ミスでその fan out に黙って落ちる(フェイルオープン)ので冗長さを買う。
+# 配布先の選定根拠と APM の所有範囲:
+# docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md
 
 if ! command -v apm &>/dev/null; then
   echo "apm CLI not found, skipping apm install --global"
   exit 0
 fi
 
-apm install --global --target claude || echo "WARNING: apm install --global --target claude failed; run it manually to sync MCP servers" >&2
+apm install --global --target claude,codex || echo "WARNING: apm install --global --target claude,codex failed; run it manually to sync MCP servers" >&2
 {{ end -}}

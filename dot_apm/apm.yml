@@ -1,7 +1,14 @@
 name: tanimon-global
 version: 1.0.0
-target: claude
+# 配布先は install スクリプトの --target と二重に宣言する(意図的なフェイルセーフ)。
+# 根拠と APM の所有範囲は docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md
+targets:
+  - claude
+  - codex
 
+# APM は MCP サーバーごとの target 指定に対応しない(書いても unknown key として
+# 両製品の設定にそのまま書き込まれる)ため、配布は all-or-nothing。よって Codex 自身を
+# MCP として Codex に配る再帰を避けるため、未使用の codex サーバーは宣言しない。
 dependencies:
   mcp:
     - name: code-review-graph
@@ -9,11 +16,6 @@ dependencies:
       transport: stdio
       command: uvx
       args: ["code-review-graph", "serve"]
-    - name: codex
-      registry: false
-      transport: stdio
-      command: codex
-      args: ["-m", "gpt-5.2-codex", "mcp-server"]
     - name: deepwiki
       registry: false
       transport: http
