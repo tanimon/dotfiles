@@ -20,6 +20,13 @@ The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` so that **
 
 Use the `/browse` skill from gstack for **all web browsing**, and do not use `mcp__claude-in-chrome__*` tools. This is gstack's own convention (its README asks for exactly this block), and the nono sandbox policy is written on the assumption that it holds — whether `/browse` actually keeps web fetches inside nono's egress allowlist is still an open question (`dot_config/nono/CLAUDE.md`, row 8), so do not route around it with another browsing tool.
 
+### Bash ツールの落とし穴
+
+どちらも 2026-09-18 の `/doctor` で実際に踏んだもので、**症状が「失敗」ではなく「別のものに成功した」ように見える**のが共通点。
+
+- **`dangerouslyDisableSandbox: true` のコマンドは `$TMPDIR` が別になる。** サンドボックス内のコマンドには専用の `TMPDIR`(`/var/folders/.../T/`)が渡るが、サンドボックスを外したコマンドはシェル本来の `TMPDIR` を見る。したがって**サンドボックス内で `$TMPDIR` に書いたファイルは、サンドボックスを外したコマンドからは存在しない**。「リストを作る → 権限の要るコマンドでそれを読む」という 2 段構えが静かに `no such file or directory` で落ちる。ファイルを跨がせるならセッションの scratchpad ディレクトリの絶対パスを使う。
+- **`dangerouslyDisableSandbox: true` のコマンドは、完了しているのにタイムアウトを誤報告することがある。** コマンド本体は終わっているのにシェルが生き残り、60s/120s で「background に移した」と報告される。**再実行する前に必ずタスク出力ファイルを読むこと** — 中身が完了を示していれば、そのまま再実行すると同じ破壊的操作を二度走らせる。
+
 ### Global configuration
 
 Claude Code also loads `~/.claude/CLAUDE.md` and `~/.claude/rules/**` (deployed from `dot_claude/`). Those are user-global, not repository-specific; global instruction synchronization across products is a separate change (#311).

@@ -10,17 +10,11 @@ A chezmoi-managed dotfiles repository for macOS. Source directory is `~/.local/s
 
 ## Common Commands
 
-```sh
-chezmoi apply                  # Apply all dotfiles to ~/
-chezmoi apply --dry-run        # Preview what would change
-chezmoi diff                   # Show diff between source and destination
-chezmoi add <file>             # Add a file to chezmoi management
-chezmoi edit <file>            # Edit a managed file's source
-chezmoi managed                # List all managed files
-chezmoi data                   # Show template data (profile, ghOrg, etc.)
+`chezmoi --help` covers the everyday subcommands (`apply`, `diff`, `add`, `edit`, `managed`, `data`). The ones below are not guessable from a tool's own help:
 
+```sh
 # Linting (mirrors CI — also runs on commit via prek; requires `just`, installed via darwin/Brewfile)
-just lint                      # Run all checks (secretlint + shellcheck + shfmt + oxlint + oxfmt + actionlint + zizmor + modify_ + script tests + templates + sensitive scan + nono profile + instruction drift)
+just lint                      # Run all checks; `just --list` shows the individual recipes
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
 # Branch / PR context — replaces the fetch + merge-base + diff --stat + gh pr view chain.
@@ -67,10 +61,10 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 
 ### Directory Layout
 
+Only directories whose contents carry a contract an `ls` would not reveal are listed. `darwin/`, `windows/`, `scripts/`, and `test/` hold exactly what their names say; all four are repo-only (`.chezmoiignore`d, never deployed to `~/`).
+
 | Directory | Purpose |
 |-----------|---------|
-| `darwin/` | macOS-specific resources: `Brewfile`, `DefaultKeyBinding.dict`, `defaults.sh` |
-| `windows/` | Windows-specific resources: `alacritty.yml`, `chocolatey` |
 | `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
 | `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), rules, commands, plugins, scripts (hooks), keybindings |
 | `dot_apm/` | APM (microsoft/apm) global manifest: `apm.yml` — declares MCP servers only (`dependencies.mcp`), deployed to `~/.apm/apm.yml`. Skills/plugins are managed via native Claude Code marketplace (`enabledPlugins`/`extraKnownMarketplaces` in `dot_claude/settings.json.tmpl`), not APM |
@@ -78,8 +72,6 @@ Pulls external archives (currently gstack skills) into the managed tree with aut
 | `harness/` | Harness Manifest(グローバル用 `manifest.json` / このリポジトリ用 `project.json`)、Content Module(`modules/`)、同期・検証ツール(`bin/harness.sh`、`lib/`、`adapters/`)。repo-only、`~/` に配置されない |
 | `harness/modules/` | エージェント指示の Source。`project/` は 3 製品共通、`runtime/` は製品固有の Runtime Extension。`CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` はここから生成される |
 | `.cursor/rules/` | 生成される Cursor の Project Rule(`.mdc`)。chezmoi からは不可視(source 直下の `.` 始まりは `.chezmoi*` を除き source state に入らない)なので `.chezmoiignore` の記載は不要 |
-| `scripts/` | Repo-only helper scripts (`update-brewfile.sh`, `update-gh-extensions.sh`) |
-| `test/` | bats-core test suites — one `.bats` file per script under test, run via `just test-*` targets |
 | `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
 | `CONTEXT.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts. Glossary format per mattpocock-skills' `CONTEXT-FORMAT.md`; see `docs/agents/domain.md` |
 | `CONCEPTS.md` | **Deprecated** predecessor of `CONTEXT.md`. Read-only archive: keeps the longer background paragraphs that don't fit `CONTEXT-FORMAT.md`'s one-to-two-sentence limit — **read the relevant section before deciding on permission rules, boundary exclusions, verification design, or `modify_` partial ownership** (inventory in `docs/agents/domain.md`). Never add new terms here |
@@ -158,30 +150,11 @@ silence itself signals a dead hook. Design:
 ```sh
 just lint                      # Run ALL checks locally (mirrors CI)
 chezmoi apply --dry-run        # Preview changes before applying
-
-# Individual recipes (same as CI jobs):
-just secretlint                # Scan for leaked secrets
-just shellcheck                # Lint non-.tmpl shell scripts
-just shfmt                     # Check shell script formatting (indent=4)
-just oxlint                    # Lint JS/TS files (.js, .mjs, .mts, .ts)
-just oxfmt                     # Check JS/TS and JSON formatting
-just actionlint                # Lint GitHub Actions workflows (syntax + types)
-just zizmor                    # Security audit GitHub Actions workflows
-just test-modify               # Smoke test modify_ scripts
-just test-scripts              # Smoke test harness scripts
-just test-harness-scripts      # Smoke test harness loop scripts (trigger/briefing/doctor)
-just test-harness-sync         # Smoke test the harness sync/check seam (harness/bin/harness.sh)
-just check-instructions        # Fail if a generated agent instruction Target was hand-edited
-just test-harness-instructions # Smoke test the project instruction sync (compose adapter, --no-probe)
-just test-global-instructions  # Smoke test the global instruction composition (~/.claude/CLAUDE.md + ~/.codex/AGENTS.md)
-just check-templates           # Validate chezmoi .tmpl files
-just scan-sensitive            # Scan every file for PII, credentials, and literal work-org / account names
-just test-sensitive            # Smoke test sensitive info scanner
-just test-nono-profile         # Validate the nono sandbox profile (skipped if nono absent)
-just test-pr-context           # Smoke test scripts/pr-context.sh
 ```
 
-Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). CI (`.github/workflows/lint.yml`) and local use the same `just` recipes — if it passes locally, CI will pass too. For similar past issues, search `docs/solutions/`.
+`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also a CI job except `test-nono-profile` (CI does not install nono), so local is a superset: green locally means green in CI, not the other way round.
+
+Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
 
 検証コマンドは手で組まない。`shellcheck -x <files>` や `shfmt -i 4 -d <files>` を並べず `just lint` か個別レシピを呼ぶ — 手組みは対象の漏れや `-i 4` の落としで CI と静かにずれる。ブランチ / PR の状態も同じ理由で `bash scripts/pr-context.sh` を使う。
 
@@ -276,6 +249,13 @@ The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` so that **
 ### Browsing
 
 Use the `/browse` skill from gstack for **all web browsing**, and do not use `mcp__claude-in-chrome__*` tools. This is gstack's own convention (its README asks for exactly this block), and the nono sandbox policy is written on the assumption that it holds — whether `/browse` actually keeps web fetches inside nono's egress allowlist is still an open question (`dot_config/nono/CLAUDE.md`, row 8), so do not route around it with another browsing tool.
+
+### Bash ツールの落とし穴
+
+どちらも 2026-09-18 の `/doctor` で実際に踏んだもので、**症状が「失敗」ではなく「別のものに成功した」ように見える**のが共通点。
+
+- **`dangerouslyDisableSandbox: true` のコマンドは `$TMPDIR` が別になる。** サンドボックス内のコマンドには専用の `TMPDIR`(`/var/folders/.../T/`)が渡るが、サンドボックスを外したコマンドはシェル本来の `TMPDIR` を見る。したがって**サンドボックス内で `$TMPDIR` に書いたファイルは、サンドボックスを外したコマンドからは存在しない**。「リストを作る → 権限の要るコマンドでそれを読む」という 2 段構えが静かに `no such file or directory` で落ちる。ファイルを跨がせるならセッションの scratchpad ディレクトリの絶対パスを使う。
+- **`dangerouslyDisableSandbox: true` のコマンドは、完了しているのにタイムアウトを誤報告することがある。** コマンド本体は終わっているのにシェルが生き残り、60s/120s で「background に移した」と報告される。**再実行する前に必ずタスク出力ファイルを読むこと** — 中身が完了を示していれば、そのまま再実行すると同じ破壊的操作を二度走らせる。
 
 ### Global configuration
 

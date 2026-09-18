@@ -146,9 +146,11 @@ check-templates:
         echo "WARNING: chezmoi not found, skipping template validation"
     fi
 
-# Scan every file for sensitive information (PII, credentials, absolute paths,
-# literal work-org names). No file list is passed: the script does its own
-# repo-wide walk, which also keeps the prune list in one place.
+# No file list is passed: the script does its own repo-wide walk, which also
+# keeps the prune list in one place.
+# `just --list` shows only the LAST comment line, so keep the one-line
+# description last — a trailing rationale line becomes the listed description.
+# Scan every file for PII, credentials, absolute paths, and literal work-org names
 @scan-sensitive:
     bash scripts/scan-sensitive-info.sh
 
@@ -169,16 +171,15 @@ check-templates:
 @test-harness-sync:
     LC_ALL=C pnpm exec bats test/harness-sync.bats
 
-# Regenerate the agent instruction Targets (CLAUDE.md / AGENTS.md / .cursor/rules)
-# from harness/modules/ + harness/project.json. Not part of `lint` — `lint` only
-# checks for drift, it never rewrites tracked files.
+# Not part of `lint` — `lint` only checks for drift, it never rewrites tracked files.
+# Regenerate CLAUDE.md / AGENTS.md / .cursor/rules from harness/modules/ + project.json
 @harness-sync:
     bash harness/bin/harness.sh sync --manifest harness/project.json \
         --root {{ justfile_directory() }} --source-dir {{ justfile_directory() }}
 
-# Fail if a generated agent instruction Target was hand-edited.
 # --no-probe skips the Capability Probe because CI has no claude/codex/cursor
 # installed; the skip is printed, so a green run never claims the products loaded.
+# Fail if a generated agent instruction Target was hand-edited
 @check-instructions:
     bash harness/bin/harness.sh check --manifest harness/project.json \
         --root {{ justfile_directory() }} --source-dir {{ justfile_directory() }} --no-probe
@@ -187,16 +188,16 @@ check-templates:
 @test-harness-instructions:
     LC_ALL=C pnpm exec bats test/harness-instructions.bats
 
-# Smoke test the global instruction composition (~/.claude/CLAUDE.md + ~/.codex/AGENTS.md).
 # Needs chezmoi — the suite fails (not skips) without it, so a green run never
 # claims the templates rendered when they were never executed.
+# Smoke test the global instruction composition (~/.claude/CLAUDE.md + ~/.codex/AGENTS.md)
 @test-global-instructions:
     LC_ALL=C pnpm exec bats test/global-instructions.bats
 
-# Smoke test the MCP distribution to claude + codex (dot_apm/apm.yml + install script).
 # The static Source checks always run; the behaviour checks need the apm CLI and
 # skip without it — bats prints the skip reason, so a green run never claims the
 # distribution was measured when apm was absent.
+# Smoke test the MCP distribution to claude + codex (dot_apm/apm.yml + install script)
 @test-apm-mcp:
     LC_ALL=C pnpm exec bats test/apm-mcp-distribution.bats
 

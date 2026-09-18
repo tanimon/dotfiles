@@ -202,20 +202,37 @@ assert_distributed_to_claude_and_codex_only() {
     refute_output $'  runtime: claude\n  runtime: codex'
 }
 
-@test "配布後、両製品に code-review-graph と deepwiki が入る" {
+@test "配布後、両製品に deepwiki が入り、宣言を外した code-review-graph は prune される" {
     require_apm
     seed_current_machine_state
+    # seed は旧 apm.yml を `target: claude` で入れるため、code-review-graph は
+    # claude Target にしか書かれない。それだけだと codex 側の refute は
+    # 「最初から無かったものが無い」を見る空虚な検査になるので、旧宣言をもう一度
+    # 両 Target へ配って、prune の対象を codex にも実在させる。
+    (cd "$HOME" && apm install --global --target claude,codex >/dev/null 2>&1)
+
+    # 前提: prune 対象が両 Target に実在すること。これが無いと、以下の refute は
+    # prune のリグレッションではなく fixture の欠落でも緑になる。
+    run grep -c 'code-review-graph' "$HOME/.claude.json"
+    assert_success
+    refute_output '0'
+    run grep -c '^\[mcp_servers\.code-review-graph\]$' "$HOME/.codex/config.toml"
+    assert_output '1'
+
     install_repo_manifest
 
+    # code-review-graph は /doctor(2026-09-18)で全トランスクリプト 0 回と判定して
+    # apm.yml から外した。宣言を外したサーバーが両 Target から消えることを、
+    # 上の前提とセットで負の対照として見る。
     run cat "$HOME/.claude.json"
     assert_success
-    assert_output --partial 'code-review-graph'
     assert_output --partial 'deepwiki'
+    refute_output --partial 'code-review-graph'
 
     run cat "$HOME/.codex/config.toml"
     assert_success
-    assert_output --partial '[mcp_servers.code-review-graph]'
     assert_output --partial '[mcp_servers.deepwiki]'
+    refute_output --partial '[mcp_servers.code-review-graph]'
 }
 
 @test "配布後、claude から codex サーバーが prune される" {
