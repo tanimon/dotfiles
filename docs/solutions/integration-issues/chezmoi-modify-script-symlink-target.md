@@ -126,10 +126,10 @@ Retargeting `dot_claude/modify_claude.json` to operate on `~/.claude/claude.json
 
 ## 追記 (2026-09-18) — 出自の記述を訂正、および 2 パスの必要性
 
-本文が当初書いていた「Claude Code の native install が 2026-07-26 に symlink 化した」は**一次証拠の無い推測**だった。Claude Code 2.1.276 のバンドル(`~/.local/share/claude/versions/2.1.276`、Mach-O)を実測した結果:
+本文が当初書いていた「Claude Code の native install が 2026-07-26 に symlink 化した」のうち、**帰属(誰がやったか)が一次証拠の無い推測**だった(日付については下の 2 点目を参照 — こちらは証拠がある)。Claude Code 2.1.276 のバンドル(`~/.local/share/claude/versions/2.1.276`、Mach-O)を実測した結果:
 
 - **symlink を作るコードは無い。** アプリ層の `symlinkSync` 呼び出しは存在せず(ヒットするのは Bun の fs バインディング定型のみ)、そもそも先頭ドットの無い `claude.json` という文字列リテラルがバンドル全体で **0 件**。製品は `~/.claude/claude.json` という名前を知らない。過去バージョンに移行コードが存在して削除された可能性は否定できないが、少なくとも現行では裏付けられない。
-- **日付も 1 日以上ずれている。** `docs/solutions/integration-issues/nono-sandbox-migration-observations-2026-07-25.md` が 2026-07-25 時点で既に symlink として観測している。確実に言えるのは `~/.claude.json.backup`(通常ファイル、2026-07-16)と 07-25 の間という窓だけ。以後この doc を引用するときは「2026-07-25 までに観測」と書くこと。
+- **日付そのものは誤りではない。誤っていたのは帰属と、mtime を「初回作成」と読んだこと。** 2 つの日付はどちらも証拠がある: `docs/solutions/integration-issues/nono-sandbox-migration-observations-2026-07-25.md` が 2026-07-25 時点で既に symlink として観測しており(当該記述は 07-25 の commit `d3c09a0` で入っているので、ファイル名からの推測ではなく実際に 07-25 の観測)、一方で上の「Symptoms」が記録する現行 link の mtime は 07-26 16:29。両立させる読みは**再作成**で、link は 07-25 までに存在し、その後少なくとも 1 度作り直されている。作成者は未特定(APM は 2026-08-03 が初登場なので該当しない)。以後この doc を引用するときは「2026-07-25 までに symlink として観測、作成者は未特定」と書くこと — 「07-26 の日付は捏造」ではない。
 
 一方で、本文の結論(「実ファイルを直接 target し、symlink は `.chezmoiignore` する」)自体は正しく、むしろ**両方消せない**ことが判明した:
 
