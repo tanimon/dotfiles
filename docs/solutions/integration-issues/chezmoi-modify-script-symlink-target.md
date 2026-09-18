@@ -28,7 +28,7 @@ tags:
 
 ## Problem
 
-Claude Code's native install migrated `~/.claude.json` from a regular file to a symlink pointing at `~/.claude/claude.json` (since 2026-07-26), but this repo's `modify_` script (`modify_dot_claude.json`, mapping via chezmoi's naming convention to target `~/.claude.json`) still targeted the old path. Running `chezmoi apply` against that path would have silently deleted the symlink and replaced it with a stale, diverging regular file.
+`~/.claude.json` changed from a regular file to a symlink pointing at `~/.claude/claude.json`, but this repo's `modify_` script (`modify_dot_claude.json`, mapping via chezmoi's naming convention to target `~/.claude.json`) still targeted the old path. Running `chezmoi apply` against that path would have silently deleted the symlink and replaced it with a stale, diverging regular file.
 
 ## Symptoms
 
@@ -123,6 +123,20 @@ Retargeting `dot_claude/modify_claude.json` to operate on `~/.claude/claude.json
 - When in doubt about how a `modify_` script behaves against a symlinked target, verify with an **isolated** `chezmoi apply -S <tmp-source> -D <tmp-home>` test (mimicking the real symlink layout) before ever running `chezmoi apply` against the real machine. `chezmoi diff` (read-only) is the safe verification tool once the real fix is in place — never `chezmoi apply` for a first check.
 - This pattern generalizes to any other `modify_`-managed file in this repo, notably `dot_config/karabiner/modify_karabiner.json` — if Karabiner Elements or any similar app ever migrates its config to a symlinked-indirection layout, apply the same fix shape: retarget the `modify_` script to the real backing file, and `.chezmoiignore` the app-managed symlink.
 - `.claude/rules/chezmoi-patterns.md` now documents this explicitly under "modify_ Script Safety": never target a path that may be a symlink managed by the app itself; target the real file directly and ignore the symlink.
+
+## 追記 (2026-09-18) — 出自の記述を訂正、および 2 パスの必要性
+
+本文が当初書いていた「Claude Code の native install が 2026-07-26 に symlink 化した」は**一次証拠の無い推測**だった。Claude Code 2.1.276 のバンドル(`~/.local/share/claude/versions/2.1.276`、Mach-O)を実測した結果:
+
+- **symlink を作るコードは無い。** アプリ層の `symlinkSync` 呼び出しは存在せず(ヒットするのは Bun の fs バインディング定型のみ)、そもそも先頭ドットの無い `claude.json` という文字列リテラルがバンドル全体で **0 件**。製品は `~/.claude/claude.json` という名前を知らない。過去バージョンに移行コードが存在して削除された可能性は否定できないが、少なくとも現行では裏付けられない。
+- **日付も 1 日以上ずれている。** `docs/solutions/integration-issues/nono-sandbox-migration-observations-2026-07-25.md` が 2026-07-25 時点で既に symlink として観測している。確実に言えるのは `~/.claude.json.backup`(通常ファイル、2026-07-16)と 07-25 の間という窓だけ。以後この doc を引用するときは「2026-07-25 までに観測」と書くこと。
+
+一方で、本文の結論(「実ファイルを直接 target し、symlink は `.chezmoiignore` する」)自体は正しく、むしろ**両方消せない**ことが判明した:
+
+- `~/.claude.json` は Claude Code が構築する唯一の設定パス。`Ut(e){return{globalConfig: join(e||homedir(), ".claude.json"), userSettings: join(e||join(homedir(),".claude"), "settings.json")}}`(`e` = `CLAUDE_CONFIG_DIR`)。
+- `~/.claude/claude.json` は symlink の実体としてのみ必要だが load-bearing。現行の書き込みは `publishDiscipline: "followAtomic"` で symlink を解決してから atomic rename するため、temp と rename が `~/.claude/` 側で起きる(実測: symlink の birth は保たれたまま実ファイルの birth time が書き込みごとに更新される)。nono は `~/.claude/` を recursive 許可し `$HOME` 直下は許可しないので、symlink を外すと上記 nono doc が記録する EPERM に退行しうる(nono 内では未実測)。
+
+2026-09-18 時点では `.chezmoiignore` は `.claude.json`(symlink)と `.claude/claude.json`(実体)の**両方**を除外している。前者だけだと `chezmoi add ~/.claude` のような一括 add が 0600 の実体(OAuth 資格情報を含む)を拾うため。
 
 ## Related Issues
 

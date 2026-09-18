@@ -30,7 +30,7 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 - Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`
 - For new-machine bootstrap (empty stdin), output initial data from a `.data` file
 - See `dot_config/karabiner/modify_karabiner.json` for a well-documented example of partial JSON management
-- Never target a path that may be a symlink managed by the app itself (e.g. `~/.claude.json`, observed symlinked to `~/.claude/claude.json` as of 2026-07-26 — verify current topology before relying on it, it has changed before) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` the symlink.
+- Never target a path that may be a symlink managed outside this repo (e.g. `~/.claude.json`, observed symlinked to `~/.claude/claude.json` since at least 2026-07-25 — verify current topology before relying on it, it has changed before; その symlink を誰が作ったかは未特定で、Claude Code 自身だという一次証拠は無い) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` **both** the symlink and the real file (前者だけでは一括 add が実体を拾う)。
 
 ## Template Syntax
 

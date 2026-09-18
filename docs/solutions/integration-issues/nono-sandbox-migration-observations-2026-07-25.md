@@ -613,6 +613,19 @@ inside nono, and Claude Code degrades silently rather than crashing — easy to 
 untested hypothesis: relocate the config via `CLAUDE_CONFIG_DIR` into `~/.claude`, which is already
 granted readwrite recursively. This was **not** tested here — it mutates config state.
 
+> **追記 (2026-09-18) — 上記 2 点を訂正。** Claude Code 2.1.276 のバンドルを実測した結果:
+>
+> 1. **`CLAUDE_CONFIG_DIR` 仮説は却下。** 設定パス解決は
+>    `Ut(e){return{globalConfig: join(e||homedir(), ".claude.json"), …}}` なので、`~/.claude` を
+>    指定すると `~/.claude/.claude.json`(**ドット付き**、現存しない)になる。既存設定を引き継がない
+>    新規ファイルが生まれるだけで、`dot_config/nono/CLAUDE.md` の「strictly worse」判定が正しい。
+> 2. **atomic write の着地点が変わった可能性が高い。** 現行バンドルには
+>    `publishDiscipline: "followAtomic"` があり、symlink を解決してから書く。実測(nono 外)では
+>    `~/.claude.json` の symlink が保たれたまま `~/.claude/claude.json` の birth time が書き込みごとに
+>    更新される = temp と rename が **`~/.claude/` 側**で起きている。`~/.claude/` は nono pack が
+>    recursive に readwrite 許可するので、この挙動が nono 下でも成り立つなら本節の EPERM は
+>    解消しているはず。**nono 内では未実測** — 再測定すべき open item。
+
 ### `statsig.anthropic.com` — blocked, no observed consequence
 
 DENIED by the allowlist. It produced no error and no `DENY CONNECT` in any log, and `claude -p` runs
@@ -751,4 +764,4 @@ usage bars appear in both, so they are a pre-existing baseline rather than a san
 | 8 | gstack `/browse` (Chromium launch) — **the priority gap; it bounds the egress guarantee, not just a feature** | In-session tool behaviour. Needs a live interactive Claude Code session; cannot be driven from one-shot commands | Run `/browse` inside `nono run --profile claude-seal -- claude --settings '{"sandbox":{"enabled":false}}'`, confirm Chromium launches, and record which sites 403. **Also record whether Chromium runs *inside* nono (traffic proxied, bounded by `allow_domain`) or attaches to a browser daemon *outside* it over a localhost CDP port — the latter is a relay that bypasses the allowlist entirely, per the `open_port: [0]` provenance note above.** `CLAUDE.md` mandates `/browse` for *all* web browsing and `$HOME/.gstack` is granted read+write, so this decides whether web fetches are allowlist-bounded at all |
 | 9 | WebFetch / WebSearch | Same — these are in-session tools, not CLI entry points | Exercise both in an interactive session; WebSearch is expected to work via `api.anthropic.com`, WebFetch will be bounded by `allow_domain` |
 | 2 | `git push` (any transport) | Out of scope by instruction; never attempted | Push from a throwaway clone. Everything it depends on — the HTTPS rewrite, the `gh` credential helper, and object/ref writes — is verified, so this is expected to work |
-| — | `CLAUDE_CONFIG_DIR` as a fix for the `.claude.json.tmp` gap | Untested hypothesis; testing it mutates config state | Set it in `environment.set_vars` and confirm the atomic-write EPERM disappears |
+| — | ~~`CLAUDE_CONFIG_DIR` as a fix for the `.claude.json.tmp` gap~~ **却下 (2026-09-18)** | バンドル実測で否定。設定パス解決は `join(CLAUDE_CONFIG_DIR \|\| homedir(), ".claude.json")` なので `~/.claude` を指定すると `~/.claude/.claude.json`(ドット付き)という**新規の空ファイル**になり、既存設定から切り離される | — (閉じた。詳細は下の「追記」節) |
