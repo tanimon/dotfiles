@@ -23,5 +23,7 @@ if ! command -v apm &>/dev/null; then
   exit 0
 fi
 
-apm install --global --target claude,codex || echo "WARNING: apm install --global --target claude,codex failed; run it manually to sync MCP servers" >&2
+# 失敗メッセージに配布先を書き写さない。コマンド側だけを直したときに、
+# メッセージ側が古い配布先を案内し続ける事故を避ける。
+apm install --global --target claude,codex || echo "WARNING: apm install --global failed; re-run the command above manually to sync MCP servers" >&2
 {{ end -}}

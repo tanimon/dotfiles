@@ -19,6 +19,7 @@ date: 2026-09-16
 - Claude 専用のツール名(`AskUserQuestion`)は Claude 側の Runtime Extension に移し、共有本文には「選択肢を求めるときは番号付きの選択肢で提示する」という製品非依存の意図だけを残す。Runtime Extension は「その製品にしかない機能」に限るという ADR 0004 の線引きを共有本文にも適用する。実装では Claude 側の Runtime Extension は**前置きではなく末尾セクション**になった(下の「実装時の補正」を参照)。
 - 根拠を失った #313〜#321 / #323〜#325 は決定コメント付きで close する。再開条件は「その製品が日常利用されている事実」で、その時点で permissions の翻訳器(rulesync か自前か)を改めて判断する。#308 本体は縮小版に書き換えて番号を維持する。
 - CONTEXT.md から Safety Invariant / Enforcement Grade / Portable Hook / Credential Reference を削除した。Capability Probe と Atomic Sync は `harness check` / `harness sync` に実装が現存するため残す。`harness/manifest.json` の runtime probe(claude / codex / cursor / apm)も据え置く。
+- **MCP については ADR 0006 が本 ADR を緩和した(2026-09-18)。** 本 ADR の「permissions / hooks / sandbox は各製品ネイティブのまま」という線引きは `~/.codex/config.toml` を丸ごと不可侵に置くことを含意していたが、MCP には製品ごとの翻訳が無い(同じサーバー定義をそのまま配るだけ)ため、`[mcp_servers.*]` テーブルに限って APM が書く。`[projects.*]` の trust 記録・model 設定・`project_doc_max_bytes` などは従来どおり Runtime State のまま。再開条件の扱いを含む詳細は `docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md`。
 - ADR 0001 のうち「Enforcement Grade の同等以上写像」「tighten-only」「Portable Hook」は本 ADR により保留になる。0001 の他の決定(一方向生成・単一 Target Owner・APM は Dependency Plane 限定・Cursor 非公開ストレージを書かない)は有効。
 
 ## 実装時の補正(2026-09-17, #311)

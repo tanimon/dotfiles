@@ -19,7 +19,7 @@ ADR 0005 は #308 の範囲を指示文の共有に縮小し、その一環で `
   1. lock に**名前が無い**エントリ（Codex 自身が入れた `node_repl`）と `[projects.*]` の trust 記録は**保持される**。
   2. `apm.yml` から依存を消して再 install すると、**有効な全 Target から削除される**（prune は lock の `mcp_servers` を名前の台帳として動く）。
   3. **その prune は APM が書いていないエントリにも及ぶ。** 本 ADR に伴って `codex` サーバーを `apm.yml` から削除した際、`~/.codex/config.toml` に**手で**書かれていた `[mcp_servers.codex]`（`enabled = false` 付き）も `Removed stale MCP server 'codex' from Codex CLI config` として消えた。今回は無効化のためだけに存在していたエントリなので結果は意図どおりだが、**Codex 側に同名のサーバーを手で置くと、その名前を `apm.yml` から外した瞬間に巻き添えで消える**。Target に手で足すサーバーは `apm.yml` に載っている名前と衝突させないこと。
-  4. **既に同名のエントリがある場合、定義が `apm.yml` と食い違っていても更新しない**（`already configured` と表示して素通りする）。この穴は codex 固有ではなく claude 経路にも元からある。回避策は「`apm.yml` から消して再 install し、prune させてから足し直す」。恒久対応は別 issue。
+  4. **既に同名のエントリがある場合、定義が `apm.yml` と食い違っていても更新しない**（`already configured` と表示して素通りする）。この穴は codex 固有ではなく claude 経路にも元からある。回避策は「`apm.yml` から消して再 install し、prune させてから足し直す」。恒久対応は #349。
 - **配布先はサーバー単位で選べない。** MCP 依存ごとの `targets:` キーは APM 0.30 では非対応で、書いても `unknown key(s) preserved in extra: targets` と警告したうえで**そのゴミキーを両製品の設定に書き込む**。よって配布は all-or-nothing になる。これに伴い、Codex 自身を MCP として Codex に配る再帰を避けるため、未使用だった `codex` MCP サーバーを `apm.yml` から削除した（将来 Claude 側で必要になったら、再帰配布の扱いと併せて再検討する）。
 - **配布先の宣言は `apm.yml` の `targets:` と install script の `--target` に意図的に二重化する。** 片方だけにすると、キー名の変更や書式ミスで**黙って auto-detect にフォールバックし、Gemini CLI・Kiro など検出された全ランタイムへ fan-out する**（`--target` を省略した場合の既知の挙動）。フェイルオープンの向きが悪いため冗長さを買う。
 - `apm.lock.yaml` は `~/.apm/` の Runtime State のままとし、version control しない。prune は配備先の lock で動くので、Source に持つ必要が無い。APM パッケージ（`dependencies.apm`）は 2026-08-10 に撤回済みで固定すべき revision が存在しない。
