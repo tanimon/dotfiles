@@ -19,7 +19,9 @@ setup() {
     load 'helpers/setup'
     REPO="$BATS_TEST_DIRNAME/.."
     APM_YML="$REPO/dot_apm/apm.yml"
-    INSTALL_SCRIPT="$REPO/.chezmoiscripts/run_onchange_after_apm-install.sh.tmpl"
+    # 配布先の値とその根拠は素の .sh 側にある。.chezmoiscripts/ の .tmpl は
+    # これを exec するだけのディスパッチャで、--target を持たない。
+    INSTALL_SCRIPT="$REPO/scripts/apm-install-global.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
     mkdir -p "$HOME/.apm" "$HOME/.codex" "$TMPDIR"
@@ -114,7 +116,7 @@ yml_targets() {
 }
 
 script_targets() {
-    sed -n "s/^apm_targets='\(.*\)'\$/\1/p" "$INSTALL_SCRIPT" |
+    sed -n 's/^apm_targets="\${APM_TARGETS:-\(.*\)}"$/\1/p' "$INSTALL_SCRIPT" |
         tr ',' '\n' | sort | paste -sd, -
 }
 

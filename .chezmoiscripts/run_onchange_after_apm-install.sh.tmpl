@@ -3,6 +3,7 @@
 set -euo pipefail
 
 # apm.yml hash: {{ include "dot_apm/apm.yml" | sha256sum }}
+# installer hash: {{ include "scripts/apm-install-global.sh" | sha256sum }}
 #
 # dependencies.apm (Skill/plugin管理)はネイティブmarketplace方式
 # (settings.json.tmplのenabledPlugins/extraKnownMarketplaces)に移行済みのため、
@@ -11,36 +12,26 @@ set -euo pipefail
 # どちらも.tmplとして所有していない(競合する完全所有テンプレートが存在しない)ため、
 # apm.ymlのハッシュ変化時のみ実行すれば十分(run_after_ではなくrun_onchange_で問題ない)。
 #
-# --target は apm.yml の targets: と意図的に二重宣言している。--target を省略すると
-# APM は auto-detect にフォールバックし、検出した「global-capable」な全ランタイム
-# (Gemini CLI・Kiro 等)へ fan out する。宣言が apm.yml 側だけだと、キー名の変更や
-# 書式ミスでその fan out に黙って落ちる(フェイルオープン)ので冗長さを買う。
+# 実体は scripts/apm-install-global.sh にある。--target の二重宣言の根拠、
+# ~/.claude.json の symlink を一時的に外す理由(APM 0.30.0 の prune ガード)、
+# symlink を廃止できない理由(張っているのは nono)は、すべてそのスクリプトの
+# 冒頭コメントに書いてある。ここに写すと二重管理になるので繰り返さない。
 # 配布先の選定根拠と APM の所有範囲:
 # docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md
+#
+# .tmpl は shellcheck / shfmt / bats のいずれからも見えない(Go テンプレート構文が
+# 通らない)ので、判断を含むロジックは素の .sh 側に置いて test/apm-install-global.bats で
+# 覆う。ここはディスパッチだけに保つこと。
 
-if ! command -v apm &>/dev/null; then
-  echo "apm CLI not found, skipping apm install --global"
-  exit 0
-fi
-
-# 配布先は 1 箇所だけに書き、コマンドと失敗メッセージの両方がそれを参照する。
-# メッセージに配布先を書き写すとコマンド側だけを直したときに古い配布先を案内し
-# 続けるが、メッセージから配布先を伏せると「手で再実行しろ」と言われた側に何を
-# 打てばよいのかが残らない(chezmoi apply の出力にスクリプト本文は出ない)。
-apm_targets='claude,codex'
-
-# APM が実際に書き込むと ~/.claude.json の symlink が通常ファイルへ置き換わり、
-# 旧 ~/.claude/claude.json が変更前の mcpServers を抱えたまま取り残される
-# (split-brain)。検出して知らせるだけにとどめ、復旧は手で行う — トポロジは
-# Claude Code 側の都合で変わるので、スクリプトが勝手に張り直すと逆に壊す。
-claude_json_was_symlink=false
-if [ -L '{{ .chezmoi.homeDir }}/.claude.json' ]; then
-  claude_json_was_symlink=true
-fi
-
-apm install --global --target "${apm_targets}" || echo "WARNING: apm install --global --target ${apm_targets} failed; re-run it manually to sync MCP servers" >&2
-
-if [ "${claude_json_was_symlink}" = true ] && [ ! -L '{{ .chezmoi.homeDir }}/.claude.json' ]; then
-  echo "WARNING: apm replaced the ~/.claude.json symlink with a regular file; ~/.claude/claude.json now holds stale mcpServers. Restore: cp ~/.claude.json ~/.claude/claude.json && rm ~/.claude.json && ln -s .claude/claude.json ~/.claude.json" >&2
+# apm 自身の失敗では apply を止めない(従来どおり。MCP が古いだけで、次の apply か
+# 手動再実行で追いつく)。唯一 70 — de-link 中に ~/.claude/claude.json が再出現して
+# 復旧を中断した場合 — だけは伝播させる。放置すると「両方が通常ファイル」のまま
+# 次の nono 起動が片方を上書きするので、警告 1 行では埋もれてしまう。
+status=0
+bash '{{ .chezmoi.sourceDir }}/scripts/apm-install-global.sh' || status=$?
+if [ "${status}" -eq 70 ]; then
+    exit 70
+elif [ "${status}" -ne 0 ]; then
+    echo "WARNING: see the message above; MCP servers may be out of sync until it is resolved" >&2
 fi
 {{ end -}}

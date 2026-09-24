@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-nono-profile
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-apm-install test-nono-profile
 
 # Scan for leaked secrets
 @secretlint:
@@ -200,6 +200,11 @@ check-templates:
 # Smoke test the MCP distribution to claude + codex (dot_apm/apm.yml + install script)
 @test-apm-mcp:
     LC_ALL=C pnpm exec bats test/apm-mcp-distribution.bats
+
+# The de-link / install / re-link logic around ~/.claude.json. Drives a fake apm
+# against a fake home, so no real apm or nono is involved.
+@test-apm-install:
+    LC_ALL=C pnpm exec bats test/apm-install-global.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:

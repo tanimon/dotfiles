@@ -175,6 +175,8 @@ jobs:
       # (apm.yml の targets / install script の --target) だけが走る。skip した
       # ケースと理由は bats が出力するので、緑の実行が実測を詐称しない。
       - run: just test-apm-mcp
+      # 偽 apm と偽ホームだけで動くので、CI に apm が無くても skip せず実測できる。
+      - run: just test-apm-install
 
   actionlint:
     name: actionlint

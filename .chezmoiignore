@@ -31,8 +31,10 @@ windows/
 # run_onchange_after_pull-nono-packs.sh.tmpl, not managed by chezmoi)
 .config/nono/packages
 
-# ~/.claude.json は ~/.claude/claude.json への symlink (2026-07-25 までに観測。
-# 誰が作ったかは未特定で、Claude Code 自身だという一次証拠は無い)。
+# ~/.claude.json は ~/.claude/claude.json への symlink (2026-07-25 までに観測)。
+# 張っているのは nono で、Claude Code でも chezmoi でもない (2026-09-24 に確定。
+# nono バイナリが "Failed to create ~/.claude.json symlink:" を持ち、
+# `nono run --profile claude-seal` は /bin/true でも毎回張り直す)。
 # Claude Code が構築する設定パスは join(CLAUDE_CONFIG_DIR||homedir(), ".claude.json")
 # だけなので、この symlink は消せない。repo 内でこの実ファイルを直接 target する
 # ものはもう無い (APM の `apm install --global` が mcpServers キーを実行時に所有)。

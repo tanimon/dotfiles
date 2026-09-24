@@ -1,6 +1,6 @@
 ### Key Patterns
 
-**`dot_apm/apm.yml` + APM (microsoft/apm)** — MCP サーバーだけを宣言する APM のグローバル manifest(`~/.apm/apm.yml` に配置)。Skills / plugins は APM ではなく Claude Code ネイティブの marketplace で管理する(次項)。ターゲットの二重宣言・APM の所有境界・`~/.claude.json` symlink との関係・手動 `apm install` が apply で消える点など運用上の契約は `dot_apm/CLAUDE.md`(`dot_apm/` 配下の作業時に読み込まれる)にまとめてある。
+**`dot_apm/apm.yml` + APM (microsoft/apm)** — MCP サーバーだけを宣言する APM のグローバル manifest(`~/.apm/apm.yml` に配置)。Skills / plugins は APM ではなく Claude Code ネイティブの marketplace で管理する(次項)。`apm install --global` は素で叩かず `scripts/apm-install-global.sh` を使う(`~/.claude.json` symlink を挟んだ de-link / re-link のガード。理由は Known Pitfalls)。ターゲットの二重宣言・APM の所有境界・`~/.claude.json` symlink との関係・手動 `apm install` が apply で消える点など運用上の契約は `dot_apm/CLAUDE.md`(`dot_apm/` 配下の作業時に読み込まれる)にまとめてある。
 
 **`dot_config/karabiner/modify_karabiner.json`** — `~/.config/karabiner/karabiner.json` の `profiles[*].complex_modifications.rules` だけを所有する部分管理(`modify_` スクリプト。ルールの実体は `complex_modifications.json`)。所有範囲・空 stdin の扱い・ファイルモードの挙動は `dot_config/karabiner/CLAUDE.md`(`dot_config/karabiner/` 配下の作業時に読み込まれる)にまとめてある。Smoke-tested by `just test-modify`.
 
