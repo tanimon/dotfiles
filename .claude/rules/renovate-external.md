@@ -34,7 +34,7 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 ## Existing Entries
 
-See `.chezmoiexternal.toml` for current entries (currently gstack skills only).
+See `.chezmoiexternal.toml` for current entries (currently none — gstack was removed on 2026-09-24; the file holds only a comment restating this contract).
 
 ## ここに入れないもの — 配布元がパスを所有する外部スキル
 

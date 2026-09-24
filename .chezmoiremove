@@ -38,3 +38,18 @@ bin/cco
 # ~/.claude/skills/code-review-graph/ が残り続けて読み込まれる。
 # `path/**` 形式は既知の落とし穴(socket で apply が exit 1)を踏むので bare entry にする。
 .claude/skills/code-review-graph
+
+# /scaffold-claude-md と /scaffold-project-rules は /doctor(2026-09-24)で導入以降の
+# 利用 0 回と判定して source(dot_claude/commands/)を削除した。source を消しただけでは
+# 配置済みの target は残るので、ここで撤去する。
+.claude/commands/scaffold-claude-md.md
+.claude/commands/scaffold-project-rules.md
+
+# gstack は /doctor(2026-09-24)で撤去した(.chezmoiexternal.toml のエントリと
+# run_onchange_after_setup-gstack.sh.tmpl を削除)。`.claude/skills/gstack` は external の
+# 配置先、残り 3 つは gstack の `./setup` が作る symlink ディレクトリで chezmoi 管理外だが、
+# 配置済みのものはどちらも apply では消えないのでここで撤去する。bare entry にする理由は上と同じ。
+.claude/skills/gstack
+.claude/skills/_gstack-command
+.claude/skills/browse
+.claude/skills/gstack-upgrade

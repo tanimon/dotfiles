@@ -29,35 +29,11 @@ just check-instructions        # Fail if a generated file was hand-edited (drift
 gh workflow run security-alerts.yml  # Trigger security alert sweep manually
 ```
 
-## chezmoi Naming Conventions
-
-Source files use chezmoi's naming scheme — understand these prefixes when working here:
-
-| Prefix | Meaning |
-|--------|---------|
-| `dot_` | File starts with `.` in target (e.g., `dot_zshrc` → `~/.zshrc`) |
-| `private_` | Target has `0600`/`0700` permissions |
-| `modify_` | Script that receives current target on stdin, outputs modified version |
-| `run_onchange_` | Script runs when its tracked hash changes |
-| `run_onchange_after_` | Combines `run_onchange_` (hash-triggered) + ordering after file targets |
-| `.tmpl` suffix | Go template — rendered with `.chezmoi.homeDir`, `.profile`, `.ghOrg` |
-
 ## Architecture
-
-### Template Variables
-
-Defined in `.chezmoi.toml.tmpl`, prompted on first `chezmoi init`:
-- `.profile` — `"work"` or `"personal"` (controls gitconfig work overrides)
-- `.ghOrg` — GitHub org name (used in permissions and directory paths)
-- `.chezmoi.homeDir` — Home directory path
-
-### `.chezmoiignore`
-
-Extensively excludes `~/.claude/` dynamic directories (projects, sessions, cache, etc.) so only curated config files are managed. Also excludes repo-only files like `docs/`, `package.json`, `node_modules/`.
 
 ### `.chezmoiexternal.toml`
 
-Pulls external archives (currently gstack skills) into the managed tree with auto-refresh. Each entry uses `type = "archive"` with the commit SHA embedded in the GitHub archive URL for supply-chain safety. Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved.
+Pulls external archives into the managed tree with auto-refresh. Currently **no entries** — the only one (gstack skills) was removed on 2026-09-24 by `/doctor`; the file keeps a comment describing the contract. Each entry uses `type = "archive"` with the commit SHA embedded in the GitHub archive URL for supply-chain safety, and Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved when adding one.
 
 ### Directory Layout
 
@@ -66,25 +42,18 @@ Only directories whose contents carry a contract an `ls` would not reveal are li
 | Directory | Purpose |
 |-----------|---------|
 | `.chezmoiscripts/` | All `run_onchange_` scripts live here (not in the source tree root) |
-| `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), rules, commands, plugins, scripts (hooks), keybindings |
-| `dot_apm/` | APM (microsoft/apm) global manifest: `apm.yml` — declares MCP servers only (`dependencies.mcp`), deployed to `~/.apm/apm.yml`. Skills/plugins are managed via native Claude Code marketplace (`enabledPlugins`/`extraKnownMarketplaces` in `dot_claude/settings.json.tmpl`), not APM |
+| `dot_claude/` | Claude Code config (`~/.claude/`): settings (`settings.json.tmpl`), rules, plugins, scripts (hooks), skills, keybindings |
+| `dot_apm/` | APM (microsoft/apm) global manifest `apm.yml` — declares MCP servers only, deployed to `~/.apm/apm.yml`. Operating contract in `dot_apm/CLAUDE.md` |
 | `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
-| `harness/` | Harness Manifest(グローバル用 `manifest.json` / このリポジトリ用 `project.json`)、Content Module(`modules/`)、同期・検証ツール(`bin/harness.sh`、`lib/`、`adapters/`)。repo-only、`~/` に配置されない |
-| `harness/modules/` | エージェント指示の Source。`project/` は 3 製品共通、`runtime/` は製品固有の Runtime Extension。`CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` はここから生成される |
 | `.cursor/rules/` | 生成される Cursor の Project Rule(`.mdc`)。chezmoi からは不可視(source 直下の `.` 始まりは `.chezmoi*` を除き source state に入らない)なので `.chezmoiignore` の記載は不要 |
-| `docs/solutions/` | Past problem resolutions — search here when encountering similar issues |
 | `CONTEXT.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts. Glossary format per mattpocock-skills' `CONTEXT-FORMAT.md`; see `docs/agents/domain.md` |
 | `CONCEPTS.md` | **Deprecated** predecessor of `CONTEXT.md`. Read-only archive: keeps the longer background paragraphs that don't fit `CONTEXT-FORMAT.md`'s one-to-two-sentence limit — **read the relevant section before deciding on permission rules, boundary exclusions, verification design, or `modify_` partial ownership** (inventory in `docs/agents/domain.md`). Never add new terms here |
 
-### Pre-commit Hooks
-
-Uses `prek` (not husky) with `secretlint` to prevent committing secrets. Dependencies managed via pnpm. The `run_onchange_install-pre-commit-hooks.sh.tmpl` script auto-installs when `package.json` or `.pre-commit-config.yaml` change.
-
 ### Key Patterns
 
-**`dot_apm/apm.yml` + APM (microsoft/apm)** — Declarative manifest for MCP servers only (`dependencies.mcp`), deployed to `~/.apm/apm.yml`. Claude Code Skills/plugins were briefly unified into this same manifest (`dependencies.apm`) but that was reverted (see "Skill/plugin management via native Claude Code marketplace" below) — `dependencies.apm` no longer exists in `apm.yml`. `.chezmoiscripts/run_onchange_after_apm-install.sh.tmpl` runs `apm install --global --target claude,codex` only when `apm.yml`'s hash changes (a plain hash-gated `run_onchange_`, not `run_after_`) and writes MCP servers into the top-level `mcpServers` key of `~/.claude.json` (observed as a symlink to `~/.claude/claude.json` since at least 2026-07-25 — do not assume that topology still holds; verify before relying on either path, see the Known Pitfalls entry below) **and** into the `[mcp_servers.*]` tables of `~/.codex/config.toml`. A target declaration is required — `apm install --help` resolves targets in the order `--target` > `apm.yml`'s `targets:` > `apm config set target` > auto-detect, and with *neither* declaration present it falls back to auto-detect and fans out to every "global-capable" runtime it finds (Gemini CLI, Kiro, etc.). The target list is declared **twice on purpose**, in `apm.yml`'s `targets:` and in the script's `--target`, so that a typo or a key rename in one of them cannot silently fall back to that fan-out. Because the flag wins over the manifest, the two must be kept in step — a target added to `apm.yml` alone has no effect in production; `test/apm-mcp-distribution.bats` compares the two lists statically so CI catches the divergence without the apm CLI. Codex is a target but Cursor is not, and `apm.yml` deliberately declares no `codex` MCP server (APM has no per-server target selection, so distribution is all-or-nothing and declaring it would ship Codex to itself); the reasoning and APM's exact ownership semantics are in `docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md`, with the behaviour pinned by `test/apm-mcp-distribution.bats`. APM owns only the `[mcp_servers.*]` tables of `~/.codex/config.toml` — `[projects.*]` trust records and everything else there stay Runtime State. Hash-gating is sufficient here (unlike the Skill-era `run_after_`) because `~/.claude.json` has no competing chezmoi-owned `.tmpl` that re-renders it every apply — see [run-after-vs-run-onchange-for-shared-config-ownership.md](docs/solutions/architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md) for the general criterion. chezmoi no longer manages `~/.claude/claude.json` directly — this replaced the earlier `modify_claude.json` (jq-based partial ownership) approach. Some plugins bring their own MCP servers independent of `dependencies.mcp` (e.g. `getsentry/plugin-claude`'s native-marketplace `sentry` plugin), so `dependencies.mcp` is only a subset of the MCP servers actually deployed — check the live `mcpServers` key, not just `apm.yml`, to see the full set. Running `apm install <pkg>` by hand appends the dependency straight to `~/.apm/apm.yml` (the deploy target, fully owned by chezmoi via `dot_apm/apm.yml`) and that edit is silently lost on the next `chezmoi apply` — always declare new dependencies in `dot_apm/apm.yml` instead. See `docs/superpowers/specs/2026-08-02-apm-skill-mcp-management-design.md` for the original MCP+Skill unification design (Skill part since reverted).
+**`dot_apm/apm.yml` + APM (microsoft/apm)** — MCP サーバーだけを宣言する APM のグローバル manifest(`~/.apm/apm.yml` に配置)。Skills / plugins は APM ではなく Claude Code ネイティブの marketplace で管理する(次項)。ターゲットの二重宣言・APM の所有境界・`~/.claude.json` symlink との関係・手動 `apm install` が apply で消える点など運用上の契約は `dot_apm/CLAUDE.md`(`dot_apm/` 配下の作業時に読み込まれる)にまとめてある。
 
-**`dot_config/karabiner/modify_karabiner.json`** — Partial management of `~/.config/karabiner/karabiner.json`, mirroring the jq-based partial-ownership pattern formerly used by `dot_claude/modify_claude.json` (now removed in favor of APM; see above). Owns `profiles[*].complex_modifications.rules` only; preserves Karabiner's runtime state (`machine_specific` UUID, profile metadata, `virtual_hid_keyboard`, sibling `complex_modifications.parameters`, etc.) verbatim. The rules array lives at `dot_config/karabiner/complex_modifications.json` and is applied to *every* profile (V1 deliberately ignores per-profile rule divergence). Empty stdin (new-machine bootstrap before Karabiner has been launched) seeds a minimal profile shape with no fabricated `machine_specific`. First apply normalizes the file mode from Karabiner's `0600` to `0644`; Karabiner restores `0600` on next save. Smoke-tested by `just test-modify`.
+**`dot_config/karabiner/modify_karabiner.json`** — `~/.config/karabiner/karabiner.json` の `profiles[*].complex_modifications.rules` だけを所有する部分管理(`modify_` スクリプト。ルールの実体は `complex_modifications.json`)。所有範囲・空 stdin の扱い・ファイルモードの挙動は `dot_config/karabiner/CLAUDE.md`(`dot_config/karabiner/` 配下の作業時に読み込まれる)にまとめてある。Smoke-tested by `just test-modify`.
 
 **Skill/plugin management via native Claude Code marketplace** — Reverted from APM back to Claude Code's own plugin/marketplace mechanism (2026-08-10) to get per-plugin Skill namespacing (`plugin:skill` invocation names, e.g. `/commit-commands:commit`) — APM deploys all Skills flatly to `~/.claude/skills/<name>/SKILL.md` regardless of how the dependency is declared (git shorthand or marketplace form), so it can't provide this namespacing; only Claude Code's native plugin loader (which keeps each plugin's Skills under its own `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/`) does. `dot_claude/settings.json.tmpl` declares `enabledPlugins` (which plugins are on) and `extraKnownMarketplaces` (which marketplace repos are known) directly — both chezmoi-owned, declarative. There is deliberately **no automation** for marketplace registration: `extraKnownMarketplaces` alone does not fetch/clone a marketplace, so on a new machine you must run `claude plugin marketplace add <owner/repo>` once per marketplace listed in `extraKnownMarketplaces` before `enabledPlugins` entries can resolve — this manual step was accepted as a tradeoff for keeping the mechanism to a single file. Accepted risk: if a marketplace or plugin is renamed upstream, the `plugin@marketplace` key in `enabledPlugins` silently stops matching and the plugin stops loading with no error (see the Known Pitfalls entry below) — re-running is what surfaces it. `nono@nolabs-ai` is a special case: the nono pack registers its own marketplace as a local `directory` source (not a GitHub repo) as a side effect of `nono pull`/`nono update`, so it has no corresponding `extraKnownMarketplaces` entry — only the `enabledPlugins` flag is chezmoi-managed for it (see the comment above that key in `settings.json.tmpl`). MCP servers are unaffected by this reversion and remain on APM (`dot_apm/apm.yml`'s `dependencies.mcp`, see above).
 
@@ -248,7 +217,7 @@ The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` so that **
 
 ### Browsing
 
-Use the `/browse` skill from gstack for **all web browsing**, and do not use `mcp__claude-in-chrome__*` tools. This is gstack's own convention (its README asks for exactly this block), and the nono sandbox policy is written on the assumption that it holds — whether `/browse` actually keeps web fetches inside nono's egress allowlist is still an open question (`dot_config/nono/CLAUDE.md`, row 8), so do not route around it with another browsing tool.
+gstack(`/browse` skill)は 2026-09-24 の `/doctor` で撤去した — 導入以降の利用が 4 回に対し、直近の窓では WebFetch 53 回 / `/browse` 0 回で、「全ブラウジングは `/browse`」という指示と実態が乖離していたため。Web の取得は組込みの WebFetch / WebSearch を使う。`mcp__claude-in-chrome__*` は引き続き使わない — nono のポリシーはブラウザ経路を前提に書かれておらず、WebFetch / WebSearch 自体が nono の egress allowlist の内側に留まるかも未検証(`dot_config/nono/CLAUDE.md`)。
 
 ### Bash ツールの落とし穴
 

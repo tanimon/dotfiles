@@ -162,11 +162,11 @@ EOF
     assert_equal "$common_includes" "$files"
 }
 
-# 以下 2 件の `chezmoi managed` はネットワークを要求する: chezmoi は source state を
-# 組み立てる際に .chezmoiexternal.toml の archive external(github.com の tarball)を
-# 必ず取得しにいく。`--exclude=externals` も `--refresh-externals=never` も取得自体は
-# 止められないことを実測済み。落ちたときのメッセージは gstack の tarball URL になり、
-# グローバル指示とは無関係に見えるので、この注記を頼りに切り分けること。
+# 以下 2 件の `chezmoi managed` は .chezmoiexternal.toml に archive external があるときネットワークを
+# 要求する: chezmoi は source state を組み立てる際に github.com の tarball を必ず取得しにいき、
+# `--exclude=externals` も `--refresh-externals=never` も取得自体は止められないことを実測済み。
+# 2026-09-24 に gstack を撤去して以降エントリは 0 件なので現状は発生しないが、external を
+# 追加した場合は落ちたときのメッセージがその tarball URL になり、グローバル指示とは無関係に見える。
 @test "chezmoi managed に .codex/AGENTS.md が出る" {
     run chezmoi managed --config "$CONFIG" --source "$REPO"
     assert_success

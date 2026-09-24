@@ -31,9 +31,6 @@ windows/
 # run_onchange_after_pull-nono-packs.sh.tmpl, not managed by chezmoi)
 .config/nono/packages
 
-# gstack runtime state
-.gstack
-
 # ~/.claude.json は ~/.claude/claude.json への symlink (2026-07-25 までに観測。
 # 誰が作ったかは未特定で、Claude Code 自身だという一次証拠は無い)。
 # Claude Code が構築する設定パスは join(CLAUDE_CONFIG_DIR||homedir(), ".claude.json")
@@ -104,11 +101,13 @@ renovate.json
 justfile
 test/
 
-# repo-only nested CLAUDE.md context files (Check 4 migration, 2026-07-26) — unlike
+# repo-only nested CLAUDE.md context files (Check 4 migration, 2026-07-26 and 2026-09-24) — unlike
 # dot_claude/CLAUDE.md.tmpl (the user's real ~/.claude/CLAUDE.md, must stay deployed), these
 # exist only for Claude Code to load contextually when working in this repo
 .config/nono/CLAUDE.md
 .claude/scripts/CLAUDE.md
+.apm/CLAUDE.md
+.config/karabiner/CLAUDE.md
 
 # secretlint / prek
 package.json

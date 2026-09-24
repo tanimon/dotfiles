@@ -18,7 +18,7 @@ The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` so that **
 
 ### Browsing
 
-Use the `/browse` skill from gstack for **all web browsing**, and do not use `mcp__claude-in-chrome__*` tools. This is gstack's own convention (its README asks for exactly this block), and the nono sandbox policy is written on the assumption that it holds — whether `/browse` actually keeps web fetches inside nono's egress allowlist is still an open question (`dot_config/nono/CLAUDE.md`, row 8), so do not route around it with another browsing tool.
+gstack(`/browse` skill)は 2026-09-24 の `/doctor` で撤去した — 導入以降の利用が 4 回に対し、直近の窓では WebFetch 53 回 / `/browse` 0 回で、「全ブラウジングは `/browse`」という指示と実態が乖離していたため。Web の取得は組込みの WebFetch / WebSearch を使う。`mcp__claude-in-chrome__*` は引き続き使わない — nono のポリシーはブラウザ経路を前提に書かれておらず、WebFetch / WebSearch 自体が nono の egress allowlist の内側に留まるかも未検証(`dot_config/nono/CLAUDE.md`)。
 
 ### Bash ツールの落とし穴
 
