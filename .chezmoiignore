@@ -71,7 +71,6 @@ windows/
 .claude/todos
 .claude/memory
 .claude/.claude
-.claude/agents
 .claude/logs
 .claude/history.jsonl
 .claude/stats-cache.json
