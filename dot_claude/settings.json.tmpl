@@ -7,12 +7,6 @@
     "ENABLE_TOOL_SEARCH": "true",
     "HOME": "{{ .chezmoi.homeDir }}",
     "LANG": "ja_JP.UTF-8",
-    {{/* CLV2_CONFIG: points the ecc plugin's continuous-learning observer at a config whose only live content is "enabled": false. Do NOT remove this env var or the config file — without them the plugin falls back to upstream defaults and the observer silently re-enables (the instinct pipeline was deliberately demolished in 2026-07). */ -}}
-    "CLV2_CONFIG": "{{ .chezmoi.homeDir }}/.claude/continuous-learning-config.json",
-    {{/* ECC_DISABLED_HOOKS: disable ecc (everything-claude-code) gateguard hook (issue #188). Both Bash and Edit/Write IDs are registered in separate dispatchers, so both must be listed. Hook IDs are plugin-name-independent, so they survive upstream plugin renames. */ -}}
-    "ECC_DISABLED_HOOKS": "pre:bash:gateguard-fact-force,pre:edit-write:gateguard-fact-force",
-    {{/* ECC_CONTEXT_MONITOR_COST_WARNINGS: silence the COST NOTICE/WARNING/CRITICAL messages the ecc post:ecc-context-monitor hook injects at $5/$10/$50 session spend. This is a granular switch inside that hook — context-exhaustion, scope-creep, and tool-loop warnings from the same monitor stay active. To disable the whole monitor instead, add post:ecc-context-monitor to ECC_DISABLED_HOOKS above. */ -}}
-    "ECC_CONTEXT_MONITOR_COST_WARNINGS": "0",
     {{/* _ZO_DOCTOR: Shell snapshot preserves zoxide cd function but not zsh chpwd_functions array, causing false-positive doctor warnings. */ -}}
     "_ZO_DOCTOR": "0",
     {{/* GIT_CONFIG_GLOBAL: suppress the git built-in fsmonitor daemon's IPC error, scoped to Claude Code's own process only (unlike a dotfiles-side CLAUDECODE check in .zshrc, which never actually took effect — the Bash tool runs commands in a non-interactive shell that doesn't source .zshrc, and even when it did, the shell-snapshot mechanism only preserves PATH, not arbitrary exports; see dot_config/git/claude-code.inc for the full history). The pointed-to file includes ~/.gitconfig first, so nothing else changes; normal interactive terminal use is unaffected and keeps fsmonitor's speedup. 2026-09-11 以降は同じファイルが commit 署名も上書きする（1Password の op-ssh-sign → ローカルの ai-agent 鍵 + ssh-keygen。人間不在時に 1Password の認証ダイアログで commit が止まる問題への対処。詳細は claude-code.inc のコメント）。 */ -}}
@@ -263,13 +257,12 @@
     "nono@nolabs-ai": true,
     "superpowers@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": true,
-    {{/* 以下 4 つは /doctor(2026-09-18)で未使用と判定して無効化した。判定根拠は ~/.claude.json の pluginUsage(導入以降の通算カウンタ)と最終利用日。code-review@claude-plugins-official は組込みの code-review skill(98 回・継続利用中)および ecc:code-review と機能が重複していたため落とした。再度使いたくなったら true に戻すだけでよい。cclens と show-me も同じ判定(通算 0 回)だったが、利用の意思があるため意図的に有効のまま残している — カウンタが 0 だからといって再度落とさないこと。 */ -}}
+    {{/* 以下 4 つは /doctor(2026-09-18)で未使用と判定して無効化した。判定根拠は ~/.claude.json の pluginUsage(導入以降の通算カウンタ)と最終利用日。code-review@claude-plugins-official は組込みの code-review skill(98 回・継続利用中)と機能が重複していたため落とした。再度使いたくなったら true に戻すだけでよい。cclens と show-me も同じ判定(通算 0 回)だったが、利用の意思があるため意図的に有効のまま残している — カウンタが 0 だからといって再度落とさないこと。 */ -}}
     "claude-md-management@claude-plugins-official": false,
     "skill-creator@claude-plugins-official": false,
     "sentry@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
     "compound-engineering@compound-engineering-plugin": true,
-    "ecc@ecc": true,
     "cclens@cclens": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "mattpocock-skills@claude-plugins-official": true,
@@ -286,13 +279,6 @@
       "source": {
         "source": "github",
         "repo": "EveryInc/compound-engineering-plugin"
-      },
-      "autoUpdate": true
-    },
-    "ecc": {
-      "source": {
-        "source": "github",
-        "repo": "affaan-m/everything-claude-code"
       },
       "autoUpdate": true
     },
