@@ -34,7 +34,7 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 ## Existing Entries
 
-See `.chezmoiexternal.toml` for current entries (currently gstack skills only).
+See `.chezmoiexternal.toml` for current entries: gstack skills と、ECC(affaan-m/ECC)から選んだファイル(`ecc-code-review` コマンド・agent 4 つ・rules/typescript・rules/web)。ECC の 4 エントリは同じ SHA を指す。ECC を plugin として丸ごと有効化しない理由は `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`。
 
 ## ここに入れないもの — 配布元がパスを所有する外部スキル
 
