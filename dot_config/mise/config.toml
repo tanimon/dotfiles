@@ -1,6 +1,6 @@
 [tools]
 bun = "latest"
-herdr = "0.7.3"
+herdr = "0.9.1"
 node = "24"
 pnpm = "11.26.0"
 prek = "latest"
