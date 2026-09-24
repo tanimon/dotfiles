@@ -46,3 +46,9 @@ date: 2026-09-16
 **既存の手書き `~/.codex/AGENTS.md` にあった `# Compound Engineering Plugin Notes` は破棄する。** 内容は「`ralph-wiggum` skill は `ralph-loop` として現れることがある。`/ralph-loop:ralph-loop` で起動する」の 1 行で、現在のプラグイン一覧にこの skill は存在せず陳腐化していると判断した。同ファイルの他の 2 節は共有本文が置き換えるので失われない(うち `Rule Structure` は存在しない `~/.Codex/rules/` を指していた)。ここに記録するのは、初回 `chezmoi apply` でしか顕在化せず、後から原因を辿るのが難しいため。
 
 **連結されるルールの YAML frontmatter(`date` / `trigger`)は剥がさない。** これらは harness ループ(`/harness-reflect` の分類)用のメタデータでモデルへの指示ではないが、(1) 出現位置がファイル先頭ではないので frontmatter として誤解釈される事故は起きない、(2) 合計 200 バイト程度で 32 KiB 予算に影響しない、(3) 剥がすと `test/global-instructions.bats` の「rules の全非空行が `AGENTS.md` に入る」検査の期待値も同時に変える必要があり、検査が弱くなる。この決定によりテストが現状の挙動を固定しているので、将来剥がすなら意図的な変更として diff に残る。なお `harness/` 側の compose adapter は module の frontmatter を明示的に扱うが、chezmoi 経路には相当する処理が無い — ADR が意図的に分離した 2 つの合成機構が frontmatter の扱いで違う点は既知。
+
+## 追記: ECC ルールの取り込み方式の変更(2026-09-24)
+
+Consequences の 1 項目目にある「`~/.claude/rules/common/` の残りのルールは `.chezmoiscripts/run_onchange_after_install-ecc-rules.sh.tmpl` が ECC プラグインキャッシュからコピーする」という前提は、ECC を plugin として有効化するのをやめたことで成り立たなくなった(`docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`)。このスクリプトは削除し、`common/` の ECC 由来ルール(`testing.md` / `security.md` / `coding-style.md` 等)は `.chezmoiremove` で撤去した。ECC 由来で残るのは `~/.claude/rules/{typescript,web}/` だけで、`.chezmoiexternal.toml` が SHA 固定で取り込む。
+
+結論は変わらない。Codex に連結されるのは今も `dot_claude/rules/common/` に Source として存在するものだけで、ECC 由来のルールは Codex に届かない。変わったのは Claude 側で、`~/.claude/CLAUDE.md` の「ルール構成」はテスト方針・セキュリティガイドラインを `common/` ではなくドメイン別ディレクトリの側にあるものとして案内するようにした。

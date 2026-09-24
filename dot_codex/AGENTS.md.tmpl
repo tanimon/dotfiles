@@ -31,7 +31,7 @@
 
 前半はプロジェクトを横断する振る舞いのガイドライン。後半には共有ルール(ドキュメントの言語 / GitHub Actions / Harness Engineering / シェルスクリプト)を連結してある。
 
-Claude Code の `~/.claude/rules/common/` にはこれ以外のルール(テスト方針・セキュリティガイドライン・コーディングスタイル等)も存在するが、それらは ECC プラグインが `chezmoi apply` 時にプラグインキャッシュからコピーするもので dotfiles リポジトリの Source に無いため、ここには連結されない。
+Claude Code の `~/.claude/rules/` にはこれ以外に言語別ルール(`typescript/` / `web/`)も存在するが、それらは `.chezmoiexternal.toml` が外部リポジトリ(ECC)から取り込むもので `dot_claude/rules/common/` の Source に無いため、ここには連結されない。
 
 # 他エージェント製品向けの記述の扱い
 

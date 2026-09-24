@@ -1,4 +1,39 @@
-# 外部アーカイブは現在 0 件。gstack(`.claude/skills/gstack`)は 2026-09-24 の /doctor で
-# 撤去した(導入以降 4 回の利用に対し WebFetch が使われていたため。配置済みの残骸は
-# .chezmoiremove で消す)。エントリを追加するときは .claude/rules/renovate-external.md の
-# 隣接契約(`url = ".../archive/<sha>.tar.gz"` の直後に `# renovate: branch=<branch>`)に従うこと。
+# gstack(`.claude/skills/gstack`)は 2026-09-24 の /doctor で撤去した(導入以降 4 回の利用に
+# 対し WebFetch が使われていたため。配置済みの残骸は .chezmoiremove で消す)。
+# エントリを追加するときは .claude/rules/renovate-external.md の隣接契約
+# (`url = ".../archive/<sha>.tar.gz"` の直後に `# renovate: branch=<branch>`)に従うこと。
+
+# ECC(affaan-m/ECC)から実際に使っているファイルだけを取り込む。plugin 全体(skill 292 /
+# agent 68 / hook 24 系統)は読み込まない。経緯: docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md
+# 4 エントリは同じ SHA を指す。Renovate はそれぞれの url 行を個別に更新する。
+[".claude/commands/ecc-code-review.md"]
+  type = "archive-file"
+  url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
+  # renovate: branch=main
+  stripComponents = 1
+  path = "commands/code-review.md"
+  refreshPeriod = "168h"
+
+[".claude/agents"]
+  type = "archive"
+  url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
+  # renovate: branch=main
+  stripComponents = 2
+  include = ["*/agents/vue-reviewer.md", "*/agents/php-reviewer.md", "*/agents/security-reviewer.md", "*/agents/pr-test-analyzer.md"]
+  refreshPeriod = "168h"
+
+[".claude/rules/typescript"]
+  type = "archive"
+  url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
+  # renovate: branch=main
+  stripComponents = 3
+  include = ["*/rules/typescript/**"]
+  refreshPeriod = "168h"
+
+[".claude/rules/web"]
+  type = "archive"
+  url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
+  # renovate: branch=main
+  stripComponents = 3
+  include = ["*/rules/web/**"]
+  refreshPeriod = "168h"

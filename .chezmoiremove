@@ -56,3 +56,22 @@ bin/cco
 .claude/skills/browse
 .claude/skills/gstack-upgrade
 .gstack
+
+# ECC plugin を外し、使用中のファイルだけを .chezmoiexternal.toml で取り込むようにした
+# (docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md)。以下は旧
+# run_onchange_after_install-ecc-rules.sh が plugin cache からコピーした chezmoi 管理外の
+# ファイルなので、明示しないと残り続けて読み込まれる。rules/common の自前 4 ファイル
+# (documentation-language / github-actions / harness-engineering / shell-scripting)は
+# Source 管理なので列挙しない。`path/**` は socket で apply が落ちる既知の落とし穴を踏むので bare entry にする。
+.claude/rules/common/agents.md
+.claude/rules/common/code-review.md
+.claude/rules/common/coding-style.md
+.claude/rules/common/development-workflow.md
+.claude/rules/common/git-workflow.md
+.claude/rules/common/hooks.md
+.claude/rules/common/patterns.md
+.claude/rules/common/performance.md
+.claude/rules/common/security.md
+.claude/rules/common/testing.md
+.claude/rules/golang
+.claude/continuous-learning-config.json

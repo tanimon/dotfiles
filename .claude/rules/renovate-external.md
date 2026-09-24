@@ -34,7 +34,7 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 ## Existing Entries
 
-See `.chezmoiexternal.toml` for current entries (currently none — gstack was removed on 2026-09-24; the file holds only a comment restating this contract).
+See `.chezmoiexternal.toml` for current entries: ECC(affaan-m/ECC)から選んだファイル(`ecc-code-review` コマンド・agent 4 つ・rules/typescript・rules/web)。ECC の 4 エントリは同じ SHA を指す。ECC を plugin として丸ごと有効化しない理由は `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`。gstack skills は 2026-09-24 に撤去した(利用実態が WebFetch に寄っていたため。残骸は `.chezmoiremove` で消す)。
 
 ## ここに入れないもの — 配布元がパスを所有する外部スキル
 
