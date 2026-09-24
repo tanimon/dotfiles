@@ -138,6 +138,27 @@ Retargeting `dot_claude/modify_claude.json` to operate on `~/.claude/claude.json
 
 2026-09-18 時点では `.chezmoiignore` は `.claude.json`(symlink)と `.claude/claude.json`(実体)の**両方**を除外している。前者だけだと `chezmoi add ~/.claude` のような一括 add が 0600 の実体(OAuth 資格情報を含む)を拾うため。
 
+## 追記 (2026-09-24) — 作成者は nono。一次証拠で確定
+
+上の追記が「作成者は未特定」で止めていた点が埋まった。**張っているのは nono** で、Claude Code でも chezmoi でもない。
+
+- nono バイナリ 0.72.0 (`/opt/homebrew/bin/nono`) が文字列として `Failed to move ~/.claude.json to ~/.claude/claude.json:` と `Failed to create ~/.claude.json symlink:` を持つ。
+- 実測: 実ファイル状態から `nono run --profile claude-seal --allow-cwd -- /bin/true` を 1 回走らせるだけで、`~/.claude.json` が `.claude/claude.json` への symlink に戻り、実体が `~/.claude/claude.json` へ移る(sha は不変)。Claude Code の起動は不要なので、プロファイル読み込み時のサンドボックス準備段階の動作。
+- 動機は明らか: nono は `$HOME` 直下を許可せず `~/.claude` を丸ごと許可している(`: > ~/.claude/.deadbeefcafe1234.tmp` → OK / `: > ~/.deadbeefcafe1234.tmp` → `Operation not permitted`)。
+- **ただしこの再配置は目的を達していない。** グローバル設定の writer は symlink を解決せず `$HOME/.claude.json.tmp.<pid>.<hex>` を作るので、link の有無に関わらず拒否される。`dot_config/nono/CLAUDE.md` が先に記録している「`~/.claude.json` は nono 内で永続しない」と同じ現象で、link はそれを直していない。
+
+これで 2026-07-25 の初回観測(nono 移行の観測 doc と同日)と「少なくとも 1 度は作り直されている」という読みの両方が説明できる — 実際には nono を起動するたびに張り直されている。
+
+## 追記 (2026-09-24) — de-link 中の `mv` で実体を失う事故
+
+APM 0.30.0 が symlink 越しの prune を拒否するようになったため、`apm install --global` を通すには一時的に link を外す必要がある(`scripts/apm-install-global.sh`)。このとき **戻す `mv` の前に宛先の非存在を確認しないと設定を丸ごと失う**。
+
+実際に起きた形: de-link 中に nono の実行が挟まって link が復活し、実体が `~/.claude/claude.json` へ戻った。そこへ `mv ~/.claude.json ~/.claude/claude.json` を打つと、`~/.claude.json` は既に symlink なので **symlink が実体を上書き**し、`~/.claude.json` → `~/.claude/claude.json` → `~/.claude/.claude/claude.json`(存在しない)という宙吊りの二段 link だけが残る。`~/.claude/.claude/` ディレクトリはこの形の残骸で、7月/8月の日付を持つものが既にあった — つまり**過去にも同じ事故が起きている**。
+
+事後の診断に使える性質: `mv` は symlink の mtime を保存するので、残った link の mtime が「いつ張り直されたか」を示す。
+
+ガードは `[ ! -e ~/.claude/claude.json ]` の 1 行で、`scripts/apm-install-global.sh` に入れてあり `test/apm-install-global.bats` の "real path reappears during the window" が回帰テストとして押さえている。宛先が再出現していたら **マージを試みず中断する** — `~/.claude.json` は通常ファイルのまま残り、nono 外の Claude Code はそのまま読めるし、次の nono 起動が張り直す。絶対に作ってはいけないのは「両方が通常ファイル」の状態。
+
 ## Related Issues
 
 - [`chezmoi-apply-overwrites-runtime-plugin-changes.md`](chezmoi-apply-overwrites-runtime-plugin-changes.md) — the canonical Gotchas-table doc for `modify_` script failure modes against this same file/script family. Its table does not yet cover this write-side symlink-loss case (only read-side stdin corruption/races); a future refresh should add a row for it. That doc's own "Related" section links to `/modify_dot_claude.json`, which is now a stale path — the script lives at `dot_claude/modify_claude.json` as of this fix.

@@ -13,8 +13,9 @@ dependencies:
   mcp:
     # code-review-graph は /doctor(2026-09-18)で全トランスクリプト中 0 回の呼び出しと判定して削除した。
     # ここから消すと次の apm install が両 target から prune する(ADR 0006 の所有境界)。
-    # prune を伴う apm install は ~/.claude.json のシンボリックリンクを平のファイルに置き換えるので、
-    # apply 後に `ls -la ~/.claude.json` を必ず確認すること(CLAUDE.md の Known Pitfalls 参照)。
+    # ただし APM 0.30.0 の prune は ~/.claude.json が symlink だと拒否して install ごと失敗する。
+    # 素の `apm install --global` ではなく `bash scripts/apm-install-global.sh` を使うこと
+    # (chezmoi の run_onchange もこれを呼ぶ)。理由は CLAUDE.md の Known Pitfalls 参照。
     - name: deepwiki
       registry: false
       transport: http
