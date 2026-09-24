@@ -349,7 +349,8 @@ PR 本文には次を含める:
 ```bash
 git -C ~/.local/share/chezmoi pull --ff-only
 chezmoi apply
-claude plugin uninstall ecc@ecc   # plugin cache を片付ける(enabledPlugins から消すだけでは cache が残る)
+claude plugin uninstall ecc@ecc   # plugin cache を片付ける(enabledPlugins を false にするだけでは cache が残る)
+claude plugin marketplace remove ecc
 ```
 
 - [ ] **Step 3: 新しいセッションで対照確認する(変更前の値は spec の表)**

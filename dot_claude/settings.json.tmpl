@@ -263,6 +263,8 @@
     "sentry@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
     "compound-engineering@compound-engineering-plugin": true,
+    {{/* ecc@ecc: 2026-09-24 に plugin 丸ごとの有効化をやめ、使っているファイルだけを .chezmoiexternal.toml で取り込むようにした(docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md)。キーを消すだけだと、installed_plugins.json に残った install が有効扱いされるかどうかが実測できていないので、false を明示して確定させる。 */ -}}
+    "ecc@ecc": false,
     "cclens@cclens": true,
     "pr-review-toolkit@claude-plugins-official": true,
     "mattpocock-skills@claude-plugins-official": true,
