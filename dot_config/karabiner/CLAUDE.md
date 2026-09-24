@@ -1,0 +1,7 @@
+# dot_config/karabiner/ — Karabiner partial ownership
+
+このファイルは Claude Code が `dot_config/karabiner/` 配下で作業するときだけ読み込まれる repo-only の文脈ファイル(`.chezmoiignore` の `.config/karabiner/CLAUDE.md` で除外。同じディレクトリの `modify_karabiner.json` は従来どおり `~/.config/karabiner/karabiner.json` を管理する)。以下の段落は 2026-09-24 の `/doctor`(Check 4)でルート `CLAUDE.md` の Key Patterns から移動したもので、本文は移動時点のまま。「`modify_*` を拡張子で判断しない」という落とし穴はルート `CLAUDE.md` の Known Pitfalls に残っている。
+
+## `dot_config/karabiner/modify_karabiner.json`
+
+**`dot_config/karabiner/modify_karabiner.json`** — Partial management of `~/.config/karabiner/karabiner.json`, mirroring the jq-based partial-ownership pattern formerly used by `dot_claude/modify_claude.json` (now removed in favor of APM; see `dot_apm/CLAUDE.md`). Owns `profiles[*].complex_modifications.rules` only; preserves Karabiner's runtime state (`machine_specific` UUID, profile metadata, `virtual_hid_keyboard`, sibling `complex_modifications.parameters`, etc.) verbatim. The rules array lives at `dot_config/karabiner/complex_modifications.json` and is applied to *every* profile (V1 deliberately ignores per-profile rule divergence). Empty stdin (new-machine bootstrap before Karabiner has been launched) seeds a minimal profile shape with no fabricated `machine_specific`. First apply normalizes the file mode from Karabiner's `0600` to `0644`; Karabiner restores `0600` on next save. Smoke-tested by `just test-modify`.

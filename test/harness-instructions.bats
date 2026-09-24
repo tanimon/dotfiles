@@ -347,7 +347,7 @@ repo_check() {
     # 1 件ずつ見る: grep -e A -e B -e C は「どれか 1 つ」で成功するので、
     # 3 つのうち 2 つが消えても通ってしまう
     local marker
-    for marker in '/harness-reflect' 'mcp__claude-in-chrome' '/browse' 'Claude Code specifics'; do
+    for marker in '/harness-reflect' 'mcp__claude-in-chrome' 'WebFetch' 'Claude Code specifics'; do
         run grep -qF -- "$marker" "$REPO/CLAUDE.md"
         assert_success
     done
@@ -384,7 +384,6 @@ repo_check() {
         'project_doc_max_bytes' \
         '## What This Is' \
         '## Common Commands' \
-        '## chezmoi Naming Conventions' \
         '## Architecture' \
         '## Verification' \
         '## Known Pitfalls' \
@@ -403,9 +402,9 @@ repo_check() {
 }
 
 @test "AGENTS.md と CLAUDE.md の両方に共有モジュールが入っている" {
-    run grep -q 'chezmoi Naming Conventions' "$REPO/AGENTS.md"
+    run grep -q '## Common Commands' "$REPO/AGENTS.md"
     assert_success
-    run grep -q 'chezmoi Naming Conventions' "$REPO/CLAUDE.md"
+    run grep -q '## Common Commands' "$REPO/CLAUDE.md"
     assert_success
 }
 
@@ -419,7 +418,7 @@ repo_check() {
 }
 
 @test "Cursor の rule は共有モジュールを重複して持たない" {
-    run grep -q 'chezmoi Naming Conventions' "$REPO/.cursor/rules/dotfiles.mdc"
+    run grep -q '## Common Commands' "$REPO/.cursor/rules/dotfiles.mdc"
     assert_failure
 }
 

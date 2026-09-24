@@ -165,8 +165,8 @@ EOF
 # 以下 2 件の `chezmoi managed` はネットワークを要求する: chezmoi は source state を
 # 組み立てる際に .chezmoiexternal.toml の archive external(github.com の tarball)を
 # 必ず取得しにいく。`--exclude=externals` も `--refresh-externals=never` も取得自体は
-# 止められないことを実測済み。落ちたときのメッセージは gstack の tarball URL になり、
-# グローバル指示とは無関係に見えるので、この注記を頼りに切り分けること。
+# 止められないことを実測済み。落ちたときのメッセージは external の tarball URL(現在は
+# affaan-m/ECC)になり、グローバル指示とは無関係に見えるので、この注記を頼りに切り分けること。
 @test "chezmoi managed に .codex/AGENTS.md が出る" {
     run chezmoi managed --config "$CONFIG" --source "$REPO"
     assert_success
