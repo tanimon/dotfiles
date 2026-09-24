@@ -27,7 +27,6 @@
       "$HOME/ghq",
       "$XDG_CACHE_HOME",
       "$HOME/.codex",
-      "$HOME/.gstack",
       "$HOME/Library/Application Support/orca/codex-accounts"
     ],
     "read": [

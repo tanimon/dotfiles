@@ -47,9 +47,12 @@ bin/cco
 
 # gstack は /doctor(2026-09-24)で撤去した(.chezmoiexternal.toml のエントリと
 # run_onchange_after_setup-gstack.sh.tmpl を削除)。`.claude/skills/gstack` は external の
-# 配置先、残り 3 つは gstack の `./setup` が作る symlink ディレクトリで chezmoi 管理外だが、
-# 配置済みのものはどちらも apply では消えないのでここで撤去する。bare entry にする理由は上と同じ。
+# 配置先、残り 3 つは gstack の `./setup` が作る実ディレクトリ(中身は gstack 配下への SKILL.md symlink)で chezmoi 管理外だが、
+# 配置済みのものはどちらも apply では消えないのでここで撤去する。`.gstack` は gstack 自身の状態
+# ディレクトリ(config.yaml / projects/)で、claude-seal.json の write grant と gitignore-common の
+# `.gstack/` 除外もここと同時に外した。bare entry にする理由は上と同じ。
 .claude/skills/gstack
 .claude/skills/_gstack-command
 .claude/skills/browse
 .claude/skills/gstack-upgrade
+.gstack

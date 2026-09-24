@@ -347,7 +347,7 @@ repo_check() {
     # 1 件ずつ見る: grep -e A -e B -e C は「どれか 1 つ」で成功するので、
     # 3 つのうち 2 つが消えても通ってしまう
     local marker
-    for marker in '/harness-reflect' 'mcp__claude-in-chrome' '/browse' 'Claude Code specifics'; do
+    for marker in '/harness-reflect' 'mcp__claude-in-chrome' 'WebFetch' 'Claude Code specifics'; do
         run grep -qF -- "$marker" "$REPO/CLAUDE.md"
         assert_success
     done

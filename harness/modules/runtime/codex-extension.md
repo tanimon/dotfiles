@@ -9,7 +9,7 @@ This section comes first deliberately: **Codex truncates this file at `project_d
 
 The rest of this section records what does **not** apply to you, because the repository also configures Claude Code and it is easy to mistake its machinery for repository-wide instructions.
 
-- **Claude Code slash commands do not exist here.** `/harness-reflect`, `/harness-review`, `/browse` and similar are Claude Code entry points. Use the `just` recipes (`just lint`, `just harness-sync`, `just check-instructions`) and the documents under `docs/` directly.
+- **Claude Code slash commands do not exist here.** `/harness-reflect`, `/harness-review` and similar are Claude Code entry points. Use the `just` recipes (`just lint`, `just harness-sync`, `just check-instructions`) and the documents under `docs/` directly.
 - **`~/.claude/` is a deploy target, not your configuration.** Paths under `~/.claude/` are described below because this repository generates them from `dot_claude/`. They are not where your own settings live, and editing them does not change your behavior.
 - **The nono wrapper is on Claude Code's launch path only.** `dot_config/zsh/sandbox.zsh` wraps the `claude` command. Whatever isolation you run under is configured by your own product, not by this repository. Do not assume the grants in `dot_config/nono/profiles/claude-seal.json` apply to you.
 - **Global instructions are out of scope for this file.** `AGENTS.md` here covers this repository only. Your user-global instructions live in `~/.codex/AGENTS.md`, which chezmoi generates from the same shared body as Claude Code's `~/.claude/CLAUDE.md` (`.chezmoitemplates/agent-instructions-common` via `dot_codex/AGENTS.md.tmpl`) — a separate mechanism from this file, which comes from `harness/`.

@@ -1,6 +1,6 @@
 # dot_config/karabiner/ — Karabiner partial ownership
 
-このファイルは Claude Code が `dot_config/karabiner/` 配下で作業するときだけ読み込まれる repo-only の文脈ファイル(`.chezmoiignore` で `~/.config/karabiner/` への配置を除外)。以下の段落は 2026-09-24 の `/doctor`(Check 4)でルート `CLAUDE.md` の Key Patterns から移動したもので、本文は移動時点のまま。「`modify_*` を拡張子で判断しない」という落とし穴はルート `CLAUDE.md` の Known Pitfalls に残っている。
+このファイルは Claude Code が `dot_config/karabiner/` 配下で作業するときだけ読み込まれる repo-only の文脈ファイル(`.chezmoiignore` の `.config/karabiner/CLAUDE.md` で除外。同じディレクトリの `modify_karabiner.json` は従来どおり `~/.config/karabiner/karabiner.json` を管理する)。以下の段落は 2026-09-24 の `/doctor`(Check 4)でルート `CLAUDE.md` の Key Patterns から移動したもので、本文は移動時点のまま。「`modify_*` を拡張子で判断しない」という落とし穴はルート `CLAUDE.md` の Known Pitfalls に残っている。
 
 ## `dot_config/karabiner/modify_karabiner.json`
 
