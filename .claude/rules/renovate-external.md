@@ -12,7 +12,7 @@ Rules for managing external dependencies in `.chezmoiexternal.toml` with Renovat
 
 ## Renovate Contract — .chezmoiexternal.toml
 
-All external entries use `type = "archive"` with SHA-embedded GitHub archive URLs. The regex custom manager in `renovate.json` requires these two lines to appear **in order with no intervening keys or content** — only whitespace between them:
+All external entries use `type = "archive"` (or `archive-file` for a single file out of the tarball — the ECC `ecc-code-review` command is one) with SHA-embedded GitHub archive URLs. The regex custom manager in `renovate.json` requires these two lines to appear **in order with no intervening keys or content** — only whitespace between them:
 
 ```toml
   url = "https://github.com/owner/repo/archive/full-sha-here.tar.gz"
@@ -25,10 +25,10 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 ## Adding a New External Entry
 
-1. Add the TOML block with `type = "archive"`
+1. Add the TOML block with `type = "archive"` (a whole directory; narrow with `include`) or `type = "archive-file"` (one file, named by `path`)
 2. Use a GitHub archive URL embedding the full commit SHA: `https://github.com/owner/repo/archive/<sha>.tar.gz`
 3. Add `# renovate: branch=<branch>` immediately after the `url` line
-4. Add `stripComponents = 1` to strip the archive's top-level directory
+4. Add `stripComponents` to strip the archive's top-level directory (`1` for the repo root; deeper when the target is a subdirectory — the ECC entries use `2` / `3`)
 5. Include `refreshPeriod` for chezmoi's own refresh cycle
 6. Verify Renovate detects the entry: check the Renovate dashboard or dry-run
 
