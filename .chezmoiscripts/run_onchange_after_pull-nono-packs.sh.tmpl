@@ -11,7 +11,8 @@ set -euo pipefail
 # nono と無関係な dotfiles まで `chezmoi apply` / `diff` 全体が止まる)ので `unknown` に倒す。
 # テンプレートは apply の開始時に描画されるため、同じ apply 内の `brew bundle` で nono が
 # 上がった場合は次の apply で再実行される。
-# nono version: {{ if lookPath "nono" }}{{ output "sh" "-c" "nono --version 2>/dev/null || echo unknown" | trim }}{{ else }}not-installed{{ end }}
+# 出力が複数行でも改行を空白に畳む(2 行目以降がコメントの外に出ると、シェルのコマンドとして実行される)。
+# nono version: {{ if lookPath "nono" }}{{ output "sh" "-c" "nono --version 2>/dev/null || echo unknown" | trim | replace "\n" " " }}{{ else }}not-installed{{ end }}
 
 if ! command -v nono >/dev/null 2>&1; then
   echo "WARNING: nono not found, skipping pack install"

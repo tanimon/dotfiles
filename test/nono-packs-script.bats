@@ -61,6 +61,17 @@ render() {
     assert_output --partial '# nono version: unknown'
 }
 
+@test "nono --version が複数行を出しても、描画後のスクリプトはコメント 1 行に収まり実行できる" {
+    # 2 行目以降がコメントの外に出ると、そのままシェルのコマンドとして実行される
+    make_fake_nono '[ "$1" = --version ] && { echo "nono 0.79.0"; echo "extra-line"; exit 0; }
+exit 0'
+    render >"${BATS_TEST_TMPDIR}/script.sh"
+    run grep -c '^extra-line' "${BATS_TEST_TMPDIR}/script.sh"
+    assert_output '0'
+    run env PATH="${FAKE_BIN}:/usr/bin:/bin" bash "${BATS_TEST_TMPDIR}/script.sh"
+    assert_success
+}
+
 @test "nono が無いときは not-installed になる" {
     run render
     assert_success
