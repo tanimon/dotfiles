@@ -3,6 +3,16 @@
 set -euo pipefail
 
 # packs.txt hash: {{ include "dot_config/nono/packs.txt" | sha256sum }}
+# nono のバージョンもハッシュ対象にする。brew upgrade でバイナリだけが上がると、
+# 導入済み pack の profile がバイナリの受け付けるスキーマから外れることがある
+# (0.78.0 で `undo` → `rollback` に改名され、pack 0.1.0 の profile が parse
+# error になった。#363)。packs.txt だけを見ていると、このときスクリプトが再実行されない。
+# `nono --version` が非0で終わっても描画は失敗させない(`output` はエラーを返し、
+# nono と無関係な dotfiles まで `chezmoi apply` / `diff` 全体が止まる)ので `unknown` に倒す。
+# テンプレートは apply の開始時に描画されるため、同じ apply 内の `brew bundle` で nono が
+# 上がった場合は次の apply で再実行される。
+# 出力が複数行でも改行を空白に畳む(2 行目以降がコメントの外に出ると、シェルのコマンドとして実行される)。
+# nono version: {{ if lookPath "nono" }}{{ output "sh" "-c" "nono --version 2>/dev/null || echo unknown" | trim | replace "\n" " " }}{{ else }}not-installed{{ end }}
 
 if ! command -v nono >/dev/null 2>&1; then
   echo "WARNING: nono not found, skipping pack install"
@@ -13,9 +23,18 @@ fi
 # pulling. Set NONO_AUTO_MIGRATE=1 so the pull runs unattended.
 export NONO_AUTO_MIGRATE=1
 
+# `nono pull` は pack の導入用で、導入済み pack の更新は `nono update` の役割。
+# バイナリの更新に pack を追従させるため、pull の後に同じ pack を最新へ上げる
+# (pinned の pack は nono 側がスキップする)。引数なしの `nono update` は packs.txt に無い、
+# 手で入れた pack まで更新してしまうので、pack を指定して宣言範囲に閉じる。
+# 失敗しても exit 0 にする(pull と同じく、ネットワーク断で apply 全体を止めない)。
+# その場合 run_onchange は実行済みとして記録し、次にバージョンか packs.txt が変わるまで
+# 再実行しないので、WARNING に従って手で `nono update` を実行する。
 while IFS= read -r pack || [ -n "$pack" ]; do
   [[ -z "$pack" || "$pack" == \#* ]] && continue
   echo "Ensuring nono pack: ${pack}"
   nono pull "$pack" || echo "WARNING: nono pull ${pack} failed"
+  echo "Updating nono pack: ${pack}"
+  nono update "$pack" || echo "WARNING: nono update ${pack} failed; run 'nono update ${pack}' manually (this script will not re-run until nono or packs.txt changes)"
 done < "{{ .chezmoi.sourceDir }}/dot_config/nono/packs.txt"
 {{ end -}}

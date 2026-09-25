@@ -234,7 +234,9 @@ jobs:
 
       - name: Alert on workflow failure
         if: failure()
-        uses: ./.github/actions/harness-issue-alert
+        # zizmor 1.30.0 の self-repository 監査は `$/...` 構文を求めるが、actionlint 1.7.12(最新)は
+        # `$/` を不正な形式として拒否する(rhysd/actionlint#711)。actionlint が対応するまで `./` のまま抑制する。
+        uses: ./.github/actions/harness-issue-alert # zizmor: ignore[self-repository]
         with:
           title: "[harness] Scheduled workflow failing: Security Alerts"
           body: |

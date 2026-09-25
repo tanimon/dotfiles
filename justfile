@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-apm-install test-nono-profile test-deliver
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
 
 # Scan for leaked secrets
 @secretlint:
@@ -213,3 +213,9 @@ check-templates:
 # Validate the nono sandbox profile (local only — CI does not install nono)
 @test-nono-profile:
     pnpm exec bats test/nono-profile.bats
+
+# The nono pack sync script drives a fake nono. Local only: the template is
+# darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).
+# Smoke test the nono pack sync script (version hash + pull/update)
+@test-nono-packs:
+    LC_ALL=C pnpm exec bats test/nono-packs-script.bats
