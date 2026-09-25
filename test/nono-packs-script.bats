@@ -78,15 +78,18 @@ exit 0'
     assert_output --partial '# nono version: not-installed'
 }
 
-@test "描画後のスクリプトは pull の後に update を呼ぶ" {
+@test "描画後のスクリプトは pack ごとに pull の後に同じ pack を指定して update を呼ぶ" {
     make_fake_nono 'exit 0'
     render >"${BATS_TEST_TMPDIR}/script.sh"
     run env PATH="${FAKE_BIN}:/usr/bin:/bin" bash "${BATS_TEST_TMPDIR}/script.sh"
     assert_success
     # 1 行目は描画時の --version。以降が実行時の呼び出し
+    # 引数なしの `nono update` は packs.txt に無い pack まで更新するので、pack 指定を強制する
     run tail -n 2 "${CALLS}"
-    assert_line --index 0 --regexp '^pull '
-    assert_line --index 1 'update'
+    assert_line --index 0 --regexp '^pull [^ ]+/[^ ]+$'
+    assert_line --index 1 --regexp '^update [^ ]+/[^ ]+$'
+    pulled="${lines[0]#pull }"
+    assert_equal "${lines[1]}" "update ${pulled}"
 }
 
 @test "update が失敗しても exit 0 で、手動実行を促す WARNING を出す" {
@@ -95,5 +98,5 @@ exit 0'
     render >"${BATS_TEST_TMPDIR}/script.sh"
     run env PATH="${FAKE_BIN}:/usr/bin:/bin" bash "${BATS_TEST_TMPDIR}/script.sh"
     assert_success
-    assert_output --partial "WARNING: nono update failed; run 'nono update' manually"
+    assert_output --regexp "WARNING: nono update [^ ]+/[^ ]+ failed; run 'nono update [^ ]+/[^ ]+' manually"
 }
