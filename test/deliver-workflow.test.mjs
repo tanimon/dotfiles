@@ -96,7 +96,11 @@ function scenario({
   };
 }
 
-async function runWorkflow({ args = {}, respond = scenario() } = {}) {
+async function runWorkflow({
+  args = {},
+  respond = scenario(),
+  budget = { total: null, spent: () => 1234, remaining: () => Infinity },
+} = {}) {
   const calls = [];
   const agent = async (prompt, opts = {}) => {
     calls.push({ label: opts.label, prompt });
@@ -106,7 +110,6 @@ async function runWorkflow({ args = {}, respond = scenario() } = {}) {
   const pipeline = async () => {
     throw new Error("deliver does not use pipeline()");
   };
-  const budget = { total: null, spent: () => 1234, remaining: () => Infinity };
   const body = SCRIPT.replace(/^export const meta/m, "const meta");
   const run = new AsyncFunction(
     "agent",
@@ -750,4 +753,74 @@ test("書き直しても本文と合わなければ PR を作らずに published
   assert.equal(result.published, false);
   assert.match(result.publishError, /pr-body\.md/);
   assert.match(result.report, /## Unresolved Finding/);
+});
+
+// 残りが BUDGET_FLOOR を割るのは、指定した label の agent を呼び終えた後から。
+function budgetLowAfter(label) {
+  let low = false;
+  return {
+    budget: { total: 1000000, spent: () => 1234, remaining: () => (low ? 1 : 1000000) },
+    wrap: (respond) => (l, calls) => {
+      const result = respond(l, calls);
+      if (l === label) low = true;
+      return result;
+    },
+  };
+}
+
+test("実装タスクの途中で予算が下限を割ったら、次のタスクに進まず budget で止める", async () => {
+  const { budget, wrap } = budgetLowAfter("implement:1");
+  const { result, labels } = await runWorkflow({
+    budget,
+    respond: wrap(
+      scenario({
+        tasks: [
+          { title: "t1", summary: "s1" },
+          { title: "t2", summary: "s2" },
+        ],
+      }),
+    ),
+  });
+  assert.ok(!labels.includes("implement:2"));
+  assert.equal(result.stopReason, "budget");
+});
+
+test("動作確認の再試行の前に予算が下限を割ったら、budget で止める", async () => {
+  const { budget, wrap } = budgetLowAfter("verify:1");
+  const { result, labels } = await runWorkflow({
+    budget,
+    respond: wrap(scenario({ verifies: [{ passed: false, summary: "画面が真っ白" }] })),
+  });
+  assert.ok(!labels.includes("fix-verify:1"));
+  assert.equal(result.stopReason, "budget");
+});
+
+test("公開できなくても、入口 skill が書き出せるよう ledger を返す", async () => {
+  const base = scenario();
+  const { result } = await runWorkflow({
+    respond: (label, calls) => {
+      if (label.startsWith("publish-write:")) throw new Error("budget exhausted");
+      return base(label, calls);
+    },
+  });
+  assert.equal(result.published, false);
+  assert.equal(JSON.parse(result.ledger).config.planPath, BASE_ARGS.planPath);
+});
+
+test("途中のラウンドでレビュアーが欠けていても、報告の先頭で警告する", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: null, requesting: [finding("Important")] }, {}],
+      merges: [[cluster("a.js::bug", ["requesting#0"])], []],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed", reason: "" }], observations: [] }],
+    }),
+  });
+  assert.ok(result.report.startsWith("> **注意**"));
+  assert.match(result.report.split("\n")[0], /ラウンド 1.*ecc/);
+});
+
+test("base との差分コミットが無ければ PR を作らないよう公開エージェントに指示する", async () => {
+  const { calls } = await runWorkflow();
+  const prompt = calls.find((c) => c.label === "publish").prompt;
+  assert.match(prompt, /git rev-list --count origin\/main\.\.HEAD/);
 });

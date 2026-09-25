@@ -240,6 +240,14 @@ function newState(config) {
   };
 }
 
+// budget.total は hard ceiling で、達すると以後の agent() はすべて throw する。公開の分を残すため、
+// agent を呼ぶループの各周回の先頭で下限を割っていないか確かめる。
+function budgetExhausted(state) {
+  if (!budget.total || budget.remaining() >= BUDGET_FLOOR) return false;
+  state.stopReason = "budget";
+  return true;
+}
+
 function collectObservations(state, source, result) {
   if (!result || !Array.isArray(result.observations)) return;
   for (const o of result.observations) state.observations.push(`${source}: ${o}`);
@@ -417,9 +425,10 @@ LEDGER`;
 
 function publishPrompt(state, dir) {
   return `次の手順で公開せよ。本文のファイルは書き出し済みなので、内容を変えない。
-1. 現在のブランチを push する(force push はしない)。
-2. このブランチの PR が無ければ「gh pr create --draft --base ${state.config.prBase} --title <TITLE> --body-file ${dir}/pr-body.md」で作る。既にあれば「gh pr edit --body-file ${dir}/pr-body.md」で本文を更新する。
-3. PR の URL と ledger の絶対パス(${dir}/ledger.json)を返す。どこかで失敗したら pushed=false と error を返す。
+1. 「git rev-list --count ${state.config.baseRef}..HEAD」が 0 なら、push も PR の作成もせず、pushed=false と error「${state.config.baseRef} との差分コミットが無いため PR を作らなかった」を返す。
+2. 現在のブランチを push する(force push はしない)。
+3. このブランチの PR が無ければ「gh pr create --draft --base ${state.config.prBase} --title <TITLE> --body-file ${dir}/pr-body.md」で作る。既にあれば「gh pr edit --body-file ${dir}/pr-body.md」で本文を更新する。
+4. PR の URL と ledger の絶対パス(${dir}/ledger.json)を返す。どこかで失敗したら pushed=false と error を返す。
 
 TITLE: ${state.title || "deliver"}`;
 }
@@ -467,12 +476,13 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
-  const lastRound = state.rounds[state.rounds.length - 1];
-  if (lastRound && lastRound.missingReviewers.length > 0) {
-    lines.push(
-      `> **注意**: 最後のレビューラウンドで結果を返さなかったレビュアーがいる(${lastRound.missingReviewers.join(", ")})。収束の根拠が不完全`,
-      "",
-    );
+  // 途中のラウンドで欠けても、その前の修正を片方のレビュアーしか確かめていないので、収束の根拠が欠ける。
+  const incomplete = state.rounds.filter((r) => r.missingReviewers.length > 0);
+  if (incomplete.length > 0) {
+    const detail = incomplete
+      .map((r) => `ラウンド ${r.round}: ${r.missingReviewers.join(", ")}`)
+      .join(" / ");
+    lines.push(`> **注意**: 結果を返さなかったレビュアーがいる(${detail})。収束の根拠が不完全`, "");
   }
   if (state.stopReason) {
     const detail = state.stopDetail ? `(${state.stopDetail})` : "";
@@ -532,6 +542,7 @@ async function implement(state) {
   state.title = parsed.title;
   phase("Implement");
   for (let i = 0; i < parsed.tasks.length; i++) {
+    if (budgetExhausted(state)) return;
     const task = parsed.tasks[i];
     const label = `implement:${i + 1}`;
     const result = await agent(implementPrompt(task, i, parsed.tasks.length, config), {
@@ -711,10 +722,7 @@ async function reviewRounds(state, tracker) {
   // 見送りを却下された指摘は修正されていないので、次のラウンドで再指摘されなくても直ったとはみなさない。
   let previousRejections = { items: [], first: new Set() };
   for (let fixRound = 0; ; fixRound++) {
-    if (budget.total && budget.remaining() < BUDGET_FLOOR) {
-      state.stopReason = "budget";
-      return;
-    }
+    if (budgetExhausted(state)) return;
     const roundNo = state.rounds.length + 1;
     phase("Review");
     if (!(await runChecks(state, roundNo))) return;
@@ -801,6 +809,7 @@ async function verify(state) {
     );
     if (result && result.passed) return;
     if (attempt > config.maxVerifyRetries) return;
+    if (budgetExhausted(state)) return;
     const fixLabel = `fix-verify:${attempt}`;
     const fix = await agent(fixVerifyPrompt(result, config), {
       label: fixLabel,
@@ -819,9 +828,8 @@ async function verify(state) {
   }
 }
 
-async function publish(state, report) {
+async function publish(state, report, ledger) {
   phase("Publish");
-  const ledger = ledgerJson(state);
   for (let attempt = 1; attempt <= 2; attempt++) {
     const written = await agent(writePrompt(report, ledger), {
       label: `publish-write:${attempt}`,
@@ -862,9 +870,10 @@ try {
 }
 state.outputTokens = budget.spent();
 const report = renderReport(state);
+const ledger = ledgerJson(state);
 let published = null;
 try {
-  published = await publish(state, report);
+  published = await publish(state, report, ledger);
 } catch (error) {
   published = { pushed: false, error: String(error && error.message ? error.message : error) };
   log(`公開に失敗した: ${published.error}`);
@@ -875,4 +884,6 @@ return {
   publishError: published && !published.pushed ? published.error || "理由なし" : null,
   stopReason: state.stopReason,
   report,
+  // 公開できなかったとき、入口 skill(agent() の上限の対象外)が pr-body.md / ledger.json を書き出すのに使う。
+  ledger,
 };
