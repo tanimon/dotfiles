@@ -3,6 +3,11 @@
 set -euo pipefail
 
 # packs.txt hash: {{ include "dot_config/nono/packs.txt" | sha256sum }}
+# nono のバージョンもハッシュ対象にする。brew upgrade でバイナリだけが上がると、
+# 導入済み pack の profile がバイナリの受け付けるスキーマから外れることがある
+# (0.78.0 で `undo` → `rollback` に改名され、pack 0.1.0 の profile が parse
+# error になった。#363)。packs.txt だけを見ていると、このときスクリプトが再実行されない。
+# nono version: {{ if lookPath "nono" }}{{ output "nono" "--version" | trim }}{{ else }}not-installed{{ end }}
 
 if ! command -v nono >/dev/null 2>&1; then
   echo "WARNING: nono not found, skipping pack install"
@@ -18,4 +23,10 @@ while IFS= read -r pack || [ -n "$pack" ]; do
   echo "Ensuring nono pack: ${pack}"
   nono pull "$pack" || echo "WARNING: nono pull ${pack} failed"
 done < "{{ .chezmoi.sourceDir }}/dot_config/nono/packs.txt"
+
+# `nono pull` は pack の導入用で、導入済み pack の更新は `nono update` の役割。
+# バイナリの更新に pack を追従させるため、導入済みの pack を最新へ上げる
+# (pinned の pack は nono 側がスキップする)。
+echo "Updating installed nono packs"
+nono update || echo "WARNING: nono update failed"
 {{ end -}}
