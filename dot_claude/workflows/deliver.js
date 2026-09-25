@@ -44,7 +44,7 @@ const STOP_REASONS = {
   "fixer-failed": "修正エージェントが結果を返さなかった",
   "plan-breaking": "plan どおりに作ると壊れる Plan Concern が出た",
   "verify-unfixed": "動作確認の失敗を修正エージェントが直せなかったため、再確認しなかった",
-  budget: "トークン予算の残りが少ないため、次のラウンドに入らなかった",
+  budget: "トークン予算の残りが下限を割ったため、次の段階に進まなかった",
   error: "エージェントの実行中に例外が発生した",
 };
 
@@ -242,9 +242,10 @@ function newState(config) {
 
 // budget.total は hard ceiling で、達すると以後の agent() はすべて throw する。公開の分を残すため、
 // agent を呼ぶループの各周回の先頭で下限を割っていないか確かめる。
-function budgetExhausted(state) {
+function budgetExhausted(state, next) {
   if (!budget.total || budget.remaining() >= BUDGET_FLOOR) return false;
   state.stopReason = "budget";
+  state.stopDetail = `${next}の前で停止`;
   return true;
 }
 
@@ -542,8 +543,8 @@ async function implement(state) {
   state.title = parsed.title;
   phase("Implement");
   for (let i = 0; i < parsed.tasks.length; i++) {
-    if (budgetExhausted(state)) return;
     const task = parsed.tasks[i];
+    if (budgetExhausted(state, `タスク ${i + 1}/${parsed.tasks.length}「${task.title}」`)) return;
     const label = `implement:${i + 1}`;
     const result = await agent(implementPrompt(task, i, parsed.tasks.length, config), {
       label,
@@ -722,8 +723,8 @@ async function reviewRounds(state, tracker) {
   // 見送りを却下された指摘は修正されていないので、次のラウンドで再指摘されなくても直ったとはみなさない。
   let previousRejections = { items: [], first: new Set() };
   for (let fixRound = 0; ; fixRound++) {
-    if (budgetExhausted(state)) return;
     const roundNo = state.rounds.length + 1;
+    if (budgetExhausted(state, `レビューラウンド ${roundNo}`)) return;
     phase("Review");
     if (!(await runChecks(state, roundNo))) return;
     const findings = await runReviewers(state, roundNo);
@@ -796,6 +797,7 @@ async function verify(state) {
   const { config } = state;
   if (config.verifySkill === "none") return;
   for (let attempt = 1; ; attempt++) {
+    if (budgetExhausted(state, `動作確認 ${attempt} 回目`)) return;
     phase("Verify");
     const label = `verify:${attempt}`;
     const result = await agent(verifyPrompt(config), {
@@ -809,7 +811,7 @@ async function verify(state) {
     );
     if (result && result.passed) return;
     if (attempt > config.maxVerifyRetries) return;
-    if (budgetExhausted(state)) return;
+    if (budgetExhausted(state, `動作確認の失敗の修正 ${attempt} 回目`)) return;
     const fixLabel = `fix-verify:${attempt}`;
     const fix = await agent(fixVerifyPrompt(result, config), {
       label: fixLabel,

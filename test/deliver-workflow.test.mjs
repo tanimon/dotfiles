@@ -795,6 +795,30 @@ test("動作確認の再試行の前に予算が下限を割ったら、budget �
   assert.equal(result.stopReason, "budget");
 });
 
+test("レビューの収束後に予算が下限を割ったら、1回目の動作確認にも入らず budget で止める", async () => {
+  const { budget, wrap } = budgetLowAfter("review:requesting");
+  const { result, labels } = await runWorkflow({ budget, respond: wrap(scenario()) });
+  assert.ok(!labels.includes("verify:1"));
+  assert.equal(result.stopReason, "budget");
+});
+
+test("budget で止まったとき、どこの前で止まったかを報告に出す", async () => {
+  const { budget, wrap } = budgetLowAfter("implement:1");
+  const { result } = await runWorkflow({
+    budget,
+    respond: wrap(
+      scenario({
+        tasks: [
+          { title: "t1", summary: "s1" },
+          { title: "t2", summary: "s2" },
+        ],
+      }),
+    ),
+  });
+  assert.doesNotMatch(result.report, /次のラウンドに入らなかった/);
+  assert.match(result.report, /タスク 2\/2「t2」の前/);
+});
+
 test("公開できなくても、入口 skill が書き出せるよう ledger を返す", async () => {
   const base = scenario();
   const { result } = await runWorkflow({
