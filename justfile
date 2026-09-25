@@ -113,7 +113,7 @@ zizmor:
 # "unknown test name" failures (23 -> 16 executed). See .claude/rules/shell-scripts.md.
 # Smoke test hook scripts
 @test-scripts:
-    LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats
+    LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats
 
 # Validate chezmoi templates
 check-templates:

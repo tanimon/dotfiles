@@ -2,7 +2,7 @@
 
 ### `.chezmoiexternal.toml`
 
-Pulls external archives into the managed tree with auto-refresh. Current entries are the 4 ECC (affaan-m/ECC) pulls — the `ecc-code-review` command, 4 agents, `rules/typescript`, `rules/web` — all pinned to the same SHA (design: `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`); gstack skills were removed on 2026-09-24 by `/doctor`. Each entry uses `type = "archive"` (or `archive-file`) with the commit SHA embedded in the GitHub archive URL for supply-chain safety, and Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved when adding one.
+Pulls external archives into the managed tree with auto-refresh. Current entries are the 4 ECC (affaan-m/ECC) pulls — the `ecc-code-review` command, 4 agents, `rules/typescript`, `rules/web` — all pinned to the same SHA (design: `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`). Each entry uses `type = "archive"` (or `archive-file`) with the commit SHA embedded in the GitHub archive URL for supply-chain safety, and Renovate auto-updates these SHAs — see `.claude/rules/renovate-external.md` for the adjacency contract that must be preserved when adding one.
 
 ### Directory Layout
 
