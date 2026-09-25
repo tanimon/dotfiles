@@ -41,6 +41,7 @@ const STOP_REASONS = {
   "fixer-failed": "修正エージェントが結果を返さなかった",
   "plan-breaking": "plan どおりに作ると壊れる Plan Concern が出た",
   budget: "トークン予算の残りが少ないため、次のラウンドに入らなかった",
+  error: "エージェントの実行中に例外が発生した",
 };
 
 const STRINGS = { type: "array", items: { type: "string" } };
@@ -211,6 +212,8 @@ function newState(config) {
     advisory: [],
     knownClusters: [],
     rejectedDeferrals: {},
+    closedRepeats: [],
+    lastMissingReviewers: [],
     verification: [],
     observations: [],
     reviewerFailures: [],
@@ -230,7 +233,9 @@ function isBlocking(finding) {
   return Boolean(reviewer && reviewer.blocking.includes(finding.severity));
 }
 
-// closedKeys(Deferred / Unresolved 済み)の cluster は、再び出ても扱わない。
+// target と planBreaking は merge の申告ではなく元の指摘(members)から導く。merge に任せるのは
+// 重複をまとめることだけで、判定の入力にはしない(ADR 0007)。
+// closedKeys(Deferred / Unresolved 済み)に統合された修正必須指摘は、判定から外すが報告には残す。
 function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys) {
   const out = {
     blocking: [],
@@ -238,6 +243,7 @@ function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys)
     planConcerns: [],
     planBreaking: [],
     advisory: [],
+    closedRepeats: [],
     dropped: [],
   };
   for (const c of clusters) {
@@ -246,20 +252,28 @@ function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys)
       out.dropped.push(c.key);
       continue;
     }
-    if (closedKeys.has(c.key)) continue;
-    const item = {
-      key: c.key,
+    const toItem = (key, ms) => ({
+      key,
       file: c.file,
       line: c.line,
       summary: c.summary,
-      severities: members.map((m) => `${m.reviewer}:${m.severity}`),
-    };
-    if (c.target === "plan") {
+      severities: ms.map((m) => `${m.reviewer}:${m.severity}`),
+      findings: ms.map((m) => m.summary),
+    });
+    const planMembers = members.filter((m) => m.target === "plan");
+    const codeMembers = members.filter((m) => m.target !== "plan");
+    if (planMembers.length > 0) {
+      const item = toItem(codeMembers.length > 0 ? `${c.key}::plan` : c.key, planMembers);
       out.planConcerns.push(item);
-      if (c.planBreaking || members.some((m) => m.planBreaking)) out.planBreaking.push(item);
+      if (planMembers.some((m) => m.planBreaking)) out.planBreaking.push(item);
+    }
+    if (codeMembers.length === 0) continue;
+    const item = toItem(c.key, codeMembers);
+    if (closedKeys.has(c.key)) {
+      if (codeMembers.some(isBlocking)) out.closedRepeats.push(item);
       continue;
     }
-    if (!members.some(isBlocking)) out.advisory.push(item);
+    if (!codeMembers.some(isBlocking)) out.advisory.push(item);
     else if (previousBlockingKeys.has(c.key)) out.repeated.push(item);
     else out.blocking.push(item);
   }
@@ -404,6 +418,13 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
+  const lastRound = state.rounds[state.rounds.length - 1];
+  if (lastRound && lastRound.missingReviewers.length > 0) {
+    lines.push(
+      `> **注意**: 最後のレビューラウンドで結果を返さなかったレビュアーがいる(${lastRound.missingReviewers.join(", ")})。収束の根拠が不完全`,
+      "",
+    );
+  }
   if (state.stopReason) {
     const detail = state.stopDetail ? `(${state.stopDetail})` : "";
     lines.push(`> **停止**: ${STOP_REASONS[state.stopReason]}${detail}`, "");
@@ -411,6 +432,13 @@ function renderReport(state) {
   if (verificationFailed) pushVerification();
   pushSection("Unresolved Finding", uniqueByKey(state.unresolved), formatItem);
   pushSection("Plan Concern", uniqueByKey(state.planConcerns), formatItem);
+  if (state.closedRepeats.length > 0) {
+    pushSection(
+      "閉じた指摘に統合された修正必須指摘",
+      state.closedRepeats,
+      (i) => `${formatItem(i)} — 元の指摘: ${i.findings.join(" / ")}`,
+    );
+  }
   if (!verificationFailed) pushVerification();
   pushSection(
     "Deferred Finding",
@@ -491,6 +519,7 @@ async function runReviewers(state, roundNo) {
     ),
   );
   const findings = [];
+  state.lastMissingReviewers = REVIEWERS.filter((r, i) => !results[i]).map((r) => r.id);
   results.forEach((result, i) => {
     const reviewer = REVIEWERS[i];
     if (!result) {
@@ -593,7 +622,23 @@ async function runFix(state, roundNo, blocking) {
   return firstRejections;
 }
 
+// 修正した後、再レビューで確かめる前に止まった(停止・例外)指摘は、直ったと扱わずに Unresolved に残す。
 async function reviewLoop(state) {
+  const tracker = { unverified: [] };
+  try {
+    await reviewRounds(state, tracker);
+  } finally {
+    markUnresolved(
+      state,
+      tracker.unverified.map((i) => ({
+        ...i,
+        summary: `${i.summary}(修正後に再レビューされていない)`,
+      })),
+    );
+  }
+}
+
+async function reviewRounds(state, tracker) {
   let previousBlockingKeys = new Set();
   for (let fixRound = 0; ; fixRound++) {
     if (budget.total && budget.remaining() < BUDGET_FLOOR) {
@@ -610,6 +655,7 @@ async function reviewLoop(state) {
     const byId = Object.fromEntries(findings.map((f) => [f.id, f]));
     const closedKeys = new Set([...state.deferredKeys, ...state.unresolvedKeys]);
     const result = classifyRound(clusters, byId, previousBlockingKeys, closedKeys);
+    tracker.unverified = [];
     if (result.dropped.length > 0)
       log(`有効な指摘を含まない cluster を捨てた: ${result.dropped.join(", ")}`);
     state.rounds.push({
@@ -617,7 +663,13 @@ async function reviewLoop(state) {
       blocking: result.blocking.length,
       repeated: result.repeated.length,
       advisory: result.advisory.length,
+      missingReviewers: state.lastMissingReviewers,
     });
+    if (result.closedRepeats.length > 0)
+      log(
+        `閉じた key に統合された修正必須指摘: ${result.closedRepeats.map((i) => i.key).join(", ")}`,
+      );
+    state.closedRepeats.push(...result.closedRepeats);
     markUnresolved(state, result.repeated);
     state.advisory.push(...result.advisory);
     state.planConcerns.push(...result.planConcerns);
@@ -635,6 +687,7 @@ async function reviewLoop(state) {
     }
     const firstRejections = await runFix(state, roundNo, result.blocking);
     if (state.stopReason) return;
+    tracker.unverified = result.blocking.filter((b) => !state.deferredKeys.has(b.key));
     previousBlockingKeys = new Set(
       result.blocking.map((b) => b.key).filter((k) => !firstRejections.has(k)),
     );
@@ -681,12 +734,23 @@ async function publish(state, report) {
 
 const config = validateArgs(args);
 const state = newState(config);
-await implement(state);
-if (!state.stopReason) await reviewLoop(state);
-if (!state.stopReason) await verify(state);
+// 例外(budget の上限到達など)で報告ごと失わないよう、ここまでの状態で必ず報告を組み立てる。
+try {
+  await implement(state);
+  if (!state.stopReason) await reviewLoop(state);
+  if (!state.stopReason) await verify(state);
+} catch (error) {
+  state.stopReason = "error";
+  state.stopDetail = String(error && error.message ? error.message : error);
+}
 state.outputTokens = budget.spent();
 const report = renderReport(state);
-const published = await publish(state, report);
+let published = null;
+try {
+  published = await publish(state, report);
+} catch (error) {
+  log(`公開に失敗した: ${error && error.message ? error.message : error}`);
+}
 return {
   prUrl: published && published.prUrl ? published.prUrl : null,
   published: Boolean(published && published.pushed),

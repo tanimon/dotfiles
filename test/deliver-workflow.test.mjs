@@ -379,3 +379,97 @@ test("observations を報告にまとめる", async () => {
   });
   assert.match(section(result.report, "Observations"), /implement:1: README が古い/);
 });
+
+test("merge が code の修正必須指摘を plan の cluster に入れても、code 側は修正に回す", async () => {
+  const { result, labels } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")], requesting: [finding("Minor", { target: "plan" })] }, {}],
+      merges: [[cluster("a.js::mixed", ["ecc#0", "requesting#0"], { target: "plan" })]],
+      fixes: [{ results: [{ key: "a.js::mixed", action: "fixed", reason: "" }], observations: [] }],
+    }),
+  });
+  assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 1);
+  assert.match(section(result.report, "Plan Concern"), /issue a.js::mixed/);
+});
+
+test("merge の planBreaking 申告だけでは停止しない(元の指摘が planBreaking のときだけ止まる)", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ requesting: [finding("Minor", { target: "plan" })] }],
+      merges: [[cluster("plan::x", ["requesting#0"], { target: "plan", planBreaking: true })]],
+    }),
+  });
+  assert.equal(result.stopReason, null);
+});
+
+test("閉じた key に統合された修正必須指摘は、元の指摘の内容を報告に残す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [
+        { requesting: [finding("Important")] },
+        { requesting: [finding("Important")], ecc: [finding("CRITICAL", { summary: "new sqli" })] },
+      ],
+      merges: [
+        [cluster("a.js::scope", ["requesting#0"])],
+        [cluster("a.js::scope", ["requesting#0", "ecc#0"])],
+      ],
+      fixes: [
+        {
+          results: [{ key: "a.js::scope", action: "propose-defer", reason: "plan の範囲外" }],
+          observations: [],
+        },
+      ],
+      verdicts: { "a.js::scope": { agree: true, reason: "plan のタスク外" } },
+    }),
+  });
+  assert.match(section(result.report, "閉じた指摘に統合された修正必須指摘"), /new sqli/);
+});
+
+test("最終ラウンドでレビュアーが欠けていたら、報告の先頭で警告する", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({ reviews: [{ ecc: null }] }),
+  });
+  assert.ok(result.report.startsWith("> **注意**"));
+  assert.match(result.report.split("\n")[0], /ecc/);
+});
+
+test("修正後に再レビューされずに止まったら、その指摘を Unresolved に残す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      checks: (round) => ({ passed: round === 1, details: "lint error" }),
+      reviews: [{ ecc: [finding("HIGH")] }],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed", reason: "" }], observations: [] }],
+    }),
+  });
+  assert.equal(result.stopReason, "checks-failing");
+  assert.match(
+    section(result.report, "Unresolved Finding"),
+    /issue a.js::bug.*再レビューされていない/,
+  );
+});
+
+test("途中で agent が throw しても、報告を組み立てて公開を試みる", async () => {
+  const base = scenario();
+  const { result, labels } = await runWorkflow({
+    respond: (label, calls) => {
+      if (label === "verify:1") throw new Error("budget exhausted");
+      return base(label, calls);
+    },
+  });
+  assert.equal(result.stopReason, "error");
+  assert.match(result.report, /budget exhausted/);
+  assert.ok(labels.includes("publish"));
+});
+
+test("公開の agent が throw しても、報告は返す", async () => {
+  const base = scenario();
+  const { result } = await runWorkflow({
+    respond: (label, calls) => {
+      if (label === "publish") throw new Error("push failed");
+      return base(label, calls);
+    },
+  });
+  assert.equal(result.published, false);
+  assert.match(result.report, /## Unresolved Finding/);
+});
