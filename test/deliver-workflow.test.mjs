@@ -554,3 +554,45 @@ test("ecc の機械的な品質ヒューリスティックは MEDIUM 以下で�
   assert.match(ecc, /MEDIUM 以下/);
   assert.doesNotMatch(requesting, /MEDIUM 以下/);
 });
+
+test("見送りを却下された指摘は、次のラウンドで再指摘されなくても直ったとみなさず修正に戻す", async () => {
+  const { result, calls } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, {}, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::bug", action: "propose-defer", reason: "面倒" }],
+          observations: [],
+        },
+        { results: [{ key: "a.js::bug", action: "fixed" }], observations: [] },
+      ],
+      verdicts: { "a.js::bug": { agree: false, reason: "実バグ" } },
+    }),
+  });
+  const fixCalls = calls.filter((c) => c.label.startsWith("fix:"));
+  assert.equal(fixCalls.length, 2);
+  assert.match(fixCalls[1].prompt, /実バグ/);
+  assert.match(section(result.report, "Unresolved Finding"), /なし/);
+});
+
+test("2回目の見送りも却下された指摘は、再指摘されなくても Unresolved に残す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, {}, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::bug", action: "propose-defer", reason: "面倒" }],
+          observations: [],
+        },
+        {
+          results: [{ key: "a.js::bug", action: "propose-defer", reason: "やはり面倒" }],
+          observations: [],
+        },
+      ],
+      verdicts: { "a.js::bug": { agree: false, reason: "実バグ" } },
+    }),
+  });
+  assert.match(section(result.report, "Unresolved Finding"), /issue a.js::bug/);
+});

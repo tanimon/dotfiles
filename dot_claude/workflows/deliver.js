@@ -593,7 +593,7 @@ async function runFix(state, roundNo, blocking) {
   if (!fix) {
     markUnresolved(state, blocking);
     state.stopReason = "fixer-failed";
-    return new Set();
+    return { firstRejections: new Set(), rejected: new Set() };
   }
   collectObservations(state, label, fix);
   const byKey = Object.fromEntries(blocking.map((b) => [b.key, b]));
@@ -610,11 +610,13 @@ async function runFix(state, roundNo, blocking) {
   );
   // 初めて却下された見送りは、次のラウンドで再出現扱いにせず、却下理由を添えてもう1回修正に回す。
   const firstRejections = new Set();
+  const rejected = new Set();
   // 検証者が throw した提案(parallel が null を返す)も、同意が無いので却下として扱う。
   for (const [i, p] of proposals.entries()) {
     const v = verdicts[i] ?? { proposal: p, verdict: null };
     if (!v.verdict || !v.verdict.agree) {
       const key = v.proposal.key;
+      rejected.add(key);
       if (!state.rejectedDeferrals[key]) firstRejections.add(key);
       state.rejectedDeferrals[key] = v.verdict ? v.verdict.reason : "検証者が結果を返さなかった";
       continue;
@@ -626,7 +628,7 @@ async function runFix(state, roundNo, blocking) {
     });
     state.deferredKeys.add(v.proposal.key);
   }
-  return firstRejections;
+  return { firstRejections, rejected };
 }
 
 // 修正に回した後、再レビューで確かめる前に止まった(停止・例外)指摘は、直ったと扱わずに Unresolved に残す。
@@ -647,6 +649,8 @@ async function reviewLoop(state) {
 
 async function reviewRounds(state, tracker) {
   let previousBlockingKeys = new Set();
+  // 見送りを却下された指摘は修正されていないので、次のラウンドで再指摘されなくても直ったとはみなさない。
+  let previousRejections = { items: [], first: new Set() };
   for (let fixRound = 0; ; fixRound++) {
     if (budget.total && budget.remaining() < BUDGET_FLOOR) {
       state.stopReason = "budget";
@@ -662,6 +666,12 @@ async function reviewRounds(state, tracker) {
     const byId = Object.fromEntries(findings.map((f) => [f.id, f]));
     const closedKeys = new Set([...state.deferredKeys, ...state.unresolvedKeys]);
     const result = classifyRound(clusters, byId, previousBlockingKeys, closedKeys);
+    const reportedKeys = new Set(clusters.map((c) => c.key));
+    for (const item of previousRejections.items) {
+      if (reportedKeys.has(item.key)) continue;
+      if (previousRejections.first.has(item.key)) result.blocking.push(item);
+      else result.repeated.push(item);
+    }
     tracker.unverified = [];
     if (result.dropped.length > 0)
       log(`有効な指摘を含まない cluster を捨てた: ${result.dropped.join(", ")}`);
@@ -695,8 +705,12 @@ async function reviewRounds(state, tracker) {
     }
     // runFix の途中で throw しても finally が Unresolved に残せるよう、修正に回す前に記録する。
     tracker.unverified = result.blocking;
-    const firstRejections = await runFix(state, roundNo, result.blocking);
+    const { firstRejections, rejected } = await runFix(state, roundNo, result.blocking);
     if (state.stopReason) return;
+    previousRejections = {
+      items: result.blocking.filter((b) => rejected.has(b.key)),
+      first: firstRejections,
+    };
     tracker.unverified = result.blocking.filter((b) => !state.deferredKeys.has(b.key));
     previousBlockingKeys = new Set(
       result.blocking.map((b) => b.key).filter((k) => !firstRejections.has(k)),
