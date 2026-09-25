@@ -107,3 +107,21 @@ _Avoid_: profile（無限定）、プロファイル
 **Sandbox Profile**:
 Isolation Boundary が何を許可するかを定義するポリシー文書。
 _Avoid_: profile（無限定）、プロファイル
+
+### Autonomous delivery
+
+**Review Finding**:
+レビューが返す個々の指摘。重大度を持ち、修正されるか Deferred Finding になるかのどちらかで閉じる。
+_Avoid_: コメント、issue(GitHub Issue と紛らわしい)
+
+**Deferred Finding**:
+修正しないと決めた Review Finding。実装した agent 単独では決められず、別の検証者が偽陽性またはスコープ外と同意したものに限る。必ず人間への最終報告に載る。
+_Avoid_: 見送り(無限定)、スキップした指摘、却下
+
+**Unresolved Finding**:
+修正必須なのに、ループの上限に達するか収束しなかったために修正されずに残った Review Finding。Deferred Finding と違い誰も見送りに同意していないため、最終報告で最優先に扱う。
+_Avoid_: 見送り、残課題(無限定)
+
+**Plan Concern**:
+実装ではなく入力された plan そのものに向けられた Review Finding。何を作るかを agent は決めないため修正対象にならず、人間への最終報告に回す。plan どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
+_Avoid_: 仕様バグ、plan 修正

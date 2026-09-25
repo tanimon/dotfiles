@@ -114,6 +114,8 @@ silence itself signals a dead hook. Design:
 
 **Global agent instructions (`~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md`)** — リポジトリ内の指示(上の「Generated agent instructions」)とは合成の機構が違う。**グローバル指示は `harness/` を通らず、chezmoi テンプレートだけで合成する**(ADR 0005。`harness/manifest.json` の `targets` は空のまま)。共有本文は `.chezmoitemplates/agent-instructions-common` に 1 箇所だけ置き、`dot_claude/CLAUDE.md.tmpl` と `dot_codex/AGENTS.md.tmpl` が `{{ template "agent-instructions-common" }}` で取り込む(`gitignore-common` と同じパターン)。`~/.codex/AGENTS.md` は「Codex 用前置き → 共有本文 → `dot_claude/rules/common/*.md` の連結」で、rules の Source は移動せず Codex 側が `include` で直接読む。**連結されるのは `dot_claude/rules/common/` に Source として存在するものだけ**で、`~/.claude/rules/{typescript,web}/` は `.chezmoiexternal.toml` が ECC リポジトリから SHA 固定で取り込むものなので Source に無く、Codex には連結されない(Codex 前置きの「ルール構成」はこの事実を明示する)。ECC は plugin として丸ごと有効化せず、使っているファイルだけを external で取り込む(`docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`)。`~/.claude/rules/` 配下に symlink で差し込まれる仕事用ルールはマシン固有なので含まれない。Cursor はグローバル rules を持たないため対象外(ADR 0004)。共有本文には製品名も製品固有のツール名も書かない — `AskUserQuestion` は Claude 側の末尾セクションにだけ置き、共有本文は「番号付きの選択肢を提示する」という製品非依存の意図だけを持つ。**rules の取り込みは `glob` ではなく `include` の明示列挙**: 第一の理由は連結順序が読めること(その順序が `AGENTS.md` の並びで、Codex の切り捨ては末尾から起きる)。加えて `glob` の**相対**パターンは cwd 相対で評価されるため、`chezmoi apply` の実行位置によっては黙って空リストを返し、ルールが 1 件も入らない `AGENTS.md` を静かに生成する(実測済み。`glob (joinPath .chezmoi.sourceDir "…")` の**絶対**パターンなら cwd に依存しないことも実測済みなので、これは glob を採らない決め手ではなく副次的な理由)。ファイルを足したら `dot_codex/AGENTS.md.tmpl` にも 1 行足すこと。検査は `just test-global-instructions`(`test/global-instructions.bats`、seam は `chezmoi execute-template --config <test toml> --source <repo>` の 1 つだけ)で、共有本文が両出力に入ること・rules 全件が `AGENTS.md` に入ること・`AskUserQuestion` が `CLAUDE.md` にしか出ないこと・`AGENTS.md` が Codex の `project_doc_max_bytes`(32 KiB)に収まることを見る。chezmoi が無い環境では skip せず fail する(skip にすると CI で空振りするため、CI job `global-instructions` が chezmoi を入れている)。
 
+**Autonomous delivery (`deliver`)** — 入口 skill `dot_claude/skills/deliver/` と Workflow `dot_claude/workflows/deliver.js` の組。ループの判定はコードで行う(ADR 0007、`just test-deliver`)。設計は `docs/superpowers/specs/2026-09-25-deliver-workflow-design.md`。
+
 ## Verification
 
 ```sh
@@ -121,7 +123,7 @@ just lint                      # Run ALL checks locally (mirrors CI)
 chezmoi apply --dry-run        # Preview changes before applying
 ```
 
-`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also a CI job except `test-nono-profile` (CI does not install nono), so local is a superset: green locally means green in CI, not the other way round.
+`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also a CI job except `test-nono-profile` (CI does not install nono) and `test-nono-packs` (the template it renders is darwin-only; CI runs on ubuntu), so local is a superset: green locally means green in CI, not the other way round.
 
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
 

@@ -234,7 +234,8 @@ jobs:
 
       - name: Alert on workflow failure
         if: failure()
-        # zizmor 1.30 が推奨する `$/` 形式は actionlint 1.7 がまだ受け付けない(両方を justfile が走らせる)ため、`./` のまま抑制する。actionlint が `$/` を認識したら書き換えて抑制を外す。
+        # zizmor 1.30.0 の self-repository 監査は `$/...` 構文を求めるが、actionlint 1.7.12(最新)は
+        # `$/` を不正な形式として拒否する(rhysd/actionlint#711)。actionlint が対応するまで `./` のまま抑制する。
         uses: ./.github/actions/harness-issue-alert # zizmor: ignore[self-repository]
         with:
           title: "[harness] Scheduled workflow failing: Security Alerts"
