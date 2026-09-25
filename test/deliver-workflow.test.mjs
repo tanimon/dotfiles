@@ -38,6 +38,24 @@ const cluster = (key, members, extra = {}) => ({
   ...extra,
 });
 
+// publish-write に渡した本文を、書き写しに成功した場合の行数・バイト数で返す。
+function between(prompt, name) {
+  const start = prompt.indexOf(`<<<${name}\n`) + name.length + 4;
+  return `${prompt}\n`.slice(start, `${prompt}\n`.indexOf(`\n${name}\n`, start));
+}
+function faithfulWrite(prompt) {
+  const count = (text) => ({ lines: text.split("\n").length, bytes: Buffer.byteLength(text) });
+  const body = count(between(prompt, "REPORT"));
+  const ledger = count(between(prompt, "LEDGER"));
+  return {
+    dir: "/repo/.git/deliver",
+    bodyLines: body.lines,
+    bodyBytes: body.bytes,
+    ledgerLines: ledger.lines,
+    ledgerBytes: ledger.bytes + 1,
+  };
+}
+
 // reviews[i] / merges[i] は i 番目のレビューラウンド、fixes[i] は i 番目の修正ラウンドへの応答。
 function scenario({
   tasks = [{ title: "t1", summary: "s1" }],
@@ -72,6 +90,7 @@ function scenario({
       return v;
     }
     if (label.startsWith("fix-verify:")) return { fixed: true, summary: "fixed", observations: [] };
+    if (label.startsWith("publish-write:")) return faithfulWrite(calls[calls.length - 1].prompt);
     if (label === "publish") return { pushed: true, prUrl: "https://example.invalid/pr/1" };
     throw new Error(`unexpected agent label: ${label}`);
   };
@@ -128,6 +147,7 @@ test("指摘ゼロなら修正せずに動作確認と公開まで進む", async
     "review:ecc",
     "review:requesting",
     "verify:1",
+    "publish-write:1",
     "publish",
   ]);
   assert.equal(result.published, true);
@@ -357,11 +377,12 @@ test("merge がどの cluster にも入れなかった指摘は、単独の clus
     respond: scenario({
       reviews: [{ ecc: [finding("HIGH")] }, {}],
       merges: [[cluster("ghost", ["nope#9"])]],
-      fixes: [{ results: [], observations: [] }],
+      fixes: [{ results: [{ key: "a.js::unmerged:bug", action: "fixed" }], observations: [] }],
     }),
   });
   assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 1);
   assert.equal(result.stopReason, null);
+  assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
 
 test("必須の引数が欠けていれば agent を呼ぶ前に throw する", async () => {
@@ -595,4 +616,138 @@ test("2回目の見送りも却下された指摘は、再指摘されなくて�
     }),
   });
   assert.match(section(result.report, "Unresolved Finding"), /issue a.js::bug/);
+});
+
+// H1: 見送りを却下された指摘は、次のラウンドで修正必須として判定されない限り「報告された」とみなさない。
+const rejectedOnce = {
+  fixes: [
+    {
+      results: [{ key: "a.js::bug", action: "propose-defer", reason: "面倒" }],
+      observations: [],
+    },
+    { results: [{ key: "a.js::bug", action: "fixed" }], observations: [] },
+  ],
+  verdicts: { "a.js::bug": { agree: false, reason: "実バグ" } },
+};
+
+async function assertRejectedGoesBackToFix(reviews, merges) {
+  const { result, calls } = await runWorkflow({
+    respond: scenario({ reviews, merges, ...rejectedOnce }),
+  });
+  const fixCalls = calls.filter((c) => c.label.startsWith("fix:"));
+  assert.equal(fixCalls.length, 2);
+  assert.match(fixCalls[1].prompt, /実バグ/);
+  assert.equal(result.stopReason, null);
+  return result;
+}
+
+test("見送りを却下された key を merge が中身の無い cluster で再申告しても、修正に戻す", async () => {
+  await assertRejectedGoesBackToFix(
+    [{ ecc: [finding("HIGH")] }, { requesting: [finding("Minor", { file: "c.js" })] }, {}],
+    [
+      [cluster("a.js::bug", ["ecc#0"])],
+      [cluster("a.js::bug", ["bogus#1"]), cluster("c.js::nit", ["requesting#0"], { file: "c.js" })],
+    ],
+  );
+});
+
+test("見送りを却下された key が修正必須でない重大度で再報告されても、修正に戻す", async () => {
+  const result = await assertRejectedGoesBackToFix(
+    [{ ecc: [finding("HIGH")] }, { ecc: [finding("MEDIUM")] }, {}],
+    [[cluster("a.js::bug", ["ecc#0"])], [cluster("a.js::bug", ["ecc#0"])]],
+  );
+  assert.match(section(result.report, "参考指摘(修正必須ではない)"), /なし/);
+});
+
+test("見送りを却下された key が plan 向けの指摘だけで再報告されても、修正に戻す", async () => {
+  await assertRejectedGoesBackToFix(
+    [{ ecc: [finding("HIGH")] }, { requesting: [finding("Minor", { target: "plan" })] }, {}],
+    [[cluster("a.js::bug", ["ecc#0"])], [cluster("a.js::bug", ["requesting#0"])]],
+  );
+});
+
+test("修正エージェントが対応結果を返さなかった指摘は、再指摘されなくても修正に戻す", async () => {
+  const { result, calls } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, {}, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [
+        { results: [], observations: [] },
+        { results: [{ key: "a.js::bug", action: "fixed" }], observations: [] },
+      ],
+    }),
+  });
+  const fixCalls = calls.filter((c) => c.label.startsWith("fix:"));
+  assert.equal(fixCalls.length, 2);
+  assert.match(fixCalls[1].prompt, /対応結果が返らなかった/);
+  assert.match(section(result.report, "Unresolved Finding"), /なし/);
+});
+
+test("修正エージェントが2回続けて対応結果を返さなかった指摘は Unresolved に残す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, {}, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [
+        { results: [], observations: [] },
+        { results: [], observations: [] },
+      ],
+    }),
+  });
+  assert.match(section(result.report, "Unresolved Finding"), /issue a.js::bug/);
+});
+
+test("レビューラウンドが1回も完了せずに止まったら、Unresolved を「なし」ではなく未レビューと出す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({ checks: () => ({ passed: false, details: "lint error" }) }),
+  });
+  const unresolved = section(result.report, "Unresolved Finding");
+  assert.match(unresolved, /未レビュー/);
+  assert.doesNotMatch(unresolved, /なし/);
+});
+
+test("動作確認の修正エージェントが直せなかったら、レビューはするが再確認はせずに止める", async () => {
+  const base = scenario({ verifies: [{ passed: false, summary: "画面が真っ白" }] });
+  const { result, labels } = await runWorkflow({
+    respond: (label, calls) =>
+      label.startsWith("fix-verify:")
+        ? { fixed: false, summary: "原因が分からない" }
+        : base(label, calls),
+  });
+  assert.deepEqual(
+    labels.filter((l) => l.startsWith("verify:")),
+    ["verify:1"],
+  );
+  assert.equal(labels.filter((l) => l === "review:ecc").length, 2);
+  assert.equal(result.stopReason, "verify-unfixed");
+  assert.match(result.report, /原因が分からない/);
+});
+
+test("書き出したファイルの行数・バイト数が本文と合わなければ1回だけ書き直させる", async () => {
+  const base = scenario();
+  const { result, labels } = await runWorkflow({
+    respond: (label, calls) =>
+      label === "publish-write:1"
+        ? { dir: "/repo/.git/deliver", bodyLines: 1, bodyBytes: 1, ledgerLines: 1, ledgerBytes: 1 }
+        : base(label, calls),
+  });
+  assert.deepEqual(
+    labels.filter((l) => l.startsWith("publish")),
+    ["publish-write:1", "publish-write:2", "publish"],
+  );
+  assert.equal(result.published, true);
+});
+
+test("書き直しても本文と合わなければ PR を作らずに published=false で返す", async () => {
+  const base = scenario();
+  const { result, labels } = await runWorkflow({
+    respond: (label, calls) =>
+      label.startsWith("publish-write:")
+        ? { dir: "/repo/.git/deliver", bodyLines: 1, bodyBytes: 1, ledgerLines: 1, ledgerBytes: 1 }
+        : base(label, calls),
+  });
+  assert.ok(!labels.includes("publish"));
+  assert.equal(result.published, false);
+  assert.match(result.publishError, /pr-body\.md/);
+  assert.match(result.report, /## Unresolved Finding/);
 });

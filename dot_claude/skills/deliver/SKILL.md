@@ -30,4 +30,4 @@ description: 実装計画(plan)を受け取り、実装 → レビュー修正�
    })
    ```
 
-8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを先頭に書く。`stopReason` があれば、何が原因で止まったかを1文で添える。報告の中身を要約して丸めない(Unresolved Finding と Plan Concern は人間の判断材料なので、省略しない)。
+8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを、`publishError` の理由とともに先頭に書く。`stopReason` があれば、何が原因で止まったかを1文で添える。報告の中身を要約して丸めない(Unresolved Finding と Plan Concern は人間の判断材料なので、省略しない)。

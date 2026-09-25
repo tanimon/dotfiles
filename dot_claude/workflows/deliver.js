@@ -43,6 +43,7 @@ const STOP_REASONS = {
   "merge-failed": "指摘の統合に失敗した",
   "fixer-failed": "修正エージェントが結果を返さなかった",
   "plan-breaking": "plan どおりに作ると壊れる Plan Concern が出た",
+  "verify-unfixed": "動作確認の失敗を修正エージェントが直せなかったため、再確認しなかった",
   budget: "トークン予算の残りが少ないため、次のラウンドに入らなかった",
   error: "エージェントの実行中に例外が発生した",
 };
@@ -166,6 +167,18 @@ const FIX_VERIFY_SCHEMA = {
   required: ["fixed", "summary"],
 };
 
+const WRITE_SCHEMA = {
+  type: "object",
+  properties: {
+    dir: { type: "string" },
+    bodyLines: { type: "integer" },
+    bodyBytes: { type: "integer" },
+    ledgerLines: { type: "integer" },
+    ledgerBytes: { type: "integer" },
+  },
+  required: ["dir", "bodyLines", "bodyBytes", "ledgerLines", "ledgerBytes"],
+};
+
 const PUBLISH_SCHEMA = {
   type: "object",
   properties: {
@@ -215,6 +228,7 @@ function newState(config) {
     advisory: [],
     knownClusters: [],
     rejectedDeferrals: {},
+    unansweredFixes: new Set(),
     closedRepeats: [],
     lastMissingReviewers: [],
     verification: [],
@@ -347,6 +361,7 @@ function fixPrompt(items, config) {
 指摘(JSON): ${JSON.stringify(items)}
 - 指摘ごとに、修正したら action="fixed"、修正すべきでない(偽陽性、または plan の範囲外)と判断したら action="propose-defer" と具体的な理由を返す。直すのが大変だという理由では見送らない。
 - deferralRejectedReason がある指摘は、見送りの提案が検証者に却下されている。その理由を読んだうえで修正する。
+- unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。全ての指摘について、必ず fixed か propose-defer のどちらかを返す。
 - 修正した後、次のコマンドを全て成功させる: ${commands(config)}
 - 修正をまとめて1コミットにする(push はしない)。
 - 指摘の範囲外で気づいた問題は observations に書く。`;
@@ -372,20 +387,22 @@ plan は ${config.planPath}。原因を調べて直し、次のコマンドを�
 
 function ledgerJson(state) {
   return JSON.stringify(
-    { ...state, unresolvedKeys: [...state.unresolvedKeys], deferredKeys: [...state.deferredKeys] },
+    {
+      ...state,
+      unresolvedKeys: [...state.unresolvedKeys],
+      deferredKeys: [...state.deferredKeys],
+      unansweredFixes: [...state.unansweredFixes],
+    },
     null,
     2,
   );
 }
 
-function publishPrompt(state, report) {
-  return `次の手順で公開せよ。
-1. 「git rev-parse --absolute-git-dir」の出力を D とする。D/deliver/ を作り、下の REPORT を D/deliver/pr-body.md に、下の LEDGER を D/deliver/ledger.json に、そのまま書き出す。
-2. 現在のブランチを push する(force push はしない)。
-3. このブランチの PR が無ければ「gh pr create --draft --base ${state.config.prBase} --title <TITLE> --body-file D/deliver/pr-body.md」で作る。既にあれば「gh pr edit --body-file D/deliver/pr-body.md」で本文を更新する。
-4. PR の URL と ledger の絶対パスを返す。どこかで失敗したら pushed=false と error を返す。
-
-TITLE: ${state.title || "deliver"}
+function writePrompt(report, ledger) {
+  return `次の2つのファイルを書き出せ。push や PR の作成はしない。
+1. 「git rev-parse --absolute-git-dir」の出力を D とし、D/deliver/ を作る。
+2. 下の REPORT を D/deliver/pr-body.md に、下の LEDGER を D/deliver/ledger.json に、1文字も変えずに Write ツールで書き出す。要約・省略・整形はしない。
+3. それぞれのファイルについて「grep -c '' <file>」の行数と「wc -c < <file>」のバイト数を返す。dir には D/deliver の絶対パスを返す。
 
 REPORT:
 <<<REPORT
@@ -394,8 +411,34 @@ REPORT
 
 LEDGER:
 <<<LEDGER
-${ledgerJson(state)}
+${ledger}
 LEDGER`;
+}
+
+function publishPrompt(state, dir) {
+  return `次の手順で公開せよ。本文のファイルは書き出し済みなので、内容を変えない。
+1. 現在のブランチを push する(force push はしない)。
+2. このブランチの PR が無ければ「gh pr create --draft --base ${state.config.prBase} --title <TITLE> --body-file ${dir}/pr-body.md」で作る。既にあれば「gh pr edit --body-file ${dir}/pr-body.md」で本文を更新する。
+3. PR の URL と ledger の絶対パス(${dir}/ledger.json)を返す。どこかで失敗したら pushed=false と error を返す。
+
+TITLE: ${state.title || "deliver"}`;
+}
+
+// Workflow のスクリプトには TextEncoder が有るとは限らない(JS の組込みではない)ので、UTF-8 のバイト数を自前で数える。
+function utf8Length(text) {
+  let n = 0;
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+  }
+  return n;
+}
+
+// 書き出しはエージェントに委譲するしかない(スクリプトに fs が無い)ので、行数とバイト数で書き写しを確かめる。
+// 末尾に改行が1つ付くことだけは許す。
+function faithful(text, lines, bytes) {
+  const expected = utf8Length(text);
+  return lines === text.split("\n").length && (bytes === expected || bytes === expected + 1);
 }
 
 function formatItem(item) {
@@ -405,9 +448,9 @@ function formatItem(item) {
 
 function renderReport(state) {
   const lines = [];
-  const pushSection = (title, items, format) => {
+  const pushSection = (title, items, format, empty = "なし") => {
     lines.push(`## ${title}`, "");
-    if (items.length === 0) lines.push("なし");
+    if (items.length === 0) lines.push(empty);
     else for (const item of items) lines.push(`- ${format(item)}`);
     lines.push("");
   };
@@ -436,7 +479,13 @@ function renderReport(state) {
     lines.push(`> **停止**: ${STOP_REASONS[state.stopReason]}${detail}`, "");
   }
   if (verificationFailed) pushVerification();
-  pushSection("Unresolved Finding", uniqueByKey(state.unresolved), formatItem);
+  // 1回もレビューしていないのに「なし」と出すと、収束したように読めてしまう。
+  pushSection(
+    "Unresolved Finding",
+    uniqueByKey(state.unresolved),
+    formatItem,
+    state.rounds.length === 0 ? "未レビュー(レビューラウンドが1回も完了していない)" : "なし",
+  );
   pushSection("Plan Concern", uniqueByKey(state.planConcerns), formatItem);
   if (state.closedRepeats.length > 0) {
     pushSection(
@@ -580,11 +629,13 @@ async function mergeFindings(state, findings) {
 
 async function runFix(state, roundNo, blocking) {
   const label = `fix:${roundNo}`;
-  const items = blocking.map((b) =>
-    state.rejectedDeferrals[b.key]
-      ? { ...b, deferralRejectedReason: state.rejectedDeferrals[b.key] }
-      : b,
-  );
+  const items = blocking.map((b) => ({
+    ...b,
+    ...(state.rejectedDeferrals[b.key] && {
+      deferralRejectedReason: state.rejectedDeferrals[b.key],
+    }),
+    ...(state.unansweredFixes.has(b.key) && { unansweredBefore: true }),
+  }));
   const fix = await agent(fixPrompt(items, state.config), {
     label,
     phase: "Review",
@@ -597,6 +648,16 @@ async function runFix(state, roundNo, blocking) {
   }
   collectObservations(state, label, fix);
   const byKey = Object.fromEntries(blocking.map((b) => [b.key, b]));
+  // 対応結果の無い指摘は直したとは言っていないので、見送りを却下された指摘と同じく次のラウンドで確かめる。
+  const firstRejections = new Set();
+  const rejected = new Set();
+  const answered = new Set(fix.results.map((r) => r.key));
+  for (const b of blocking) {
+    if (answered.has(b.key)) continue;
+    rejected.add(b.key);
+    if (!state.unansweredFixes.has(b.key)) firstRejections.add(b.key);
+    state.unansweredFixes.add(b.key);
+  }
   const proposals = fix.results.filter((r) => r.action === "propose-defer" && byKey[r.key]);
   const verdicts = await parallel(
     proposals.map(
@@ -609,8 +670,6 @@ async function runFix(state, roundNo, blocking) {
     ),
   );
   // 初めて却下された見送りは、次のラウンドで再出現扱いにせず、却下理由を添えてもう1回修正に回す。
-  const firstRejections = new Set();
-  const rejected = new Set();
   // 検証者が throw した提案(parallel が null を返す)も、同意が無いので却下として扱う。
   for (const [i, p] of proposals.entries()) {
     const v = verdicts[i] ?? { proposal: p, verdict: null };
@@ -666,12 +725,19 @@ async function reviewRounds(state, tracker) {
     const byId = Object.fromEntries(findings.map((f) => [f.id, f]));
     const closedKeys = new Set([...state.deferredKeys, ...state.unresolvedKeys]);
     const result = classifyRound(clusters, byId, previousBlockingKeys, closedKeys);
-    const reportedKeys = new Set(clusters.map((c) => c.key));
+    // 修正必須として判定された key だけを「再指摘された」とみなす。中身の無い cluster(dropped)、
+    // 修正必須でない重大度(advisory)、plan 向けの指摘だけでの再報告では、直ったことにならない。
+    const reportedKeys = new Set(
+      [...result.blocking, ...result.repeated, ...result.closedRepeats].map((i) => i.key),
+    );
+    const carried = new Set();
     for (const item of previousRejections.items) {
       if (reportedKeys.has(item.key)) continue;
+      carried.add(item.key);
       if (previousRejections.first.has(item.key)) result.blocking.push(item);
       else result.repeated.push(item);
     }
+    result.advisory = result.advisory.filter((i) => !carried.has(i.key));
     tracker.unverified = [];
     if (result.dropped.length > 0)
       log(`有効な指摘を含まない cluster を捨てた: ${result.dropped.join(", ")}`);
@@ -742,18 +808,45 @@ async function verify(state) {
       schema: FIX_VERIFY_SCHEMA,
     });
     collectObservations(state, fixLabel, fix);
+    // 直せなかった場合も途中までのコミットが残りうるので、レビューは回す。再確認はしない。
     await reviewLoop(state);
     if (state.stopReason) return;
+    if (!fix || !fix.fixed) {
+      state.stopReason = "verify-unfixed";
+      state.stopDetail = fix ? fix.summary : "エージェントが結果を返さなかった";
+      return;
+    }
   }
 }
 
 async function publish(state, report) {
   phase("Publish");
-  return agent(publishPrompt(state, report), {
-    label: "publish",
-    phase: "Publish",
-    schema: PUBLISH_SCHEMA,
-  });
+  const ledger = ledgerJson(state);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const written = await agent(writePrompt(report, ledger), {
+      label: `publish-write:${attempt}`,
+      phase: "Publish",
+      schema: WRITE_SCHEMA,
+    });
+    if (!written) return { pushed: false, error: "書き出しのエージェントが結果を返さなかった" };
+    const body = faithful(report, written.bodyLines, written.bodyBytes);
+    const led = faithful(ledger, written.ledgerLines, written.ledgerBytes);
+    if (body && led) {
+      return agent(publishPrompt(state, written.dir), {
+        label: "publish",
+        phase: "Publish",
+        schema: PUBLISH_SCHEMA,
+      });
+    }
+    const broken = [!body && "pr-body.md", !led && "ledger.json"].filter(Boolean).join(", ");
+    log(`書き出した ${broken} の行数・バイト数が元と一致しない(試行 ${attempt})`);
+    if (attempt === 2) {
+      return {
+        pushed: false,
+        error: `${broken} を元のとおりに書き出せなかったため、PR を作らなかった`,
+      };
+    }
+  }
 }
 
 const config = validateArgs(args);
@@ -773,11 +866,13 @@ let published = null;
 try {
   published = await publish(state, report);
 } catch (error) {
-  log(`公開に失敗した: ${error && error.message ? error.message : error}`);
+  published = { pushed: false, error: String(error && error.message ? error.message : error) };
+  log(`公開に失敗した: ${published.error}`);
 }
 return {
   prUrl: published && published.prUrl ? published.prUrl : null,
   published: Boolean(published && published.pushed),
+  publishError: published && !published.pushed ? published.error || "理由なし" : null,
   stopReason: state.stopReason,
   report,
 };
