@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-apm-install test-nono-profile test-nono-packs
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
 
 # Scan for leaked secrets
 @secretlint:
@@ -162,6 +162,10 @@ check-templates:
 # test-scripts: this suite's @test names are in Japanese.
 @test-pr-context:
     LC_ALL=C pnpm exec bats test/pr-context.bats
+
+# deliver ワークフローの判定ロジックを、agent を stub にして検証する
+@test-deliver:
+    node --test test/deliver-workflow.test.mjs
 
 # Smoke test harness loop scripts (reflect-trigger, briefing, doctor)
 @test-harness-scripts:
