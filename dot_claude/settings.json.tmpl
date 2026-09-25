@@ -363,21 +363,14 @@
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'FILE=\"$CLAUDE_FILE\"; case \"$FILE\" in *.ts|*.tsx) pnpm lint:fix \"$FILE\" ;; *.go) gofmt -w \"$FILE\" ;; esac'"
-          }
-        ]
-      },
+      {{/* 旧 format フック(pnpm lint:fix / gofmt)は削除した。$CLAUDE_FILE は存在しない環境変数(v2.1.282 のバイナリに文字列が無い。対象パスは stdin JSON の tool_input.file_path で渡る)で、2026-03-06 の導入以来一度も発火していなかった。変数だけ直すと全プロジェクトの .ts 編集ごとに pnpm lint:fix が走る(script の無いリポでは失敗)ので、復活させるなら外部スクリプト + `pnpm run --if-present` ガード + bats テストで。 */ -}}
       {
         "matcher": "Write",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'FILE=\"$CLAUDE_FILE\"; case \"$FILE\" in *.env|*.env.*|*credentials*|*secret*) if command -v secretlint >/dev/null 2>&1; then OUTPUT=$(secretlint \"$FILE\" 2>&1) || { echo \"secretlint: potential secret detected in $FILE: $OUTPUT\" >&2; exit 1; }; fi ;; esac'"
+            "command": "\"$HOME/.claude/scripts/secretlint-guard.sh\"",
+            "timeout": 15
           }
         ]
       },

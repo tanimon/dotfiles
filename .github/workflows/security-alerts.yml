@@ -179,8 +179,8 @@ jobs:
             - Skip alerts that already have associated PRs or issues
             - Maximum 5 alerts processed per sweep run
             - Run `just lint` before any commits
-            - NEVER log or display actual secret values
-            - For secret scanning alerts, ONLY create issues — never attempt fixes
+            - Do not log or display actual secret values: this repository and its Actions logs are public
+            - For secret scanning alerts, create an issue only. Rotating or removing a secret is a human decision, and a fix commit would put the value into public history
           claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(just *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
 
       - name: Generate summary
@@ -234,7 +234,8 @@ jobs:
 
       - name: Alert on workflow failure
         if: failure()
-        uses: ./.github/actions/harness-issue-alert
+        # zizmor 1.30 が推奨する `$/` 形式は actionlint 1.7 がまだ受け付けない(両方を justfile が走らせる)ため、`./` のまま抑制する。actionlint が `$/` を認識したら書き換えて抑制を外す。
+        uses: ./.github/actions/harness-issue-alert # zizmor: ignore[self-repository]
         with:
           title: "[harness] Scheduled workflow failing: Security Alerts"
           body: |

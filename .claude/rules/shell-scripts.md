@@ -104,15 +104,20 @@ Rules for Claude Code hook scripts (`dot_claude/scripts/`).
 ### Exit Code Contract
 
 - `exit 0` — intentional skip (tool guard missing, non-project context, already ran)
-- `exit 1` + stderr message — actionable error
+- `exit 1` + stderr message — actionable error(ユーザーにだけ見える)
+- `exit 2` + stderr message — モデルに stderr を返して対処させる(`PreToolUse` ではブロック、`PostToolUse` では結果の後に注入)。旧 secretlint フックは `exit 1` だったため、仮に発火していても Claude 側には見えなかった
 - Never `exit 1` without stderr — produces confusing "No stderr output" message in Claude Code
 
-### PostToolUse Hook Environment Variables
+### PostToolUse フックが対象ファイルを知る方法
 
-Claude Code sets `$CLAUDE_FILE` to the affected file path for `PostToolUse` hooks (e.g., after `Edit` or `Write` tool use). Use it to conditionally run formatters or linters based on file extension:
+対象ファイルのパスは環境変数ではなく stdin の JSON(`tool_input.file_path`)で渡される。
+`$CLAUDE_FILE` という環境変数は**存在しない**(v2.1.282 のバイナリに文字列が無く、hooks
+リファレンスの環境変数一覧にも無い。空文字のまま `case` に流れて静かに no-op になる)。
+実例: `dot_claude/scripts/executable_secretlint-guard.sh`。
 
 ```bash
-FILE="$CLAUDE_FILE"
+FILE=$(jq -r '.tool_input.file_path // empty') || exit 0
+[[ -z "$FILE" ]] && exit 0
 case "$FILE" in *.go) gofmt -w "$FILE" ;; esac
 ```
 
@@ -126,21 +131,6 @@ SESSION_ID=$(jq -r '.session_id // empty') || exit 0
 ```
 
 Do not use `$PPID` or `$$` — these are unreliable in `bash -c` hook wrappers.
-
-### One-Shot Flag Pattern
-
-For hooks that should fire only once per session:
-
-```bash
-FLAG_FILE="/tmp/claude-<hook-name>-${SESSION_ID}"
-[[ -f "$FLAG_FILE" ]] && exit 0
-
-# ... context guards (directory exclusions, git checks) ...
-
-# Set flag AFTER guards, not before — otherwise a non-project context
-# consumes the flag and the hook silently skips in project contexts later.
-touch "$FLAG_FILE"
-```
 
 ### Tests Must Be Hermetic Against Ambient Environment
 
