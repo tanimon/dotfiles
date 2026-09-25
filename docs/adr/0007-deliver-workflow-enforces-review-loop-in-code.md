@@ -19,5 +19,5 @@ plan を受け取り、実装、レビュー修正ループ、動作確認を経
 
 - **別セッションからは再開できない。** Workflows の resume は同じセッション内か `claude --resume` したセッションに限られる。これを補うため、状態を `$(git rev-parse --git-dir)/deliver/ledger.json` に書き出す(workflow エージェントがここに書き込めることは 2026-09-25 に実測済み)。ledger から途中を再開する引数は試作の範囲外で、後から足す。
 - **Workflow のエージェントから Skill を呼べる。ただし fork 型の skill は使えない**(2026-09-25 実測)。`ecc-code-review` と `superpowers:requesting-code-review` は本文を読み込めたが、built-in の `code-review` は別エージェントとして起動するだけで、結果は親セッションに届いた。このため built-in はレビュアーから外し、2本構成にした。fork 型の skill を足すときは、先に同じ実測をすること。
-- **レビュアーごとに重大度の尺度が異なる**(ecc は CRITICAL/HIGH/MEDIUM/LOW、requesting は Critical/Important/Minor)。尺度は変換せずに、そのまま受け取る。修正必須かどうかはレビュアーごとの表でコードが判定する(ecc の CRITICAL/HIGH、requesting の Critical/Important)。
+- **レビュアーごとに重大度の尺度が異なる**(ecc は CRITICAL/HIGH/MEDIUM/LOW、requesting は Critical/Important/Minor)。尺度は変換せずに、そのまま受け取る。修正必須かどうかはレビュアーごとの表でコードが判定する(ecc の CRITICAL/HIGH、requesting の Critical/Important)。ただし ecc の「Code Quality (HIGH)」は関数やファイルの行数・console.log・TODO/FIXME・JSDoc の欠落といった機械的な基準を含み、そのまま受け取るとこれらが修正必須になって指示の無いリファクタリングを招く。そこで、不具合に繋がる場合を除いてこれらを MEDIUM 以下で報告するよう、レビューの prompt で指示する(尺度の変換ではなく、どの尺度に当てはめるかの指示)。
 - **agent 数が多い**(1ラウンドでレビュー2本、統合1本、修正、検証者 N 本)。`budget` の既定値は試作の実行で計測してから決める。

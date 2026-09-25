@@ -23,6 +23,9 @@ const REVIEWERS = [
     skill: "ecc-code-review",
     severities: ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
     blocking: ["CRITICAL", "HIGH"],
+    // ecc の「Code Quality (HIGH)」は行数・console.log などの機械的な基準を含み、そのままだと修正必須になって
+    // 指示の無いリファクタリングを招くので、不具合に繋がるもの以外は MEDIUM 以下で報告させる。
+    note: "ecc の「Code Quality (HIGH)」のうち、関数の行数・ファイルの行数・ネストの深さ・console.log・TODO/FIXME・JSDoc の欠落といった機械的な基準は、それ自体が不具合に繋がる場合を除き MEDIUM 以下で報告する。",
   },
   {
     id: "requesting",
@@ -319,12 +322,15 @@ function checksPrompt(config) {
 }
 
 function reviewPrompt(reviewer, config) {
+  // 実装と修正は毎回コミットするので、未コミットの変更だけを集める skill の手順では差分が空になる。
+  const note = reviewer.note ? `\n- ${reviewer.note}` : "";
   return `Skill ツールで「${reviewer.skill}」を読み込み、その手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。
+- 差分の収集だけは skill の手順を上書きする: 対象ファイルは「git diff --name-only ${config.baseRef}...HEAD」、差分は「git diff ${config.baseRef}...HEAD」で集める。変更はコミット済みなので、未コミットの変更が無くても「Nothing to review」で止まらない。
 - 要件は plan ${config.planPath}。plan とのずれも指摘の対象にする。
 - ファイルの修正、コミット、PR へのコメント投稿、ReportFindings ツールの呼び出しはしない。結果は StructuredOutput だけで返す。
 - severity には skill 自身の尺度をそのまま使う: ${reviewer.severities.join(" / ")}
 - 指摘が実装ではなく plan そのものに向く場合は target="plan" とし、plan どおりに作ると壊れる場合だけ planBreaking=true にする。
-- レビューの範囲外で気づいた問題は observations に書く。`;
+- レビューの範囲外で気づいた問題は observations に書く。${note}`;
 }
 
 function mergePrompt(findings, knownClusters) {
@@ -604,8 +610,9 @@ async function runFix(state, roundNo, blocking) {
   );
   // 初めて却下された見送りは、次のラウンドで再出現扱いにせず、却下理由を添えてもう1回修正に回す。
   const firstRejections = new Set();
-  for (const v of verdicts) {
-    if (!v) continue;
+  // 検証者が throw した提案(parallel が null を返す)も、同意が無いので却下として扱う。
+  for (const [i, p] of proposals.entries()) {
+    const v = verdicts[i] ?? { proposal: p, verdict: null };
     if (!v.verdict || !v.verdict.agree) {
       const key = v.proposal.key;
       if (!state.rejectedDeferrals[key]) firstRejections.add(key);
@@ -622,7 +629,7 @@ async function runFix(state, roundNo, blocking) {
   return firstRejections;
 }
 
-// 修正した後、再レビューで確かめる前に止まった(停止・例外)指摘は、直ったと扱わずに Unresolved に残す。
+// 修正に回した後、再レビューで確かめる前に止まった(停止・例外)指摘は、直ったと扱わずに Unresolved に残す。
 async function reviewLoop(state) {
   const tracker = { unverified: [] };
   try {
@@ -632,7 +639,7 @@ async function reviewLoop(state) {
       state,
       tracker.unverified.map((i) => ({
         ...i,
-        summary: `${i.summary}(修正後に再レビューされていない)`,
+        summary: `${i.summary}(修正に回した後、再レビューされていない)`,
       })),
     );
   }
@@ -674,6 +681,7 @@ async function reviewRounds(state, tracker) {
     state.advisory.push(...result.advisory);
     state.planConcerns.push(...result.planConcerns);
     if (result.planBreaking.length > 0) {
+      markUnresolved(state, result.blocking);
       state.stopReason = "plan-breaking";
       return;
     }
@@ -685,6 +693,8 @@ async function reviewRounds(state, tracker) {
       markUnresolved(state, result.blocking);
       return;
     }
+    // runFix の途中で throw しても finally が Unresolved に残せるよう、修正に回す前に記録する。
+    tracker.unverified = result.blocking;
     const firstRejections = await runFix(state, roundNo, result.blocking);
     if (state.stopReason) return;
     tracker.unverified = result.blocking.filter((b) => !state.deferredKeys.has(b.key));

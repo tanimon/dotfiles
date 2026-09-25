@@ -473,3 +473,84 @@ test("公開の agent が throw しても、報告は返す", async () => {
   assert.equal(result.published, false);
   assert.match(result.report, /## Unresolved Finding/);
 });
+
+test("修正エージェントが throw しても、修正に回した指摘を Unresolved に残す", async () => {
+  const base = scenario({
+    reviews: [{ ecc: [finding("HIGH")] }],
+    merges: [[cluster("a.js::bug", ["ecc#0"])]],
+  });
+  const { result } = await runWorkflow({
+    respond: (label, calls) => {
+      if (label === "fix:1") throw new Error("budget exhausted");
+      return base(label, calls);
+    },
+  });
+  assert.equal(result.stopReason, "error");
+  assert.match(
+    section(result.report, "Unresolved Finding"),
+    /issue a.js::bug.*再レビューされていない/,
+  );
+});
+
+test("planBreaking で停止したラウンドの code 側の修正必須指摘も Unresolved に残す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [
+        {
+          ecc: [
+            finding("CRITICAL", { target: "plan", planBreaking: true }),
+            finding("HIGH", { file: "b.js" }),
+          ],
+        },
+      ],
+      merges: [
+        [
+          cluster("plan::broken", ["ecc#0"], { target: "plan", planBreaking: true }),
+          cluster("b.js::bug", ["ecc#1"], { file: "b.js" }),
+        ],
+      ],
+    }),
+  });
+  assert.equal(result.stopReason, "plan-breaking");
+  assert.match(section(result.report, "Unresolved Finding"), /issue b.js::bug/);
+});
+
+test("見送りの検証者が throw したら、同意なしの却下として扱い、修正に戻す", async () => {
+  const base = scenario({
+    reviews: [{ ecc: [finding("HIGH")] }, { ecc: [finding("HIGH")] }, {}],
+    merges: [[cluster("a.js::bug", ["ecc#0"])], [cluster("a.js::bug", ["ecc#0"])]],
+    fixes: [
+      {
+        results: [{ key: "a.js::bug", action: "propose-defer", reason: "面倒" }],
+        observations: [],
+      },
+      { results: [{ key: "a.js::bug", action: "fixed", reason: "" }], observations: [] },
+    ],
+  });
+  const { result, calls } = await runWorkflow({
+    respond: (label, calls) => {
+      if (label.startsWith("defer-verify:")) throw new Error("verifier crashed");
+      return base(label, calls);
+    },
+  });
+  const fixCalls = calls.filter((c) => c.label.startsWith("fix:"));
+  assert.equal(fixCalls.length, 2);
+  assert.match(fixCalls[1].prompt, /検証者が結果を返さなかった/);
+  assert.match(section(result.report, "Deferred Finding"), /なし/);
+  assert.match(section(result.report, "Unresolved Finding"), /なし/);
+});
+
+test("レビューの prompt は skill の差分収集手順を base...HEAD で上書きする", async () => {
+  const { calls } = await runWorkflow();
+  const ecc = calls.find((c) => c.label === "review:ecc").prompt;
+  assert.match(ecc, /git diff --name-only origin\/main\.\.\.HEAD/);
+  assert.match(ecc, /Nothing to review/);
+});
+
+test("ecc の機械的な品質ヒューリスティックは MEDIUM 以下で報告させる", async () => {
+  const { calls } = await runWorkflow();
+  const ecc = calls.find((c) => c.label === "review:ecc").prompt;
+  const requesting = calls.find((c) => c.label === "review:requesting").prompt;
+  assert.match(ecc, /MEDIUM 以下/);
+  assert.doesNotMatch(requesting, /MEDIUM 以下/);
+});
