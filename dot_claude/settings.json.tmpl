@@ -603,6 +603,8 @@
     {{/* gh/gcloud/terraform 等の Go 製 CLI をサンドボックス内（間接呼び出し経路）で実行すると、trustd 経由のTLS証明書検証ができず `x509: OSStatus -26276` で失敗する。直接 `gh ...` 等は excludedCommands でサンドボックス自体をバイパスするため影響なし。trustd への Mach lookup を許可する分セキュリティは低下するが（公式ドキュメントが明記）、間接呼び出しでの認証済みAPI呼び出しを成立させるため有効化する。 */ -}}
     "enableWeakerNetworkIsolation": true
   },
+  {{/* autoUpdatesChannel: native install は既定で自動更新が有効で、このキーはチャネル選択のみ（"latest" は既定値なので挙動は変わらない）。「最新チャネルで自動更新する」意図を宣言として残すために明示する。~/.claude.json の autoUpdates: false は native では効いていない（versions/ に新版が溜まり symlink が切り替わるのを実測）。止めたいときは env の DISABLE_AUTOUPDATER=1。 */ -}}
+  "autoUpdatesChannel": "latest",
   "effortLevel": "high",
   "theme": "dark",
   "tui": "fullscreen"
