@@ -39,7 +39,10 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
 2. **Value test:** would this rule have prevented the original failure? Is it
    specific, actionable, and likely to recur? Vague or one-off → verdict
    `rejected (<reason>)`.
-3. **Placement:** cross-project behavior → `dot_claude/rules/common/` (or
+3. **Placement:** cross-project behavior → `dot_claude/rules/common/`
+   (Claude Code-only mechanics such as the Agent tool, the Bash tool, or
+   sandbox/permission matching → `dot_claude/rules/claude-code/`, which is
+   not concatenated into `~/.codex/AGENTS.md`) (or
    `dot_claude/CLAUDE.md.tmpl` / the shared body
    `.chezmoitemplates/agent-instructions-common` for behavioral guidelines —
    product-neutral guidance goes in the shared body, Claude-only tool names in
@@ -59,6 +62,13 @@ files touched by adopted changes plus one more):
 
 - Referenced files, commands, and workflows still exist?
 - Contradicted by newer learnings or by how work is actually done now?
+- Project auto-memories (`~/.claude/projects/*/memory/`) that still prescribe
+  a workaround a harness change has made unnecessary (e.g. "run git commit
+  outside the sandbox" after signing moved to a local key)? Memories do not
+  follow harness changes, so a stale workaround keeps being re-applied. grep
+  them for the workaround's keywords and list stale ones in the report for
+  the user to retire — they live outside the repo, so do not delete them from
+  the review.
 
 Propose deletions/edits for stale rules in the same PR. Rules kept alive out
 of caution are noise — deprecate aggressively; git history preserves them.

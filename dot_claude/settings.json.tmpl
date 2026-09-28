@@ -565,6 +565,8 @@
         "/var/folders",
         "~/.cache",
         "~/.cargo",
+        {{/* harness 自己改善ループの runtime state(queue.md / pending.jsonl / state.json / digests/)。/harness-reflect と /harness-review が Bash で書き戻すが、既定の write 境界の外なので EPERM になり、harness-doctor.sh の「harness dir writable」も偽 FAIL していた(2026-09-28 の harness-review で実測)。中身は reflect が LLM に読ませる非機密のメモで、ここへの書き込みは次の review が人間の PR レビューを経て初めて効く。sandbox 設定はセッション開始時に読まれるので、効果は新しいセッションでしか確認できない。 */ -}}
+        "~/.claude/harness",
         {{/* PR レビュー自動化ループの state ルート。ループは work/<repo> に作業コピーを作り、locks/ logs/ reviews/ failures/ へも書き込む。これらは cwd 外への書き込みになるため、既定の write 境界（cwd + セッション $TMPDIR）では silent deny になる。上の temp/scratch 群とは許可の根拠が別（OS 管理の一時領域ではなくツール固有の state ディレクトリ）で、$PATH 上の実行ファイル・システム設定・シェル rc は含まないため付与して安全。 */ -}}
         "~/.local/state/pr-review-automation-loop",
         "~/.npm",

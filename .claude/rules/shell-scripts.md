@@ -195,6 +195,13 @@ unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK
   `$BATS_TEST_TMPDIR` が与えられるため、旧Makefileレシピと異なり、*別の*テストケースが残した
   ファイルを読むことはできない。もし2つのケースが状態を共有しているように見えるなら、1つの
   `@test` に統合すること。
+- **外部コマンドを隠すときに、存在しないディレクトリを `PATH` に前置しない。** 前置は「先頭で見つからなければ
+  後ろを探す」だけなので、後ろの実 `PATH` にある本物が呼ばれる(`PATH=/nonexistent:$PATH command -v gh` は
+  本物の `gh` を返す)。失敗する stub を `$BATS_TEST_TMPDIR/bin` に置いて前置する。PR #355 ではこれで
+  本物の `gh` が呼ばれ、5 ケースが無関係な理由で通っていた。
+- **`run` は stderr も `$output` に混ぜる。** stub が出す診断文に含まれる語(ブランチ名など)で
+  `assert_output --partial` すると、本体の出力が壊れていても通る。行単位の `assert_line` を使い、
+  本体を `echo BROKEN` に差し替えて落ちることを一度確かめる。
 - **非ASCIIの `@test` 名は bats-core のロケール依存バグを踏むことがある。** `test/notify.bats`
   はテスト名に日本語（「許可待ち」など）を含むため、`LC_ALL=C` なしで実行すると登録名と検索名が
   食い違い、23件中16件しか実行されず exit 1 になる。`justfile` の `test-scripts` レシピが
