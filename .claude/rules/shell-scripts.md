@@ -199,9 +199,11 @@ unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK
   後ろを探す」だけなので、後ろの実 `PATH` にある本物が呼ばれる(`PATH=/nonexistent:$PATH command -v gh` は
   本物の `gh` を返す)。失敗する stub を `$BATS_TEST_TMPDIR/bin` に置いて前置する。PR #355 ではこれで
   本物の `gh` が呼ばれ、5 ケースが無関係な理由で通っていた。
-- **`run` は stderr も `$output` に混ぜる。** stub が出す診断文に含まれる語(ブランチ名など)で
-  `assert_output --partial` すると、本体の出力が壊れていても通る。行単位の `assert_line` を使い、
-  本体を `echo BROKEN` に差し替えて落ちることを一度確かめる。
+- **`run` は stderr も `$output` と `${lines[@]}` に混ぜる。** stub が出す診断文に含まれる語(ブランチ名など)で
+  `assert_output --partial` すると、本体の出力が壊れていても通る。`assert_line` も `${lines[@]}` を見るので
+  同じく通ってしまう(bats 1.13.0 で `run bash -c 'echo out; echo diag >&2'` の `lines[1]` が `diag` になることを実測)。
+  stdout だけを検査したいときは `run --separate-stderr`(`bats_require_minimum_version 1.5.0` が必要。stderr は
+  `$stderr` に入る)を使い、本体を `echo BROKEN` に差し替えて落ちることを一度確かめる。
 - **非ASCIIの `@test` 名は bats-core のロケール依存バグを踏むことがある。** `test/notify.bats`
   はテスト名に日本語（「許可待ち」など）を含むため、`LC_ALL=C` なしで実行すると登録名と検索名が
   食い違い、23件中16件しか実行されず exit 1 になる。`justfile` の `test-scripts` レシピが

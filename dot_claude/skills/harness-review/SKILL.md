@@ -39,16 +39,18 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
 2. **Value test:** would this rule have prevented the original failure? Is it
    specific, actionable, and likely to recur? Vague or one-off → verdict
    `rejected (<reason>)`.
-3. **Placement:** cross-project behavior → `dot_claude/rules/common/`
-   (Claude Code-only mechanics such as the Agent tool, the Bash tool, or
-   sandbox/permission matching → `dot_claude/rules/claude-code/`, which is
-   not concatenated into `~/.codex/AGENTS.md`) (or
-   `dot_claude/CLAUDE.md.tmpl` / the shared body
-   `.chezmoitemplates/agent-instructions-common` for behavioral guidelines —
-   product-neutral guidance goes in the shared body, Claude-only tool names in
-   the `.tmpl`); this-repo pitfall →
-   repo `CLAUDE.md` Known Pitfalls or `.claude/rules/`; incident record →
-   `docs/solutions/`. Scope `project:<other-repo>` → verdict
+3. **Placement:**
+   - cross-project behavior → `dot_claude/rules/common/`
+   - Claude Code-only mechanics (the Agent tool, the Bash tool,
+     sandbox/permission matching) → `dot_claude/rules/claude-code/`, which is
+     not concatenated into `~/.codex/AGENTS.md`
+   - behavioral guidelines → the shared body
+     `.chezmoitemplates/agent-instructions-common` if product-neutral,
+     `dot_claude/CLAUDE.md.tmpl` if it names Claude-only tools
+   - this-repo pitfall → repo `CLAUDE.md` Known Pitfalls or `.claude/rules/`
+   - incident record → `docs/solutions/`
+
+   Scope `project:<other-repo>` → verdict
    `handoff (belongs in <repo>)`; tell the user what to add there — do not
    modify other repos from this review.
 4. Related queue entries may be merged into one change; record

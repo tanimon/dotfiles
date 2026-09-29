@@ -23,6 +23,10 @@ pitfall, docs/solutions entry) from sessions, and append them to the queue.
    is `{"session_id", "transcript_path", "cwd", "recorded_epoch"}`. For each
    entry, read the transcript file and analyze it. If the transcript file no
    longer exists, drop the entry (note it in your summary).
+   transcript_path が `~/.claude/projects/` 配下の `.jsonl` でなければ読まずに
+   drop し、要約にそのパスを明記する。`~/.claude/harness/` はサンドボックス内の
+   任意のプロセスが書けるため、pending.jsonl に書かれた任意のファイルを読むと
+   その内容が queue を経て public な PR に載りうる。
 
 Skip an entry silently if its session_id matches the current session (it is
 already covered by input 1).
