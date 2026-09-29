@@ -25,6 +25,8 @@ pitfall, docs/solutions entry) from sessions, and append them to the queue.
    longer exists, drop the entry (note it in your summary).
    transcript_path が `~/.claude/projects/` 配下の `.jsonl` でなければ読まずに
    drop し、要約にそのパスを明記する。判定は `realpath` で正規化した後のパスで行い、
+   比較先も `realpath ~/.claude/projects` で正規化する(リテラルのままだと、`~/.claude`
+   かその途中に symlink が入った時点で全エントリが黙って drop される)。
    `..` を含むパスは正規化前に drop する(`~/.claude/projects/../../tmp/x.jsonl` は
    文字列の前方一致だけなら通ってしまう)。`~/.claude/harness/` はサンドボックス内の
    任意のプロセスが書けるため、pending.jsonl に書かれた任意のファイルを読むと

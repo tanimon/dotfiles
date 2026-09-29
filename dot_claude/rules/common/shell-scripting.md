@@ -61,18 +61,20 @@ perl -ne 'next if /^\s*#/; while (/\$([A-Za-z_][A-Za-z0-9_]*)(?=[^\x00-\x7F])/g)
 スクリプトが止まる。
 
 ```bash
-# 誤: 上流の出力がパイプのバッファを超えると rc=141
+# 誤: rc=141 になりうる(上流の出力がパイプのバッファを超えると起きやすい)
 if printf '%s\n' "$big" | grep -q needle; then …
 # 正: 全量を変数に取ってから判定する
 if grep -q needle <<<"$big"; then …
 ```
 
-**気づきにくい理由:** 上流の出力がパイプのバッファに収まるうちは起きない。実測では frontmatter が約 20KB を
+**気づきにくい理由:** SIGPIPE はバッファの閾値ではなく、reader が先に終わった後に writer が書くかどうかの競合なので、
+上流の出力がパイプのバッファに収まるうちはまれにしか起きない。実測では frontmatter が約 20KB を
 超えたページだけで 5/5 再現し、小さい出力でも `printf | grep -q` が 200 回中 2 回誤判定した。
 小さな fixture のテストは全件通るので、回帰テストはバッファを超える大きさの入力で書く。
-`find … | while` は理由が別で、`while` は `break` しない限り入力を読み切るので SIGPIPE は起きない。
-ただし `find` 自身が非ゼロで終わる(permission denied など)と pipefail でパイプライン全体が失敗し、
-`while` の中で設定した変数もサブシェルごと消える。`while … done < <(find … 2>/dev/null || true)` にする。
+`find … | while` には SIGPIPE とは別の問題が 2 つある(`while` は `break` しない限り入力を読み切るので SIGPIPE は起きない):
+(1) `find` 自身が非ゼロで終わる(permission denied など)と、pipefail でパイプライン全体が失敗する。
+(2) pipefail と関係なく常に、パイプの右側はサブシェルで動くので、`while` の中で設定した変数はループの後で消える。
+どちらも `while … done < <(find … 2>/dev/null || true)` で避けられる。
 
 ## 他人のコマンド文字列を走査するときに `read -ra` で分割しない
 

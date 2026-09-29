@@ -113,4 +113,5 @@ claudedocs/
 
 **/.claude/.cc-writes/
 **/.claude/worktrees/
+# ecc-code-review(.chezmoiexternal.toml で SHA 固定取り込み)の Phase 6 が書く実行ごとのレビュー成果物
 **/.claude/reviews/
