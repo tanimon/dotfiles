@@ -24,7 +24,9 @@ pitfall, docs/solutions entry) from sessions, and append them to the queue.
    entry, read the transcript file and analyze it. If the transcript file no
    longer exists, drop the entry (note it in your summary).
    transcript_path が `~/.claude/projects/` 配下の `.jsonl` でなければ読まずに
-   drop し、要約にそのパスを明記する。`~/.claude/harness/` はサンドボックス内の
+   drop し、要約にそのパスを明記する。判定は `realpath` で正規化した後のパスで行い、
+   `..` を含むパスは正規化前に drop する(`~/.claude/projects/../../tmp/x.jsonl` は
+   文字列の前方一致だけなら通ってしまう)。`~/.claude/harness/` はサンドボックス内の
    任意のプロセスが書けるため、pending.jsonl に書かれた任意のファイルを読むと
    その内容が queue を経て public な PR に載りうる。
 
