@@ -50,7 +50,7 @@ if [[ "$ok" -eq 0 ]]; then
     probe="$HARNESS_DIR/.doctor-probe.$$"
     touch "$probe" 2>/dev/null && rm -f "$probe" || ok=1
 fi
-check "$ok" "harness dir writable ($HARNESS_DIR)" "check permissions on $HARNESS_DIR"
+check "$ok" "harness dir writable ($HARNESS_DIR)" "check permissions on $HARNESS_DIR (inside the Claude Code Bash sandbox, confirm ~/.claude/harness is in sandbox.filesystem.allowWrite; under nono, check the claude-seal profile's write grants)"
 
 if [[ -f "$HARNESS_DIR/state.json" ]]; then
     ok=0

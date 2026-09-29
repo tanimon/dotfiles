@@ -50,7 +50,11 @@ description: >-
    修正・承認を受けるまで先へ進まない
 4. **scaffold**: assets からコピーして npm install → references/scaffold.md
 5. **環境起動 + readiness**: profile.md のコマンドで起動し、readiness 条件を確認。
-   通らなければログを提示して中止する(ブラウザ操作に進まない)
+   通らなければログを提示して中止する(ブラウザ操作に進まない)。
+   URL が 200 を返すだけでは足りない。そのポートで応答しているのが対象 worktree の
+   プロセスか(コンテナなら compose project 名)を確かめ、ビルド成果物を配信する構成では
+   ビルド済みアセットが HEAD より新しいかも確かめる(vite dev server など HMR で配信する構成では不要)。
+   別 worktree のアプリが同じポートを握っていると、無関係なブランチを検証して pass を出してしまう
 6. **seed 実装**: 観点の前提データを seed/setup.ts に冪等に実装
 7. **シナリオ実装**: 観点ごとに探索 → spec 化 → 単体実行で安定化
    → references/scenario-authoring.md

@@ -5,7 +5,7 @@ just lint                      # Run ALL checks locally (mirrors CI)
 chezmoi apply --dry-run        # Preview changes before applying
 ```
 
-`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also a CI job except `test-nono-profile` (CI does not install nono) and `test-nono-packs` (the template it renders is darwin-only; CI runs on ubuntu), so local is a superset: green locally means green in CI, not the other way round.
+`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also a CI job except `test-nono-profile` (CI does not install nono) and `test-nono-packs` (the template it renders is darwin-only; CI runs on ubuntu), so local is a superset of CI's recipe set. Green locally still does not guarantee green in CI: CI runs on ubuntu (GNU coreutils), and BSD/GNU differences in `stat` / `sed` / `grep` have turned CI red while local was green (PR #328). After pushing, check the PR's CI before reporting done.
 
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
 
