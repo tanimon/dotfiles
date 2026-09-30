@@ -42,10 +42,13 @@ symptoms:
 **測定の落とし穴として追加:** 結果が blocked というだけでは、「フックが読み込まれていない」ことと
 「フックの判定が負けた」ことを区別できない。フックに marker ファイルを書かせてから判定すること。
 
-## 分かったこと
+## 分かったこと(2.1.285 より前。2026-09-17 の測定)
 
-**PreToolUse フックが返す `hookSpecificOutput.permissionDecision: "allow"` は、同じ呼び出しに
-一致する `permissions.ask` ルールよりも優先される。** ドキュメントの「allow bypasses the
+> 以下の主張は 2.1.285 では成り立たない(上の 2026-09-30 追記)。測定の手順と対照ペアの考え方を
+> 残すために、当時の記述のまま置いてある。
+
+**(2.1.285 より前)PreToolUse フックが返す `hookSpecificOutput.permissionDecision: "allow"` は、同じ呼び出しに
+一致する `permissions.ask` ルールよりも優先された。** ドキュメントの「allow bypasses the
 permission system」という記述どおりだが、一文を根拠にせず対照ペアで実測した(2026-09-17)。
 
 ```sh

