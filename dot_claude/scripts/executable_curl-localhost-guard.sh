@@ -12,8 +12,10 @@
 #
 # Decision contract (docs: PreToolUse hookSpecificOutput):
 #   ask         — curl を実行しうる token があり、宛先がループバックだけだと示せないとき
-#                 (読み切れない綴り・curlrc・未知の flag やパイプ先・ループバック以外の宛先)
-#   (no output) — curl を実行しうる token が無いか、ループバック宛だけの curl。classifier が判定する
+#                 (読み切れない綴り・curlrc・未知の flag やパイプ先・ループバック以外の宛先)、
+#                 または reader が 1 token に飲み込んだ curl が字面の床に一致したとき
+#   (no output) — curl を実行しうる token が無く字面の床にも一致しないか、ループバック宛だけの curl。
+#                 classifier が判定する
 #   このフックは allow を返さない。
 #
 # フックが死ぬ(未配置・クラッシュ)と curl は classifier の判定だけになる(git-push-guard と同じ向き)。
@@ -416,7 +418,9 @@ classify_segment() {
 # POSIX ERE で書く。`\b` は macOS の /bin/bash 3.2 の `=~` では単語境界にならない。
 # 受容した誤 ask: heredoc や置換の中の散文で、行頭か `;&|(` の直後に `curl ` を置いたもの
 # (Markdown のコードスパン `` `curl …` `` も含む。PR 本文でよく出る)。
-CURL_LINE_RE='(^|[;&|(`])[[:space:]]*([^[:space:]]*/)?curl[[:space:]]'
+# 末尾は空白か行末。引用符の外のバッククォート置換(x=`curl -s https://…`)は reader が空白で
+# 割るので、token が `x=`curl` で終わる(先頭のバッククォートしか外さない CURL_PRESENT にも掛からない)。
+CURL_LINE_RE='(^|[;&|(`])[[:space:]]*([^[:space:]]*/)?curl([[:space:]]|$)'
 # here-string は一時ファイルを使う($TMPDIR に書けないと黙って「一致なし」になる)ので使わない。
 # `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
 # 長さ超過の入力(下)で 179 KB に 2.3 秒かかった。改行での単語分割は線形(同じ入力で 0.02 秒)。
