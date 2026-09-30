@@ -20,6 +20,7 @@
 # Residuals this scan does not cover (documented in the tier-model spec):
 #   - a force refspec reached through an alias or a shell function
 #   - `gh api` calls that perform the equivalent server-side operation
+#   - `git pu""sh … --force`: 下の `*push*` の早期終了が reader の引用符除去より先に走る(ADR 0009)
 #
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
 # shellcheck disable=SC2329
@@ -83,21 +84,61 @@ esac
 # 共有 reader を読む。このフックの無出力はフェイルオープンなので、読めないときは ask に倒す。
 # `source` は存在しないファイルで `||` に届く前に bash 自身が終了する
 # (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
+# 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `bash -n` で
+# 先に確かめ、空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)に
+# なるので `declare -F` で確かめる。
 reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
-[[ -r "$reader_library" ]] || {
+if [[ ! -r "$reader_library" ]] || ! bash -n "$reader_library"; then
     emit ask "$ASK_REASON"
     exit 0
-}
+fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/shell-reader.bash
 source "$reader_library" || {
     emit ask "$ASK_REASON"
     exit 0
 }
+declare -F shell_reader_read shell_reader_each_segment >/dev/null || {
+    emit ask "$ASK_REASON"
+    exit 0
+}
+
+DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
+DANGER_FLAG_RE='(--force|--force-with-lease|--force-if-includes|--delete|--mirror|--prune|[[:space:]]-[[:alpha:]]*[fd][[:alpha:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
+# 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
+# 組み合わせて ask にしないようにする(以前も改行で分割していたので同じ粒度になる)。
+# here-string は一時ファイルを使う($TMPDIR に書けないと黙って「一致なし」になる)ので使わない。
+# `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
+# 長さ超過の入力(下)で 179 KB に 2.3 秒かかった。改行での単語分割は線形(同じ入力で 0.02 秒)。
+# 空行は落ちるが、空行はどちらの正規表現にも一致しない。
+text_floor() {
+    local LC_ALL=C IFS=$'\n' line restore_glob=0
+    local -a lines
+    # 分割の結果が glob として cwd に展開されないように、分割の間だけ set -f にする。
+    if [[ $- != *f* ]]; then
+        set -f
+        restore_glob=1
+    fi
+    # shellcheck disable=SC2206 # 改行での単語分割そのものが目的
+    lines=($1)
+    [[ $restore_glob -eq 1 ]] && set +f
+    [[ ${#lines[@]} -eq 0 ]] && return 1
+    for line in "${lines[@]}"; do
+        if [[ "$line" =~ $DANGER_TEXT_RE ]] && [[ "$line" =~ $DANGER_FLAG_RE ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 shell_reader_read "$COMMAND"
-# 長すぎる入力は安く読めない。何も返さず classifier に任せる(ADR 0009 の残存リスク)。
-[[ $SHELL_READER_TOO_LONG -eq 1 ]] && exit 0
+# 長すぎる入力は reader が token を作らない(安く読めない)。字面の床(行単位の正規表現で、
+# reader の byte ごとの走査ではない)だけを生のコマンドに当て、一致したら ask にする。deny に
+# しないのは、長い PR 本文の散文も同じ形になるため。一致しなければ classifier に任せる(ADR 0009)。
+if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
+    text_floor "$COMMAND" && emit ask "$ASK_REASON"
+    exit 0
+fi
 
 # reader が引用符を外すので、ここで外すのはバッククォートだけ。`` `git push … --force` `` は
 # 実行されるので、前後の 1 つを外して読む。token ごとに呼ぶので $(…) で fork しない。
@@ -124,7 +165,7 @@ NEEDS_ASK=0
 classify_from() {
     local start=$1 strict=$2
     local index=$((start + 1))
-    local subcommand="" config_ask=0 danger="" token value argument
+    local subcommand="" config_ask=0 alias_ask=0 danger="" token value argument
 
     # Walk git's own options to find the subcommand. `-c <cfg>` and friends take
     # a separate value token, so they advance by two.
@@ -141,6 +182,9 @@ classify_from() {
             # every push behave as `--mirror`. `mirror` does not contain `push`,
             # so it needs its own pattern. Unreadable rather than safe.
             case "$value" in *push* | *mirror*) config_ask=1 ;; esac
+            # `-c alias.p='push --force' p` は、サブコマンドが `push` でなくても push になる。
+            # git の設定キーは大文字小文字を区別しないので、`ALIAS.p=…` も同じに扱う。
+            case "$value" in [Aa][Ll][Ii][Aa][Ss].*=*push*) alias_ask=1 ;; esac
             index=$((index + 2))
             ;;
         -C | --git-dir | --work-tree | --namespace | --exec-path)
@@ -148,6 +192,7 @@ classify_from() {
             ;;
         -c* | --config-env=*)
             case "$token" in *push* | *mirror*) config_ask=1 ;; esac
+            case "$token" in -c[Aa][Ll][Ii][Aa][Ss].*=*push*) alias_ask=1 ;; esac
             index=$((index + 1))
             ;;
         -*)
@@ -159,6 +204,8 @@ classify_from() {
             ;;
         esac
     done
+    # 下の `push` でないときの早期 return より前に立てる(alias の展開先はここでは読めない)。
+    [[ $alias_ask -eq 1 ]] && NEEDS_ASK=1
     [[ "$subcommand" == "push" ]] || return 0
 
     argument=$((index + 1))
@@ -283,19 +330,7 @@ shell_reader_each_segment classify_segment
 # 閉じていない引用符(heredoc の `don't`)も、それ以降を 1 token に飲み込む。これらの token に
 # git・push・危険な綴りがそろっていれば ask にする。deny にしないのは、PR 本文の散文も同じ形になるため。
 # 同じ行に「git … push」と ` -f ` や ` :x` を含む散文が ask になるのは、受容した誤 ask。
-DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
-DANGER_FLAG_RE='(--force|--force-with-lease|--force-if-includes|--delete|--mirror|--prune|[[:space:]]-[[:alpha:]]*[fd][[:alpha:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
-# 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
-# 組み合わせて ask にしないようにする(以前も改行で分割していたので同じ粒度になる)。
-text_floor() {
-    local line
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$line" =~ $DANGER_TEXT_RE ]] && [[ "$line" =~ $DANGER_FLAG_RE ]]; then
-            return 0
-        fi
-    done <<<"$1"
-    return 1
-}
+# text_floor と正規表現は上(長さ超過の分岐と共用)。
 if [[ -z "$DANGER_TOKEN" && ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
     last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
     for index in "${!SHELL_READER_TOKENS[@]}"; do

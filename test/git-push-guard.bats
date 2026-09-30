@@ -507,10 +507,93 @@ EOF
     assert_equal "$(decision "$output")" ask
 }
 
-@test "an over-long command produces no decision" {
+# lib が壊れているとき: 空の lib は関数が無いまま exit 127(フェイルオープン)、構文エラーの lib は
+# source が exit 2(理由なしのブロック)になっていた。どちらも ask にそろえる。
+@test "an empty reader library asks" {
+    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
+    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
+    : >"$BATS_TEST_TMPDIR/bin/lib/shell-reader.bash"
+    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
+        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a reader library with a syntax error asks" {
+    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
+    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
+    printf '%s\n' 'shell_reader_read() {' >"$BATS_TEST_TMPDIR/bin/lib/shell-reader.bash"
+    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
+        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a copy with an intact reader library stays silent for a plain push" {
+    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
+    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/shell-reader.bash" "$BATS_TEST_TMPDIR/bin/lib/"
+    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
+        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
+    assert_success
+    assert_output ''
+}
+
+# 長さ超過(8192 byte 超)では reader が token を作らない。字面の床だけを生のコマンドに当てる。
+@test "an over-long command with an embedded force push asks" {
+    local body
+    body=$(printf 'x%.0s' $(seq 1 9000))
+    run hook "git commit -m \"${body}\" && git push origin HEAD --force"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "an over-long PR body mentioning git push --force asks (accepted prose false ask)" {
     local body
     body=$(printf 'x%.0s' $(seq 1 8200))
     run hook "gh pr create --body \"${body} git push --force\""
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "an over-long command with a plain push produces no decision" {
+    local body
+    body=$(printf 'x%.0s' $(seq 1 8200))
+    run hook "gh pr create --body \"${body}\" && git push origin feature"
+    assert_success
+    assert_output ''
+}
+
+@test "an over-long command with the danger flag on a different line produces no decision" {
+    local body
+    body=$(printf 'x%.0s' $(seq 1 8200))
+    run hook "gh pr create --body \"git push の手順
+${body} --force は使わない\""
+    assert_success
+    assert_output ''
+}
+
+# -c alias.<name>=… に push を入れると、サブコマンドが push でなくても push になる。
+@test "git -c alias carrying push asks even when the subcommand is not push" {
+    run hook "git -c alias.p='push --force' p origin main"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git -c alias carrying push asks in the joined -c form and in upper case" {
+    run hook "git -cALIAS.p='push --force' p origin main"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git -c alias without push produces no decision" {
+    run hook 'git -c alias.st=status st'
+    assert_success
+    assert_output ''
+}
+
+@test "git -c alias without push next to a plain push produces no decision" {
+    run hook 'git -c alias.st=status st && git push origin main'
     assert_success
     assert_output ''
 }
