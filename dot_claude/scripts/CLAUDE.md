@@ -151,11 +151,12 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `$TMPDIR` に書けないと黙って「一致なし」になり、`${s%%$'\n'*}` / `${s#*$'\n'}` の行ループは
   毎行残りをコピーして二乗になる(179 KB で 2.3 秒。単語分割は 0.02 秒)。
 - **lib が読めない・壊れているときは `ask`。** フックは `[[ -r "$reader_library" ]]` と
-  `bash -n` を確かめてから `source` し、その後 `declare -F shell_reader_read shell_reader_each_segment`
-  で関数がそろったことを確かめる。存在しないファイルへの素の `source … || …` は bash 3.2 で
-  `||` に届く前に exit 1 し、構文エラーの lib では `source` 自体が exit 2(PreToolUse では理由なしの
-  ブロック)で終わり、空や途中で切れた lib では関数が無いまま進んで exit 127(ブロックしないエラー =
-  フェイルオープン)になる。どの経路でも判定不能のまま素通りさせず `ask` を返す。
+  `"$BASH" -n`(PATH 上の bash ではなくフック自身の interpreter)を確かめてから `source` し、
+  その後 `declare -F shell_reader_read shell_reader_each_segment` で関数がそろったことを確かめる。
+  存在しないファイルへの素の `source … || …` は bash 3.2 で `||` に届く前に exit 1 し、
+  構文エラーの lib では `source` 自体が exit 2(PreToolUse では理由なしのブロック)で終わり、
+  空や途中で切れた lib では関数が無いまま進んで exit 127(ブロックしないエラー = フェイルオープン)になる。
+  どの経路でも判定不能のまま素通りさせず `ask` を返す。
 - **上限は 8192 byte。** `LC_ALL=C` で数え、超えたら reader は token を作らず `TOO_LONG` を返す。
   git-push-guard はこのとき上の字面の床を生のコマンドに当て、一致すれば `ask`(`deny` ではない)、
   しなければ何も返さない(classifier に任せる)。長い PR 本文の散文が `ask` になるのは受容している。
@@ -350,7 +351,7 @@ OS レベルの床になるが、**フックはその床に依存していない
   判定まで持つと、どちらか一方の向きに合わせた作りになる(ADR 0009)。`TOO_LONG` だけは token を作らない。
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
-- **読み込みに失敗したとき。** 各フックは `[[ -r … ]]` と `bash -n` で確かめてから `source` し、その後
+- **読み込みに失敗したとき。** 各フックは `[[ -r … ]]` と `"$BASH" -n` で確かめてから `source` し、その後
   `declare -F shell_reader_read shell_reader_each_segment` で関数がそろったことを確かめる。どの失敗経路
   (無い・構文エラー・空や途中で切れた lib・source の失敗)でも `ask` を返す(git-push は判定不能を
   素通りさせない、curl も curl の有無を確かめられないため)。テストは各フックの bats にある

@@ -84,11 +84,12 @@ esac
 # 共有 reader を読む。このフックの無出力はフェイルオープンなので、読めないときは ask に倒す。
 # `source` は存在しないファイルで `||` に届く前に bash 自身が終了する
 # (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
-# 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `bash -n` で
-# 先に確かめ、空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)に
-# なるので `declare -F` で確かめる。
+# 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `"$BASH" -n` で
+# 先に確かめ(PATH 上の bash ではなく、このフックを動かしている interpreter で検査する)、
+# 空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)になるので
+# `declare -F` で確かめる。
 reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
-if [[ ! -r "$reader_library" ]] || ! bash -n "$reader_library"; then
+if [[ ! -r "$reader_library" ]] || ! "$BASH" -n "$reader_library"; then
     emit ask "$ASK_REASON"
     exit 0
 fi
