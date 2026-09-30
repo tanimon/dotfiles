@@ -658,3 +658,12 @@ decision() {
     assert_success
     assert_equal "$(printf '%s' "$output" | jq -r '.hookSpecificOutput.hookEventName')" PreToolUse
 }
+
+@test "a missing reader library falls back to no output" {
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
+    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
+        _ 'curl http://localhost:3000/' "$BATS_TEST_TMPDIR/bin/guard.sh"
+    assert_success
+    assert_output ''
+}
