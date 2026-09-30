@@ -435,3 +435,76 @@ EOF
     assert_success
     assert_equal "$(decision "$output")" ask
 }
+
+# --- shared reader: quotes are read the way bash reads them ------------------
+
+# 2026-09-30 に、この計画を書いている最中のツール呼び出し(heredoc の中の
+# "git push and a +N")が現行の guard に deny された。同じ形の誤判定。
+@test "separators inside a quoted commit message are not a force push" {
+    run hook 'git commit -m "fix; git push --force"'
+    assert_success
+    assert_output ''
+}
+
+@test "a force flag still denies inside a brace expansion" {
+    run hook 'git push origin {a,b} --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a force push inside a quoted substitution asks" {
+    run hook 'echo "$(git push origin main --force)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a force push swallowed by an unclosed quote asks" {
+    run hook $'cat <<EOF\ndon\'t\nEOF\ngit push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a quoted substitution without a dangerous spelling produces no decision" {
+    run hook 'git commit -m "$(cat <<EOF
+- git push の手順を直す
+EOF
+)" && git push origin feature'
+    assert_success
+    assert_output ''
+}
+
+@test "git push and a +N on different lines of a PR body produce no decision" {
+    run hook 'gh pr create --body "$(cat <<EOF
+- git push の手順を直す
+- +12 行、-3 行
+EOF
+)"'
+    assert_success
+    assert_output ''
+}
+
+@test "git push with --force on one line of a PR body asks" {
+    run hook 'gh pr create --body "$(cat <<EOF
+- 誤って git push origin main --force しないようにする
+EOF
+)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a missing reader library asks" {
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
+    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
+        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "an over-long command produces no decision" {
+    local body
+    body=$(printf 'x%.0s' $(seq 1 8200))
+    run hook "gh pr create --body \"${body} git push --force\""
+    assert_success
+    assert_output ''
+}
