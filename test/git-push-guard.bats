@@ -436,6 +436,25 @@ EOF
     assert_equal "$(decision "$output")" ask
 }
 
+# 引用符の外の代入では reader が空白で割るので、`git` は `` x=`git `` の token の途中にある。
+@test "a backtick substitution in an assignment carrying a force flag asks" {
+    run hook 'x=`git push origin main --force`'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a backtick substitution in an assignment running git status produces no decision" {
+    run hook 'x=`git status`'
+    assert_success
+    assert_output ''
+}
+
+@test "a harmless backtick assignment before a plain push produces no decision" {
+    run hook 'x=`date` && git push origin main'
+    assert_success
+    assert_output ''
+}
+
 # --- shared reader: quotes are read the way bash reads them ------------------
 
 # 2026-09-30 に、この計画を書いている最中のツール呼び出し(heredoc の中の

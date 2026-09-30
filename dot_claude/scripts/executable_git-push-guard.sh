@@ -312,9 +312,14 @@ classify_segment() {
     # look for it and classify from there, at `ask` strength only. Quotes are
     # *not* stripped for this match, so `echo "git push --force"` stays silent
     # (a quoted `git` is text); a leading backtick is, because that one runs.
-    probe=$command_start
+    # token の途中のバッククォートも同じく実行される。引用符の外の `` x=`git push … --force` `` は
+    # reader が空白で割るので、代入の token が `` x=`git `` になり、上の前置の読み飛ばしで
+    # command_start の手前に置かれる。そこで走査は先頭から始め、最後のバッククォートより後ろを見る
+    # (バッククォートを含まない token では何も外さない)。command_start の手前にあるのは代入と
+    # キーワード・前置詞だけで、ここから見つかった git は ask 止まり(危険な綴りがあるときだけ)。
+    probe=0
     while [[ $probe -lt $token_count ]]; do
-        raw=${tokens[$probe]#\`}
+        raw=${tokens[$probe]##*\`}
         if [[ "${raw##*/}" == "git" ]]; then
             classify_from "$probe" 0
             break
