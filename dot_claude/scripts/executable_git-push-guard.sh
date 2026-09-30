@@ -23,7 +23,8 @@
 #   - `git pu""sh … --force`: 下の `*push*` の早期終了が reader の引用符除去より先に走る(ADR 0009)
 #
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
-# shellcheck disable=SC2329
+# 新しい shellcheck は SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する。
+# shellcheck disable=SC2317,SC2329
 set -euo pipefail
 
 # Errors go to a log file when one can be opened, and to the hook's own stderr

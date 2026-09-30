@@ -53,7 +53,8 @@
 # effects beyond the destination check, a glob breaks the destination check
 # itself, so it gets no residual.
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
-# shellcheck disable=SC2329
+# 新しい shellcheck は SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する。
+# shellcheck disable=SC2317,SC2329
 set -euo pipefail
 
 # 理由の文言に変数を入れない固定文(jq が無くても出せる)。
