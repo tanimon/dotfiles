@@ -443,8 +443,45 @@ EOF
     assert_equal "$(decision "$output")" ask
 }
 
-@test "a backtick substitution in an assignment running git status produces no decision" {
-    run hook 'x=`git status`'
+# `` x=`git status` `` 単独では `push` を含まず早期終了で終わるので、reader に届く形にする。
+# バッククォートの後ろに git を見つけ、push ではないので何も返さない経路を通る。
+@test "a backtick assignment running git status before a plain push produces no decision" {
+    run hook 'x=`git status` && git push origin feature'
+    assert_success
+    assert_output ''
+}
+
+@test "a backtick substitution in an assignment running a plain push produces no decision" {
+    run hook 'x=`git push origin main`'
+    assert_success
+    assert_output ''
+}
+
+# strict=0(git がコマンド位置に無い)でも、push の引数の `$` / バッククォートは ask にする。
+# 変数が --force を運ぶ場合、バッククォートで包むだけで素通りしていた。
+@test "a backtick assignment pushing a variable asks" {
+    run hook 'x=`git push origin $r`'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a backtick substitution inside another command pushing a variable asks" {
+    run hook 'echo `git push origin $r`'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a quoted string naming git push with a variable produces no decision" {
+    run hook 'echo "git push origin $r"'
+    assert_success
+    assert_output ''
+}
+
+@test "a PR body in a quoted heredoc naming git push produces no decision" {
+    run hook "gh pr create --body \"\$(cat <<'EOF'
+- git push の手順を直す
+EOF
+)\""
     assert_success
     assert_output ''
 }

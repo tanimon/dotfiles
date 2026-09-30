@@ -209,8 +209,13 @@ classify_from() {
     [[ $alias_ask -eq 1 ]] && NEEDS_ASK=1
     [[ "$subcommand" == "push" ]] || return 0
 
+    local expansion=0 raw_argument
     argument=$((index + 1))
     while [[ $argument -lt $token_count ]]; do
+        # strict=0 用: push の引数に `$` かバッククォートがあるか。末尾の 1 つだけは除く —
+        # `` x=`git push origin main` `` の `` main` `` は、git を包む置換を閉じるだけのもの。
+        raw_argument=${tokens[$argument]%\`}
+        case "$raw_argument" in *'$'* | *'`'*) expansion=1 ;; esac
         strip_backticks "${tokens[$argument]}"
         token=$STRIPPED
         case "$token" in
@@ -241,10 +246,12 @@ classify_from() {
     done
 
     if [[ $strict -eq 0 ]]; then
-        # An unconfirmed command position never denies, and the fail-closed
-        # triggers below would fire on ordinary prose, so only a dangerous
-        # spelling counts here.
-        [[ -n "$danger" ]] && NEEDS_ASK=1
+        # コマンド位置を確定できないので deny にはしない(ask 止まり)。下の -c の検査は散文でも
+        # 立ちうるので使わず、危険な綴りと、push の引数の `$` / バッククォートだけを見る。
+        # 後者が無いと、`` x=`git push origin $r` `` のように変数が --force を運ぶ push が、
+        # バッククォートで包むだけで無出力になる。push の引数に限るので、git より前の token や
+        # 引用符の中の散文(`echo "git push origin $r"` は token 1 つで、git と読める token が無い)は巻き込まない。
+        [[ -n "$danger" || $expansion -eq 1 ]] && NEEDS_ASK=1
         return 0
     fi
 
