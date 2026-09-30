@@ -467,6 +467,13 @@ decision() {
     assert_equal "$(decision "$output")" ask
 }
 
+@test "a curlrc with no curl-executing token produces no decision" {
+    printf 'proxy = http://192.0.2.1:8080\n' >"$CURL_HOME/.curlrc"
+    run hook 'echo "curl x"'
+    assert_success
+    assert_output ''
+}
+
 # --- cost -------------------------------------------------------------------
 
 @test "an oversized command produces no decision instead of being walked" {
@@ -651,13 +658,22 @@ decision() {
     assert_equal "$(decision "$output")" ask
 }
 
+@test "a missing jq produces no decision when the input does not mention curl" {
+    local stub="$BATS_TEST_TMPDIR/bin"
+    mkdir -p "$stub"
+    ln -s "$(command -v cat)" "$stub/cat"
+    run env PATH="$stub" "$BASH" "$SCRIPT" <<<'{"tool_input":{"command":"git status"}}'
+    assert_success
+    assert_output ''
+}
+
 @test "the ask payload names the PreToolUse event" {
     run hook 'curl https://example.com/'
     assert_success
     assert_equal "$(printf '%s' "$output" | jq -r '.hookSpecificOutput.hookEventName')" PreToolUse
 }
 
-@test "a missing reader library falls back to no output" {
+@test "a missing reader library asks" {
     mkdir -p "$BATS_TEST_TMPDIR/bin"
     cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
     run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
@@ -717,8 +733,17 @@ decision() {
     assert_equal "$(decision "$output")" ask
 }
 
-@test "the hook never emits allow" {
-    run hook 'curl http://localhost:3000/api'
+@test "ask-returning paths never emit allow" {
+    run hook 'curl https://example.com/'
     assert_success
+    assert_equal "$(decision "$output")" ask
+    refute_output --partial '"allow"'
+
+    local stub="$BATS_TEST_TMPDIR/bin"
+    mkdir -p "$stub"
+    ln -s "$(command -v cat)" "$stub/cat"
+    run env PATH="$stub" "$BASH" "$SCRIPT" <<<'{"tool_input":{"command":"curl http://localhost:3000/"}}'
+    assert_success
+    assert_equal "$(decision "$output")" ask
     refute_output --partial '"allow"'
 }
