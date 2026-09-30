@@ -144,6 +144,21 @@ joined() {
     assert_equal "$seen" '0:a b|4:c|'
 }
 
+@test "each_segment sees every segment when the callback assigns globals named position and count" {
+    seen=''
+    clobber() {
+        position=99
+        count=99
+        start=99
+        segment=(x)
+        callback=nothing
+        seen+="$*|"
+    }
+    shell_reader_read 'a b && c ; d'
+    shell_reader_each_segment clobber
+    assert_equal "$seen" 'a b|c|d|'
+}
+
 @test "each_segment stops at the first failing callback" {
     calls=0
     first_fails() { calls=$((calls + 1)); return 1; }

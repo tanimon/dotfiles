@@ -220,9 +220,8 @@ classify_from() {
 # そのため。この関数は segment ごとに tokens / token_count を設定して判定する。
 #
 # shell_reader_each_segment の callback。常に 0 を返す(全 segment を見る)。
-# classify_from は tokens / token_count を global として読む(bash 3.2 に nameref が無いため)。
-# 変数名は reader の local(count / start / segment / position)と衝突させない。bash は動的
-# スコープなので、callback が同名を代入すると reader の走査が黙って壊れる(実際に踏んだ)。
+# classify_from は tokens / token_count を動的スコープ(または global)経由で読む。
+# reader の local は `_sr_` 接頭辞なので、ここの変数名と衝突しない。
 classify_segment() {
     # 空配列の展開は bash 3.2 の set -u で落ちるが、callback は空でない segment でしか呼ばれない。
     tokens=("$@")
@@ -283,8 +282,9 @@ shell_reader_each_segment classify_segment
 # (`echo "$(git push origin main --force)"`、PR 本文の heredoc)は token 1 つの文字列になる。
 # 閉じていない引用符(heredoc の `don't`)も、それ以降を 1 token に飲み込む。これらの token に
 # git・push・危険な綴りがそろっていれば ask にする。deny にしないのは、PR 本文の散文も同じ形になるため。
+# 同じ行に「git … push」と ` -f ` や ` :x` を含む散文が ask になるのは、受容した誤 ask。
 DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
-DANGER_FLAG_RE='(--force|--force-with-lease|--force-if-includes|--delete|--mirror|--prune|[[:space:]]-[[:alpha:]]*[fd][[:alpha:]]*([[:space:]]|$)|[[:space:]][+:][^[:space:]])'
+DANGER_FLAG_RE='(--force|--force-with-lease|--force-if-includes|--delete|--mirror|--prune|[[:space:]]-[[:alpha:]]*[fd][[:alpha:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
 # 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
 # 組み合わせて ask にしないようにする(以前も改行で分割していたので同じ粒度になる)。
 text_floor() {

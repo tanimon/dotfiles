@@ -458,6 +458,12 @@ EOF
     assert_equal "$(decision "$output")" ask
 }
 
+@test "a short force flag inside a quoted substitution asks" {
+    run hook 'echo "$(git push origin main -f)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
 @test "a force push swallowed by an unclosed quote asks" {
     run hook $'cat <<EOF\ndon\'t\nEOF\ngit push origin main --force'
     assert_success

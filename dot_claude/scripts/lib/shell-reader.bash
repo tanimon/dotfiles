@@ -197,27 +197,30 @@ shell_reader_read() {
 # 空でない segment ごとに callback を呼ぶ。呼ぶ前に SHELL_READER_SEGMENT_START を
 # segment 先頭の SHELL_READER_TOKENS 上の index にする(GLOB_INDEXES との照合用)。
 # callback が非 0 を返したらそこで止めて 1 を返す。
+# bash は動的スコープなので、callback が local 宣言なしに代入した名前はこの関数の local を
+# 書き換える。そのため local はすべて `_sr_` 接頭辞にしてある。契約: callback は `_sr_` で
+# 始まる名前以外なら global を自由に使ってよい。
 # shellcheck disable=SC2034 # SHELL_READER_SEGMENT_START は callback(呼び出し側)が読む
 shell_reader_each_segment() {
-    local callback=$1 position=0 count=${#SHELL_READER_TOKENS[@]} start=0
-    local -a segment
-    segment=()
-    while [[ $position -lt $count ]]; do
-        if [[ "${SHELL_READER_TOKENS[$position]}" == "$SHELL_READER_SEP" ]]; then
-            if [[ ${#segment[@]} -gt 0 ]]; then
-                SHELL_READER_SEGMENT_START=$start
-                "$callback" "${segment[@]}" || return 1
+    local _sr_callback=$1 _sr_position=0 _sr_count=${#SHELL_READER_TOKENS[@]} _sr_start=0
+    local -a _sr_segment
+    _sr_segment=()
+    while [[ $_sr_position -lt $_sr_count ]]; do
+        if [[ "${SHELL_READER_TOKENS[$_sr_position]}" == "$SHELL_READER_SEP" ]]; then
+            if [[ ${#_sr_segment[@]} -gt 0 ]]; then
+                SHELL_READER_SEGMENT_START=$_sr_start
+                "$_sr_callback" "${_sr_segment[@]}" || return 1
             fi
-            segment=()
-            start=$((position + 1))
+            _sr_segment=()
+            _sr_start=$((_sr_position + 1))
         else
-            segment+=("${SHELL_READER_TOKENS[$position]}")
+            _sr_segment+=("${SHELL_READER_TOKENS[$_sr_position]}")
         fi
-        position=$((position + 1))
+        _sr_position=$((_sr_position + 1))
     done
-    if [[ ${#segment[@]} -gt 0 ]]; then
-        SHELL_READER_SEGMENT_START=$start
-        "$callback" "${segment[@]}" || return 1
+    if [[ ${#_sr_segment[@]} -gt 0 ]]; then
+        SHELL_READER_SEGMENT_START=$_sr_start
+        "$_sr_callback" "${_sr_segment[@]}" || return 1
     fi
     return 0
 }
