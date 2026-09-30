@@ -310,8 +310,8 @@
       "effortLevel": "high"
     }
   },
-  {{/* advisorModel: サーバーサイド advisor tool の助言役モデル（指定可能なエイリアスは fable / opus / sonnet）。advisor は executor（メインモデル）より上位のランクでないと attach されないため、上の "model" と対になって初めて機能する。現在の組み合わせは executor=opus[1m] / advisor=fable で、fable は opus より上位なので main セッションでも発動する。/model で fable 自身に切り替えたセッションでは main では発動せず（サブエージェントでは発動しうる）、起動時通知でその旨が出る。トークン消費は増える。/advisor ダイアログが書き込む先は ~/.claude/settings.json だが、そのファイルはこの tmpl が全面所有しているため apply で消える。恒久設定はここに書くこと。 */ -}}
-  "advisorModel": "fable",
+  {{/* advisorModel: サーバーサイド advisor tool の助言役モデル（指定可能なエイリアスは fable / opus / sonnet）。advisor は executor（メインモデル）と同等以上の能力でないと attach されない（公式ドキュメント https://code.claude.com/docs/en/advisor の「at least as capable as the main model」。同一モデル同士も可）ため、上の "model" と対になって初めて機能する。現在の組み合わせは executor=opus[1m] / advisor=opus で、Opus 5.5 main は Opus 5 以降の advisor を受け付けるので main セッションでも発動する。/model で fable に切り替えたセッションでは Opus advisor は rejected となり main では発動せず（サブエージェントでは発動しうる）、起動時通知でその旨が出る。"model" の [1m] はメインモデルの 1M コンテキスト指定で、advisorModel はエイリアスかフル ID しか受け付けない（[1m] の記載なし。未認識のモデルだと advisor は attach されない）ため、両者を同じ表記に揃えないこと。会話が advisor 側のコンテキスト窓を超えると advisor 呼び出しだけが prompt_too_long で失敗する（セッションは継続）。トークン消費は増える。/advisor ダイアログが書き込む先は ~/.claude/settings.json だが、そのファイルはこの tmpl が全面所有しているため apply で消える。恒久設定はここに書くこと。 */ -}}
+  "advisorModel": "opus",
   {{/* orca agent-hooks integration: orca injects a claude-hook dispatcher into every hook event (PostCompact included). The command resolves the dispatcher from $HOME at runtime — .orca/agent-hooks/claude-hook.sh on Unix, claude-hook.cmd (with a PowerShell fallback for paths containing cmd metacharacters) on Windows — and no-ops with printf '{}' when $HOME is unset or the dispatcher is missing, so it is safe to ship to machines without orca. Because it resolves $HOME at runtime rather than baking in a path, it needs no homeDir substitution. Reflected here verbatim from the live ~/.claude/settings.json so chezmoi apply doesn't wipe it — re-sync from that file whenever orca upgrades the snippet. */ -}}
   "hooks": {
     "SessionStart": [
