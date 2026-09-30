@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
-# PreToolUse hook: let `curl` to loopback through without an approval prompt.
+# PreToolUse hook: curl の宛先がループバックだけだと示せないときに ask を返す。
 #
-# `Bash(curl:*)` sits in `permissions.ask` so that a one-off download or a
-# `curl … | sh` goes past a human. That gate is right for the network but wrong
-# for the everyday `curl http://localhost:3000/api` against a dev server started
-# in this very session — a prompt per request, for a request that never leaves
-# the machine.
+# `Bash(curl:*)` は permissions.ask に置かない。Claude Code 2.1.285 では ask ルールに一致した
+# 呼び出しにフックの allow が効かず、ループバック宛だけ緩める向きが作れないため
+# (ADR 0008 / 0009)。代わりにこのフックが、ワンショットのダウンロードや `curl … | sh` に
+# 人間の承認を挟む。日常の `curl http://localhost:3000/api` は無出力で classifier に任せる。
 #
-# `permissions` cannot express the distinction: rules are prefix matches, and
-# the URL sits after however many flags the caller wrote (`curl -sS -H … URL`),
-# so no `Bash(curl http://localhost:*)` entry can reach it. This hook reads the
-# whole command string instead, exactly as git-push-guard.sh does for `git push`.
+# `permissions` はこの区別を表現できない: ルールはプレフィックス照合で、URL はフラグの後ろ
+# (`curl -sS -H … URL`)に来るので `Bash(curl http://localhost:*)` では届かない。
+# そこで git-push-guard.sh と同じくコマンド文字列全体を読む。
 #
 # Decision contract (docs: PreToolUse hookSpecificOutput):
-#   allow       — every segment is provably inert or a loopback-only curl
-#   (no output) — anything else; falls through to the `Bash(curl:*)` ask rule
+#   ask         — curl を実行しうる token があり、宛先がループバックだけだと示せないとき
+#                 (読み切れない綴り・curlrc・未知の flag やパイプ先・ループバック以外の宛先)
+#   (no output) — curl を実行しうる token が無いか、ループバック宛だけの curl。classifier が判定する
+#   このフックは allow を返さない。
 #
-# This hook ONLY ever widens, so its failure direction is the safe one: an
-# unreadable command, a crash, a missing jq, an unwired script — all produce no
-# output, and the ask rule then prompts exactly as it does today. That is the
-# mirror image of git-push-guard, where silence is the frictionless default and
-# the fail-closed path has to be built by hand. Nothing here needs an error log
-# for that reason: there is no fail-open state to diagnose after the fact.
+# フックが死ぬ(未配置・クラッシュ)と curl は classifier の判定だけになる(git-push-guard と同じ向き)。
+# 8192 byte を超えるコマンドは安く読めないので無出力にする(ADR 0009)。
 #
 # Recognition is therefore an allowlist at every level — flags, pipe targets,
 # URL schemes, hosts. An unrecognized token is not "probably fine", it is a
@@ -56,14 +52,25 @@
 # shellcheck disable=SC2329
 set -euo pipefail
 
-emit_allow() {
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"curl-localhost-guard: 宛先がすべてループバック(localhost / 127.0.0.0/8 / [::1])なので承認不要で実行します。"}}'
+# 理由の文言に変数を入れない固定文(jq が無くても出せる)。
+emit_ask() {
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"curl-localhost-guard: 宛先がループバック(localhost / 127.0.0.0/8 / [::1])だけだと確認できないため、承認が必要です。"}}'
 }
 
-# Every bail-out below is a plain `exit 0` with no output: the ask rule decides.
-STDIN_JSON=$(cat) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
-COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+# stdin・jq・command の取り出しに失敗したら curl の有無を確かめられない。
+# 生の入力に curl があれば ask、無ければ無出力。
+STDIN_JSON=$(cat) || {
+    emit_ask
+    exit 0
+}
+if ! command -v jq >/dev/null 2>&1; then
+    case "$STDIN_JSON" in *curl*) emit_ask ;; esac
+    exit 0
+fi
+COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null) || {
+    case "$STDIN_JSON" in *curl*) emit_ask ;; esac
+    exit 0
+}
 [[ -z "$COMMAND" ]] && exit 0
 
 # Cheap bail-out before any parsing.
@@ -72,20 +79,18 @@ case "$COMMAND" in
 *) exit 0 ;;
 esac
 
-# curl reads a curlrc before it looks at any argument, and one `proxy = …` line
-# in it sends a loopback URL to an arbitrary host — the same capability
-# `--resolve` / `--connect-to` / `-x` are refused for below, with no spelling in
-# the command for this hook to see. curl takes the first of these that exists.
-# Nothing in this repository manages a curlrc, so bailing costs nothing in
-# practice. (`http_proxy` in the environment is the same class and is not
-# checkable at all: the hook's environment is not the Bash tool's.)
-# An `if` rather than `[[ … ]] && exit 0` for legibility only. (`set -e` does not
-# end the loop on a false test: the test is part of an `&&` list and so is
-# exempt — verified on bash 3.2. A bare `false` in the body would abort.)
+# curl は引数を見る前に curlrc を読み、`proxy = …` の 1 行でループバック URL が任意のホストへ
+# 振り替わる。`--resolve` / `--connect-to` / `-x` を綴りで落としても、コマンド文字列に痕跡を
+# 残さないファイル 1 つで無効になるため、存在自体を「読み切れない」として扱う。
+# ここでは記録だけして、判定は curl を実行しうる token があるか確かめた後(末尾)で行う。
+# curl は次のうち最初に存在するものを読む。このリポジトリは curlrc を管理していない。
+# (環境変数の `http_proxy` も同じクラスだが、フックの環境は Bash ツールの環境と別なので検査不能。)
+CURLRC_PRESENT=0
 for rc in "${CURL_HOME:-}/.curlrc" "${XDG_CONFIG_HOME:-}/curlrc" "${HOME:-}/.curlrc"; do
     case "$rc" in /.curlrc | /curlrc) continue ;; esac
     if [[ -e "$rc" || -L "$rc" ]]; then
-        exit 0
+        CURLRC_PRESENT=1
+        break
     fi
 done
 
@@ -93,14 +98,20 @@ done
 
 # 引用符を解釈して token に分ける reader は他のフックと共有している。読めなかった
 # 理由は flag で返るだけで、扱いはここ(下の segment walk の直前)で決める。
-# 読み込みに失敗したら判定なしで抜ける(ask ルールが決める)。
-# `source` は存在しないファイルで `|| exit 0` に届く前に bash 自身が終了する
+# 読み込みに失敗したら curl の有無を確かめられない(この時点で COMMAND は `*curl*` に一致)ので ask。
+# `source` は存在しないファイルで `||` に届く前に bash 自身が終了する
 # (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
 reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
-[[ -r "$reader_library" ]] || exit 0
+[[ -r "$reader_library" ]] || {
+    emit_ask
+    exit 0
+}
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/shell-reader.bash
-source "$reader_library" || exit 0
+source "$reader_library" || {
+    emit_ask
+    exit 0
+}
 
 # --- host classification -----------------------------------------------------
 
@@ -252,7 +263,7 @@ classify_curl() {
         # the same capability `-d @file` is refused for below. Refusing it here
         # keeps that rule from being a formality `-d - < /etc/passwd` walks past.
         # Matched on the operator SHAPE (optional file descriptor, then `<`)
-        # rather than on `<` anywhere in the token: the tokenizer has already
+        # rather than on `<` anywhere in the token: the reader (lib/shell-reader.bash) has already
         # split every real redirection into its own token, so a `<` left inside
         # a token can only have come from quotes, and refusing those made
         # `curl --data='<ping/>' http://localhost/` prompt for nothing.
@@ -260,7 +271,7 @@ classify_curl() {
             return 1
         fi
 
-        # Output redirections are not curl's arguments. The tokenizer kept any
+        # Output redirections are not curl's arguments. The reader (lib/shell-reader.bash) kept any
         # file-descriptor digit attached to the operator, so a bare operator
         # consumes the filename that follows and an operator with the filename
         # already glued on consumes only itself.
@@ -387,19 +398,35 @@ classify_segment() {
 }
 
 shell_reader_read "$COMMAND"
-# 変数・置換は宛先を運べる(代入の前置は `http_proxy` で URL を外へ振り替えられる)、
-# 番兵は偽の segment 境界を作れる、{ } * は単語数を変える、長すぎる入力は安く読めない。
-# どれも読み切れないコマンドとして ask に任せる。詳細は lib/shell-reader.bash。
-# 引用符の閉じ忘れはここでは見ない(元の走査も見ておらず、閉じていない token は
-# URL として読めずにプロンプトへ落ちる)。
-if [[ $SHELL_READER_TOO_LONG -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
-    $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ]]; then
-    exit 0
-fi
+# 長すぎる入力は安く読めない。curl を実行するかも確かめられないので、何も返さず classifier に任せる(ADR 0009)。
+[[ $SHELL_READER_TOO_LONG -eq 1 ]] && exit 0
 [[ ${#SHELL_READER_TOKENS[@]} -eq 0 ]] && exit 0
 
-shell_reader_each_segment classify_segment || exit 0
-[[ $SAW_CURL -eq 1 ]] || exit 0
+# curl を実行しうる token があるか。引用符の中の文字列は reader が 1 token にまとめるので、
+# `echo "curl …"` の `curl …` はここで一致しない。バッククォートで始まる token は実行されるので外して見る。
+CURL_PRESENT=0
+for token in "${SHELL_READER_TOKENS[@]}"; do
+    token=${token#\`}
+    if [[ "${token##*/}" == "curl" ]]; then
+        CURL_PRESENT=1
+        break
+    fi
+done
+[[ $CURL_PRESENT -eq 1 ]] || exit 0
 
-emit_allow
+# 変数・置換は宛先を運べる(代入の前置は `http_proxy` で URL を外へ振り替えられる)、
+# 番兵は偽の segment 境界を作れる、{ } * は単語数を変える。読み切れないコマンドとして ask。
+# 詳細は lib/shell-reader.bash。引用符の閉じ忘れはここでは見ない(閉じていない token は
+# URL として読めずに ask へ落ちる)。
+if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
+    $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ]]; then
+    emit_ask
+    exit 0
+fi
+
+# すべての segment がループバック宛の curl か INERT_COMMANDS なら無出力(classifier が判定する)。
+# SAW_CURL が 0 になるのは curl を実行しうる token がコマンド位置に無いとき(`xargs curl` など)。
+if ! shell_reader_each_segment classify_segment || [[ $SAW_CURL -ne 1 ]]; then
+    emit_ask
+fi
 exit 0
