@@ -17,7 +17,9 @@
 #   このフックは allow を返さない。
 #
 # フックが死ぬ(未配置・クラッシュ)と curl は classifier の判定だけになる(git-push-guard と同じ向き)。
-# 8192 byte を超えるコマンドは安く読めないので無出力にする(ADR 0009)。
+# 8192 byte を超えるコマンドは安く読めないので、行単位の字面の床だけを当てる(ADR 0009)。
+# 残存(ADR 0009): `bash -c "curl …"` の内側、`cu""rl …`(下の `*curl*` の早期終了が
+# reader の引用符除去より先に走る)、`c=curl; $c …`(curl と読める token が無い)。
 #
 # Recognition is therefore an allowlist at every level — flags, pipe targets,
 # URL schemes, hosts. An unrecognized token is not "probably fine", it is a
@@ -101,14 +103,21 @@ done
 # 読み込みに失敗したら curl の有無を確かめられない(この時点で COMMAND は `*curl*` に一致)ので ask。
 # `source` は存在しないファイルで `||` に届く前に bash 自身が終了する
 # (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
+# 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `bash -n` で
+# 先に確かめ、空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)に
+# なるので `declare -F` で確かめる。`bash -n` の診断は捨てる(このフックは stderr をログに繋いでいない)。
 reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
-[[ -r "$reader_library" ]] || {
+if [[ ! -r "$reader_library" ]] || ! bash -n "$reader_library" 2>/dev/null; then
     emit_ask
     exit 0
-}
+fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/shell-reader.bash
 source "$reader_library" || {
+    emit_ask
+    exit 0
+}
+declare -F shell_reader_read shell_reader_each_segment >/dev/null || {
     emit_ask
     exit 0
 }
@@ -397,9 +406,47 @@ classify_segment() {
     return 0
 }
 
+# --- 字面の床 ----------------------------------------------------------------
+#
+# reader は引用符の中の `$(…)` やバッククォートの中を読まないので、`x="$(curl …)"` の curl は
+# 1 token の文字列に埋まる。閉じていない引用符(heredoc 本文の `don't`)も、それ以降を 1 token に
+# 飲み込む(bash は heredoc の後ろの `curl … | sh` を実行するのに)。どちらも curl を実行しうる
+# token が無いように見えるので、行ごとに「curl がコマンドの位置にあるか」を字面で見て ask にする。
+# コマンドの位置 = 行頭か `; & | ( `` ` `` の直後(空白と、`/usr/bin/` のようなパスの前置は許す)。
+# POSIX ERE で書く。`\b` は macOS の /bin/bash 3.2 の `=~` では単語境界にならない。
+# 受容した誤 ask: heredoc や置換の中の散文で、行頭か `;&|(` の直後に `curl ` を置いたもの
+# (Markdown のコードスパン `` `curl …` `` も含む。PR 本文でよく出る)。
+CURL_LINE_RE='(^|[;&|(`])[[:space:]]*([^[:space:]]*/)?curl[[:space:]]'
+# here-string は一時ファイルを使う($TMPDIR に書けないと黙って「一致なし」になる)ので使わない。
+# `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
+# 長さ超過の入力(下)で 179 KB に 2.3 秒かかった。改行での単語分割は線形(同じ入力で 0.02 秒)。
+# 空行は落ちるが、空行は正規表現に一致しない。
+curl_text_floor() {
+    local LC_ALL=C IFS=$'\n' line restore_glob=0
+    local -a lines
+    # 分割の結果が glob として cwd に展開されないように、分割の間だけ set -f にする。
+    if [[ $- != *f* ]]; then
+        set -f
+        restore_glob=1
+    fi
+    # shellcheck disable=SC2206 # 改行での単語分割そのものが目的
+    lines=($1)
+    [[ $restore_glob -eq 1 ]] && set +f
+    [[ ${#lines[@]} -eq 0 ]] && return 1
+    for line in "${lines[@]}"; do
+        [[ "$line" =~ $CURL_LINE_RE ]] && return 0
+    done
+    return 1
+}
+
 shell_reader_read "$COMMAND"
-# 長すぎる入力は安く読めない。curl を実行するかも確かめられないので、何も返さず classifier に任せる(ADR 0009)。
-[[ $SHELL_READER_TOO_LONG -eq 1 ]] && exit 0
+# 長すぎる入力は reader が token を作らない(安く読めない)。字面の床(行単位の正規表現で、
+# reader の byte ごとの走査ではない)だけを生のコマンドに当て、curl がコマンドの位置にあれば ask。
+# 無ければ何も返さず classifier に任せる(ADR 0009)。
+if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
+    curl_text_floor "$COMMAND" && emit_ask
+    exit 0
+fi
 [[ ${#SHELL_READER_TOKENS[@]} -eq 0 ]] && exit 0
 
 # curl を実行しうる token があるか。引用符の中の文字列は reader が 1 token にまとめるので、
@@ -412,12 +459,35 @@ for token in "${SHELL_READER_TOKENS[@]}"; do
         break
     fi
 done
-[[ $CURL_PRESENT -eq 1 ]] || exit 0
+
+# 見つからなかったときだけ、字面の床を当てる token: `$(` かバッククォートを含むものと、
+# 引用符が閉じないまま終わったときの最後の token(上の説明)。
+if [[ $CURL_PRESENT -eq 0 ]]; then
+    last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
+    for index in "${!SHELL_READER_TOKENS[@]}"; do
+        token=${SHELL_READER_TOKENS[$index]}
+        case "$token" in
+        *"\$("* | *'`'*)
+            if curl_text_floor "$token"; then
+                emit_ask
+                exit 0
+            fi
+            ;;
+        esac
+        if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index ]] &&
+            curl_text_floor "$token"; then
+            emit_ask
+            exit 0
+        fi
+    done
+    exit 0
+fi
 
 # 変数・置換は宛先を運べる(代入の前置は `http_proxy` で URL を外へ振り替えられる)、
 # 番兵は偽の segment 境界を作れる、{ } * は単語数を変える。読み切れないコマンドとして ask。
-# 詳細は lib/shell-reader.bash。引用符の閉じ忘れはここでは見ない(閉じていない token は
-# URL として読めずに ask へ落ちる)。
+# 詳細は lib/shell-reader.bash。引用符の閉じ忘れはここでは見ない: curl が token として
+# 見つかった後なので、閉じていない token は curl の引数として URL に読めず ask へ落ちる
+# (curl がその token に飲み込まれた場合は、上の字面の床が受け持つ)。
 if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
     $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ]]; then
     emit_ask
