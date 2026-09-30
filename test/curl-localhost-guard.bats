@@ -338,7 +338,7 @@ decision() {
     assert_output ''
 }
 
-# --- quote-state desync (the tokenizer must agree with bash) ------------------
+# --- quote-state desync (the reader, lib/shell-reader.bash, must agree with bash)
 
 # Inside "..." bash reads `\"` as a literal quote that does NOT close the
 # string. A walk that appends the backslash literally flips its idea of the
@@ -574,7 +574,7 @@ decision() {
 }
 
 @test "a quoted angle bracket in a body still produces no decision" {
-    # The tokenizer has already split every real redirection into its own token,
+    # The reader (lib/shell-reader.bash) has already split every real redirection into its own token,
     # so a `<` left inside a token came from quotes and is just text.
     run hook "curl --data='<ping/>' http://localhost:3000/api"
     assert_success
