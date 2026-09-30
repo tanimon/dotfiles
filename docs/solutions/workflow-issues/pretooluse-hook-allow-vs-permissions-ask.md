@@ -1,7 +1,7 @@
 ---
-title: PreToolUse フックの allow は permissions.ask を上書きする — 「広い ask + フックで緩める」というフェイルクローズな緩和の形
+title: PreToolUse フックの allow は permissions.ask を上書きする — 「広い ask + フックで緩める」というフェイルクローズな緩和の形(2.1.285 で覆った)
 date: 2026-09-17
-last_updated: 2026-09-17
+last_updated: 2026-09-30
 category: workflow-issues
 module: permission-design
 problem_type: workflow_issue
@@ -30,6 +30,17 @@ symptoms:
 
 どちらも「広いエントリを `permissions.ask` に置く」以外に手が無く、その結果として日常的な
 操作まで毎回プロンプトになる(承認疲れ)。
+
+## 2026-09-30 追記: 2.1.285 では成り立たない
+
+同じ手順(ask のみの `--settings`、sandbox 無効、`< /dev/null`)で、常に allow を返すフックが**呼ばれたうえで**
+ブロックされた(フックは marker ファイルで呼ばれたことを記録)。curl と git push の両方で同じ結果だった。
+フックの `deny` と `ask` は今も効く。公式ドキュメントは今も「allow なら ask は評価されない」と書いている。
+この文書の「設計上の含意」(緩める向きを選べ)は、現行版では使えない。代わりの決定は
+`docs/adr/0009-command-guard-hooks-gate-without-allow.md`。
+
+**測定の落とし穴として追加:** 結果が blocked というだけでは、「フックが読み込まれていない」ことと
+「フックの判定が負けた」ことを区別できない。フックに marker ファイルを書かせてから判定すること。
 
 ## 分かったこと
 

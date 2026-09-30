@@ -300,3 +300,14 @@ The correct label is **hook-enforced**, a third category alongside the rule-enfo
   `chezmoi apply` deploys from `main`, and `settings.json` is read at session start. Confirm
   in a fresh session after merge that `git push origin <branch>` runs without a prompt and
   `git push origin <branch> --force` is refused.
+
+## Addendum 2026-09-30: 共有 reader と、curl の向きの反転
+
+- git-push-guard は、コマンド文字列の読み取りを共有の shell command reader(`dot_claude/scripts/lib/shell-reader.bash`)
+  に移した。判定の向き(ask を外し、フックが deny / ask を返す)は 2026-09-16 のまま。
+- 上の Residuals 表の「5 s timeout を超える長いコマンド」は、8192 byte を超えたら何も返さない形に変わった
+  (classifier に任せる。長いコマンドの途中に埋まった force push を守るのは、先頭フラグ形の deny 3 行だけ)。
+- 「`$(…)` containing `&&`」の行は解消した。reader は `$(…)` の中を再帰的に読まないが、引用符の中の置換に
+  危険な綴りがあれば字面で ask にする。
+- curl-localhost-guard も同じ向きに反転した(`Bash(curl:*)` を ask から外し、フックが ask を返す)。
+  Claude Code 2.1.285 では、フックの allow が ask ルールに負けるため(`docs/adr/0008-…`、`docs/adr/0009-…`)。
