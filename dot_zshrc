@@ -22,6 +22,8 @@ setopt share_history
 
 
 # Completion
+# sentry
+fpath=("$HOME/.local/share/zsh/site-functions" $fpath)
 autoload -Uz compinit
 compinit
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}' '+m:{A-Z}={a-z}'
