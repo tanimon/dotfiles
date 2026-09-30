@@ -127,15 +127,6 @@ joined() {
     assert_equal "$(joined)" 'echo|日本語 テキスト|終わり|'
 }
 
-@test "fully_readable is true only when nothing is flagged" {
-    shell_reader_read 'git push -u origin feature'
-    run shell_reader_fully_readable
-    assert_success
-    shell_reader_read 'git push origin $B'
-    run shell_reader_fully_readable
-    assert_failure
-}
-
 @test "each_segment skips empty segments and reports the start index" {
     seen=''
     record() { seen+="${SHELL_READER_SEGMENT_START}:$*|"; }

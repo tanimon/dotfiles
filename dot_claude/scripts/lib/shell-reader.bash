@@ -7,7 +7,7 @@
 # token は最後まで作る — 緩める判定は flag を見て諦め、塞ぐ判定は token から続けられる
 # ようにするため(ADR 0009)。
 #
-# Interface: shell_reader_read / shell_reader_each_segment / shell_reader_fully_readable。
+# Interface: shell_reader_read / shell_reader_each_segment。
 # global の意味は各関数の直前のコメントを参照。
 
 # segment 区切りの番兵。入力に同じ byte があると偽の境界を注入できるので、
@@ -38,6 +38,8 @@ _shell_reader_flush() {
 #   SHELL_READER_WORD_MULTIPLIER  引用符の外の { } *(シェルの展開で単語数が変わる)
 #   SHELL_READER_SEP_IN_INPUT     番兵の byte が入力にある
 #   SHELL_READER_UNCLOSED_QUOTE   引用符が閉じないまま終わった
+# flag は呼び出し側(各フック)だけが読むので、lib 単体の shellcheck には未使用に見える。
+# shellcheck disable=SC2034
 shell_reader_read() {
     # ${s:i:1} は多バイトのロケールでは先頭から数え直すので二乗で遅くなる。byte 単位に
     # すると 1 文字あたりの費用が下がる(8 KB で 0.58 秒 → 0.13 秒以下)。UTF-8 の多バイト
@@ -223,14 +225,4 @@ shell_reader_each_segment() {
         "$_sr_callback" "${_sr_segment[@]}" || return 1
     fi
     return 0
-}
-
-# どの flag も立っておらず、glob の印も無いとき 0。緩める判定の前提条件。
-shell_reader_fully_readable() {
-    [[ $SHELL_READER_TOO_LONG -eq 0 &&
-        $SHELL_READER_EXPANSION -eq 0 &&
-        $SHELL_READER_WORD_MULTIPLIER -eq 0 &&
-        $SHELL_READER_SEP_IN_INPUT -eq 0 &&
-        $SHELL_READER_UNCLOSED_QUOTE -eq 0 &&
-        "$SHELL_READER_GLOB_INDEXES" == ' ' ]]
 }
