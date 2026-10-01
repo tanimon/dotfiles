@@ -333,6 +333,14 @@ function markUnresolved(state, items) {
 
 const commands = (config) => config.checkCommands.map((c) => `「${c}」`).join("、");
 
+// Review-Verify の要件文書は spec でもよく、ブランチの範囲より広いことがある。そのままだと
+// 「要件文書とのずれ」として未着手の要件が修正必須になり、修正エージェントがそれを実装してしまう。
+// 実装の経路は mode の分岐で塞いでいるが、この経路はプロンプトでしか塞げない(ADR 0008)。
+const unstartedScope = (config, rule) =>
+  config.mode === "review-verify"
+    ? `\n- 要件文書のうち、このブランチがまだ着手していない項目は範囲外である。${rule}`
+    : "";
+
 function planPrompt(config) {
   return `plan ファイル ${config.requirementsPath} を読み、実装タスクの一覧を抽出せよ。
 - plan の順序どおりに、plan の1タスクを1要素とする。独自に分割・統合しない。
@@ -365,7 +373,7 @@ function reviewPrompt(reviewer, config) {
 - ファイルの修正、コミット、PR へのコメント投稿、ReportFindings ツールの呼び出しはしない。結果は StructuredOutput だけで返す。
 - severity には skill 自身の尺度をそのまま使う: ${reviewer.severities.join(" / ")}
 - 指摘が実装ではなく要件文書そのものに向く場合は target="requirements" とし、要件文書どおりに作ると壊れる場合だけ requirementsBreaking=true にする。
-- レビューの範囲外で気づいた問題は observations に書く。${note}`;
+- レビューの範囲外で気づいた問題は observations に書く。${unstartedScope(config, "それが無いことを修正必須として指摘せず、observations に書く。")}${note}`;
 }
 
 function mergePrompt(findings, knownClusters) {
@@ -385,25 +393,25 @@ function fixPrompt(items, config) {
 - unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。全ての指摘について、必ず fixed か propose-defer のどちらかを返す。
 - 修正した後、次のコマンドを全て成功させる: ${commands(config)}
 - 修正をまとめて1コミットにする(push はしない)。
-- 指摘の範囲外で気づいた問題は observations に書く。`;
+- 指摘の範囲外で気づいた問題は observations に書く。${unstartedScope(config, "それを実装しない。実装しないと解消しない指摘は、要件文書の範囲外として propose-defer にする。")}`;
 }
 
 function deferPrompt(item, reason, config) {
   return `あなたは独立した検証者である。実装者は、次の指摘を修正せずに見送ることを提案している。
 指摘(JSON): ${JSON.stringify(item)}
 実装者の理由: ${reason}
-要件文書は ${config.requirementsPath}、差分は「${config.baseRef}...HEAD」。コードと要件文書を自分で読み、見送りが妥当か判断せよ。妥当なのは、指摘が偽陽性であるか、要件文書の範囲外である場合だけ。判断に迷うなら agree=false とする。`;
+要件文書は ${config.requirementsPath}、差分は「${config.baseRef}...HEAD」。コードと要件文書を自分で読み、見送りが妥当か判断せよ。妥当なのは、指摘が偽陽性であるか、要件文書の範囲外である場合だけ。判断に迷うなら agree=false とする。${unstartedScope(config, "その項目を実装しないと解消しない指摘は、要件文書の範囲外として見送ってよい。")}`;
 }
 
 function verifyPrompt(config) {
   return `Skill ツールで「${config.verifySkill}」を読み込み、その手順に従って、要件文書 ${config.requirementsPath} に書かれた意図どおりに変更が動くことを確認せよ。
 - 確認した操作と観察した結果を summary に書き、意図どおりに動けば passed=true にする。
-- コードは修正しない。範囲外で気づいた問題は observations に書く。`;
+- コードは修正しない。範囲外で気づいた問題は observations に書く。${unstartedScope(config, "確認するのはこのブランチの差分が実装した範囲だけで、未着手の項目が動かないことを失敗にしない。")}`;
 }
 
 function fixVerifyPrompt(result, config) {
   return `動作確認が失敗した。結果(JSON): ${JSON.stringify(result)}
-要件文書は ${config.requirementsPath}。原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}`;
+要件文書は ${config.requirementsPath}。原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}${unstartedScope(config, "それを実装しない。")}`;
 }
 
 function ledgerJson(state) {
@@ -470,6 +478,7 @@ function formatItem(item) {
 
 function renderReport(state) {
   const lines = [];
+  const isDeliver = state.config.mode === "deliver";
   const pushSection = (title, items, format, empty = "なし") => {
     lines.push(`## ${title}`, "");
     if (items.length === 0) lines.push(empty);
@@ -489,9 +498,9 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
-  if (state.config.mode !== "deliver") {
+  if (!isDeliver) {
     lines.push(
-      "> **Review-Verify**: 実装と PR の作成をしない mode で実行した。修正のコミットはローカルにあり、push していない",
+      "> **Review-Verify**: 実装と PR の作成をしない mode で実行した。Workflow が作ったコミットがあれば、ローカルにだけあり push していない",
       "",
     );
   }
@@ -543,8 +552,7 @@ function renderReport(state) {
     lines.push(`- 結果を返さなかったレビュアー: ${state.reviewerFailures.join(", ")}`);
   lines.push(`- 出力トークン: ${state.outputTokens}`, "");
   // PR 本文にしない報告には、PR 向けの帰属行を付けない。
-  if (state.config.mode === "deliver")
-    lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
+  if (isDeliver) lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
   return lines.join("\n");
 }
 

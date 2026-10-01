@@ -953,3 +953,35 @@ test("review-verify で動作確認が失敗したら、直した後にレビュ
     "verify:2",
   ]);
 });
+
+test("review-verify では、要件文書のうちブランチが着手していない項目を実装させないよう、レビュー・修正・動作確認の prompt で範囲を限る", async () => {
+  const respond = () =>
+    scenario({
+      reviews: [{ requesting: [finding("Important")] }, {}],
+      merges: [[cluster("a.js::scope", ["requesting#0"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::scope", action: "propose-defer", reason: "未着手の要件" }],
+          observations: [],
+        },
+      ],
+      verdicts: { "a.js::scope": { agree: true, reason: "ブランチの範囲外" } },
+      verifies: [
+        { passed: false, summary: "画面が真っ白" },
+        { passed: true, summary: "ok" },
+      ],
+    });
+  const scoped = ["review:", "fix:", "defer-verify:", "verify:", "fix-verify:"];
+  const promptsOf = (calls) =>
+    scoped.map((prefix) => {
+      const call = calls.find((c) => c.label.startsWith(prefix));
+      assert.ok(call, `${prefix} が呼ばれていない`);
+      return call.prompt;
+    });
+
+  const reviewVerify = await runWorkflow({ args: { mode: "review-verify" }, respond: respond() });
+  for (const prompt of promptsOf(reviewVerify.calls)) assert.match(prompt, /まだ着手していない/);
+
+  const deliver = await runWorkflow({ respond: respond() });
+  for (const prompt of promptsOf(deliver.calls)) assert.doesNotMatch(prompt, /まだ着手していない/);
+});
