@@ -14,7 +14,8 @@
 #   ask         — curl を実行しうる token があり、宛先がループバックだけだと示せないとき
 #                 (読み切れない綴り・curlrc・未知の flag やパイプ先・ループバック以外の宛先)、
 #                 または reader が 1 token に飲み込んだ curl が字面の床に一致したとき
-#   (no output) — curl を実行しうる token が無く字面の床にも一致しないか、ループバック宛だけの curl。
+#   (no output) — curl を実行しうる token が無く字面の床にも一致しないか、すべての segment が
+#                 ループバック宛だけの curl か INERT_COMMANDS(`echo curl`・`grep -rn curl …` も含む)。
 #                 classifier が判定する
 #   このフックは allow を返さない。
 #

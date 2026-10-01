@@ -139,11 +139,14 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   コマンドの位置とサブコマンドに限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため
   (`xargs /usr/bin/gi? push …` のように前置詞の後ろで git を展開で作る綴りは残存)。
   後ろが空白の `{` はグループ(`{ git push origin main; }`)なので reader が記録せず、無出力のまま。
-  コマンドの位置の token が置換か変数(`$G push …`、`` `which git` push … ``、`"$(command -v git)" push …`)
-  のときも、同じく segment に `push` を含む token があれば `ask`。引用符の外の `$(which git) push …` は
-  reader が `)` で segment を切り、push の segment が `push` そのものから始まるので、コマンドに `$` か
-  バッククォートがあり segment の先頭が `push` のときも `ask` にする(共有 reader に載せ替える前は `()` を
-  空白に置き換えていたので `ask` だった)。
+  コマンドの位置の token が置換か変数(`$G push …`、`` `which git` push … ``、`"$(command -v git)" push …`、
+  引用符の外の `${G} push …`。最後のものは reader が `{` で切るので、後ろの token にブレースの印がある
+  単独の `$` として読む)のときも、同じく segment に `push` を含む token があれば `ask`。引用符の外の
+  `$(which git) push …` は reader が `)` で segment を切り、push の segment が `push` そのものか git の
+  全体オプション・リダイレクト(`-C . push …`、`2>/dev/null push …`)から始まるので、その segment が
+  引用符の外の `$(`(`$` で終わる token の直後の区切り)より後ろにあり、先頭がそれらのときも `ask` に
+  する(共有 reader に載せ替える前は `()` を空白に置き換えていたので `ask` だった)。コマンド全体の `$` では
+  なく `$(` の位置で絞るのは、heredoc 本文の行頭の `push` と別の行の `$HOME` を組み合わせないため。
 - **zsh の綴りも読む。** Bash ツールは利用者のシェル(このマシンでは zsh)で動くので、`=git`(EQUALS。
   PATH 上の git に展開される)の語頭の `=` を外して binary を読み、`=(…)`(zsh のプロセス置換)を
   reader が `PROCESS_SUBSTITUTION` として返す。`=git push origin main --force` はこれが無いと無出力で、
@@ -198,7 +201,11 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   行の分割と照合は共有 reader の `shell_reader_any_line_matches` が行う(curl-guard の床と共用)。
   照合の前に行継続(`\` + 改行)をつなぎ、引用符と backslash を外す — シェルはこれらを外してから
   語を読むので、生の字面では `"$(git'' push … --force)"` や、長さ超過の `'git' push … --force` /
-  `git push … \⏎--force` が一致しなかった。正規化は `awk` と `tr` を 1 回通す(bash 3.2 の `${s//…}` は
+  `git push … \⏎--force` が一致しなかった。つなぐときは何も足さず(空白を足すと `--\⏎force` が
+  `-- force` になる)、つなぐ前の各行も残す。行末の `\` は行継続とは限らず(`echo a\\` の `\\` は
+  シェルには `\` 1 文字で、次の行は別のコマンド)、つないだ行だけだと `echo agit push … --force` に
+  なって語頭の `git` に一致しない。reader は二重引用符の中で `\\` を `\` 1 つにするので、`\` の
+  個数では区別できない。正規化は `awk` と `tr` を 1 回通す(bash 3.2 の `${s//…}` は
   8 KB で 3 秒かかる)。引用符も backslash も無ければ fork しない。行の分割は改行での単語分割
   (`set -f` の下)で行う。here-string は一時ファイルを使うので `$TMPDIR` に書けないと黙って
   「一致なし」になり、`${s%%$'\n'*}` / `${s#*$'\n'}` の行ループは毎行残りをコピーして二乗になる
@@ -442,8 +449,8 @@ OS レベルの床になるが、**フックはその床に依存していない
   引用符の外の `*` / `?` / `[` を含む token の `GLOB_INDEXES` を global に返す。fd の数字として
   演算子に付けるのは引用の無い数字だけ(`"2">x` / `\2>x` の `2` は bash でも zsh でも引数で、curl には
   数字だけのホスト = IPv4 アドレスの URL になる)。zsh の語頭の `=(…)` も `PROCESS_SUBSTITUTION` にする。
-  `shell_reader_any_line_matches <文字列> <ERE>…` は、引用符と backslash を外し行継続をつないだうえで、
-  すべての正規表現に一致する行があるかを返す(各フックの字面の床が使う。判定の正規表現は呼び出し側が渡す)。
+  `shell_reader_any_line_matches <文字列> <ERE>…` は、引用符と backslash を外し行継続をつないだうえで
+  (つなぐ前の各行も残す)、すべての正規表現に一致する行があるかを返す(各フックの字面の床が使う。判定の正規表現は呼び出し側が渡す)。
   `shell_reader_each_segment <callback>` がセグメントごとに callback を呼び(先頭 index は
   `SHELL_READER_SEGMENT_START`)。「読み切れた」の定義は呼び出し側ごとに違う(curl-guard は flag を 1 つずつ
   見て glob は curl セグメントでだけ判定し、git-push-guard は読み切れるかを判定しない)ので、それを 1 つに

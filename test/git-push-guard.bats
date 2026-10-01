@@ -901,12 +901,36 @@ EOF"
     assert_equal "$(decision "$output")" ask
 }
 
-# 床の行継続は何も足さずにつなぐ(シェルと同じ)。空白を足すと `--for ce` になって一致しない。
+# 床の行継続は何も足さずにつなぐ(シェルと同じ)。空白を足すと `-- force` になって一致しない
+# (`--for\⏎ce` は空白を足しても `--for` の前方一致で一致するので、この区別を確かめられない)。
 @test "an over-long command with a force flag split by a continuation asks" {
     local body
     body=$(printf 'x%.0s' $(seq 1 8200))
-    run hook "gh pr create --body \"${body}\" && git push origin main --for\\
-ce"
+    run hook "gh pr create --body \"${body}\" && git push origin main --\\
+force"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 行末の `\\` はシェルには `\` 1 文字で、行継続ではない。次の行の push は別のコマンドとして
+# 実行されるので、床が 2 行をつないで `echo agit push …` にしてしまっても見落とさない。
+# heredoc 本文の `"` で reader が二重引用符に入る形と、`'` で一重引用符に入る形の両方を見る
+# (二重引用符の中では reader が `\\` を `\` 1 つにする)。
+@test "a force push after a line ending in an escaped backslash asks" {
+    run hook "cat <<'EOF'
+it\"s
+EOF
+echo a\\\\
+git push origin main --force
+echo x # \""
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook "cat <<'EOF'
+it's
+EOF
+echo a\\\\
+git push origin main --force
+echo x # '"
     assert_success
     assert_equal "$(decision "$output")" ask
 }
@@ -926,14 +950,21 @@ ce"
 }
 
 # コマンドの位置の語が置換や変数だと git と読める token が無い。引用符の外の `$(which git)` は
-# reader が `)` で segment を切るので、push の segment は `push` から始まる。
+# reader が `)` で segment を切るので、push の segment は `push` か git の全体オプション・リダイレクト
+# から始まる。引用符の外の `${G}` は reader が `{` で切るので、コマンドの位置の token が `$` だけになる。
 @test "a push whose git binary comes from a substitution or a variable asks" {
     local command
     for command in \
         '$(which git) push origin main --force' \
+        '$(which git) -C . push origin main --force' \
+        '$(which git) --no-pager push origin main --force' \
+        '$(which git) -c x=y push origin main --force' \
+        '$(which git) 2>/dev/null push origin main --force' \
         '`which git` push origin main --force' \
         '"$(command -v git)" push origin main --force' \
-        'G=git; $G push origin main --force'; do
+        'G=git; $G push origin main --force' \
+        'G=git; ${G} push origin main --force' \
+        '${GIT:-git} push origin main --force'; do
         run hook "$command"
         assert_success
         assert_equal "$(decision "$output")" ask
@@ -945,6 +976,15 @@ ce"
     run hook "gh pr create --body-file - <<'EOF'
 手順:
 \$ git push origin main
+EOF"
+    assert_success
+    assert_output ''
+}
+
+# 行頭が push の散文は、引用符の外の `$(` より後ろに無ければコマンド語の続きとは読まない。
+@test "a heredoc line starting with push in a command with a variable produces no decision" {
+    run hook "gh pr create --body-file - <<'EOF'
+push の前に \$HOME を確認する
 EOF"
     assert_success
     assert_output ''

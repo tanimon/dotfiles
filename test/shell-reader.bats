@@ -251,6 +251,15 @@ joined() {
     assert_success
 }
 
+# 行末の `\` が行継続とは限らない(`echo a\\` の `\\` はシェルには `\` 1 文字)ので、つなぐ前の行も見る。
+# つないだ行だけだと `echo agit push` になり、語頭の git に一致しない。
+@test "any_line_matches also keeps each line of a continuation on its own" {
+    run shell_reader_any_line_matches $'echo a\\\ngit push' '(^|[^[:alnum:]_-])git[[:space:]]'
+    assert_success
+    run shell_reader_any_line_matches $'echo a\\\ngit push' '^echo agit push$'
+    assert_success
+}
+
 @test "any_line_matches does not expand a glob in the text" {
     cd "$BATS_TEST_TMPDIR"
     touch matched-file

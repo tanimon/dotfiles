@@ -135,6 +135,23 @@ fi
 DANGER_TOKEN=""
 NEEDS_ASK=0
 
+# 引用符の外の `$(` は reader が `(` で segment を切るので、`$` で終わる token の直後に区切りが来る。
+# その位置より後ろの segment は、置換の出力をコマンド語にした続き(`$(which git) push …`)でありうる
+# (classify_segment が読む)。見つからなければ -1。空配列の展開は bash 3.2 の set -u で落ちるので数を先に見る。
+UNQUOTED_SUBSTITUTION_INDEX=-1
+if [[ ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
+    for index in "${!SHELL_READER_TOKENS[@]}"; do
+        case "${SHELL_READER_TOKENS[$index]}" in
+        *'$')
+            if [[ "${SHELL_READER_TOKENS[$((index + 1))]:-}" == "$SHELL_READER_SEP" ]]; then
+                UNQUOTED_SUBSTITUTION_INDEX=$index
+                break
+            fi
+            ;;
+        esac
+    done
+fi
+
 # 番兵の byte が入力にあると、reader が作る segment の境目を偽造できる(`git push origin main 2>\x01 --force`
 # は bash では stderr の redirect 先が `\x01` の force push だが、reader には `--force` だけの segment が
 # 別にあるように見える)。この時点でコマンドは `push` を含むので、読み切れないとして ask にする。
@@ -365,21 +382,30 @@ classify_segment() {
     # 位置の token に印があり、segment に push を含む token があれば読み切れないとして ask にする。
     # コマンドの位置に限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため。
     # 置換や変数がコマンドの位置にある綴り(`$G push …`、`` `which git` push … ``、
-    # `"$(command -v git)" push …`)も同じく git と読める token が無いので、同じ扱いにする。引用符の外の
-    # `$(which git) push …` は reader が `)` で segment を切るので、push の segment が `push` そのもの
-    # から始まる。これはコマンドに `$` かバッククォートがあり、前置きも無いときに限る(heredoc の散文の
+    # `"$(command -v git)" push …`)も同じく git と読める token が無いので、同じ扱いにする。
+    # 単独の `$` は、後ろの token にブレースの印があるときだけ数える: 引用符の外の `${G}` は reader が
+    # `{` で切るので `$` と `G` に分かれる。印が無い単独の `$` は bash でも zsh でも文字のままで、
+    # heredoc 本文のプロンプト表記(`$ git push origin main`)がこの形になる。
+    # 引用符の外の `$(which git) push …` は reader が `)` で segment を切るので、push の segment が
+    # `push` そのものか、git の全体オプション・リダイレクト(`-C . push …`、`2>/dev/null push …`)から
+    # 始まる。これは前置きが無く、segment が引用符の外の `$(` より後ろにあるときに限る(heredoc の散文の
     # 行頭の push と、`` x=`git push origin main` `` の代入の後ろの push を巻き込まないため)。
-    # 単独の `$` は除く: bash でも zsh でも文字のままで、heredoc 本文のプロンプト表記
-    # (`$ git push origin main`)がこの形になる。`$(which git)` の `$` は別の segment に切られている。
     command_word_unreadable=0
     if [[ $command_start -lt $token_count ]]; then
         token_is_marked "$command_start" && command_word_unreadable=1
         case "${tokens[$command_start]}" in
-        '$') ;;
+        '$')
+            if [[ $((command_start + 1)) -lt $token_count ]] && token_is_marked $((command_start + 1)); then
+                command_word_unreadable=1
+            fi
+            ;;
         *'$'* | *'`'*) command_word_unreadable=1 ;;
         esac
-        if [[ $command_start -eq 0 && "${tokens[0]}" == push && $SHELL_READER_EXPANSION -eq 1 ]]; then
-            command_word_unreadable=1
+        if [[ $command_start -eq 0 && $UNQUOTED_SUBSTITUTION_INDEX -ge 0 &&
+            $SHELL_READER_SEGMENT_START -gt $UNQUOTED_SUBSTITUTION_INDEX ]]; then
+            case "${tokens[0]}" in
+            push | -* | *[\<\>]*) command_word_unreadable=1 ;;
+            esac
         fi
     fi
     if [[ $command_word_unreadable -eq 1 ]]; then
