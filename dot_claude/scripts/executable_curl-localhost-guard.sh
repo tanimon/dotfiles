@@ -422,7 +422,13 @@ classify_segment() {
 # (Markdown のコードスパン `` `curl …` `` も含む。PR 本文でよく出る)。
 # 末尾は空白か行末。引用符の外のバッククォート置換(x=`curl -s https://…`)は reader が空白で
 # 割るので、token が `x=`curl` で終わる(先頭のバッククォートしか外さない CURL_PRESENT にも掛からない)。
-CURL_LINE_RE='(^|[;&|(`])[[:space:]]*([^[:space:]]*/)?curl([[:space:]]|$)'
+# コマンドの位置と curl の間には、前置きの語(変数の代入か、`command` / `env` / `timeout` などの
+# コマンド前置詞)と、それに続く任意の語を許す(`timeout 5 curl`、`env -i curl`、`http_proxy=… curl`)。
+# curl の直前の `\` も許す(`\curl` は alias を避けるだけで curl を実行する)。引用符の外では
+# 同じ綴りを segment の走査が読むので、この床が要るのは引用符の中の置換だけ。前置詞の後ろに `curl`
+# を語として含む散文の行(`env を見てから curl する`)が ask になるのは受容した誤 ask。
+CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|command|builtin|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate)'
+CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
 # here-string は一時ファイルを使う($TMPDIR に書けないと黙って「一致なし」になる)ので使わない。
 # `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
 # 長さ超過の入力(下)で 179 KB に 2.3 秒かかった。改行での単語分割は線形(同じ入力で 0.02 秒)。

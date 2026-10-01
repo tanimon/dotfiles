@@ -63,6 +63,16 @@ joined() {
     assert_equal "$SHELL_READER_WORD_MULTIPLIER" 1
 }
 
+@test "a brace that can start an expansion records the index of the next token" {
+    shell_reader_read 'git push origin {main,--force}'
+    assert_equal "$SHELL_READER_BRACE_INDEXES" ' 3 '
+}
+
+@test "a group brace followed by a space records no index" {
+    shell_reader_read '{ git push origin main; }'
+    assert_equal "$SHELL_READER_BRACE_INDEXES" ' '
+}
+
 @test "an unquoted star is kept and flagged" {
     shell_reader_read 'curl -H * http://localhost:3000/'
     assert_equal "$(joined)" 'curl|-H|*|http://localhost:3000/|'

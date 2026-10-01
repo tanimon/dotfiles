@@ -142,6 +142,14 @@ if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
     exit 0
 fi
 
+# 番兵の byte が入力にあると、reader が作る segment の境目を偽造できる(`git push origin main 2>\x01 --force`
+# は bash では stderr の redirect 先が `\x01` の force push だが、reader には `--force` だけの segment が
+# 別にあるように見える)。この時点でコマンドは `push` を含むので、読み切れないとして ask にする。
+if [[ $SHELL_READER_SEP_IN_INPUT -eq 1 ]]; then
+    emit ask "$ASK_REASON"
+    exit 0
+fi
+
 # reader が引用符を外すので、ここで外すのはバッククォートだけ。`` `git push … --force` `` は
 # 実行されるので、前後の 1 つを外して読む。token ごとに呼ぶので $(…) で fork しない。
 STRIPPED=''
@@ -152,6 +160,29 @@ strip_backticks() {
 
 DANGER_TOKEN=""
 NEEDS_ASK=0
+
+# $1(`--` 付き、`=` より前)が、破壊的な push の長オプションのどれかの前方一致か。
+long_option_is_dangerous() {
+    local option
+    for option in --force --force-with-lease --force-if-includes --delete --mirror --prune; do
+        [[ "$option" == "$1"* ]] && return 0
+    done
+    return 1
+}
+
+# 現在の segment(SHELL_READER_SEGMENT_START から token_count 個)にブレース展開があるか。
+# 展開の結果は reader の token に現れない(`{main,--force}` の token は `main,--force`)ので、
+# 危険な綴りを探す代わりに、展開がある push を読み切れないとして扱う。
+segment_has_brace_expansion() {
+    local brace_index
+    for brace_index in $SHELL_READER_BRACE_INDEXES; do
+        if [[ $brace_index -ge $SHELL_READER_SEGMENT_START &&
+            $brace_index -lt $((SHELL_READER_SEGMENT_START + token_count)) ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 # Classify one segment as a git invocation whose binary sits at token index $1.
 # Reads the `tokens` / `token_count` globals classify_segment sets.
@@ -211,6 +242,9 @@ classify_from() {
     [[ "$subcommand" == "push" ]] || return 0
 
     local expansion=0 raw_argument
+    # ブレース展開は `--force` や `+main` を token に現さずに作れる(`git push origin {main,--force}`)。
+    # strict=0 でも同じ理由で ask にする(`expansion` は両方の分岐で ask になる)。
+    segment_has_brace_expansion && expansion=1
     argument=$((index + 1))
     while [[ $argument -lt $token_count ]]; do
         # strict=0 用: push の引数に `$` かバッククォートがあるか。末尾の 1 つだけは除く —
@@ -220,13 +254,15 @@ classify_from() {
         strip_backticks "${tokens[$argument]}"
         token=$STRIPPED
         case "$token" in
-        --force | --force-with-lease | --force-with-lease=* | --force-if-includes | --delete | --mirror | --prune)
-            [[ -z "$danger" ]] && danger=$token
-            ;;
-        --*)
-            # Every other long option is safe, and matching the exact spellings
-            # above rather than a substring is what keeps `--no-force-with-lease`
-            # out of the deny set.
+        --?*)
+            # git は長オプションの一意な前方一致を受け付ける(`--dele` は `--delete`、`--force-w` は
+            # `--force-with-lease`)。そこで `=` より前が危険なオプションの前方一致なら danger にする。
+            # 曖昧な前方一致(`--d` は `--dry-run` とも一致する)は git 自身がエラーにするので、
+            # deny しても失うものは無い。部分一致ではなく前方一致なので、`--no-force-with-lease` は
+            # 一致しない。
+            if long_option_is_dangerous "${token%%=*}"; then
+                [[ -z "$danger" ]] && danger=$token
+            fi
             ;;
         -*)
             # Bundled short options: -f is --force, -d is --delete.
@@ -265,6 +301,7 @@ classify_from() {
     for raw in "${tokens[@]}"; do
         case "$raw" in *'$'* | *'`'*) NEEDS_ASK=1 ;; esac
     done
+    [[ $expansion -eq 1 ]] && NEEDS_ASK=1
 
     [[ -n "$danger" && -z "$DANGER_TOKEN" ]] && DANGER_TOKEN=$danger
     return 0

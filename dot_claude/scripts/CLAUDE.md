@@ -117,8 +117,18 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 - **`$`/バッククォートの検査は push セグメントに限定する。** コマンド全体に広げると
   `git commit -m "$(date)" && git push origin x` まで `ask` になり、承認疲れの解消という目的を
   自分で潰す。一方 `F=--force; git push $F` は push セグメント側に `$` が出るので捕まる。
-- **長オプションは完全一致で見る。** 部分一致にすると `--no-force-with-lease` を force として
-  誤検出する。
+- **長オプションは前方一致で見る(部分一致ではない)。** git は長オプションの一意な前方一致を
+  受け付ける(`--dele` は `--delete`、`--force-w` は `--force-with-lease`。実 git で `--dele` が
+  リモートブランチを消すことを確認済み)ので、`=` より前が危険なオプションの前方一致なら `deny`。
+  曖昧な前方一致(`--d` は `--dry-run` とも一致)は git 自身がエラーにするので、`deny` にしても
+  失うものは無い。部分一致にすると `--no-force-with-lease` を force として誤検出する。
+- **番兵の byte とブレース展開は `ask`。** reader の segment 区切りの番兵(`\x01`)が入力にあると、
+  redirect 先を `\x01` にした force push(bash には普通の文字なので `--force` は git の引数に残る)が
+  reader には `--force` だけの別 segment に見えて無出力になっていた。`push` を含むコマンドで
+  `SHELL_READER_SEP_IN_INPUT` が立てば `ask` にする。push と同じ segment にブレース展開
+  (reader の `SHELL_READER_BRACE_INDEXES`)があるときも `ask` — `{main,--force}` や `-{f..f}` は
+  展開の結果としてだけ危険な綴りを作り、token には現れない。後ろが空白の `{` はグループ
+  (`{ git push origin main; }`)なので reader が記録せず、無出力のまま。
 - **引用符は reader が外した token を読む。** `git push origin "+main"` の token は `+main` になる
   ので `+` 始まり判定が効く(この処理自体は上の共有 reader の性質)。
 - **`git` がトークン0に無いセグメントを素通りさせない。** 正規化で潰した3経路
@@ -174,6 +184,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `git -c alias.p='push --force' p origin main` はサブコマンドが `p` なので、`push` と分かった後にだけ
   立てていた `-c` の検査に届かなかった。alias の展開先は読まないので `deny` ではなく `ask`。
   git の設定キーは大文字小文字を区別しないので `ALIAS.p=…` も同じに扱う。
+- **残存(受容): 大文字小文字。** 大文字小文字を区別しない APFS では `GIT push --delete …` も git を
+  実行するが、早期終了と basename の比較が大文字小文字を区別するので無出力になる(ADR 0009)。
 - **残存(受容): 早期終了は引用符除去より前。** コマンドに `push` の部分文字列が無ければ reader を
   呼ばずに終わるので、`git pu""sh origin main --force` は何も返さない(ADR 0009)。
 - **ログ出力先の決定はスクリプト内に持つ。** `settings.json` 側で
@@ -227,7 +239,8 @@ lib が読めない・壊れているときも `ask` を返す(下の「shell co
 飲み込むので、heredoc の後ろで bash が実行する `curl … | sh` が見えない。どちらも「curl を実行しうる
 token が無い」ように見えて無出力になっていた(`Bash(curl:*)` の ask ルールを外したので、下に土台が無い)。
 そこで curl と読める token が無いときに限り、`$(` かバッククォートを含む token と、`UNCLOSED_QUOTE`
-のときの最後の token を行ごとに見て、行頭か `;&|(` / バッククォートの直後(空白と `/usr/bin/` のような
+のときの最後の token を行ごとに見て、行頭か `;&|(` / バッククォートの直後(空白、変数の代入か前置詞
+(`command` / `env` / `timeout` / `xargs` など)で始まる語の並び、`\curl` の `\`、`/usr/bin/` のような
 パスの前置は許す)に `curl`(後ろは空白か行末)があれば `ask` にする。行末を許すのは、引用符の外の
 バッククォート置換で curl を呼ぶ代入(`` x=`curl -s …` ``)を reader が空白で割り、最初の token が
 バッククォート + `curl` で終わるため(`CURL_PRESENT` は先頭のバッククォートしか外さないので、こちらも一致しない)。正規表現は POSIX ERE で、`\b` は使わない
@@ -354,7 +367,9 @@ OS レベルの床になるが、**フックはその床に依存していない
 読む処理を git-push-guard と curl-localhost-guard で共有するための source 専用ライブラリ
 (`test/shell-reader.bats` が単体でテストする)。`set` は呼び出し側に従う。
 
-- **interface。** `shell_reader_read <文字列>` が引用符を外した token 列(`SHELL_READER_TOKENS`。
+- **interface。** ブレース展開を始めうる `{`(後ろが空白でないもの)の直後の token の index を
+  `SHELL_READER_BRACE_INDEXES` で返す(git-push-guard が segment ごとに照合する)。
+  `shell_reader_read <文字列>` が引用符を外した token 列(`SHELL_READER_TOKENS`。
   セグメントの境目は `SHELL_READER_SEP` 番兵、リダイレクトは fd の数字ごと 1 token)と、読み切れなかった
   理由の flag(`TOO_LONG` / `EXPANSION` / `WORD_MULTIPLIER` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE`)、
   引用符の外の `?` / `[` を含む token の `GLOB_INDEXES` を global に返す。

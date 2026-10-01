@@ -508,6 +508,56 @@ EOF
     assert_equal "$(decision "$output")" deny
 }
 
+@test "a brace expansion that produces a force spelling asks" {
+    local command
+    for command in \
+        'git push origin {main,--force}' \
+        'git push origin main{,\ --force}' \
+        'git push origin -{f..f} main'; do
+        run hook "$command"
+        assert_success
+        assert_equal "$(decision "$output")" ask
+    done
+}
+
+@test "a brace group around a plain push produces no decision" {
+    run hook '{ git push origin main; }'
+    assert_success
+    assert_output ''
+}
+
+@test "a brace expansion in another segment does not affect a plain push" {
+    run hook 'mkdir -p build/{a,b} && git push origin main'
+    assert_success
+    assert_output ''
+}
+
+# reader の segment 区切りの番兵と同じ byte。bash には普通の文字なので、redirect 先の
+# ファイル名になって `--force` は git の引数のまま残る。
+@test "the separator byte in the input asks instead of splitting the push" {
+    run hook "git push origin main 2>"$'\x01'" --force"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "an abbreviated destructive long option is denied" {
+    local option
+    for option in --dele --mirr --pru --force-w --force-w=origin/main --force-i; do
+        run hook "git push $option origin victim"
+        assert_success
+        assert_equal "$(decision "$output")" deny
+    done
+}
+
+@test "long options that are not prefixes of a destructive one produce no decision" {
+    local option
+    for option in --progress --porcelain --follow-tags --no-force-with-lease --no-verify; do
+        run hook "git push $option origin main"
+        assert_success
+        assert_output ''
+    done
+}
+
 @test "a force push inside a quoted substitution asks" {
     run hook 'echo "$(git push origin main --force)"'
     assert_success

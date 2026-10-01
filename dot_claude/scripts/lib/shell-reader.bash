@@ -33,6 +33,8 @@ _shell_reader_flush() {
 #   SHELL_READER_TOKENS           token 配列(引用符は外してある)。区切りは SHELL_READER_SEP。
 #                                 redirect は fd の数字ごと 1 token(`2>&1` が余計な `1` を残さない)
 #   SHELL_READER_GLOB_INDEXES     引用符の外の ? / [ を含む token の index(" 3 7 " 形式)
+#   SHELL_READER_BRACE_INDEXES    ブレース展開を始めうる `{` の直後の token の index(同じ形式)。
+#                                 後ろが空白か入力の終わりの `{` はグループなので含めない
 #   SHELL_READER_TOO_LONG         上限超過。token は空
 #   SHELL_READER_EXPANSION        $ かバッククォートがある(引用符の中も含む)
 #   SHELL_READER_WORD_MULTIPLIER  引用符の外の { } *(シェルの展開で単語数が変わる)
@@ -50,6 +52,7 @@ shell_reader_read() {
     local length=${#s}
     SHELL_READER_TOKENS=()
     SHELL_READER_GLOB_INDEXES=' '
+    SHELL_READER_BRACE_INDEXES=' '
     SHELL_READER_TOO_LONG=0
     SHELL_READER_EXPANSION=0
     SHELL_READER_WORD_MULTIPLIER=0
@@ -114,6 +117,15 @@ shell_reader_read() {
             # の `--force` を読めるようにするため。
             _shell_reader_flush
             SHELL_READER_WORD_MULTIPLIER=1
+            # 展開の結果として危険な語が生まれうる(`{main,--force}` や `-{f..f}` は `--force` / `-f` に
+            # なる)ので、どの segment に展開があるかを塞ぐ側が知れるように位置を残す。
+            # bash は後ろが空白の `{` を展開しない(グループの `{ … ; }`)。
+            if [[ "$character" == '{' ]]; then
+                case "${s:index+1:1}" in
+                '' | ' ' | $'\t' | $'\n') ;;
+                *) SHELL_READER_BRACE_INDEXES+="${#SHELL_READER_TOKENS[@]} " ;;
+                esac
+            fi
             ;;
         '*')
             # cwd の全ファイルに展開されうる。token には残し、flag で知らせる。

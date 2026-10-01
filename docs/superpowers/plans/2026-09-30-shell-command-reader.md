@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **実装との差分(実装後の注記):** この plan は実装前の版のまま残してある。現在の正は ADR 0009 と `dot_claude/scripts/CLAUDE.md`。主な差分: (1) `shell_reader_fully_readable` は作らなかった(「読み切れた」の定義が hook ごとに違うため、curl-guard が flag を個別に読む)。(2) 8192 byte を超えるコマンドにも「何も返さない」のではなく、行単位の字面の床を当てて一致すれば `ask` にする。(3) レビューを受けて、reader に `SHELL_READER_BRACE_INDEXES` を足し、git-push-guard は番兵の byte・ブレース展開を `ask`、破壊的な長オプションの前方一致を `deny` にした。curl の字面の床は前置詞付きの curl も拾う。
+
 **Goal:** PreToolUse の 2 つの guard hook が別々に持っているコマンド文字列の読み取りを 1 つの module(shell command reader)にまとめる。あわせて、2 つの hook の向きを「ask ルールに頼らず、`allow` を使わずに `deny` / `ask` / 無出力で判定する」にそろえる。
 
 **Architecture:** `dot_claude/scripts/lib/shell-reader.bash` を source 専用の library として置く。quote を解釈する 1 文字走査で、token 列・segment 区切り・「読めなかった理由」の flag を返す。reader 自身は判定をしない。判定は各 hook の policy が持つ。
