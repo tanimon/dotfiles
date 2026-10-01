@@ -135,5 +135,5 @@ _Avoid_: 見送り、残課題(無限定)
 _Avoid_: 仕様書(無限定)、入力
 
 **Requirements Concern**:
-実装ではなく Requirements Document そのものに向けられた Review Finding。何を作るかを agent は決めないため修正対象にならず、人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
+実装ではなく Requirements Document そのものに向けられた Review Finding で、何を作るかを agent は決めないため修正せずに人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
 _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正

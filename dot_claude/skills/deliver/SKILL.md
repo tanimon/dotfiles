@@ -31,4 +31,4 @@ description: 実装計画(plan)を受け取り、実装 → レビュー修正�
    })
    ```
 
-8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを、`publishError` の理由とともに先頭に書き、返り値の `report` と `ledger` をそれぞれ `$(git rev-parse --absolute-git-dir)/deliver/pr-body.md` / `ledger.json` に Write ツールでそのまま書き出す(Workflow 内の書き出しが予算の上限などで失敗していても残すため。PR は作らない)。`stopReason` があれば、何が原因で止まったかを1文で添える。報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。
+8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを、`publishError` の理由とともに先頭に書き、返り値の `report` と `ledger` をそれぞれ `$(git rev-parse --absolute-git-dir)/deliver/pr-body.md` / `ledger.json` に Write ツールでそのまま書き出す(Workflow 内の書き出しが予算の上限などで失敗していても残すため。PR は作らない)。`stopReason` があれば、何が原因で止まったかを1文で添える。`git status --porcelain` が空でなければ、Workflow のエージェントが未コミットの変更を残したこと(テスト/lint や動作確認の修正を途中で諦めた場合に起きる)と変更のあるファイルを、出力の先頭に書く。この変更は push されず PR にも入らないため、黙っていると人間が見落とす。消したりコミットしたりはせず、扱いはユーザーに委ねる。報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。
