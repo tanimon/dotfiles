@@ -218,7 +218,8 @@ function validateArgs(input) {
     throw new Error(`deliver: mode は ${MODES.join(" / ")} のいずれか: ${a.mode}`);
   }
   const config = { ...DEFAULTS, ...a };
-  if (!config.prBase) config.prBase = config.baseRef.replace(/^origin\//, "");
+  if (config.mode === "deliver" && !config.prBase)
+    config.prBase = config.baseRef.replace(/^origin\//, "");
   return config;
 }
 
@@ -488,9 +489,9 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
-  if (state.config.mode === "review-verify") {
+  if (state.config.mode !== "deliver") {
     lines.push(
-      "> **Review-Verify**: 既存のブランチをレビューしただけで、実装と PR の作成はしていない。修正のコミットはローカルにあり、push していない",
+      "> **Review-Verify**: 実装と PR の作成をしない mode で実行した。修正のコミットはローカルにあり、push していない",
       "",
     );
   }
@@ -903,7 +904,6 @@ return {
   prUrl: published && published.prUrl ? published.prUrl : null,
   published: Boolean(published && published.pushed),
   publishError: published && !published.pushed ? published.error || "理由なし" : null,
-  mode: config.mode,
   stopReason: state.stopReason,
   report,
   // 公開できなかったとき、入口 skill(agent() の上限の対象外)が pr-body.md / ledger.json を書き出すのに使う。

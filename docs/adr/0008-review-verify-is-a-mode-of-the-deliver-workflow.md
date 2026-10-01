@@ -15,6 +15,6 @@ date: 2026-10-01
 
 ## Consequences
 
-- 入力は plan と spec のどちらも受け付けるため、`plan` を前提にした語と識別子を Requirements Document / Requirements Concern(`CONTEXT.md`)に改名した。旧名の別名は残さない(`planPath` を呼ぶのは入口 skill だけで、ledger からの再開は未実装のため読み手がいない)。
+- 入力は plan と spec のどちらも受け付けるため、`plan` を前提にした語と識別子を Requirements Document / Requirements Concern(`CONTEXT.md`)に改名した(タスク分解を持つ plan を前提にする Deliver 専用の `planPrompt` や停止理由 `plan-unreadable` は plan のままにする)。旧名の別名は残さない(`planPath` を呼ぶのは入口 skill だけで、ledger からの再開は未実装のため読み手がいない)。
 - Review-Verify は push も PR の作成もしない。修正のコミットはローカルに残り、報告(`report.md` / `ledger.json`)は Deliver の結果を上書きしないよう別のディレクトリに書き出す。
-- テスト/lint が最初から落ちているブランチは、Deliver と同じく修正ループに入れずに止める。落ちたテスト/lint を指摘として修正に回すと、レビューより前に上限・収束の判定を持たない修正経路ができるためである。入口 skill が起動前に1回走らせて止める。
+- テスト/lint が最初から落ちているブランチも、Deliver と同じ扱いにする。各レビューラウンドの最初で checks エージェントが落ちたテスト/lint を直してコミットし、直らなければ `checks-failing` で止まる。この修正の上限(3回)はプロンプトで指示しているだけでコードでは強制していない。これは Deliver にも既にある残存リスクで、Review-Verify のために新しく作る経路ではない。人間が書いたブランチでは、このエージェントがレビューより先にコードを変えうる。

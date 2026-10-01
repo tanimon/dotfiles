@@ -304,11 +304,14 @@ test("Requirements Concern は修正せずに報告し、requirementsBreaking �
   const concern = await runWorkflow({
     respond: scenario({
       reviews: [{ requesting: [finding("Important", { target: "requirements" })] }],
-      merges: [[cluster("plan::ambiguous", ["requesting#0"], { target: "requirements" })]],
+      merges: [[cluster("requirements::ambiguous", ["requesting#0"], { target: "requirements" })]],
     }),
   });
   assert.equal(concern.labels.filter((l) => l.startsWith("fix:")).length, 0);
-  assert.match(section(concern.result.report, "Requirements Concern"), /issue plan::ambiguous/);
+  assert.match(
+    section(concern.result.report, "Requirements Concern"),
+    /issue requirements::ambiguous/,
+  );
   assert.equal(concern.result.stopReason, null);
 
   const breaking = await runWorkflow({
@@ -318,7 +321,7 @@ test("Requirements Concern は修正せずに報告し、requirementsBreaking �
       ],
       merges: [
         [
-          cluster("plan::broken", ["ecc#0"], {
+          cluster("requirements::broken", ["ecc#0"], {
             target: "requirements",
             requirementsBreaking: true,
           }),
@@ -434,7 +437,7 @@ test("merge の requirementsBreaking 申告だけでは停止しない(元の指
       reviews: [{ requesting: [finding("Minor", { target: "requirements" })] }],
       merges: [
         [
-          cluster("plan::x", ["requesting#0"], {
+          cluster("requirements::x", ["requesting#0"], {
             target: "requirements",
             requirementsBreaking: true,
           }),
@@ -548,7 +551,7 @@ test("requirementsBreaking で停止したラウンドの code 側の修正必�
       ],
       merges: [
         [
-          cluster("plan::broken", ["ecc#0"], {
+          cluster("requirements::broken", ["ecc#0"], {
             target: "requirements",
             requirementsBreaking: true,
           }),
@@ -914,4 +917,39 @@ test("review-verify の報告は先頭で mode を示し、PR 向けの末尾行
 
 test("未知の mode は agent を呼ぶ前に throw する", async () => {
   await assert.rejects(runWorkflow({ args: { mode: "review" } }), /mode/);
+});
+
+test("review-verify でテスト/lint が通らなければ、レビューも動作確認もせずに停止し、公開しない", async () => {
+  const { result, labels } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({ checks: () => ({ passed: false, details: "lint 失敗" }) }),
+  });
+  assert.deepEqual(labels, ["checks:1"]);
+  assert.equal(result.stopReason, "checks-failing");
+  assert.equal(result.published, false);
+  assert.equal(result.publishError, null);
+  assert.match(section(result.report, "Unresolved Finding"), /未レビュー/);
+});
+
+test("review-verify で動作確認が失敗したら、直した後にレビューし直してから再確認する", async () => {
+  const { labels } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      verifies: [
+        { passed: false, summary: "画面が真っ白" },
+        { passed: true, summary: "ok" },
+      ],
+    }),
+  });
+  assert.deepEqual(labels, [
+    "checks:1",
+    "review:ecc",
+    "review:requesting",
+    "verify:1",
+    "fix-verify:1",
+    "checks:2",
+    "review:ecc",
+    "review:requesting",
+    "verify:2",
+  ]);
 });
