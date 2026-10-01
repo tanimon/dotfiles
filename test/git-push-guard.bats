@@ -1053,3 +1053,123 @@ EOF"
     assert_success
     assert_output ''
 }
+
+# 前置詞の一覧に無いコマンド(`nice -n 0` / `timeout` / `sudo -n` / `xargs`)の後ろの git は strict=0 で
+# 読むので、以前は `-c` と GIT_CONFIG_* を見なかった。床は ask 止まりなので deny は増えない。
+@test "a push or mirror config after an unrecognized prefix asks" {
+    run hook 'nice -n 0 git -c remote.origin.mirror=true push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'timeout 60 git -c remote.origin.push=+HEAD:refs/heads/main push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'sudo -n git -c remote.origin.mirror=true push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "an include config or GIT_CONFIG environment after an unrecognized prefix asks" {
+    run hook 'timeout 60 git -c include.path=/tmp/x push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.mirror GIT_CONFIG_VALUE_0=true timeout 60 git push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 絞り込みの対照: push / mirror / include 以外の -c は、前置きの後ろでも無出力のまま。
+@test "an unrelated config after an unrecognized prefix produces no decision" {
+    run hook 'timeout 60 git -c user.name=x push origin feature'
+    assert_success
+    assert_output ''
+    run hook 'timeout 60 git -c push.autoSetupRemote=true push origin feature'
+    assert_success
+    assert_output ''
+}
+
+# `{` を 1 byte ごとに並べると、同じ index の印が 1 件ずつ増え、push の segment ごとに全件を
+# 走査していたので二乗になった(8 KB で 8 秒。フックの timeout は 5 秒 = 判定なし)。
+@test "a force push followed by push segments and a brace flood is denied within the timeout" {
+    local command='git push origin main --force;' start elapsed
+    local index
+    for ((index = 0; index < 450; index++)); do command+='git push;'; done
+    command+='echo '
+    while [[ ${#command} -lt 8190 ]]; do command+='{{{{{{{{{{'; done
+    command=${command:0:8192}
+    start=$SECONDS
+    run hook "$command"
+    elapsed=$((SECONDS - start))
+    assert_success
+    assert_equal "$(decision "$output")" deny
+    [[ $elapsed -lt 3 ]]
+}
+
+@test "a force push followed by push segments and a glob flood is denied within the timeout" {
+    local command='git push origin main --force;' start elapsed
+    local index
+    for ((index = 0; index < 450; index++)); do command+='git push;'; done
+    command+='echo'
+    while [[ ${#command} -lt 8190 ]]; do command+=' *'; done
+    command=${command:0:8192}
+    start=$SECONDS
+    run hook "$command"
+    elapsed=$((SECONDS - start))
+    assert_success
+    assert_equal "$(decision "$output")" deny
+    [[ $elapsed -lt 3 ]]
+}
+
+# 床の短オプションは、token の判定(`-*` のうち f か d を含むもの)と同じ綴りに一致させる。
+# 数字を含む束(`-4f` は --ipv4 + --force)は parse-options が受け付ける。
+@test "every short option bundle the token check denies also asks through the floor" {
+    local bundle
+    for bundle in -f -d -uf -4f -f4 -6d -fd; do
+        run hook "git push $bundle origin main"
+        assert_success
+        assert_equal "$(decision "$output")" deny
+        run hook "echo \"\$(git push $bundle origin main)\""
+        assert_success
+        assert_equal "$(decision "$output")" ask
+    done
+}
+
+@test "a numeric short option without f or d inside a quoted substitution produces no decision" {
+    run hook 'echo "$(git push -4 origin main)"'
+    assert_success
+    assert_output ''
+}
+
+# reader は heredoc とコメントを知らない。heredoc の本文やコメントの中の `git push --force` は、
+# 承認しても実行できない deny ではなく ask 止まりにする。
+@test "a commit message heredoc naming git push --force asks rather than denies" {
+    run hook $'git commit -F - <<\'EOF\'\nfix: guard\n\ngit push --force を deny する\nEOF'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a trailing comment naming --force after a plain push asks rather than denies" {
+    run hook 'git push origin main # do not --force'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 対照: heredoc もコメントも無い force push は deny のまま。heredoc の後ろの行の force push は
+# 本文と区別できないので ask に下がる(受容した格下げ)。
+@test "a force push before a heredoc is still denied" {
+    run hook $'git push origin main --force && cat <<\'EOF\'\nbody\nEOF'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a heredoc body naming git push without a dangerous spelling produces no decision" {
+    run hook $'git commit -F - <<\'EOF\'\nfix: guard\n\ngit push origin main は通す\nEOF'
+    assert_success
+    assert_output ''
+}
+
+# #8 と #1 の組み合わせ: heredoc 本文の行の -c mirror は ask(deny にはならない)。
+@test "a heredoc body naming a mirror config push asks" {
+    run hook $'git commit -F - <<\'EOF\'\ndocs\n\ngit -c remote.origin.mirror=true push は ask\nEOF'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}

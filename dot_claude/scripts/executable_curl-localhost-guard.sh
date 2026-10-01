@@ -541,11 +541,32 @@ done
 floor_text=''
 last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
 after_substitution=0
+NEWLINE_TOKEN=0
+segment_is_curl=0
+segment_first=1
 for index in "${!SHELL_READER_TOKENS[@]}"; do
     token=${SHELL_READER_TOKENS[$index]}
+    if [[ "$token" == "$SHELL_READER_SEP" ]]; then
+        segment_first=1
+        continue
+    fi
+    if [[ $segment_first -eq 1 ]]; then
+        segment_first=0
+        segment_is_curl=0
+        probe=${token#=}
+        [[ "${probe##*/}" == curl ]] && segment_is_curl=1
+    fi
     case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
     case "$token" in
-    *$'\n'*) floor_text+=$token$'\n' ;;
+    *$'\n'*)
+        floor_text+=$token$'\n'
+        # 下の flag 判定用。curl の segment の引数(`-d '{"a":⏎"b"}'` の複数行の本文)は classify_curl が
+        # 値として読むので除く。curl 以外の segment に飲み込まれた行と、コメント(`#`)から始まる token
+        # は、シェルが実行する行を隠しうる。
+        if [[ $segment_is_curl -eq 0 || "$token" == \#* ]]; then
+            NEWLINE_TOKEN=1
+        fi
+        ;;
     *'$'* | *'`'*)
         if [[ $CURL_PRESENT -eq 0 ]]; then
             floor_text+=$token$'\n'
@@ -580,6 +601,12 @@ fi
 # curlrc の存在は上で実行前に見たが、同じコマンドの前の segment が作ることもできる
 # (`printf 'proxy = …' > ~/.curlrc; curl http://localhost/`。printf は INERT_COMMANDS)。
 # そこで curlrc を名指す token があれば、存在するのと同じに扱う。
+# 改行を含む token(curl の segment の引数を除く。上の NEWLINE_TOKEN)も同じく ask にする。コメントや
+# heredoc 本文の引用符 1 つ(`#"`)で reader だけが引用符に入ると、次の同じ引用符までの行(シェルが
+# 実行する `find … -exec curl https://evil… \;` など)が 1 token に飲み込まれる。飲み込まれた行は、上の
+# 床の「行頭の curl」に一致しなければ何も見ないので、UNCLOSED_QUOTE と同じく読み切れないとして扱う。
+# 受容した誤 ask: ループバック宛の curl と、curl 以外のコマンドの改行を含む引用符付きの引数(複数行の
+# コミットメッセージ)の組み合わせ。curl が見つからない PR 本文の heredoc は上で exit するので、この条件には来ない。
 for token in "${SHELL_READER_TOKENS[@]}"; do
     case "$token" in *curlrc*)
         CURLRC_PRESENT=1
@@ -589,7 +616,8 @@ for token in "${SHELL_READER_TOKENS[@]}"; do
 done
 if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
     $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ||
-    $SHELL_READER_UNCLOSED_QUOTE -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ]]; then
+    $SHELL_READER_UNCLOSED_QUOTE -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ||
+    $NEWLINE_TOKEN -eq 1 ]]; then
     emit_ask
     exit 0
 fi

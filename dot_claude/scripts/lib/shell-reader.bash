@@ -144,9 +144,16 @@ shell_reader_read() {
             # なる)ので、どの segment に展開があるかを塞ぐ側が知れるように位置を残す。
             # bash は後ろが空白の `{` を展開しない(グループの `{ … ; }`)。
             if [[ "$character" == '{' ]]; then
+                # 同じ index は 1 回だけ残す。`{{{{…` は 1 byte ごとに同じ index を足すので、重複を許すと
+                # 印の数が入力の長さに比例し、印を走査する呼び出し側が二乗になる(8 KB で 8 秒)。
                 case "${s:index+1:1}" in
                 '' | ' ' | $'\t' | $'\n') ;;
-                *) SHELL_READER_BRACE_INDEXES+="${#SHELL_READER_TOKENS[@]} " ;;
+                *)
+                    case "$SHELL_READER_BRACE_INDEXES" in
+                    *" ${#SHELL_READER_TOKENS[@]} ") ;;
+                    *) SHELL_READER_BRACE_INDEXES+="${#SHELL_READER_TOKENS[@]} " ;;
+                    esac
+                    ;;
                 esac
             fi
             ;;
