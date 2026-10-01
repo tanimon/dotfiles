@@ -112,7 +112,9 @@ declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_mat
 }
 
 DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
-DANGER_FLAG_RE='(--force|--force-with-lease|--force-if-includes|--delete|--mirror|--prune|[[:space:]]-[[:alpha:]]*[fd][[:alpha:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
+# 長オプションは token の判定(long_option_is_dangerous)と同じく前方一致も見る(`--forc` / `--dele`)。
+# `-c` / `--config-env` の push・mirror の設定も、token の判定と同じく床に一致させる。
+DANGER_FLAG_RE='(--(f|fo|for|forc|force(-[[:alnum:]-]*)?|d|de|del|dele|delet|delete|m|mi|mir|mirr|mirro|mirror|p|pr|pru|prun|prune)([^[:alnum:]_-]|$)|[[:space:]](-c|--config-env)[[:space:]=]*[^[:space:]]*([Pp][Uu][Ss][Hh]|[Mm][Ii][Rr][Rr][Oo][Rr])|[[:space:]]-[[:alpha:]]*[fd][[:alpha:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
 # 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
 # 組み合わせて ask にしないようにする(以前も改行で分割していたので同じ粒度になる)。
 # 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_any_line_matches が行う
@@ -362,7 +364,25 @@ classify_segment() {
     # `/usr/bin/gi? push …`)は、`git` と読める token が無いので下の走査が何も見つけない。コマンドの
     # 位置の token に印があり、segment に push を含む token があれば読み切れないとして ask にする。
     # コマンドの位置に限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため。
-    if [[ $command_start -lt $token_count ]] && token_is_marked "$command_start"; then
+    # 置換や変数がコマンドの位置にある綴り(`$G push …`、`` `which git` push … ``、
+    # `"$(command -v git)" push …`)も同じく git と読める token が無いので、同じ扱いにする。引用符の外の
+    # `$(which git) push …` は reader が `)` で segment を切るので、push の segment が `push` そのもの
+    # から始まる。これはコマンドに `$` かバッククォートがあり、前置きも無いときに限る(heredoc の散文の
+    # 行頭の push と、`` x=`git push origin main` `` の代入の後ろの push を巻き込まないため)。
+    # 単独の `$` は除く: bash でも zsh でも文字のままで、heredoc 本文のプロンプト表記
+    # (`$ git push origin main`)がこの形になる。`$(which git)` の `$` は別の segment に切られている。
+    command_word_unreadable=0
+    if [[ $command_start -lt $token_count ]]; then
+        token_is_marked "$command_start" && command_word_unreadable=1
+        case "${tokens[$command_start]}" in
+        '$') ;;
+        *'$'* | *'`'*) command_word_unreadable=1 ;;
+        esac
+        if [[ $command_start -eq 0 && "${tokens[0]}" == push && $SHELL_READER_EXPANSION -eq 1 ]]; then
+            command_word_unreadable=1
+        fi
+    fi
+    if [[ $command_word_unreadable -eq 1 ]]; then
         for marked_token in "${tokens[@]}"; do
             case "$marked_token" in *push*)
                 NEEDS_ASK=1
@@ -418,11 +438,22 @@ shell_reader_each_segment classify_segment
 # 対象の token は改行で区切って 1 つにまとめ、床は 1 回だけ呼ぶ。床は引用符や backslash を含む
 # 入力で awk / tr を fork するので、token ごとに呼ぶと `"$'"` を 1000 個並べただけで秒単位になり、
 # フックの timeout(5 秒)を越えると判定なし = フェイルオープンになる。
+# 引用符の中の置換に入れ子の引用符があると(`"$(echo "a it's")"`)、reader は入れ子の `"` で引用符が
+# 閉じたと読み、その後ろの同期がずれる。`echo "$(echo "a it's")" ; git push origin main --force ; echo ' x'`
+# では、bash が実行する push が改行も `$` も無い 1 token に飲み込まれ、閉じない引用符の最後の token も
+# 空になる。ずれはその置換より後ろでしか起きないので、`$(` / `${` / バッククォートを含む最初の token
+# から後ろはすべて床に当てる(token ごとに 1 行なので、別々の token が 1 行に組み合わさることはない)。
 if [[ -z "$DANGER_TOKEN" && ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
     last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
     floor_text=''
+    after_substitution=0
     for index in "${!SHELL_READER_TOKENS[@]}"; do
         token=${SHELL_READER_TOKENS[$index]}
+        case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
+        if [[ $after_substitution -eq 1 ]]; then
+            floor_text+=$token$'\n'
+            continue
+        fi
         case "$token" in
         # 改行を含む token も見る。reader は heredoc とコメントを知らないので、本文やコメントの中の
         # 引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、次の同じ引用符までの行(bash が

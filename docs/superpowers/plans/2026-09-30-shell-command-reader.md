@@ -690,16 +690,15 @@ if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
     exit 0
 fi
 
-if ! shell_reader_each_segment classify_segment || [[ $SAW_CURL -ne 1 ]]; then
+if ! shell_reader_each_segment classify_segment; then
     emit_ask
-    exit 0
 fi
 exit 0
 ```
 
 注意点:
 - `for token in "${SHELL_READER_TOKENS[@]}"` の前で、token 数が 0 でないことを確かめる(bash 3.2 の `set -u`)。0 のときは `exit 0` とする。
-- `SAW_CURL` が 0 になるのは、curl を実行しうる token はあるが、それがコマンド位置に無い場合(`xargs curl`)。`classify_segment` は `xargs` を `INERT_COMMANDS` に無いものとして 1 を返すので、ほとんどは前の条件で `ask` になる。この条件は念のための床として置く。
+- `SAW_CURL` による床は置かない(2026-10-01 のレビューで削除)。当初は「curl を実行しうる token はあるがコマンド位置に無い場合(`xargs curl`)」の念のための床として `|| [[ $SAW_CURL -ne 1 ]]` を足していたが、`xargs` / `find` は `INERT_COMMANDS` に無いので `classify_segment` が既に 1 を返して `ask` になり、床が追加で拾うのは全 segment が INERT_COMMANDS のとき(`grep -rn curl dot_claude/`、`echo curl`)だけだった。そこでは curl は実行されないので、床は誤 ask しか生まず、「全 segment が inert なら無出力」とする `dot_claude/scripts/CLAUDE.md` の記述とも矛盾していた。
 
 - [ ] **Step 3: テストを通す**
 

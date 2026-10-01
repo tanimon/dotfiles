@@ -900,3 +900,80 @@ EOF"
     assert_success
     assert_equal "$(decision "$output")" ask
 }
+
+# 床の行継続は何も足さずにつなぐ(シェルと同じ)。空白を足すと `--for ce` になって一致しない。
+@test "an over-long command with a force flag split by a continuation asks" {
+    local body
+    body=$(printf 'x%.0s' $(seq 1 8200))
+    run hook "gh pr create --body \"${body}\" && git push origin main --for\\
+ce"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 引用符の中の置換に入れ子の引用符があると、reader は入れ子の `"` で閉じたと読んで同期がずれ、
+# 後ろで bash が実行する push が改行も `$` も無い 1 token に飲み込まれる。
+@test "a force push swallowed by a nested quote in a quoted substitution asks" {
+    run hook "echo \"\$(echo \"a it's\")\" ; git push origin main --force ; echo ' x'"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a plain push after a nested quote in a quoted substitution produces no decision" {
+    run hook "echo \"\$(echo \"a it's\")\" ; git push origin main ; echo ' x'"
+    assert_success
+    assert_output ''
+}
+
+# コマンドの位置の語が置換や変数だと git と読める token が無い。引用符の外の `$(which git)` は
+# reader が `)` で segment を切るので、push の segment は `push` から始まる。
+@test "a push whose git binary comes from a substitution or a variable asks" {
+    local command
+    for command in \
+        '$(which git) push origin main --force' \
+        '`which git` push origin main --force' \
+        '"$(command -v git)" push origin main --force' \
+        'G=git; $G push origin main --force'; do
+        run hook "$command"
+        assert_success
+        assert_equal "$(decision "$output")" ask
+    done
+}
+
+# 単独の `$` は文字のまま(heredoc 本文のプロンプト表記)。
+@test "a prompt-style plain push line in a heredoc body produces no decision" {
+    run hook "gh pr create --body-file - <<'EOF'
+手順:
+\$ git push origin main
+EOF"
+    assert_success
+    assert_output ''
+}
+
+@test "a substitution elsewhere before a plain push produces no decision" {
+    run hook 'git commit -m "$(date)" && git push origin x'
+    assert_success
+    assert_output ''
+    run hook 'cd "$HOME/x" && git push origin main'
+    assert_success
+    assert_output ''
+}
+
+# 床も token の判定と同じく、長オプションの前方一致と -c の push / mirror の設定を見る。
+@test "an abbreviated force flag or a mirror config inside a quoted substitution asks" {
+    run hook 'echo "$(git push origin main --forc)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'echo "$(git -c remote.origin.mirror=true push origin main)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a safe long option inside a quoted substitution produces no decision" {
+    run hook 'echo "$(git push origin main --follow-tags)"'
+    assert_success
+    assert_output ''
+    run hook 'echo "$(git push --dry-run origin main)"'
+    assert_success
+    assert_output ''
+}

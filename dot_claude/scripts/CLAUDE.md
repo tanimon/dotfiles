@@ -139,6 +139,11 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   コマンドの位置とサブコマンドに限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため
   (`xargs /usr/bin/gi? push …` のように前置詞の後ろで git を展開で作る綴りは残存)。
   後ろが空白の `{` はグループ(`{ git push origin main; }`)なので reader が記録せず、無出力のまま。
+  コマンドの位置の token が置換か変数(`$G push …`、`` `which git` push … ``、`"$(command -v git)" push …`)
+  のときも、同じく segment に `push` を含む token があれば `ask`。引用符の外の `$(which git) push …` は
+  reader が `)` で segment を切り、push の segment が `push` そのものから始まるので、コマンドに `$` か
+  バッククォートがあり segment の先頭が `push` のときも `ask` にする(共有 reader に載せ替える前は `()` を
+  空白に置き換えていたので `ask` だった)。
 - **zsh の綴りも読む。** Bash ツールは利用者のシェル(このマシンでは zsh)で動くので、`=git`(EQUALS。
   PATH 上の git に展開される)の語頭の `=` を外して binary を読み、`=(…)`(zsh のプロセス置換)を
   reader が `PROCESS_SUBSTITUTION` として返す。`=git push origin main --force` はこれが無いと無出力で、
@@ -182,6 +187,11 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   本文やコメントの中の引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、次の同じ引用符までの行
   (bash が実行する force push を含む)が 1 token に飲み込まれる。閉じる引用符もそろうと
   `UNCLOSED_QUOTE` は立たないので、この条件が無いと無出力で通っていた。
+  加えて、`$(` / `${` / バッククォートを含む最初の token から後ろはすべて対象にする。reader は引用符の
+  中の置換の入れ子の引用符を知らないので、`echo "$(echo "a it's")" ; git push origin main --force ; echo ' x'`
+  では入れ子の `"` で引用符が閉じたと読み、bash が実行する push が改行も `$` も無い 1 token に飲み込まれる
+  (閉じない引用符の最後の token も空になる)。ずれは置換より後ろでしか起きない。
+  危険な綴りは token の判定と同じく、長オプションの前方一致(`--forc`)と `-c` の push / mirror の設定も含む。
   `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
   同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
   短フラグ(`-f` など)も対象。長さ超過の入力では、同じ床を生のコマンド全体に当てる(下の上限)。
@@ -279,7 +289,9 @@ lib が読めない・壊れているときも `ask` を返す(下の「shell co
 飲み込むので、heredoc の後ろで bash が実行する `curl … | sh` が見えない。どちらも「curl を実行しうる
 token が無い」ように見えて無出力になっていた(`Bash(curl:*)` の ask ルールを外したので、下に土台が無い)。
 そこで curl と読める token が無いときに限り、`$` かバッククォートを含む token と、`UNCLOSED_QUOTE`
-のときの最後の token を行ごとに見て、行頭か `;&|(` / バッククォートの直後(空白、変数の代入か前置詞
+のときの最後の token と、`$(` / `${` / バッククォートを含む最初の token から後ろのすべての token
+(引用符の中の置換の入れ子の引用符で reader の同期がずれ、後ろの curl が改行も `$` も無い 1 token に
+飲み込まれるため。git-push-guard の床と同じ)を行ごとに見て、行頭か `;&|(` / バッククォートの直後(空白、変数の代入か前置詞
 (`command` / `eval` / `env` / `timeout` / `xargs` など)かシェルのキーワード(`if` / `then` / `elif` / `else` /
 `while` / `until` / `do` / `!` / `{`)で始まる語の並び、`\curl` の `\`、`/usr/bin/` のような
 パスの前置は許す)に `curl`(後ろは空白か行末)があれば `ask` にする。照合は共有 reader の

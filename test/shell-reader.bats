@@ -245,6 +245,12 @@ joined() {
     assert_success
 }
 
+# シェルと同じく、行継続は何も足さずにつなぐ。
+@test "any_line_matches joins a continuation without adding a space" {
+    run shell_reader_any_line_matches $'--for\\\nce' '--force'
+    assert_success
+}
+
 @test "any_line_matches does not expand a glob in the text" {
     cd "$BATS_TEST_TMPDIR"
     touch matched-file

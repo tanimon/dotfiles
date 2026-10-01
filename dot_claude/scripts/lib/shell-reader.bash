@@ -305,7 +305,8 @@ shell_reader_each_segment() {
 # $1 を行ごとに見て、$2 以降の正規表現(POSIX ERE)すべてに一致する行が 1 つでもあれば 0、
 # 無ければ 1 を返す。各フックの「字面の床」用で、正規表現(= 判定)は呼び出し側が渡す。
 #
-# 照合の前に、行継続(`\` + 改行)をつなぎ、引用符と backslash を取り除く。シェルはこれらを
+# 照合の前に、行継続(`\` + 改行)をつなぎ(シェルと同じく何も足さない。空白を足すと
+# `--for\⏎ce` が `--for ce` になって一致しない)、引用符と backslash を取り除く。シェルはこれらを
 # 外してから語を読むので、生の字面のままだと `"$(git'' push … --force)"`・`'curl' …`・
 # `git push … \⏎--force` が一致しない。取り除くと一致は増える方向にしか動かない(床は ask に
 # しかならないので、それで安全側)。
@@ -322,7 +323,7 @@ shell_reader_any_line_matches() {
     case "$text" in
     *[\"\'\\]*)
         text=$(printf '%s\n' "$text" |
-            awk '{ if (sub(/\\$/, "")) printf "%s ", $0; else print }' |
+            awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' |
             tr -d "\"'\\\\") || return 0
         ;;
     esac
