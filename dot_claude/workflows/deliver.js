@@ -14,8 +14,17 @@ export const meta = {
 
 // 判定はここに置いたコードで行い、agent にはさせない(ADR 0007)。
 const DEFAULTS = { mode: "deliver", maxReviewRounds: 3, maxVerifyRetries: 2 };
-// review-verify は実装も公開もしない(ADR 0008)。
-const MODES = ["deliver", "review-verify"];
+// mode ごとに持つ機能をここで一覧にし、分岐する箇所は mode 名ではなく機能名で見る。
+// mode を足すときはここに 1 行足せば、どの機能を持つかを全箇所で漏れなく決めたことになる。
+// - implement: plan のタスクを実装する
+// - publish: push して draft PR を作る(PR 向けの報告の体裁もこれに従う)
+// - branchScope: 要件文書のうちブランチが未着手の項目を範囲外として prompt で限る。plan の
+//   タスク分解で範囲が決まっていない入力の性質(ADR 0008)
+const MODES = {
+  deliver: { implement: true, publish: true, branchScope: false },
+  // review-verify は実装も公開もしない(ADR 0008)。
+  "review-verify": { implement: false, publish: false, branchScope: true },
+};
 const BUDGET_FLOOR = 100000;
 
 // built-in の code-review は fork 型の skill で、Workflow のエージェントから Skill で呼ぶと
@@ -214,13 +223,14 @@ function validateArgs(input) {
   if (invalid.length > 0) {
     throw new Error(`deliver: 0 以上の整数が必要です: ${invalid.join(", ")}`);
   }
-  if (a.mode !== undefined && !MODES.includes(a.mode)) {
-    throw new Error(`deliver: mode は ${MODES.join(" / ")} のいずれか: ${a.mode}`);
+  if (a.mode !== undefined && !Object.keys(MODES).includes(a.mode)) {
+    throw new Error(`deliver: mode は ${Object.keys(MODES).join(" / ")} のいずれか: ${a.mode}`);
   }
   // 値が undefined のキーを spread すると既定値を消し、上限や mode が黙って外れるので、先に除く。
   const given = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined));
   const config = { ...DEFAULTS, ...given };
-  if (config.mode === "deliver" && !config.prBase)
+  config.features = MODES[config.mode];
+  if (config.features.publish && !config.prBase)
     config.prBase = config.baseRef.replace(/^origin\//, "");
   return config;
 }
@@ -339,9 +349,8 @@ const commands = (config) => config.checkCommands.map((c) => `「${c}」`).join(
 // 「要件文書とのずれ」として未着手の要件が修正必須になり、修正エージェントがそれを実装してしまう。
 // 実装の経路は mode の分岐で塞いでいるが、この経路はプロンプトでしか塞げない(ADR 0008)。
 // 逆に「未着手」を口実にブランチ自身の不具合を見送らせないよう、歯止めの文も必ず添える。
-// plan のタスク分解で範囲が決まっていない入力の性質なので、deliver 以外の mode すべてに付ける。
 const unstartedScope = (config, rule) =>
-  config.mode !== "deliver"
+  config.features.branchScope
     ? `\n- 要件文書のうち、このブランチがまだ着手していない項目は範囲外である。${rule}ただし、このブランチが追加・変更したコードの不具合(例外、誤動作、着手済みの項目とのずれ)は、未着手の項目に関わっていても範囲外にしない。`
     : "";
 
@@ -364,8 +373,9 @@ function implementPrompt(task, index, total, config) {
 function checksPrompt(config) {
   // Review-Verify では人間が書いたブランチに最初に触れるのがこのエージェントなので、未着手の項目を
   // 検査するテストが落ちていても、それを実装して通させない(ADR 0008)。
-  const requirements =
-    config.mode !== "deliver" ? `\n- 要件文書は ${config.requirementsPath}。` : "";
+  const requirements = config.features.branchScope
+    ? `\n- 要件文書は ${config.requirementsPath}。`
+    : "";
   return `次のコマンドを全て実行せよ: ${commands(config)}
 - 失敗があれば原因を直してコミットし(push はしない)、全て成功するまで繰り返す。
 - テストを消す・スキップする・lint を無効化するなど、検査そのものを弱める変更はしない。
@@ -486,7 +496,6 @@ function formatItem(item) {
 
 function renderReport(state) {
   const lines = [];
-  const isDeliver = state.config.mode === "deliver";
   const pushSection = (title, items, format, empty = "なし") => {
     lines.push(`## ${title}`, "");
     if (items.length === 0) lines.push(empty);
@@ -506,7 +515,7 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
-  if (!isDeliver) {
+  if (!state.config.features.publish) {
     lines.push(
       "> **Review-Verify**: 実装と PR の作成をしない mode で実行した。Workflow が作ったコミット(作っていれば)はローカルにだけあり、push していない",
       "",
@@ -560,7 +569,8 @@ function renderReport(state) {
     lines.push(`- 結果を返さなかったレビュアー: ${state.reviewerFailures.join(", ")}`);
   lines.push(`- 出力トークン: ${state.outputTokens}`, "");
   // PR 本文にしない報告には、PR 向けの帰属行を付けない。
-  if (isDeliver) lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
+  if (state.config.features.publish)
+    lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
   return lines.join("\n");
 }
 
@@ -899,7 +909,7 @@ const config = validateArgs(args);
 const state = newState(config);
 // 例外(budget の上限到達など)で報告ごと失わないよう、ここまでの状態で必ず報告を組み立てる。
 try {
-  if (config.mode === "deliver") await implement(state);
+  if (config.features.implement) await implement(state);
   if (!state.stopReason) await reviewLoop(state);
   if (!state.stopReason) await verify(state);
 } catch (error) {
@@ -911,7 +921,7 @@ const report = renderReport(state);
 const ledger = ledgerJson(state);
 let published = null;
 try {
-  if (config.mode === "deliver") published = await publish(state, report, ledger);
+  if (config.features.publish) published = await publish(state, report, ledger);
 } catch (error) {
   published = { pushed: false, error: String(error && error.message ? error.message : error) };
   log(`公開に失敗した: ${published.error}`);
