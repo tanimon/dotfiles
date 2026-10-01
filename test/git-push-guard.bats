@@ -717,3 +717,41 @@ ${body} --force は使わない\""
     assert_success
     assert_equal "$(decision "$output")" ask
 }
+
+# 走査とシェルの引用符の状態がずれる綴り。ANSI-C は reader が正しく読むので deny、
+# heredoc / コメントは reader が知らないので字面の床で ask。
+@test "a force push hidden by ANSI-C quoting is denied" {
+    run hook "echo \$'\\''; git push origin main --force; echo \\'"
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a force push between two comments with a quote asks" {
+    run hook $'echo x #"\ngit push origin main --force\n#"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a force push between two heredocs with a lone quote asks" {
+    run hook "cat <<'EOF' > a.txt
+it\"s
+EOF
+git push origin main --force
+cat <<'EOF' > b.txt
+it\"s
+EOF"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a multi-line commit message before a plain push produces no decision" {
+    run hook $'git commit -m "multi\nline" && git push origin main'
+    assert_success
+    assert_output ''
+}
+
+@test "\$\$ before a quoted word and a plain push produces no decision" {
+    run hook "echo \$\$'x'; git push origin main"
+    assert_success
+    assert_output ''
+}

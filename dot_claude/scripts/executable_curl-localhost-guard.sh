@@ -427,7 +427,10 @@ classify_segment() {
 # curl の直前の `\` も許す(`\curl` は alias を避けるだけで curl を実行する)。引用符の外では
 # 同じ綴りを segment の走査が読むので、この床が要るのは引用符の中の置換だけ。前置詞の後ろに `curl`
 # を語として含む散文の行(`env を見てから curl する`)が ask になるのは受容した誤 ask。
-CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|command|builtin|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate)'
+# シェルのキーワード(`then curl …`、`do curl …`、`{ curl …; }`)もコマンドの位置を作る。heredoc に
+# 飲み込まれた行が `if …; then curl … | sh; fi` でも一致するように含める。`case` の `a) curl …` の `)` は
+# 含めない — `"$(date) curl is fine"` の散文まで ask になる(受容した残存)。
+CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|command|builtin|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate|if|then|elif|else|while|until|do|[!]|[{])'
 CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
 # here-string は一時ファイルを使う($TMPDIR に書けないと黙って「一致なし」になる)ので使わない。
 # `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
@@ -472,14 +475,30 @@ for token in "${SHELL_READER_TOKENS[@]}"; do
     fi
 done
 
-# 見つからなかったときだけ、字面の床を当てる token: `$(` かバッククォートを含むものと、
+# 改行を含む token には、curl が見つかったかどうかに関係なく字面の床を当てる。reader は heredoc と
+# コメントを知らないので、本文やコメントの中の引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、
+# 次の同じ引用符までの行(bash が実行する `curl https://evil… | sh` を含む)が 1 token に飲み込まれる。
+# 閉じる引用符もそろうと UNCLOSED_QUOTE は立たず、飲み込まれた token が INERT_COMMANDS の引数に入れば
+# segment の走査も通る。
+for token in "${SHELL_READER_TOKENS[@]}"; do
+    case "$token" in
+    *$'\n'*)
+        if curl_text_floor "$token"; then
+            emit_ask
+            exit 0
+        fi
+        ;;
+    esac
+done
+
+# 見つからなかったときだけ、字面の床を当てる token: `$` かバッククォートを含むものと、
 # 引用符が閉じないまま終わったときの最後の token(上の説明)。
 if [[ $CURL_PRESENT -eq 0 ]]; then
     last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
     for index in "${!SHELL_READER_TOKENS[@]}"; do
         token=${SHELL_READER_TOKENS[$index]}
         case "$token" in
-        *"\$("* | *'`'*)
+        *'$'* | *'`'*)
             if curl_text_floor "$token"; then
                 emit_ask
                 exit 0

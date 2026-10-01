@@ -389,7 +389,10 @@ if [[ -z "$DANGER_TOKEN" && ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
     for index in "${!SHELL_READER_TOKENS[@]}"; do
         token=${SHELL_READER_TOKENS[$index]}
         case "$token" in
-        *'$'* | *'`'*) text_floor "$token" && NEEDS_ASK=1 ;;
+        # 改行を含む token も見る。reader は heredoc とコメントを知らないので、本文やコメントの中の
+        # 引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、次の同じ引用符までの行(bash が
+        # 実行する push を含む)が 1 token に飲み込まれる。
+        *'$'* | *'`'* | *$'\n'*) text_floor "$token" && NEEDS_ASK=1 ;;
         *)
             if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index ]]; then
                 text_floor "$token" && NEEDS_ASK=1

