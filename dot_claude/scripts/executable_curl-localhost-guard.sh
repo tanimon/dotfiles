@@ -302,13 +302,21 @@ classify_curl() {
         # file-descriptor digit attached to the operator, so a bare operator
         # consumes the filename that follows and an operator with the filename
         # already glued on consumes only itself.
-        if [[ "$token" =~ ^[0-9]*\>[\>|]?$ ]]; then
-            index=$((index + 2))
-            continue
-        elif [[ "$token" =~ ^[0-9]*\>[\>|]?. ]]; then
-            index=$((index + 1))
-            continue
-        fi
+        # 読み飛ばすのは reader が演算子として読んだ token だけ(SHELL_READER_OPERATOR_INDEXES)。
+        # 引用された `">"` や `\>` は curl の引数で、字面で判定すると次の引数(2 つ目の URL)まで
+        # 読み飛ばしてしまう(`curl http://localhost/ ">" https://evil.example/` が無出力になっていた)。
+        # classify_segment は segment の先頭から渡すので、segment 内の index に SEGMENT_START を足す。
+        case "$SHELL_READER_OPERATOR_INDEXES" in
+        *" $((SHELL_READER_SEGMENT_START + index)) "*)
+            if [[ "$token" =~ ^[0-9]*\>[\>|]?$ ]]; then
+                index=$((index + 2))
+                continue
+            elif [[ "$token" =~ ^[0-9]*\>[\>|]?. ]]; then
+                index=$((index + 1))
+                continue
+            fi
+            ;;
+        esac
 
         case "$token" in
         --url)
@@ -443,8 +451,14 @@ classify_segment() {
 # 飲み込まれた行が `if …; then curl … | sh; fi` でも一致するように含める。`case` の `a) curl …` の `)` は
 # 含めない — `"$(date) curl is fine"` の散文まで ask になる(受容した残存)。
 # `eval` も前置詞に含める(`"$(eval curl …)"` の curl は eval の引数として実行される)。
-CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|command|builtin|eval|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate|if|then|elif|else|while|until|do|[!]|[{])'
-CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
+# 前置詞はパス付きでもよい(`"$(/usr/bin/env curl …)"`)。
+# コマンドの前の redirect(`"$(2>/dev/null curl …)"`、`"$(<in curl …)"`)もコマンドの位置を動かさない。
+# redirect は対象の語 1 つだけを読み飛ばす(前置詞のように任意の語を許すと散文まで一致する)。
+# fd の数字の無い `<` / `>` は対象が続けて書かれた形だけを読む: 空白を挟む形を許すと Markdown の引用
+# `> 今回は curl を…` が「今回は への redirect + curl」に一致する。`"$(< in curl …)"` は受容した残存。
+CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|([^[:space:]]*/)?(command|builtin|eval|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate)|if|then|elif|else|while|until|do|[!]|[{])'
+CURL_REDIRECT_WORD_RE='([0-9]+[<>][<>&|]*[[:space:]]*|[<>][<>&|]*)[^[:space:]]+'
+CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_REDIRECT_WORD_RE}[[:space:]]+)*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
 # 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_any_line_matches が行う
 # (`"$(curl'' https://…)"` も `curl https://…` として見る)。
 curl_text_floor() {

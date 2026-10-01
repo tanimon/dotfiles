@@ -41,6 +41,13 @@ joined() {
     assert_equal "$(joined)" 'a|;|;|b|;|c|;|d|2>&1|>|out|'
 }
 
+# 引用された `">"` と `\>` は演算子と同じ字面の token になるので、演算子の位置は index で返す。
+@test "only unquoted redirect operators are recorded as operator indexes" {
+    shell_reader_read 'd 2>&1 >out &>log ">" \> x'
+    assert_equal "$(joined)" 'd|2>&1|>|out|>|log|>|>|x|'
+    assert_equal "$SHELL_READER_OPERATOR_INDEXES" ' 1 2 4 '
+}
+
 @test "subshell parentheses are separators" {
     shell_reader_read '(cd /tmp/repo && git push origin feature)'
     assert_equal "$(joined)" ';|cd|/tmp/repo|;|;|git|push|origin|feature|;|'

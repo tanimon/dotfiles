@@ -139,13 +139,21 @@ NEEDS_ASK=0
 # その位置より後ろの segment は、置換の出力をコマンド語にした続き(`$(which git) push …`)でありうる
 # (classify_segment が読む)。見つからなければ -1。空配列の展開は bash 3.2 の set -u で落ちるので数を先に見る。
 UNQUOTED_SUBSTITUTION_INDEX=-1
+# `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_<n>` / `GIT_CONFIG_PARAMETERS` などの環境変数は `-c` と同じ
+# 設定を運ぶ(`GIT_CONFIG_KEY_0=remote.origin.mirror` + `GIT_CONFIG_VALUE_0=true` で mirror push)。
+# 前置きの代入でも前の segment の `export` でも効くので、コマンド全体の token を語頭で見る。
+# push の segment ごとにコマンド全体を走査すると segment 数 × token 数の二乗になり、8 KB 近い
+# `git push origin main --force;git push;…` が 5 秒を越えてフックの timeout(= 判定なし =
+# フェイルオープン)に届いた。そこでここで 1 回だけ数え、classify_from は結果だけを見る。
+GIT_CONFIG_IN_COMMAND=0
 if [[ ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
     for index in "${!SHELL_READER_TOKENS[@]}"; do
+        case "${SHELL_READER_TOKENS[$index]}" in GIT_CONFIG*) GIT_CONFIG_IN_COMMAND=1 ;; esac
         case "${SHELL_READER_TOKENS[$index]}" in
         *'$')
-            if [[ "${SHELL_READER_TOKENS[$((index + 1))]:-}" == "$SHELL_READER_SEP" ]]; then
+            if [[ $UNQUOTED_SUBSTITUTION_INDEX -lt 0 &&
+                "${SHELL_READER_TOKENS[$((index + 1))]:-}" == "$SHELL_READER_SEP" ]]; then
                 UNQUOTED_SUBSTITUTION_INDEX=$index
-                break
             fi
             ;;
         esac
@@ -235,10 +243,17 @@ classify_from() {
             # so it needs its own pattern. Unreadable rather than safe.
             # 設定キーは大文字小文字を区別しない(`remote.origin.MIRROR=true` も mirror になる)ので、
             # 下の alias と同じく両方の綴りに一致させる。
-            case "$value" in *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]*) config_ask=1 ;; esac
+            # `include.path` / `includeIf.*.path` は読めないファイルの設定(`remote.origin.mirror=true`
+            # を含みうる)を取り込むので、同じく読み切れないとして扱う。
+            case "$value" in *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]* | [Ii][Nn][Cc][Ll][Uu][Dd][Ee]*) config_ask=1 ;; esac
             # `-c alias.p='push --force' p` は、サブコマンドが `push` でなくても push になる。
             # git の設定キーは大文字小文字を区別しないので、`ALIAS.p=…` も同じに扱う。
             case "$value" in [Aa][Ll][Ii][Aa][Ss].*=*push*) alias_ask=1 ;; esac
+            # `--config-env alias.p=VAR` の `=` の後ろは値ではなく環境変数の名前で、展開先
+            # (`VAR='push --force'`)はここから読めない。alias のキーなら値に関係なく ask。
+            if [[ "$token" == --config-env ]]; then
+                case "$value" in [Aa][Ll][Ii][Aa][Ss].*) alias_ask=1 ;; esac
+            fi
             index=$((index + 2))
             ;;
         # `--attr-source <tree>` も値を別の token に取る(git 2.55 で実測)。並べないと値が
@@ -247,8 +262,14 @@ classify_from() {
             index=$((index + 2))
             ;;
         -c* | --config-env=*)
-            case "$token" in *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]*) config_ask=1 ;; esac
-            case "$token" in -c[Aa][Ll][Ii][Aa][Ss].*=*push*) alias_ask=1 ;; esac
+            case "$token" in
+            *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]* | -c[Ii][Nn][Cc][Ll][Uu][Dd][Ee]* | --config-env=[Ii][Nn][Cc][Ll][Uu][Dd][Ee]*)
+                config_ask=1
+                ;;
+            esac
+            case "$token" in
+            -c[Aa][Ll][Ii][Aa][Ss].*=*push* | --config-env=[Aa][Ll][Ii][Aa][Ss].*) alias_ask=1 ;;
+            esac
             index=$((index + 1))
             ;;
         -*)
@@ -330,12 +351,8 @@ classify_from() {
     for raw in "${tokens[@]}"; do
         case "$raw" in *'$'* | *'`'*) NEEDS_ASK=1 ;; esac
     done
-    # `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_<n>` / `GIT_CONFIG_PARAMETERS` などの環境変数は `-c` と同じ
-    # 設定を運ぶ(`GIT_CONFIG_KEY_0=remote.origin.mirror` + `GIT_CONFIG_VALUE_0=true` で mirror push)。
-    # 前置きの代入でも前の segment の `export` でも効くので、コマンド全体の token を語頭で見る。
-    for raw in "${SHELL_READER_TOKENS[@]}"; do
-        case "$raw" in GIT_CONFIG*) NEEDS_ASK=1 ;; esac
-    done
+    # コマンド全体の token の `GIT_CONFIG*`(下の GIT_CONFIG_IN_COMMAND の説明)。
+    [[ $GIT_CONFIG_IN_COMMAND -eq 1 ]] && NEEDS_ASK=1
     [[ $expansion -eq 1 ]] && NEEDS_ASK=1
 
     [[ -n "$danger" && -z "$DANGER_TOKEN" ]] && DANGER_TOKEN=$danger

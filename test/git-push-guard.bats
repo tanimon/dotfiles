@@ -704,6 +704,42 @@ ${body} --force は使わない\""
     assert_output ''
 }
 
+# `--config-env alias.p=VAR` の値は環境変数の名前で、展開先の `push --force` はコマンド文字列に現れない。
+@test "git --config-env alias asks because its value is read from the environment" {
+    run hook "A='push --force' git --config-env=alias.p=A p origin main"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook "A='push --force' git --config-env alias.p=A p origin main"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git --config-env with a non-alias, non-push key before a plain push produces no decision" {
+    run hook 'git --config-env=core.editor=EDITOR push origin main'
+    assert_success
+    assert_output ''
+}
+
+# include.path は読めないファイルの設定(remote.<name>.mirror=true など)を取り込む。
+@test "git -c include.path before a push asks" {
+    run hook 'git -c include.path=/tmp/extra.cfg push origin main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# push の segment ごとにコマンド全体の token を走査していたので、segment の多い 8 KB 近い入力で
+# 5 秒(フックの timeout)を越え、判定なし = フェイルオープンになっていた。
+@test "a force push followed by many push segments is denied well within the hook timeout" {
+    local command='git push origin main --force' start elapsed
+    while [[ ${#command} -lt 8180 ]]; do command+=';git push'; done
+    start=$SECONDS
+    run hook "$command"
+    elapsed=$((SECONDS - start))
+    assert_success
+    assert_equal "$(decision "$output")" deny
+    [[ $elapsed -lt 3 ]]
+}
+
 # `>|` は noclobber を無視する redirect で、パイプではない。`--force` は git の引数のまま。
 @test "a force flag after a >| redirect is denied" {
     run hook 'git push origin main >| out --force'
