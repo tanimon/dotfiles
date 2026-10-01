@@ -98,8 +98,22 @@ const IMPLEMENT_SCHEMA = {
 
 const CHECKS_SCHEMA = {
   type: "object",
-  properties: { passed: { type: "boolean" }, details: { type: "string" }, observations: STRINGS },
-  required: ["passed"],
+  properties: {
+    passed: { type: "boolean" },
+    details: { type: "string" },
+    changes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { file: { type: "string" }, summary: { type: "string" } },
+        required: ["file", "summary"],
+      },
+    },
+    observations: STRINGS,
+  },
+  // changes を必須にし、変えなかったことも空配列で明示させる(省略を「変更なし」と読まない)。
+  // file を分けて持つのは、入口 skill が git の差分と照合するため(review-verify の手順8)。
+  required: ["passed", "changes"],
 };
 
 const reviewSchema = (reviewer) => ({
@@ -260,6 +274,7 @@ function newState(config) {
     lastMissingReviewers: [],
     verification: [],
     observations: [],
+    checksChanges: [],
     reviewerFailures: [],
     stopReason: null,
     stopDetail: "",
@@ -352,6 +367,12 @@ function markUnresolved(state, items) {
 
 const commands = (config) => config.checkCommands.map((c) => `「${c}」`).join("、");
 
+// 要件文書は人間が書いた意図の出所なので、コードを編集するエージェントに書き換えさせない。
+// コードとのずれを要件文書の側で「直す」と、意図が黙って変わる。要件文書に向く指摘は
+// Requirements Concern として人間に返し、修正エージェントには渡さない(classifyRound)。
+const keepRequirements = (config) =>
+  `\n- 要件文書 ${config.requirementsPath} は変更しない。コードと要件文書がずれていたら、コードの側を直す。`;
+
 // Review-Verify の要件文書は spec でもよく、ブランチの範囲より広いことがある。そのままだと
 // 「要件文書とのずれ」として未着手の要件が修正必須になり、修正エージェントがそれを実装してしまう。
 // 実装の経路は mode の分岐で塞いでいるが、この経路はプロンプトでしか塞げない(ADR 0008)。
@@ -380,13 +401,12 @@ function implementPrompt(task, index, total, config) {
 function checksPrompt(config) {
   // Review-Verify では人間が書いたブランチに最初に触れるのがこのエージェントなので、未着手の項目を
   // 検査するテストが落ちていても、それを実装して通させない(ADR 0008)。
-  const requirements = config.features.branchScope
-    ? `\n- 要件文書は ${config.requirementsPath}。`
-    : "";
+  // 通るように直した変更は、通った場合も報告に出す。人間のコードをレビューの前に変えているため。
   return `次のコマンドを全て実行せよ: ${commands(config)}
 - 失敗があれば原因を直してコミットし(push はしない)、全て成功するまで繰り返す。
 - テストを消す・スキップする・lint を無効化するなど、検査そのものを弱める変更はしない。
-- 3回試しても直らなければ、passed=false と失敗内容を返す。${requirements}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと通らない場合は、passed=false とし、その旨を details に書く。")}`;
+- コードを変更したら、変更したファイルごとに、リポジトリルートからの相対パスを file に、何をなぜ変えたかを summary に書いて changes に入れる。変更しなければ空配列にする。
+- 3回試しても直らなければ、passed=false と失敗内容を返す。${keepRequirements(config)}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと通らない場合は、passed=false とし、その旨を details に書く。")}`;
 }
 
 function reviewPrompt(reviewer, config) {
@@ -417,7 +437,7 @@ function fixPrompt(items, config) {
 - deferralRejectedReason がある指摘は、見送りの提案が検証者に却下されている。その理由を読んだうえで修正する。
 - unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。全ての指摘について、必ず fixed か propose-defer のどちらかを返す。
 - 修正した後、次のコマンドを全て成功させる: ${commands(config)}
-- 修正をまとめて1コミットにする(push はしない)。
+- 修正をまとめて新しい1コミットにする(push はしない)。${keepRequirements(config).trimStart()}
 - 指摘の範囲外で気づいた問題は observations に書く。${unstartedScope(config, "それを実装しない。実装しないと解消しない指摘は、要件文書の範囲外として propose-defer にする。")}`;
 }
 
@@ -436,7 +456,7 @@ function verifyPrompt(config) {
 
 function fixVerifyPrompt(result, config) {
   return `動作確認が失敗した。結果(JSON): ${JSON.stringify(result)}
-要件文書は ${config.requirementsPath}。原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと直らない場合は、fixed=false とし、その旨を summary に書く。")}`;
+原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}${keepRequirements(config)}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと直らない場合は、fixed=false とし、その旨を summary に書く。")}`;
 }
 
 function ledgerJson(state) {
@@ -566,6 +586,11 @@ function renderReport(state) {
     (d) => `${formatItem(d)} — 見送り理由: ${d.reason} / 検証者: ${d.verifierReason}`,
   );
   pushSection("参考指摘(修正必須ではない)", uniqueByKey(state.advisory), formatItem);
+  pushSection(
+    "テスト/lint を通すための変更",
+    state.checksChanges,
+    (c) => `${c.label}: \`${c.file}\` ${c.summary}`,
+  );
   pushSection("Observations", state.observations, (o) => o);
 
   lines.push("## 統計", "");
@@ -624,6 +649,9 @@ async function runChecks(state, roundNo) {
     schema: CHECKS_SCHEMA,
   });
   collectObservations(state, label, result);
+  if (result && Array.isArray(result.changes))
+    for (const c of result.changes)
+      state.checksChanges.push({ label, file: c.file, summary: c.summary });
   if (result && result.passed) return true;
   state.stopReason = "checks-failing";
   state.stopDetail = result ? result.details || "" : "エージェントが結果を返さなかった";

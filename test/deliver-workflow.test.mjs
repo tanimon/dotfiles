@@ -879,6 +879,20 @@ test("base との差分コミットが無ければ PR を作らないよう公�
   assert.match(prompt, /git rev-list --count origin\/main\.\.HEAD/);
 });
 
+test("PR の base は、指定が無ければ baseRef から origin/ を除いて導き、指定があればそれを使う", async () => {
+  const derived = await runWorkflow();
+  assert.match(
+    derived.calls.find((c) => c.label === "publish").prompt,
+    /gh pr create --draft --base main /,
+  );
+
+  const explicit = await runWorkflow({ args: { prBase: "release" } });
+  assert.match(
+    explicit.calls.find((c) => c.label === "publish").prompt,
+    /gh pr create --draft --base release /,
+  );
+});
+
 test("review-verify では実装も公開もせず、レビュー修正ループと動作確認だけを行う", async () => {
   const { result, labels } = await runWorkflow({
     args: { mode: "review-verify" },
@@ -1052,4 +1066,56 @@ test("review-verify では、要件文書のうちブランチが着手してい
 
   const deliver = await runWorkflow({ respond: respond() });
   for (const prompt of promptsOf(deliver.calls)) assert.doesNotMatch(prompt, /まだ着手していない/);
+});
+
+test("コードを編集する checks・fix・fix-verify の prompt は、どの mode でも要件文書の変更を禁じる", async () => {
+  const respond = () =>
+    scenario({
+      reviews: [{ requesting: [finding("Important")] }, {}],
+      merges: [[cluster("a.js::bug", ["requesting#0"])]],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], observations: [] }],
+      verifies: [
+        { passed: false, summary: "画面が真っ白" },
+        { passed: true, summary: "ok" },
+      ],
+    });
+  for (const mode of ["deliver", "review-verify"]) {
+    const { calls } = await runWorkflow({ args: { mode }, respond: respond() });
+    for (const prefix of ["checks:", "fix:", "fix-verify:"]) {
+      const call = calls.find((c) => c.label.startsWith(prefix));
+      assert.ok(call, `${mode}: ${prefix} が呼ばれていない`);
+      assert.ok(
+        call.prompt.includes(`要件文書 ${BASE_ARGS.requirementsPath} は変更しない`),
+        `${mode}: ${prefix} が要件文書の変更を禁じていない`,
+      );
+    }
+  }
+});
+
+test("テスト/lint を通すために checks がコードを変えたら、通った場合も報告に残す", async () => {
+  const { result } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      checks: () => ({
+        passed: true,
+        details: "",
+        changes: [{ file: "src/a.js", summary: "未使用の import を削除" }],
+      }),
+    }),
+  });
+  assert.match(
+    section(result.report, "テスト/lint を通すための変更"),
+    /checks:1: `src\/a\.js` 未使用の import を削除/,
+  );
+  // 入口 skill が git の差分と照合できるよう、ファイルを ledger に構造のまま残す。
+  assert.deepEqual(JSON.parse(result.ledger).checksChanges, [
+    { label: "checks:1", file: "src/a.js", summary: "未使用の import を削除" },
+  ]);
+});
+
+test("checks がコードを変えなければ、その節は「なし」と出す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({ checks: () => ({ passed: true, details: "", changes: [] }) }),
+  });
+  assert.equal(section(result.report, "テスト/lint を通すための変更").trim(), "なし");
 });
