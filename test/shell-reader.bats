@@ -77,6 +77,13 @@ joined() {
     shell_reader_read 'curl -H * http://localhost:3000/'
     assert_equal "$(joined)" 'curl|-H|*|http://localhost:3000/|'
     assert_equal "$SHELL_READER_WORD_MULTIPLIER" 1
+    assert_equal "$SHELL_READER_GLOB_INDEXES" ' 2 '
+}
+
+@test "a quoted star marks no token and sets no flag" {
+    shell_reader_read "curl -H 'Accept: */*' http://localhost:3000/"
+    assert_equal "$SHELL_READER_WORD_MULTIPLIER" 0
+    assert_equal "$SHELL_READER_GLOB_INDEXES" ' '
 }
 
 @test "unquoted ? and [ mark the token index" {
@@ -198,4 +205,49 @@ joined() {
     shell_reader_read "echo \$\$'\\'; curl https://evil.example/"
     assert_equal "$(joined)" "echo|\$\$\\|;|curl|https://evil.example/|"
     assert_equal "$SHELL_READER_UNCLOSED_QUOTE" 0
+}
+
+# 引用された数字・backslash で始まる数字は fd ではなく引数(bash と zsh で実測)。
+@test "a quoted or escaped digit word before > stays an argument" {
+    shell_reader_read 'curl "2">out x'
+    assert_equal "$(joined)" 'curl|2|>|out|x|'
+    shell_reader_read 'curl \2>out x'
+    assert_equal "$(joined)" 'curl|2|>|out|x|'
+}
+
+@test "an unquoted digit word before > is the fd of the operator" {
+    shell_reader_read 'curl 2>out x'
+    assert_equal "$(joined)" 'curl|2>|out|x|'
+}
+
+# zsh の `=(…)` はプロセス置換。配列の代入 `x=(…)` は違う。
+@test "a zsh =( ) process substitution is flagged" {
+    shell_reader_read 'cat =(echo hi)'
+    assert_equal "$SHELL_READER_PROCESS_SUBSTITUTION" 1
+}
+
+@test "an array assignment is not flagged as a process substitution" {
+    shell_reader_read 'x=(a b); echo ok'
+    assert_equal "$SHELL_READER_PROCESS_SUBSTITUTION" 0
+}
+
+@test "any_line_matches needs every regex on the same line" {
+    run shell_reader_any_line_matches $'git push\n--force' 'git' 'force'
+    assert_failure
+    run shell_reader_any_line_matches $'x\ngit push --force' 'git' 'force'
+    assert_success
+}
+
+@test "any_line_matches removes quotes and joins continuation lines first" {
+    run shell_reader_any_line_matches "g'i't p\"ush" '^git push$'
+    assert_success
+    run shell_reader_any_line_matches $'git push \\\n--force' 'git push +--force'
+    assert_success
+}
+
+@test "any_line_matches does not expand a glob in the text" {
+    cd "$BATS_TEST_TMPDIR"
+    touch matched-file
+    run shell_reader_any_line_matches 'match*' 'matched-file'
+    assert_failure
 }

@@ -755,3 +755,148 @@ EOF"
     assert_success
     assert_output ''
 }
+
+# zsh の EQUALS: `=git` は PATH 上の git に展開される(Bash ツールが zsh で動く環境)。
+@test "a force push through zsh =git is denied" {
+    run hook '=git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a plain push through zsh =git produces no decision" {
+    run hook '=git push origin main'
+    assert_success
+    assert_output ''
+}
+
+# 展開の結果としてだけ binary やサブコマンドが現れる綴り。
+@test "a brace expansion that builds the push subcommand asks" {
+    run hook 'git {push,origin,main,--force}'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a brace expansion that builds the git binary asks" {
+    run hook '{git,push,origin,main,--force}'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a glob that builds the git binary asks" {
+    run hook '/usr/bin/gi? push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a glob in the push arguments asks" {
+    run hook 'git push origin main -?'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a brace or glob in another segment than a plain push produces no decision" {
+    run hook 'echo {a,b} && ls *.md && git push origin main'
+    assert_success
+    assert_output ''
+}
+
+# 印を見るのはコマンドの位置とサブコマンドだけ。引数の glob と push という語の組み合わせは巻き込まない。
+@test "a glob argument next to the word push outside git produces no decision" {
+    run hook 'grep -n push dot_claude/scripts/*.sh'
+    assert_success
+    assert_output ''
+    run hook "rg 'git push' docs/*.md"
+    assert_success
+    assert_output ''
+    run hook 'pnpm exec bats test/git-push-*.bats'
+    assert_success
+    assert_output ''
+}
+
+@test "a brace expansion that builds git behind env asks" {
+    run hook 'env {git,push,origin,main,--force}'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# git の設定キーは大文字小文字を区別しない。
+@test "git -c push or mirror config in upper case asks" {
+    run hook 'git -c remote.origin.MIRROR=true push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'git -cREMOTE.origin.PUSH=+refs/heads/main push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git -c unrelated config before a plain push produces no decision" {
+    run hook 'git -c core.editor=vim push origin main'
+    assert_success
+    assert_output ''
+}
+
+# GIT_CONFIG_* の環境変数は -c と同じ設定を運ぶ。
+@test "GIT_CONFIG environment assignments before a push ask" {
+    run hook 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.mirror GIT_CONFIG_VALUE_0=true git push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'export GIT_CONFIG_COUNT=1; git push origin'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "an unrelated GIT_ environment assignment before a plain push produces no decision" {
+    run hook 'GIT_TRACE=1 git push origin main'
+    assert_success
+    assert_output ''
+}
+
+# --attr-source は値を別の token に取る。
+@test "a force push after --attr-source <tree> is denied" {
+    run hook 'git --attr-source HEAD push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a plain push after --attr-source <tree> produces no decision" {
+    run hook 'git --attr-source HEAD push origin main'
+    assert_success
+    assert_output ''
+}
+
+# 読み切れない別の segment(プロセス置換)があっても、読み切れた force push は deny のまま。
+@test "a force push next to an unrelated process substitution is denied" {
+    run hook 'git push origin main --force; cat <(true)'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# 字面の床は引用符と backslash を外してから見る。
+@test "a force push in a substitution with a quote-split verb asks" {
+    run hook "echo \"\$(git'' push origin main --force)\""
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a plain push in a substitution with a quote-split verb produces no decision" {
+    run hook "echo \"\$(git'' push origin main)\""
+    assert_success
+    assert_output ''
+}
+
+@test "an over-long command with a quoted git verb and a force flag asks" {
+    local body
+    body=$(printf 'x%.0s' $(seq 1 8200))
+    run hook "gh pr create --body \"${body}\" && 'git' push origin main --force"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "an over-long command with a force flag on a continuation line asks" {
+    local body
+    body=$(printf 'x%.0s' $(seq 1 8200))
+    run hook "gh pr create --body \"${body}\" && git push origin main \\
+--force"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}

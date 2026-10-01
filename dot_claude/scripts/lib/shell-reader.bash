@@ -7,7 +7,7 @@
 # token は最後まで作る — 緩める判定は flag を見て諦め、塞ぐ判定は token から続けられる
 # ようにするため(ADR 0009)。
 #
-# Interface: shell_reader_read / shell_reader_each_segment。
+# Interface: shell_reader_read / shell_reader_each_segment / shell_reader_any_line_matches。
 # global の意味は各関数の直前のコメントを参照。
 
 # segment 区切りの番兵。入力に同じ byte があると偽の境界を注入できるので、
@@ -27,12 +27,15 @@ _shell_reader_flush() {
         started=0
         current_glob=0
     fi
+    current_quoted=0
 }
 
 # $1 を読んで次の global を設定する。常に 0 を返す。
 #   SHELL_READER_TOKENS           token 配列(引用符は外してある)。区切りは SHELL_READER_SEP。
 #                                 redirect は fd の数字ごと 1 token(`2>&1` が余計な `1` を残さない)
-#   SHELL_READER_GLOB_INDEXES     引用符の外の ? / [ を含む token の index(" 3 7 " 形式)
+#   SHELL_READER_GLOB_INDEXES     引用符の外の * / ? / [ を含む token の index(" 3 7 " 形式)。
+#                                 `*` は WORD_MULTIPLIER も立てるが、どの token が展開されるかは
+#                                 ここでしか分からない(`/usr/bin/curl*` が curl を作る)
 #   SHELL_READER_BRACE_INDEXES    ブレース展開を始めうる `{` の直後の token の index(同じ形式)。
 #                                 後ろが空白か入力の終わりの `{` はグループなので含めない
 #   SHELL_READER_TOO_LONG         上限超過。token は空
@@ -40,8 +43,9 @@ _shell_reader_flush() {
 #   SHELL_READER_WORD_MULTIPLIER  引用符の外の { } *(シェルの展開で単語数が変わる)
 #   SHELL_READER_SEP_IN_INPUT     番兵の byte が入力にある
 #   SHELL_READER_UNCLOSED_QUOTE   引用符が閉じないまま終わった
-#   SHELL_READER_PROCESS_SUBSTITUTION  引用符の外に `<(` / `>(` がある。`)` の後ろは外側の
-#                                 コマンドの引数の続きだが、token 列では別の segment に見える
+#   SHELL_READER_PROCESS_SUBSTITUTION  引用符の外に `<(` / `>(` か、語頭の `=(`(zsh の一時ファイル
+#                                 版)がある。`)` の後ろは外側のコマンドの引数の続きだが、token 列では
+#                                 別の segment に見える
 # flag は呼び出し側(各フック)だけが読むので、lib 単体の shellcheck には未使用に見える。
 # shellcheck disable=SC2034
 shell_reader_read() {
@@ -69,7 +73,9 @@ shell_reader_read() {
     case "$s" in *'$'* | *'`'*) SHELL_READER_EXPANSION=1 ;; esac
     case "$s" in *"$SHELL_READER_SEP"*) SHELL_READER_SEP_IN_INPUT=1 ;; esac
 
-    local index character quote='' ansi_c=0 current='' started=0 current_glob=0 operator
+    # current_quoted: 今の語に引用符か backslash が含まれる。`"2">x` / `\2>x` の 2 は fd ではなく
+    # 引数(bash・zsh で実測)なので、fd の数字として読むのは引用されていない数字だけにする。
+    local index character quote='' ansi_c=0 current='' started=0 current_glob=0 current_quoted=0 operator
 
     # `read -ra` は空白でしか分けないので、`-H "Accept: application/json"` が 2 token に
     # なり(後ろが URL と誤読される)、`-d '{"a":"x|y"}'` の `|` がパイプに見える。
@@ -141,8 +147,11 @@ shell_reader_read() {
             fi
             ;;
         '*')
-            # cwd の全ファイルに展開されうる。token には残し、flag で知らせる。
+            # cwd の全ファイルに展開されうる。token には残し、flag で知らせる。どの token が
+            # 展開されるかも印で残す(`/usr/bin/curl*` や `/usr/bin/gi?` は展開の結果としてだけ
+            # コマンド名になるので、呼び出し側が「この token が何になりうるか」を見られるように)。
             SHELL_READER_WORD_MULTIPLIER=1
+            current_glob=1
             current+=$character
             started=1
             ;;
@@ -171,6 +180,7 @@ shell_reader_read() {
                 current+='$'
                 quote="'"
                 ansi_c=1
+                current_quoted=1
                 ;;
             *) current+=$character ;;
             esac
@@ -180,6 +190,7 @@ shell_reader_read() {
             # 空の引用符も token になる(`-d ''`)。
             quote=$character
             started=1
+            current_quoted=1
             ;;
         \\)
             index=$((index + 1))
@@ -187,6 +198,7 @@ shell_reader_read() {
             if [[ "${s:index:1}" != $'\n' ]]; then
                 current+=${s:index:1}
                 started=1
+                current_quoted=1
             fi
             ;;
         ' ' | $'\t')
@@ -197,6 +209,11 @@ shell_reader_read() {
             # 区切ると別の segment に見える。区切りは変えずに flag で知らせる。
             if [[ "$character" == '(' && $index -gt 0 ]]; then
                 case "${s:index-1:1}" in '<' | '>') SHELL_READER_PROCESS_SUBSTITUTION=1 ;; esac
+                # zsh の `=(…)` も同じ(一時ファイル名に置き換わる)。語頭の `=` に限る —
+                # `x=(a b)` は配列の代入で、語は `x=` になる。
+                if [[ "$current" == '=' && $current_quoted -eq 0 ]]; then
+                    SHELL_READER_PROCESS_SUBSTITUTION=1
+                fi
             fi
             _shell_reader_flush
             SHELL_READER_TOKENS+=("$SHELL_READER_SEP")
@@ -219,7 +236,8 @@ shell_reader_read() {
             ;;
         '>' | '<')
             # 演算子の前の fd 番号だけの語は、独立した引数ではなく演算子に属する。
-            if [[ "$current" =~ ^[0-9]+$ ]]; then
+            # 引用された数字(`"2">x`)は引数のままなので、ここに来るのは引用の無い数字だけ。
+            if [[ $current_quoted -eq 0 && "$current" =~ ^[0-9]+$ ]]; then
                 operator=$current
                 current=''
                 started=0
@@ -282,4 +300,51 @@ shell_reader_each_segment() {
         "$_sr_callback" "${_sr_segment[@]}" || return 1
     fi
     return 0
+}
+
+# $1 を行ごとに見て、$2 以降の正規表現(POSIX ERE)すべてに一致する行が 1 つでもあれば 0、
+# 無ければ 1 を返す。各フックの「字面の床」用で、正規表現(= 判定)は呼び出し側が渡す。
+#
+# 照合の前に、行継続(`\` + 改行)をつなぎ、引用符と backslash を取り除く。シェルはこれらを
+# 外してから語を読むので、生の字面のままだと `"$(git'' push … --force)"`・`'curl' …`・
+# `git push … \⏎--force` が一致しない。取り除くと一致は増える方向にしか動かない(床は ask に
+# しかならないので、それで安全側)。
+# 正規化は awk と tr を 1 回通す。bash 3.2 の `${s//…}` は 8 KB で 3 秒かかる(二乗より悪い)ため。
+# 引用符も backslash も無ければ fork しない。正規化に失敗したら一致とみなす(読めないなら確認に倒す)。
+# here-string は一時ファイルを使う($TMPDIR に書けないと黙って「一致なし」になる)ので使わない。
+# `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
+# 179 KB に 2.3 秒かかった。改行での単語分割は線形(同じ入力で 0.02 秒)。
+# 空行は落ちるが、空行に一致させる正規表現は無い。
+shell_reader_any_line_matches() {
+    local LC_ALL=C text=$1 line regex all restore_glob=0
+    local -a lines
+    shift
+    case "$text" in
+    *[\"\'\\]*)
+        text=$(printf '%s\n' "$text" |
+            awk '{ if (sub(/\\$/, "")) printf "%s ", $0; else print }' |
+            tr -d "\"'\\\\") || return 0
+        ;;
+    esac
+    local IFS=$'\n'
+    # 分割の結果が glob として cwd に展開されないように、分割の間だけ set -f にする。
+    if [[ $- != *f* ]]; then
+        set -f
+        restore_glob=1
+    fi
+    # shellcheck disable=SC2206 # 改行での単語分割そのものが目的
+    lines=($text)
+    [[ $restore_glob -eq 1 ]] && set +f
+    [[ ${#lines[@]} -eq 0 ]] && return 1
+    for line in "${lines[@]}"; do
+        all=1
+        for regex in "$@"; do
+            if ! [[ "$line" =~ $regex ]]; then
+                all=0
+                break
+            fi
+        done
+        [[ $all -eq 1 ]] && return 0
+    done
+    return 1
 }

