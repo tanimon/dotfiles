@@ -40,6 +40,8 @@ _shell_reader_flush() {
 #   SHELL_READER_WORD_MULTIPLIER  引用符の外の { } *(シェルの展開で単語数が変わる)
 #   SHELL_READER_SEP_IN_INPUT     番兵の byte が入力にある
 #   SHELL_READER_UNCLOSED_QUOTE   引用符が閉じないまま終わった
+#   SHELL_READER_PROCESS_SUBSTITUTION  引用符の外に `<(` / `>(` がある。`)` の後ろは外側の
+#                                 コマンドの引数の続きだが、token 列では別の segment に見える
 # flag は呼び出し側(各フック)だけが読むので、lib 単体の shellcheck には未使用に見える。
 # shellcheck disable=SC2034
 shell_reader_read() {
@@ -58,6 +60,7 @@ shell_reader_read() {
     SHELL_READER_WORD_MULTIPLIER=0
     SHELL_READER_SEP_IN_INPUT=0
     SHELL_READER_UNCLOSED_QUOTE=0
+    SHELL_READER_PROCESS_SUBSTITUTION=0
 
     if [[ $length -gt $SHELL_READER_MAX_LENGTH ]]; then
         SHELL_READER_TOO_LONG=1
@@ -159,6 +162,11 @@ shell_reader_read() {
             _shell_reader_flush
             ;;
         ';' | '|' | $'\n' | '(' | ')')
+            # `git push origin <(echo) --force` の `--force` は git の引数だが、`(` と `)` で
+            # 区切ると別の segment に見える。区切りは変えずに flag で知らせる。
+            if [[ "$character" == '(' && $index -gt 0 ]]; then
+                case "${s:index-1:1}" in '<' | '>') SHELL_READER_PROCESS_SUBSTITUTION=1 ;; esac
+            fi
             _shell_reader_flush
             SHELL_READER_TOKENS+=("$SHELL_READER_SEP")
             ;;
@@ -190,6 +198,12 @@ shell_reader_read() {
                 operator=''
             fi
             operator+=$character
+            # `>|`(noclobber を無視する redirect)は 1 つの演算子。`|` を区切りに読むと、後ろの
+            # ファイル名と引数(`git push origin main >| out --force` の `--force`)が別の segment になる。
+            if [[ "$character" == '>' && "${s:index+1:1}" == '|' ]]; then
+                index=$((index + 1))
+                operator+='|'
+            fi
             while [[ $((index + 1)) -lt $length && "${s:index+1:1}" =~ [\>\&0-9-] ]]; do
                 index=$((index + 1))
                 operator+=${s:index:1}

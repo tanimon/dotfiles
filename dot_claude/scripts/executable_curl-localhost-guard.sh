@@ -288,10 +288,10 @@ classify_curl() {
         # file-descriptor digit attached to the operator, so a bare operator
         # consumes the filename that follows and an operator with the filename
         # already glued on consumes only itself.
-        if [[ "$token" =~ ^[0-9]*\>\>?$ ]]; then
+        if [[ "$token" =~ ^[0-9]*\>[\>|]?$ ]]; then
             index=$((index + 2))
             continue
-        elif [[ "$token" =~ ^[0-9]*\>\>?. ]]; then
+        elif [[ "$token" =~ ^[0-9]*\>[\>|]?. ]]; then
             index=$((index + 1))
             continue
         fi
@@ -505,9 +505,19 @@ fi
 # 後なので字面の床(上)は走らない。受容した誤 ask: ループバック宛の curl と、アポストロフィを含む
 # heredoc 本文の組み合わせ(後ろに何も無くても ask)。PR 本文の heredoc は curl が 1 token に
 # 飲み込まれて CURL_PRESENT=0 側に行くので、この条件には来ない。
+# curlrc の存在は上で実行前に見たが、同じコマンドの前の segment が作ることもできる
+# (`printf 'proxy = …' > ~/.curlrc; curl http://localhost/`。printf は INERT_COMMANDS)。
+# そこで curlrc を名指す token があれば、存在するのと同じに扱う。
+for token in "${SHELL_READER_TOKENS[@]}"; do
+    case "$token" in *curlrc*)
+        CURLRC_PRESENT=1
+        break
+        ;;
+    esac
+done
 if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
     $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ||
-    $SHELL_READER_UNCLOSED_QUOTE -eq 1 ]]; then
+    $SHELL_READER_UNCLOSED_QUOTE -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ]]; then
     emit_ask
     exit 0
 fi

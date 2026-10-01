@@ -913,3 +913,16 @@ the guard now reads curl inside substitutions\""
     assert_equal "$(decision "$output")" ask
     refute_output --partial '"allow"'
 }
+
+# 実行前に curlrc が無くても、前の segment が作れば curl はそれを読む。
+@test "a curlrc written earlier in the same command asks" {
+    run hook 'printf "proxy = http://192.0.2.1:8080\n" > ~/.curlrc; curl http://localhost:3000/'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a loopback curl with a >| redirect produces no decision" {
+    run hook 'curl -s http://localhost:3000/ >| out.json'
+    assert_success
+    assert_output ''
+}

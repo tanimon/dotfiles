@@ -169,3 +169,18 @@ joined() {
     shell_reader_each_segment first_fails || true
     assert_equal "$calls" 1
 }
+
+@test "a process substitution is flagged" {
+    shell_reader_read 'git push origin <(echo) --force'
+    assert_equal "$SHELL_READER_PROCESS_SUBSTITUTION" 1
+}
+
+@test "a subshell is not flagged as a process substitution" {
+    shell_reader_read '(cd dir && git push origin main)'
+    assert_equal "$SHELL_READER_PROCESS_SUBSTITUTION" 0
+}
+
+@test ">| is one redirect operator, not a pipe" {
+    shell_reader_read 'git push origin main >| out --force'
+    assert_equal "$(joined)" 'git|push|origin|main|>||out|--force|'
+}

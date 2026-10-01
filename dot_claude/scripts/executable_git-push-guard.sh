@@ -145,7 +145,9 @@ fi
 # 番兵の byte が入力にあると、reader が作る segment の境目を偽造できる(`git push origin main 2>\x01 --force`
 # は bash では stderr の redirect 先が `\x01` の force push だが、reader には `--force` だけの segment が
 # 別にあるように見える)。この時点でコマンドは `push` を含むので、読み切れないとして ask にする。
-if [[ $SHELL_READER_SEP_IN_INPUT -eq 1 ]]; then
+# プロセス置換も同じ: `git push origin <(echo) --force` の `)` の後ろは git の引数の続きだが、reader の
+# segment では `--force` だけの segment に見える。
+if [[ $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ]]; then
     emit ask "$ASK_REASON"
     exit 0
 fi

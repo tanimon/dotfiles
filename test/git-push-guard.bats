@@ -703,3 +703,17 @@ ${body} --force は使わない\""
     assert_success
     assert_output ''
 }
+
+# `>|` は noclobber を無視する redirect で、パイプではない。`--force` は git の引数のまま。
+@test "a force flag after a >| redirect is denied" {
+    run hook 'git push origin main >| out --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# プロセス置換の `)` の後ろは git の引数の続き。
+@test "a force flag after a process substitution asks" {
+    run hook 'git push origin <(echo) --force'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
