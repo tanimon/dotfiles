@@ -336,9 +336,11 @@ const commands = (config) => config.checkCommands.map((c) => `「${c}」`).join(
 // Review-Verify の要件文書は spec でもよく、ブランチの範囲より広いことがある。そのままだと
 // 「要件文書とのずれ」として未着手の要件が修正必須になり、修正エージェントがそれを実装してしまう。
 // 実装の経路は mode の分岐で塞いでいるが、この経路はプロンプトでしか塞げない(ADR 0008)。
+// 逆に「未着手」を口実にブランチ自身の不具合を見送らせないよう、歯止めの文も必ず添える。
+// plan のタスク分解で範囲が決まっていない入力の性質なので、deliver 以外の mode すべてに付ける。
 const unstartedScope = (config, rule) =>
-  config.mode === "review-verify"
-    ? `\n- 要件文書のうち、このブランチがまだ着手していない項目は範囲外である。${rule}`
+  config.mode !== "deliver"
+    ? `\n- 要件文書のうち、このブランチがまだ着手していない項目は範囲外である。${rule}ただし、このブランチが追加・変更したコードの不具合(例外、誤動作、着手済みの項目とのずれ)は、未着手の項目に関わっていても範囲外にしない。`
     : "";
 
 function planPrompt(config) {
@@ -400,7 +402,7 @@ function deferPrompt(item, reason, config) {
   return `あなたは独立した検証者である。実装者は、次の指摘を修正せずに見送ることを提案している。
 指摘(JSON): ${JSON.stringify(item)}
 実装者の理由: ${reason}
-要件文書は ${config.requirementsPath}、差分は「${config.baseRef}...HEAD」。コードと要件文書を自分で読み、見送りが妥当か判断せよ。妥当なのは、指摘が偽陽性であるか、要件文書の範囲外である場合だけ。判断に迷うなら agree=false とする。${unstartedScope(config, "その項目を実装しないと解消しない指摘は、要件文書の範囲外として見送ってよい。")}`;
+要件文書は ${config.requirementsPath}、差分は「${config.baseRef}...HEAD」。コードと要件文書を自分で読み、見送りが妥当か判断せよ。妥当なのは、指摘が偽陽性であるか、要件文書の範囲外である場合だけ。判断に迷うなら agree=false とする。${unstartedScope(config, "その項目が差分で本当に未着手であることを自分で確かめ、そのうえでその項目を実装しないと解消しない指摘に限り、要件文書の範囲外として見送ってよい。")}`;
 }
 
 function verifyPrompt(config) {
@@ -411,7 +413,7 @@ function verifyPrompt(config) {
 
 function fixVerifyPrompt(result, config) {
   return `動作確認が失敗した。結果(JSON): ${JSON.stringify(result)}
-要件文書は ${config.requirementsPath}。原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}${unstartedScope(config, "それを実装しない。")}`;
+要件文書は ${config.requirementsPath}。原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと直らない場合は、fixed=false とし、その旨を summary に書く。")}`;
 }
 
 function ledgerJson(state) {
@@ -500,7 +502,7 @@ function renderReport(state) {
 
   if (!isDeliver) {
     lines.push(
-      "> **Review-Verify**: 実装と PR の作成をしない mode で実行した。Workflow が作ったコミットがあれば、ローカルにだけあり push していない",
+      "> **Review-Verify**: 実装と PR の作成をしない mode で実行した。Workflow が作ったコミット(作っていれば)はローカルにだけあり、push していない",
       "",
     );
   }

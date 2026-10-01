@@ -980,7 +980,14 @@ test("review-verify では、要件文書のうちブランチが着手してい
     });
 
   const reviewVerify = await runWorkflow({ args: { mode: "review-verify" }, respond: respond() });
-  for (const prompt of promptsOf(reviewVerify.calls)) assert.match(prompt, /まだ着手していない/);
+  for (const prompt of promptsOf(reviewVerify.calls)) {
+    assert.match(prompt, /まだ着手していない/);
+    // 範囲の制約を口実に、ブランチ自身の変更の不具合を見送らせない。
+    assert.match(prompt, /不具合.*範囲外にしない/);
+  }
+  const call = (label) => reviewVerify.calls.find((c) => c.label.startsWith(label)).prompt;
+  assert.match(call("defer-verify:"), /自分で確かめ/);
+  assert.match(call("fix-verify:"), /fixed=false/);
 
   const deliver = await runWorkflow({ respond: respond() });
   for (const prompt of promptsOf(deliver.calls)) assert.doesNotMatch(prompt, /まだ着手していない/);
