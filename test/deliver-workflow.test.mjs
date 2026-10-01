@@ -919,6 +919,24 @@ test("未知の mode は agent を呼ぶ前に throw する", async () => {
   await assert.rejects(runWorkflow({ args: { mode: "review" } }), /mode/);
 });
 
+test("値が undefined の引数は既定値を消さない(mode は deliver、修正ラウンドの上限は 3 のまま)", async () => {
+  const keys = ["k1", "k2", "k3", "k4"];
+  const { labels } = await runWorkflow({
+    args: { mode: undefined, maxReviewRounds: undefined },
+    respond: scenario({
+      reviews: keys.map(() => ({ ecc: [finding("HIGH")] })),
+      merges: keys.map((k) => [cluster(k, ["ecc#0"])]),
+      fixes: keys.map((k) => ({
+        results: [{ key: k, action: "fixed", reason: "" }],
+        observations: [],
+      })),
+    }),
+  });
+  assert.equal(labels[0], "plan");
+  assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 3);
+  assert.ok(labels.includes("publish"));
+});
+
 test("review-verify でテスト/lint が通らなければ、レビューも動作確認もせずに停止し、公開しない", async () => {
   const { result, labels } = await runWorkflow({
     args: { mode: "review-verify" },
@@ -929,6 +947,29 @@ test("review-verify でテスト/lint が通らなければ、レビューも動
   assert.equal(result.published, false);
   assert.equal(result.publishError, null);
   assert.match(section(result.report, "Unresolved Finding"), /未レビュー/);
+});
+
+test("review-verify で requirementsBreaking により停止しても、動作確認も公開もしない", async () => {
+  const { result, labels } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      reviews: [
+        { ecc: [finding("CRITICAL", { target: "requirements", requirementsBreaking: true })] },
+      ],
+      merges: [
+        [
+          cluster("requirements::broken", ["ecc#0"], {
+            target: "requirements",
+            requirementsBreaking: true,
+          }),
+        ],
+      ],
+    }),
+  });
+  assert.equal(result.stopReason, "requirements-breaking");
+  assert.ok(!labels.some((l) => l.startsWith("verify:")));
+  assert.ok(!labels.includes("publish"));
+  assert.equal(result.published, false);
 });
 
 test("review-verify で動作確認が失敗したら、直した後にレビューし直してから再確認する", async () => {
@@ -954,7 +995,7 @@ test("review-verify で動作確認が失敗したら、直した後にレビュ
   ]);
 });
 
-test("review-verify では、要件文書のうちブランチが着手していない項目を実装させないよう、レビュー・修正・動作確認の prompt で範囲を限る", async () => {
+test("review-verify では、要件文書のうちブランチが着手していない項目を実装させないよう、テスト/lint・レビュー・修正・動作確認の prompt で範囲を限る", async () => {
   const respond = () =>
     scenario({
       reviews: [{ requesting: [finding("Important")] }, {}],
@@ -971,7 +1012,7 @@ test("review-verify では、要件文書のうちブランチが着手してい
         { passed: true, summary: "ok" },
       ],
     });
-  const scoped = ["review:", "fix:", "defer-verify:", "verify:", "fix-verify:"];
+  const scoped = ["checks:", "review:", "fix:", "defer-verify:", "verify:", "fix-verify:"];
   const promptsOf = (calls) =>
     scoped.map((prefix) => {
       const call = calls.find((c) => c.label.startsWith(prefix));
@@ -986,6 +1027,9 @@ test("review-verify では、要件文書のうちブランチが着手してい
     assert.match(prompt, /不具合.*範囲外にしない/);
   }
   const call = (label) => reviewVerify.calls.find((c) => c.label.startsWith(label)).prompt;
+  // checks の prompt は要件文書を他に名指ししないので、範囲の文が指す文書を添える。
+  assert.ok(call("checks:").includes(BASE_ARGS.requirementsPath));
+  assert.match(call("checks:"), /passed=false/);
   assert.match(call("defer-verify:"), /自分で確かめ/);
   assert.match(call("fix-verify:"), /fixed=false/);
 

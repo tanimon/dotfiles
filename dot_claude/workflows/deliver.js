@@ -217,7 +217,9 @@ function validateArgs(input) {
   if (a.mode !== undefined && !MODES.includes(a.mode)) {
     throw new Error(`deliver: mode は ${MODES.join(" / ")} のいずれか: ${a.mode}`);
   }
-  const config = { ...DEFAULTS, ...a };
+  // 値が undefined のキーを spread すると既定値を消し、上限や mode が黙って外れるので、先に除く。
+  const given = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined));
+  const config = { ...DEFAULTS, ...given };
   if (config.mode === "deliver" && !config.prBase)
     config.prBase = config.baseRef.replace(/^origin\//, "");
   return config;
@@ -360,10 +362,14 @@ function implementPrompt(task, index, total, config) {
 }
 
 function checksPrompt(config) {
+  // Review-Verify では人間が書いたブランチに最初に触れるのがこのエージェントなので、未着手の項目を
+  // 検査するテストが落ちていても、それを実装して通させない(ADR 0008)。
+  const requirements =
+    config.mode !== "deliver" ? `\n- 要件文書は ${config.requirementsPath}。` : "";
   return `次のコマンドを全て実行せよ: ${commands(config)}
 - 失敗があれば原因を直してコミットし(push はしない)、全て成功するまで繰り返す。
 - テストを消す・スキップする・lint を無効化するなど、検査そのものを弱める変更はしない。
-- 3回試しても直らなければ、passed=false と失敗内容を返す。`;
+- 3回試しても直らなければ、passed=false と失敗内容を返す。${requirements}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと通らない場合は、passed=false とし、その旨を details に書く。")}`;
 }
 
 function reviewPrompt(reviewer, config) {
