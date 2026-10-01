@@ -13,17 +13,24 @@ export const meta = {
 };
 
 // 判定はここに置いたコードで行い、agent にはさせない(ADR 0007)。
-const DEFAULTS = { mode: "deliver", maxReviewRounds: 3, maxVerifyRetries: 2 };
+// mode には既定値を置かない。既定を deliver にすると、mode を渡し忘れた Review-Verify が黙って実装・push・PR 作成まで進む。
+const DEFAULTS = { maxReviewRounds: 3, maxVerifyRetries: 2 };
 // mode ごとに持つ機能をここで一覧にし、分岐する箇所は mode 名ではなく機能名で見る。
 // mode を足すときはここに 1 行足せば、どの機能を持つかを全箇所で漏れなく決めたことになる。
+// - label: 報告で mode を示すときの名前
 // - implement: plan のタスクを実装する
 // - publish: push して draft PR を作る(PR 向けの報告の体裁もこれに従う)
 // - branchScope: 要件文書のうちブランチが未着手の項目を範囲外として prompt で限る。plan の
 //   タスク分解で範囲が決まっていない入力の性質(ADR 0008)
 const MODES = {
-  deliver: { implement: true, publish: true, branchScope: false },
+  deliver: { label: "Deliver", implement: true, publish: true, branchScope: false },
   // review-verify は実装も公開もしない(ADR 0008)。
-  "review-verify": { implement: false, publish: false, branchScope: true },
+  "review-verify": {
+    label: "Review-Verify",
+    implement: false,
+    publish: false,
+    branchScope: true,
+  },
 };
 const BUDGET_FLOOR = 100000;
 
@@ -223,10 +230,10 @@ function validateArgs(input) {
   if (invalid.length > 0) {
     throw new Error(`deliver: 0 以上の整数が必要です: ${invalid.join(", ")}`);
   }
-  if (a.mode !== undefined && !Object.keys(MODES).includes(a.mode)) {
+  if (!Object.keys(MODES).includes(a.mode)) {
     throw new Error(`deliver: mode は ${Object.keys(MODES).join(" / ")} のいずれか: ${a.mode}`);
   }
-  // 値が undefined のキーを spread すると既定値を消し、上限や mode が黙って外れるので、先に除く。
+  // 値が undefined のキーを spread すると既定値を消し、上限が黙って外れるので、先に除く。
   const given = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined));
   const config = { ...DEFAULTS, ...given };
   config.features = MODES[config.mode];
@@ -391,7 +398,7 @@ function reviewPrompt(reviewer, config) {
 - ファイルの修正、コミット、PR へのコメント投稿、ReportFindings ツールの呼び出しはしない。結果は StructuredOutput だけで返す。
 - severity には skill 自身の尺度をそのまま使う: ${reviewer.severities.join(" / ")}
 - 指摘が実装ではなく要件文書そのものに向く場合は target="requirements" とし、要件文書どおりに作ると壊れる場合だけ requirementsBreaking=true にする。
-- レビューの範囲外で気づいた問題は observations に書く。${unstartedScope(config, "それが無いことを修正必須として指摘せず、observations に書く。")}${note}`;
+- レビューの範囲外で気づいた問題は observations に書く。${unstartedScope(config, "それが無いことを修正必須として指摘せず、observations に書く。未着手の項目だけに向く Requirements Concern は、requirementsBreaking=false にする(作業を止める理由にしない)。")}${note}`;
 }
 
 function mergePrompt(findings, knownClusters) {
@@ -515,9 +522,12 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
-  if (!state.config.features.publish) {
+  const { features } = state.config;
+  if (!features.publish) {
+    // mode 名や「実装しない」を決め打ちせず、MODES の宣言から導く(mode を足しても嘘にならないように)。
+    const skipped = features.implement ? "PR の作成" : "実装と PR の作成";
     lines.push(
-      "> **Review-Verify**: 実装と PR の作成をしない mode で実行した。Workflow が作ったコミット(作っていれば)はローカルにだけあり、push していない",
+      `> **${features.label}**: ${skipped}をしない mode で実行した。Workflow が作ったコミット(作っていれば)はローカルにだけあり、push していない`,
       "",
     );
   }
@@ -569,7 +579,7 @@ function renderReport(state) {
     lines.push(`- 結果を返さなかったレビュアー: ${state.reviewerFailures.join(", ")}`);
   lines.push(`- 出力トークン: ${state.outputTokens}`, "");
   // PR 本文にしない報告には、PR 向けの帰属行を付けない。
-  if (state.config.features.publish)
+  if (features.publish)
     lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
   return lines.join("\n");
 }

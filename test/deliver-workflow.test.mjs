@@ -12,6 +12,7 @@ const SCRIPT = readFileSync(
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
 const BASE_ARGS = {
+  mode: "deliver",
   requirementsPath: "/repo/docs/plans/p.md",
   baseRef: "origin/main",
   checkCommands: ["just lint"],
@@ -916,13 +917,24 @@ test("review-verify の報告は先頭で mode を示し、PR 向けの末尾行
 });
 
 test("未知の mode は agent を呼ぶ前に throw する", async () => {
-  await assert.rejects(runWorkflow({ args: { mode: "review" } }), /mode/);
+  // agent が先に呼ばれると、その throw は stopReason=error として捕まって resolve するので、rejects が落ちる。
+  const respond = (label) => {
+    throw new Error(`agent が呼ばれた: ${label}`);
+  };
+  await assert.rejects(runWorkflow({ args: { mode: "review" }, respond }), /mode/);
 });
 
-test("値が undefined の引数は既定値を消さない(mode は deliver、修正ラウンドの上限は 3 のまま)", async () => {
+test("mode が無ければ、既定の deliver として走らず agent を呼ぶ前に throw する", async () => {
+  const respond = (label) => {
+    throw new Error(`agent が呼ばれた: ${label}`);
+  };
+  await assert.rejects(runWorkflow({ args: { mode: undefined }, respond }), /mode/);
+});
+
+test("値が undefined の引数は既定値を消さない(修正ラウンドの上限は 3 のまま)", async () => {
   const keys = ["k1", "k2", "k3", "k4"];
   const { labels } = await runWorkflow({
-    args: { mode: undefined, maxReviewRounds: undefined },
+    args: { maxReviewRounds: undefined },
     respond: scenario({
       reviews: keys.map(() => ({ ecc: [finding("HIGH")] })),
       merges: keys.map((k) => [cluster(k, ["ecc#0"])]),
@@ -1030,6 +1042,11 @@ test("review-verify では、要件文書のうちブランチが着手してい
   // checks の prompt は要件文書を他に名指ししないので、範囲の文が指す文書を添える。
   assert.ok(call("checks:").includes(BASE_ARGS.requirementsPath));
   assert.match(call("checks:"), /passed=false/);
+  // 未着手の項目だけに向く Requirements Concern で、ブランチのレビューごと止めない。
+  assert.match(
+    call("review:"),
+    /未着手の項目だけに向く Requirements Concern は、requirementsBreaking=false/,
+  );
   assert.match(call("defer-verify:"), /自分で確かめ/);
   assert.match(call("fix-verify:"), /fixed=false/);
 
