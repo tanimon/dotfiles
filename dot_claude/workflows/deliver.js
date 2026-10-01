@@ -1,7 +1,8 @@
 export const meta = {
   name: "deliver",
-  description: "plan を実装し、レビュー修正ループと動作確認を経て draft PR と人間への報告を作る",
-  whenToUse: "入口 skill /deliver から起動する。直接起動しない",
+  description:
+    "plan を実装し、レビュー修正ループと動作確認を経て draft PR と人間への報告を作る(mode=review-verify なら既存のブランチにレビュー修正ループと動作確認だけをかけて報告する)",
+  whenToUse: "入口 skill /deliver または /review-verify から起動する。直接起動しない",
   phases: [
     { title: "Plan" },
     { title: "Implement" },
@@ -12,7 +13,9 @@ export const meta = {
 };
 
 // 判定はここに置いたコードで行い、agent にはさせない(ADR 0007)。
-const DEFAULTS = { maxReviewRounds: 3, maxVerifyRetries: 2 };
+const DEFAULTS = { mode: "deliver", maxReviewRounds: 3, maxVerifyRetries: 2 };
+// review-verify は実装も公開もしない(ADR 0008)。
+const MODES = ["deliver", "review-verify"];
 const BUDGET_FLOOR = 100000;
 
 // built-in の code-review は fork 型の skill で、Workflow のエージェントから Skill で呼ぶと
@@ -42,7 +45,7 @@ const STOP_REASONS = {
   "reviewers-failed": "レビュアーが全員結果を返さなかった",
   "merge-failed": "指摘の統合に失敗した",
   "fixer-failed": "修正エージェントが結果を返さなかった",
-  "plan-breaking": "plan どおりに作ると壊れる Plan Concern が出た",
+  "requirements-breaking": "要件文書どおりに作ると壊れる Requirements Concern が出た",
   "verify-unfixed": "動作確認の失敗を修正エージェントが直せなかったため、再確認しなかった",
   budget: "トークン予算の残りが下限を割ったため、次の段階に進まなかった",
   error: "エージェントの実行中に例外が発生した",
@@ -95,8 +98,8 @@ const reviewSchema = (reviewer) => ({
           line: { type: "integer" },
           summary: { type: "string" },
           severity: { type: "string", enum: reviewer.severities },
-          target: { type: "string", enum: ["code", "plan"] },
-          planBreaking: { type: "boolean" },
+          target: { type: "string", enum: ["code", "requirements"] },
+          requirementsBreaking: { type: "boolean" },
         },
         required: ["file", "summary", "severity", "target"],
       },
@@ -118,8 +121,8 @@ const MERGE_SCHEMA = {
           file: { type: "string" },
           line: { type: "integer" },
           summary: { type: "string" },
-          target: { type: "string", enum: ["code", "plan"] },
-          planBreaking: { type: "boolean" },
+          target: { type: "string", enum: ["code", "requirements"] },
+          requirementsBreaking: { type: "boolean" },
           members: STRINGS,
         },
         required: ["key", "file", "summary", "target", "members"],
@@ -193,14 +196,15 @@ const PUBLISH_SCHEMA = {
 function validateArgs(input) {
   const a = input || {};
   const missing = [];
-  if (typeof a.planPath !== "string" || a.planPath === "") missing.push("planPath");
+  if (typeof a.requirementsPath !== "string" || a.requirementsPath === "")
+    missing.push("requirementsPath");
   if (typeof a.baseRef !== "string" || a.baseRef === "") missing.push("baseRef");
   if (!Array.isArray(a.checkCommands) || a.checkCommands.length === 0)
     missing.push("checkCommands");
   if (typeof a.verifySkill !== "string" || a.verifySkill === "") missing.push("verifySkill");
   if (missing.length > 0) {
     throw new Error(
-      `deliver: 必須の引数がありません: ${missing.join(", ")}(入口 skill /deliver から起動してください)`,
+      `deliver: 必須の引数がありません: ${missing.join(", ")}(入口 skill /deliver か /review-verify から起動してください)`,
     );
   }
   // 上限はループを止める唯一の保証なので、不正な値を既定値で黙って置き換えずに拒否する。
@@ -209,6 +213,9 @@ function validateArgs(input) {
   );
   if (invalid.length > 0) {
     throw new Error(`deliver: 0 以上の整数が必要です: ${invalid.join(", ")}`);
+  }
+  if (a.mode !== undefined && !MODES.includes(a.mode)) {
+    throw new Error(`deliver: mode は ${MODES.join(" / ")} のいずれか: ${a.mode}`);
   }
   const config = { ...DEFAULTS, ...a };
   if (!config.prBase) config.prBase = config.baseRef.replace(/^origin\//, "");
@@ -224,7 +231,7 @@ function newState(config) {
     unresolvedKeys: new Set(),
     deferred: [],
     deferredKeys: new Set(),
-    planConcerns: [],
+    requirementsConcerns: [],
     advisory: [],
     knownClusters: [],
     rejectedDeferrals: {},
@@ -259,15 +266,15 @@ function isBlocking(finding) {
   return Boolean(reviewer && reviewer.blocking.includes(finding.severity));
 }
 
-// target と planBreaking は merge の申告ではなく元の指摘(members)から導く。merge に任せるのは
+// target と requirementsBreaking は merge の申告ではなく元の指摘(members)から導く。merge に任せるのは
 // 重複をまとめることだけで、判定の入力にはしない(ADR 0007)。
 // closedKeys(Deferred / Unresolved 済み)に統合された修正必須指摘は、判定から外すが報告には残す。
 function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys) {
   const out = {
     blocking: [],
     repeated: [],
-    planConcerns: [],
-    planBreaking: [],
+    requirementsConcerns: [],
+    requirementsBreaking: [],
     advisory: [],
     closedRepeats: [],
     dropped: [],
@@ -286,12 +293,16 @@ function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys)
       severities: ms.map((m) => `${m.reviewer}:${m.severity}`),
       findings: ms.map((m) => m.summary),
     });
-    const planMembers = members.filter((m) => m.target === "plan");
-    const codeMembers = members.filter((m) => m.target !== "plan");
-    if (planMembers.length > 0) {
-      const item = toItem(codeMembers.length > 0 ? `${c.key}::plan` : c.key, planMembers);
-      out.planConcerns.push(item);
-      if (planMembers.some((m) => m.planBreaking)) out.planBreaking.push(item);
+    const requirementsMembers = members.filter((m) => m.target === "requirements");
+    const codeMembers = members.filter((m) => m.target !== "requirements");
+    if (requirementsMembers.length > 0) {
+      const item = toItem(
+        codeMembers.length > 0 ? `${c.key}::requirements` : c.key,
+        requirementsMembers,
+      );
+      out.requirementsConcerns.push(item);
+      if (requirementsMembers.some((m) => m.requirementsBreaking))
+        out.requirementsBreaking.push(item);
     }
     if (codeMembers.length === 0) continue;
     const item = toItem(c.key, codeMembers);
@@ -322,14 +333,14 @@ function markUnresolved(state, items) {
 const commands = (config) => config.checkCommands.map((c) => `「${c}」`).join("、");
 
 function planPrompt(config) {
-  return `plan ファイル ${config.planPath} を読み、実装タスクの一覧を抽出せよ。
+  return `plan ファイル ${config.requirementsPath} を読み、実装タスクの一覧を抽出せよ。
 - plan の順序どおりに、plan の1タスクを1要素とする。独自に分割・統合しない。
 - title は、この plan 全体を表す PR タイトルとして使える短い日本語にする。
 - plan が実装計画でない(タスク分解が無い)なら、tasks を空配列で返す。`;
 }
 
 function implementPrompt(task, index, total, config) {
-  return `plan ${config.planPath} のタスク ${index + 1}/${total}「${task.title}」を実装せよ。plan を読み、このタスクの範囲だけを実装する。
+  return `plan ${config.requirementsPath} のタスク ${index + 1}/${total}「${task.title}」を実装せよ。plan を読み、このタスクの範囲だけを実装する。
 - TDD で進める。失敗するテストを先に書き、失敗を確認してから実装する。
 - 完了する前に、次のコマンドを全て実行して全て成功させる: ${commands(config)}
 - 完了したら変更をコミットする(push はしない)。コミットメッセージはリポジトリの既存の規約に従う。
@@ -349,10 +360,10 @@ function reviewPrompt(reviewer, config) {
   const note = reviewer.note ? `\n- ${reviewer.note}` : "";
   return `Skill ツールで「${reviewer.skill}」を読み込み、その手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。
 - 差分の収集だけは skill の手順を上書きする: 対象ファイルは「git diff --name-only ${config.baseRef}...HEAD」、差分は「git diff ${config.baseRef}...HEAD」で集める。変更はコミット済みなので、未コミットの変更が無くても「Nothing to review」で止まらない。
-- 要件は plan ${config.planPath}。plan とのずれも指摘の対象にする。
+- 要件は要件文書 ${config.requirementsPath}。要件文書とのずれも指摘の対象にする。
 - ファイルの修正、コミット、PR へのコメント投稿、ReportFindings ツールの呼び出しはしない。結果は StructuredOutput だけで返す。
 - severity には skill 自身の尺度をそのまま使う: ${reviewer.severities.join(" / ")}
-- 指摘が実装ではなく plan そのものに向く場合は target="plan" とし、plan どおりに作ると壊れる場合だけ planBreaking=true にする。
+- 指摘が実装ではなく要件文書そのものに向く場合は target="requirements" とし、要件文書どおりに作ると壊れる場合だけ requirementsBreaking=true にする。
 - レビューの範囲外で気づいた問題は observations に書く。${note}`;
 }
 
@@ -361,14 +372,14 @@ function mergePrompt(findings, knownClusters) {
 - 同じ問題を指す指摘は1つの cluster にまとめ、members に元の id を全て入れる。どの指摘も必ずちょうど1つの cluster に入れる。
 - key は「ファイルパス::問題の種類を表す英小文字の短いスラッグ」とする(例: src/a.ts::missing-null-check)。
 - 過去のラウンドに同じ問題があれば、その key をそのまま使う。過去の cluster(JSON): ${JSON.stringify(knownClusters)}
-- target は、members のいずれかが "plan" なら "plan"、それ以外は "code"。planBreaking は、members のいずれかが true なら true。
+- target は、members のいずれかが "requirements" なら "requirements"、それ以外は "code"。requirementsBreaking は、members のいずれかが true なら true。
 - summary は日本語の1文で書く。`;
 }
 
 function fixPrompt(items, config) {
-  return `次の修正必須の指摘に対応せよ。plan は ${config.planPath}、対象の差分は「${config.baseRef}...HEAD」。
+  return `次の修正必須の指摘に対応せよ。要件文書は ${config.requirementsPath}、対象の差分は「${config.baseRef}...HEAD」。
 指摘(JSON): ${JSON.stringify(items)}
-- 指摘ごとに、修正したら action="fixed"、修正すべきでない(偽陽性、または plan の範囲外)と判断したら action="propose-defer" と具体的な理由を返す。直すのが大変だという理由では見送らない。
+- 指摘ごとに、修正したら action="fixed"、修正すべきでない(偽陽性、または要件文書の範囲外)と判断したら action="propose-defer" と具体的な理由を返す。直すのが大変だという理由では見送らない。
 - deferralRejectedReason がある指摘は、見送りの提案が検証者に却下されている。その理由を読んだうえで修正する。
 - unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。全ての指摘について、必ず fixed か propose-defer のどちらかを返す。
 - 修正した後、次のコマンドを全て成功させる: ${commands(config)}
@@ -380,18 +391,18 @@ function deferPrompt(item, reason, config) {
   return `あなたは独立した検証者である。実装者は、次の指摘を修正せずに見送ることを提案している。
 指摘(JSON): ${JSON.stringify(item)}
 実装者の理由: ${reason}
-plan は ${config.planPath}、差分は「${config.baseRef}...HEAD」。コードと plan を自分で読み、見送りが妥当か判断せよ。妥当なのは、指摘が偽陽性であるか、plan の範囲外である場合だけ。判断に迷うなら agree=false とする。`;
+要件文書は ${config.requirementsPath}、差分は「${config.baseRef}...HEAD」。コードと要件文書を自分で読み、見送りが妥当か判断せよ。妥当なのは、指摘が偽陽性であるか、要件文書の範囲外である場合だけ。判断に迷うなら agree=false とする。`;
 }
 
 function verifyPrompt(config) {
-  return `Skill ツールで「${config.verifySkill}」を読み込み、その手順に従って、plan ${config.planPath} の変更が意図どおりに動くことを確認せよ。
+  return `Skill ツールで「${config.verifySkill}」を読み込み、その手順に従って、要件文書 ${config.requirementsPath} に書かれた意図どおりに変更が動くことを確認せよ。
 - 確認した操作と観察した結果を summary に書き、意図どおりに動けば passed=true にする。
 - コードは修正しない。範囲外で気づいた問題は observations に書く。`;
 }
 
 function fixVerifyPrompt(result, config) {
   return `動作確認が失敗した。結果(JSON): ${JSON.stringify(result)}
-plan は ${config.planPath}。原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}`;
+要件文書は ${config.requirementsPath}。原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}`;
 }
 
 function ledgerJson(state) {
@@ -477,6 +488,12 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
+  if (state.config.mode === "review-verify") {
+    lines.push(
+      "> **Review-Verify**: 既存のブランチをレビューしただけで、実装と PR の作成はしていない。修正のコミットはローカルにあり、push していない",
+      "",
+    );
+  }
   // 途中のラウンドで欠けても、その前の修正を片方のレビュアーしか確かめていないので、収束の根拠が欠ける。
   const incomplete = state.rounds.filter((r) => r.missingReviewers.length > 0);
   if (incomplete.length > 0) {
@@ -497,7 +514,7 @@ function renderReport(state) {
     formatItem,
     state.rounds.length === 0 ? "未レビュー(レビューラウンドが1回も完了していない)" : "なし",
   );
-  pushSection("Plan Concern", uniqueByKey(state.planConcerns), formatItem);
+  pushSection("Requirements Concern", uniqueByKey(state.requirementsConcerns), formatItem);
   if (state.closedRepeats.length > 0) {
     pushSection(
       "閉じた指摘に統合された修正必須指摘",
@@ -524,7 +541,9 @@ function renderReport(state) {
   if (state.reviewerFailures.length > 0)
     lines.push(`- 結果を返さなかったレビュアー: ${state.reviewerFailures.join(", ")}`);
   lines.push(`- 出力トークン: ${state.outputTokens}`, "");
-  lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
+  // PR 本文にしない報告には、PR 向けの帰属行を付けない。
+  if (state.config.mode === "deliver")
+    lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
   return lines.join("\n");
 }
 
@@ -628,7 +647,7 @@ async function mergeFindings(state, findings) {
       line: f.line,
       summary: f.summary,
       target: f.target,
-      planBreaking: Boolean(f.planBreaking),
+      requirementsBreaking: Boolean(f.requirementsBreaking),
       members: [f.id],
     });
   }
@@ -735,7 +754,7 @@ async function reviewRounds(state, tracker) {
     const closedKeys = new Set([...state.deferredKeys, ...state.unresolvedKeys]);
     const result = classifyRound(clusters, byId, previousBlockingKeys, closedKeys);
     // 修正必須として判定された key だけを「再指摘された」とみなす。中身の無い cluster(dropped)、
-    // 修正必須でない重大度(advisory)、plan 向けの指摘だけでの再報告では、直ったことにならない。
+    // 修正必須でない重大度(advisory)、要件文書向けの指摘だけでの再報告では、直ったことにならない。
     const reportedKeys = new Set(
       [...result.blocking, ...result.repeated, ...result.closedRepeats].map((i) => i.key),
     );
@@ -764,10 +783,10 @@ async function reviewRounds(state, tracker) {
     state.closedRepeats.push(...result.closedRepeats);
     markUnresolved(state, result.repeated);
     state.advisory.push(...result.advisory);
-    state.planConcerns.push(...result.planConcerns);
-    if (result.planBreaking.length > 0) {
+    state.requirementsConcerns.push(...result.requirementsConcerns);
+    if (result.requirementsBreaking.length > 0) {
       markUnresolved(state, result.blocking);
-      state.stopReason = "plan-breaking";
+      state.stopReason = "requirements-breaking";
       return;
     }
     if (result.blocking.length === 0) return;
@@ -863,7 +882,7 @@ const config = validateArgs(args);
 const state = newState(config);
 // 例外(budget の上限到達など)で報告ごと失わないよう、ここまでの状態で必ず報告を組み立てる。
 try {
-  await implement(state);
+  if (config.mode === "deliver") await implement(state);
   if (!state.stopReason) await reviewLoop(state);
   if (!state.stopReason) await verify(state);
 } catch (error) {
@@ -875,7 +894,7 @@ const report = renderReport(state);
 const ledger = ledgerJson(state);
 let published = null;
 try {
-  published = await publish(state, report, ledger);
+  if (config.mode === "deliver") published = await publish(state, report, ledger);
 } catch (error) {
   published = { pushed: false, error: String(error && error.message ? error.message : error) };
   log(`公開に失敗した: ${published.error}`);
@@ -884,6 +903,7 @@ return {
   prUrl: published && published.prUrl ? published.prUrl : null,
   published: Boolean(published && published.pushed),
   publishError: published && !published.pushed ? published.error || "理由なし" : null,
+  mode: config.mode,
   stopReason: state.stopReason,
   report,
   // 公開できなかったとき、入口 skill(agent() の上限の対象外)が pr-body.md / ledger.json を書き出すのに使う。

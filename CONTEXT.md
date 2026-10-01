@@ -110,6 +110,14 @@ _Avoid_: profile（無限定）、プロファイル
 
 ### Autonomous delivery
 
+**Deliver**:
+plan を受け取り、実装からレビュー修正ループ・動作確認を経て draft PR と人間への報告までを agent が自律で行うプロセス。
+_Avoid_: 自律実装(無限定)
+
+**Review-Verify**:
+既にコミットされたブランチに、Requirements Document を基準にしたレビュー修正ループと動作確認だけをかけ、PR は作らずに人間へ報告するプロセス。Deliver との違いは実装から始めないことだけ。
+_Avoid_: レビューだけモード、deliver の後半
+
 **Review Finding**:
 レビューが返す個々の指摘。重大度を持ち、修正されるか Deferred Finding になるかのどちらかで閉じる。
 _Avoid_: コメント、issue(GitHub Issue と紛らわしい)
@@ -122,6 +130,10 @@ _Avoid_: 見送り(無限定)、スキップした指摘、却下
 修正必須なのに、ループの上限に達するか収束しなかったために修正されずに残った Review Finding。Deferred Finding と違い誰も見送りに同意していないため、最終報告で最優先に扱う。
 _Avoid_: 見送り、残課題(無限定)
 
-**Plan Concern**:
-実装ではなく入力された plan そのものに向けられた Review Finding。何を作るかを agent は決めないため修正対象にならず、人間への最終報告に回す。plan どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
-_Avoid_: 仕様バグ、plan 修正
+**Requirements Document**:
+何を作るつもりかを人間が書いた、レビュー・修正・動作確認が意図の正本として読む文書。plan(タスク分解を持つもの)と spec のどちらもこの一種で、実装から始めるには plan が要る。
+_Avoid_: 仕様書(無限定)、入力
+
+**Requirements Concern**:
+実装ではなく Requirements Document そのものに向けられた Review Finding。何を作るかを agent は決めないため修正対象にならず、人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
+_Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正

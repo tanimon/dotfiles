@@ -2,6 +2,8 @@
 
 plan を受け取り、実装、レビュー修正ループ、動作確認を経て draft PR と人間への報告までを agent が自律で行う。方式の選定理由は [ADR 0007](../../adr/0007-deliver-workflow-enforces-review-loop-in-code.md)、用語(Review Finding / Deferred Finding / Unresolved Finding / Plan Concern)は `CONTEXT.md` の「Autonomous delivery」節を参照。本書は 2026-09-25 の grilling セッションで合意した内容を記録する。
 
+> **注記(2026-10-01)**: Plan Concern は [ADR 0008](../../adr/0008-review-verify-is-a-mode-of-the-deliver-workflow.md) で Requirements Concern に改名した。本書は当時の用語のまま残す。
+
 ## 適用範囲
 
 - 対象は個人リポジトリと仕事リポジトリの両方。リポジトリごとに違うもの(動作確認 skill、テスト/lint コマンド)は起動時の引数で受け取る。

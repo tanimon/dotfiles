@@ -12,7 +12,7 @@ const SCRIPT = readFileSync(
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
 const BASE_ARGS = {
-  planPath: "/repo/docs/plans/p.md",
+  requirementsPath: "/repo/docs/plans/p.md",
   baseRef: "origin/main",
   checkCommands: ["just lint"],
   verifySkill: "web-verify",
@@ -33,7 +33,7 @@ const cluster = (key, members, extra = {}) => ({
   line: 1,
   summary: `issue ${key}`,
   target: "code",
-  planBreaking: false,
+  requirementsBreaking: false,
   members,
   ...extra,
 });
@@ -300,24 +300,33 @@ test("検証者が同意しなかった見送りは、却下理由を添えて�
   assert.match(section(result.report, "Unresolved Finding"), /issue a.js::bug/);
 });
 
-test("Plan Concern は修正せずに報告し、planBreaking なら動作確認をせずに停止する", async () => {
+test("Requirements Concern は修正せずに報告し、requirementsBreaking なら動作確認をせずに停止する", async () => {
   const concern = await runWorkflow({
     respond: scenario({
-      reviews: [{ requesting: [finding("Important", { target: "plan" })] }],
-      merges: [[cluster("plan::ambiguous", ["requesting#0"], { target: "plan" })]],
+      reviews: [{ requesting: [finding("Important", { target: "requirements" })] }],
+      merges: [[cluster("plan::ambiguous", ["requesting#0"], { target: "requirements" })]],
     }),
   });
   assert.equal(concern.labels.filter((l) => l.startsWith("fix:")).length, 0);
-  assert.match(section(concern.result.report, "Plan Concern"), /issue plan::ambiguous/);
+  assert.match(section(concern.result.report, "Requirements Concern"), /issue plan::ambiguous/);
   assert.equal(concern.result.stopReason, null);
 
   const breaking = await runWorkflow({
     respond: scenario({
-      reviews: [{ ecc: [finding("CRITICAL", { target: "plan", planBreaking: true })] }],
-      merges: [[cluster("plan::broken", ["ecc#0"], { target: "plan", planBreaking: true })]],
+      reviews: [
+        { ecc: [finding("CRITICAL", { target: "requirements", requirementsBreaking: true })] },
+      ],
+      merges: [
+        [
+          cluster("plan::broken", ["ecc#0"], {
+            target: "requirements",
+            requirementsBreaking: true,
+          }),
+        ],
+      ],
     }),
   });
-  assert.equal(breaking.result.stopReason, "plan-breaking");
+  assert.equal(breaking.result.stopReason, "requirements-breaking");
   assert.ok(!breaking.labels.some((l) => l.startsWith("verify:")));
   assert.ok(breaking.labels.includes("publish"));
 });
@@ -389,7 +398,7 @@ test("merge がどの cluster にも入れなかった指摘は、単独の clus
 });
 
 test("必須の引数が欠けていれば agent を呼ぶ前に throw する", async () => {
-  await assert.rejects(runWorkflow({ args: { planPath: "" } }), /planPath/);
+  await assert.rejects(runWorkflow({ args: { requirementsPath: "" } }), /requirementsPath/);
   await assert.rejects(runWorkflow({ args: { checkCommands: [] } }), /checkCommands/);
   await assert.rejects(runWorkflow({ args: { maxReviewRounds: "abc" } }), /maxReviewRounds/);
   await assert.rejects(runWorkflow({ args: { maxVerifyRetries: -1 } }), /maxVerifyRetries/);
@@ -404,23 +413,33 @@ test("observations を報告にまとめる", async () => {
   assert.match(section(result.report, "Observations"), /implement:1: README が古い/);
 });
 
-test("merge が code の修正必須指摘を plan の cluster に入れても、code 側は修正に回す", async () => {
+test("merge が code の修正必須指摘を requirements の cluster に入れても、code 側は修正に回す", async () => {
   const { result, labels } = await runWorkflow({
     respond: scenario({
-      reviews: [{ ecc: [finding("HIGH")], requesting: [finding("Minor", { target: "plan" })] }, {}],
-      merges: [[cluster("a.js::mixed", ["ecc#0", "requesting#0"], { target: "plan" })]],
+      reviews: [
+        { ecc: [finding("HIGH")], requesting: [finding("Minor", { target: "requirements" })] },
+        {},
+      ],
+      merges: [[cluster("a.js::mixed", ["ecc#0", "requesting#0"], { target: "requirements" })]],
       fixes: [{ results: [{ key: "a.js::mixed", action: "fixed", reason: "" }], observations: [] }],
     }),
   });
   assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 1);
-  assert.match(section(result.report, "Plan Concern"), /issue a.js::mixed/);
+  assert.match(section(result.report, "Requirements Concern"), /issue a.js::mixed/);
 });
 
-test("merge の planBreaking 申告だけでは停止しない(元の指摘が planBreaking のときだけ止まる)", async () => {
+test("merge の requirementsBreaking 申告だけでは停止しない(元の指摘が requirementsBreaking のときだけ止まる)", async () => {
   const { result } = await runWorkflow({
     respond: scenario({
-      reviews: [{ requesting: [finding("Minor", { target: "plan" })] }],
-      merges: [[cluster("plan::x", ["requesting#0"], { target: "plan", planBreaking: true })]],
+      reviews: [{ requesting: [finding("Minor", { target: "requirements" })] }],
+      merges: [
+        [
+          cluster("plan::x", ["requesting#0"], {
+            target: "requirements",
+            requirementsBreaking: true,
+          }),
+        ],
+      ],
     }),
   });
   assert.equal(result.stopReason, null);
@@ -516,26 +535,29 @@ test("修正エージェントが throw しても、修正に回した指摘を 
   );
 });
 
-test("planBreaking で停止したラウンドの code 側の修正必須指摘も Unresolved に残す", async () => {
+test("requirementsBreaking で停止したラウンドの code 側の修正必須指摘も Unresolved に残す", async () => {
   const { result } = await runWorkflow({
     respond: scenario({
       reviews: [
         {
           ecc: [
-            finding("CRITICAL", { target: "plan", planBreaking: true }),
+            finding("CRITICAL", { target: "requirements", requirementsBreaking: true }),
             finding("HIGH", { file: "b.js" }),
           ],
         },
       ],
       merges: [
         [
-          cluster("plan::broken", ["ecc#0"], { target: "plan", planBreaking: true }),
+          cluster("plan::broken", ["ecc#0"], {
+            target: "requirements",
+            requirementsBreaking: true,
+          }),
           cluster("b.js::bug", ["ecc#1"], { file: "b.js" }),
         ],
       ],
     }),
   });
-  assert.equal(result.stopReason, "plan-breaking");
+  assert.equal(result.stopReason, "requirements-breaking");
   assert.match(section(result.report, "Unresolved Finding"), /issue b.js::bug/);
 });
 
@@ -662,9 +684,13 @@ test("見送りを却下された key が修正必須でない重大度で再報
   assert.match(section(result.report, "参考指摘(修正必須ではない)"), /なし/);
 });
 
-test("見送りを却下された key が plan 向けの指摘だけで再報告されても、修正に戻す", async () => {
+test("見送りを却下された key が Requirements Document 向けの指摘だけで再報告されても、修正に戻す", async () => {
   await assertRejectedGoesBackToFix(
-    [{ ecc: [finding("HIGH")] }, { requesting: [finding("Minor", { target: "plan" })] }, {}],
+    [
+      { ecc: [finding("HIGH")] },
+      { requesting: [finding("Minor", { target: "requirements" })] },
+      {},
+    ],
     [[cluster("a.js::bug", ["ecc#0"])], [cluster("a.js::bug", ["requesting#0"])]],
   );
 });
@@ -828,7 +854,7 @@ test("公開できなくても、入口 skill が書き出せるよう ledger �
     },
   });
   assert.equal(result.published, false);
-  assert.equal(JSON.parse(result.ledger).config.planPath, BASE_ARGS.planPath);
+  assert.equal(JSON.parse(result.ledger).config.requirementsPath, BASE_ARGS.requirementsPath);
 });
 
 test("途中のラウンドでレビュアーが欠けていても、報告の先頭で警告する", async () => {
@@ -847,4 +873,45 @@ test("base との差分コミットが無ければ PR を作らないよう公�
   const { calls } = await runWorkflow();
   const prompt = calls.find((c) => c.label === "publish").prompt;
   assert.match(prompt, /git rev-list --count origin\/main\.\.HEAD/);
+});
+
+test("review-verify では実装も公開もせず、レビュー修正ループと動作確認だけを行う", async () => {
+  const { result, labels } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], observations: [] }],
+    }),
+  });
+  assert.deepEqual(labels, [
+    "checks:1",
+    "review:ecc",
+    "review:requesting",
+    "merge",
+    "fix:1",
+    "checks:2",
+    "review:ecc",
+    "review:requesting",
+    "verify:1",
+  ]);
+  assert.equal(result.published, false);
+  assert.equal(result.publishError, null);
+  assert.equal(result.prUrl, null);
+  assert.equal(result.stopReason, null);
+  assert.match(section(result.report, "Unresolved Finding"), /なし/);
+});
+
+test("review-verify の報告は先頭で mode を示し、PR 向けの末尾行を付けない", async () => {
+  const { result } = await runWorkflow({ args: { mode: "review-verify" } });
+  assert.match(result.report.split("\n")[0], /Review-Verify/);
+  assert.doesNotMatch(result.report, /Generated with/);
+
+  const deliver = await runWorkflow();
+  assert.doesNotMatch(deliver.result.report.split("\n")[0], /Review-Verify/);
+  assert.match(deliver.result.report, /Generated with/);
+});
+
+test("未知の mode は agent を呼ぶ前に throw する", async () => {
+  await assert.rejects(runWorkflow({ args: { mode: "review" } }), /mode/);
 });
