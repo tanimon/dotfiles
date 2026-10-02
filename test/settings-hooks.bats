@@ -29,7 +29,7 @@ guard_registrations() {
         .hooks.PreToolUse[]
         | . as $group
         | .hooks[]
-        | select(.command | contains($cmd))
+        | select((.command // "") | contains($cmd))
         | {matcher: $group.matcher, type, command, timeout, exact: (.command == $cmd)}
     ' "$SETTINGS"
 }
@@ -41,6 +41,12 @@ guard_registrations() {
 
 @test "描画結果が JSON として読める" {
     run jq -e '.hooks | type == "object"' "$SETTINGS"
+    assert_success
+}
+
+# 配線が全部残っていても、この 1 行で全 hook が止まり guard ごとフェイルオープンする
+@test "disableAllHooks で hook 全体を止めていない" {
+    run jq -e '(.disableAllHooks // false) == false' "$SETTINGS"
     assert_success
 }
 
@@ -67,18 +73,22 @@ assert_guard_wired() {
 }
 
 @test "hook が呼ぶ script はすべて実行可能な Source として実在する" {
-    run jq -r '[.. | objects | select(has("command")) | .command
-        | scan("\\.claude/scripts/([A-Za-z0-9._-]+\\.sh)") | .[0]] | unique[]' "$SETTINGS"
+    # 拡張子と subdirectory を問わず拾う(lib/ 配下や .sh 以外を呼ぶ hook も検査から漏らさない)
+    run jq -r '[.hooks[][].hooks[] | (.command // "")
+        | scan("\\.claude/scripts/([A-Za-z0-9._/-]+\\.[A-Za-z0-9]+)") | .[0]] | unique[]' "$SETTINGS"
     assert_success
     local scripts="$output"
     # 抽出が空なら検査が空振りする。guard 2 本は必ず含まれる
     assert_line git-push-guard.sh
     assert_line curl-localhost-guard.sh
-    local name
+    local name source
     while IFS= read -r name; do
         # executable_ prefix が無いと chezmoi は実行権限なしで配置し、hook は起動できない
-        [ -f "$REPO/dot_claude/scripts/executable_$name" ] ||
-            fail "hook が呼ぶ $name に対応する dot_claude/scripts/executable_$name が無い"
+        case "$name" in
+        */*) source="dot_claude/scripts/${name%/*}/executable_${name##*/}" ;;
+        *) source="dot_claude/scripts/executable_$name" ;;
+        esac
+        [ -f "$REPO/$source" ] || fail "hook が呼ぶ $name に対応する $source が無い"
     done <<<"$scripts"
 }
 
@@ -98,13 +108,17 @@ assert_guard_wired() {
 @test "orca の agent-hook は Notification と SessionEnd を除く全 event に同一のものが 1 つずつある" {
     # 描画結果に現れた event だけを数えると、event ブロックごと消えたときに素通りする。
     # 期待する event を literal で持ち、orca hook を持つ event の集合と完全一致を見る
-    local expected='PermissionRequest PostCompact PostToolUse PostToolUseFailure PreToolUse Stop StopFailure SubagentStart SubagentStop TeammateIdle UserPromptSubmit SessionStart'
+    local expected=(PermissionRequest PostCompact PostToolUse PostToolUseFailure PreToolUse Stop StopFailure SubagentStart SubagentStop TeammateIdle UserPromptSubmit SessionStart)
     run jq -r '[.hooks | to_entries[]
-        | select([.value[].hooks[] | select(.command | test("orca/agent-hooks"))] | length == 1)
+        | select([.value[].hooks[] | select((.command // "") | test("orca/agent-hooks"))] | length == 1)
         | .key] | sort | join(" ")' "$SETTINGS"
     assert_success
-    assert_output "$(printf '%s\n' $expected | sort | paste -sd ' ' -)"
+    assert_output "$(printf '%s\n' "${expected[@]}" | sort | paste -sd ' ' -)"
     # 2 つ以上持つ event と、1 文字でも違うコピーを捕まえる
-    run jq -r '[.hooks[][].hooks[] | select(.command | test("orca/agent-hooks")) | .command] | "\(length) \(unique | length)"' "$SETTINGS"
-    assert_output "12 1"
+    run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] | "\(length) \(unique | length)"' "$SETTINGS"
+    assert_output "${#expected[@]} 1"
+    # matcher が絞られると orca はその event の大半を受け取れなくなる。全件一致(省略か "*")だけを許す
+    run jq -r '[.hooks[][] | select(any(.hooks[]; (.command // "") | test("orca/agent-hooks")))
+        | .matcher // "*"] | unique | join(" ")' "$SETTINGS"
+    assert_output "*"
 }
