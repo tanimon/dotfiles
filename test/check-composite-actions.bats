@@ -95,6 +95,54 @@ EOF
     refute_output --partial "ok   "
 }
 
+@test "shell の無い run step は落ちる" {
+    write_action <<'EOF'
+name: noshell
+runs:
+  using: composite
+  steps:
+    - name: No shell
+      run: echo hi
+EOF
+    run bash "$SCRIPT" "$BATS_TEST_TMPDIR/action.yml"
+    assert_failure
+    assert_output --partial "FAIL $BATS_TEST_TMPDIR/action.yml (No shell): shell is required"
+}
+
+@test "bash 以外の shell の step は検査せず skip と出す" {
+    write_action <<'EOF'
+name: sh
+runs:
+  using: composite
+  steps:
+    - name: Posix
+      shell: sh
+      run: echo "unterminated
+EOF
+    run bash "$SCRIPT" "$BATS_TEST_TMPDIR/action.yml"
+    assert_success
+    assert_output --partial "skip $BATS_TEST_TMPDIR/action.yml (Posix): shell=sh"
+}
+
+@test "一部の step だけ壊れていると、その step だけが FAIL になり残りも検査される" {
+    write_action <<'EOF'
+name: mixed
+runs:
+  using: composite
+  steps:
+    - name: Broken
+      shell: bash
+      run: echo "unterminated
+    - name: Fine
+      shell: bash
+      run: echo ok
+EOF
+    run bash "$SCRIPT" "$BATS_TEST_TMPDIR/action.yml"
+    assert_failure
+    assert_output --partial "FAIL $BATS_TEST_TMPDIR/action.yml (Broken): bash -n"
+    assert_output --partial "ok   $BATS_TEST_TMPDIR/action.yml (Fine)"
+}
+
 @test "YAML として読めない action は落ちる" {
     write_action <<'EOF'
 name: [unterminated
@@ -109,4 +157,5 @@ EOF
     run bash "$SCRIPT"
     assert_success
     assert_output --partial "ok   .github/actions/harness-issue-alert/action.yml"
+    refute_output --partial "FAIL"
 }

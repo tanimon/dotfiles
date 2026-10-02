@@ -2,21 +2,23 @@
 # composite action(.github/actions/*/action.yml)の `run:` スクリプトを検査する。
 #
 # actionlint が shellcheck にかけるのは workflow の `run:` だけで、composite action の
-# `run:` はどの linter も見ていない。`if: failure()` でしか走らない action は壊れていても
-# 普段の CI で実行されず、harness-issue-alert は作成時から `unexpected EOF` で落ち続けていた
-# のに約 3 か月気づかれなかった(#411)。
+# `run:` はどの linter も見ていない。`if: failure()` でしか走らない action は、壊れていても
+# 普段の CI で実行されないので気づけない。
 #
 # 各 step の `run:` を YAML パーサで取り出し、`bash -n` と(入っていれば)shellcheck にかける。
 # YAML を行単位で読まずパーサを通すのは、インデントがずれた行が `run:` の外に落ちる
 # という、まさに検出したい壊れ方を見るため。
 #
+# `shell` の無い `run:` step は FAIL にする(composite action では必須で、欠けると実行時に落ちる)。
+# bash 以外の shell の step は検査せず、skip と出す。
+#
 # 使い方: check-composite-actions.sh [action.yml ...]
-#   引数を省くと .github/actions/*/action.yml をすべて検査する。
+#   引数を省くと .github/actions/*/action.{yml,yaml} をすべて検査する。
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
     shopt -s nullglob
-    set -- .github/actions/*/action.yml
+    set -- .github/actions/*/action.yml .github/actions/*/action.yaml
     shopt -u nullglob
     if [ "$#" -eq 0 ]; then
         echo "No composite actions found"
@@ -38,7 +40,8 @@ fi
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 
-# 各 step の run を <workdir>/<n>.sh に書き出し、「<n>.sh<TAB><step 名>」を 1 行ずつ出す。
+# run を持つ step ごとに「<種別><TAB><n>.sh<TAB><step 名>」を 1 行出す。種別は
+# check(bash。run を <workdir>/<n>.sh に書き出す)・noshell・skip:<shell> のいずれか。
 # `${{ … }}` はシェルの構文ではないので、評価後と同じく 1 語に置き換える。
 # composite 以外(node / docker)の action は run: を持たないので何も出さない。
 extract() {
@@ -51,11 +54,17 @@ extract() {
         abort "runs.steps is missing" unless steps.is_a?(Array)
         steps.each_with_index do |step, i|
             next unless step.is_a?(Hash) && step.key?("run")
-            shell = step["shell"].to_s
-            next unless shell == "bash" || shell.start_with?("bash ")
-            path = File.join(ARGV[1], "#{i}.sh")
-            File.write(path, step["run"].to_s.gsub(/\$\{\{.*?\}\}/m, "GHA_EXPR"))
-            puts "#{i}.sh\t#{step["name"] || "step #{i}"}"
+            name = step["name"] || "step #{i}"
+            shell = step["shell"].to_s.strip
+            if shell.empty?
+                puts "noshell\t#{i}.sh\t#{name}"
+            elsif shell == "bash" || shell.start_with?("bash ")
+                path = File.join(ARGV[1], "#{i}.sh")
+                File.write(path, step["run"].to_s.gsub(/\$\{\{.*?\}\}/m, "GHA_EXPR"))
+                puts "check\t#{i}.sh\t#{name}"
+            else
+                puts "skip:#{shell.split.first}\t#{i}.sh\t#{name}"
+            end
         end
     ' "$1" "$2"
 }
@@ -70,8 +79,19 @@ for action in "$@"; do
         continue
     fi
     [ -n "$listing" ] || continue
-    while IFS=$'\t' read -r script name; do
+    while IFS=$'\t' read -r kind script name; do
         label="$action ($name)"
+        case "$kind" in
+        noshell)
+            echo "FAIL $label: shell is required for run steps in composite actions" >&2
+            status=1
+            continue
+            ;;
+        skip:*)
+            echo "skip $label: shell=${kind#skip:}"
+            continue
+            ;;
+        esac
         if ! bash -n "$dir/$script"; then
             echo "FAIL $label: bash -n" >&2
             status=1
