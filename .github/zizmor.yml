@@ -1,4 +1,4 @@
-# zizmor の設定。`just zizmor`(zizmor .github/workflows/)が自動で読み込む。
+# zizmor の設定。`just zizmor`(zizmor .github/)と pre-commit の hook が自動で読み込む。
 rules:
   # zizmor 1.30 の self-repository 監査は、ローカル action の参照を `./...` から `$/...` へ
   # 書き換えるよう求める。しかし actionlint 1.7.12 は `$/...` を不正な形式として拒否する

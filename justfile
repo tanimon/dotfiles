@@ -93,12 +93,12 @@ actionlint:
         echo "WARNING: actionlint not found, skipping"
     fi
 
-# Security audit GitHub Actions workflows
+# Security audit GitHub Actions workflows and local actions
 zizmor:
     #!/usr/bin/env bash
     if command -v zizmor >/dev/null 2>&1; then
         echo "Running zizmor..."
-        zizmor .github/workflows/
+        zizmor .github/
     else
         echo "WARNING: zizmor not found, skipping"
     fi

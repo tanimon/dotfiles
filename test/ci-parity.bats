@@ -11,8 +11,10 @@
 # fail にする — 読めない形を通すと、検査が黙って空振りする。
 # `just` を呼ぶ step とその job には、レシピを走らせない・失敗を握りつぶす・別の
 # justfile を読ませる修飾子(step の if / continue-on-error / shell / working-directory、
-# job の if / continue-on-error / defaults.run、workflow の defaults.run)も付けられない。
-# 集合が一致していても、それらがあると CI はそのレシピを実際には検査していない。
+# job の if / continue-on-error / defaults.run、workflow の defaults.run、どの階層でも
+# `JUST_` で始まる env)も付けられない。just は JUST_DRY_RUN や JUST_JUSTFILE などを
+# フラグと同じ意味で読む。集合が一致していても、それらがあると CI はそのレシピを実際には
+# 検査していない。前の step が $GITHUB_ENV に書く経路は静的に読めないので検査の範囲外。
 #
 # `lint:` は本体を持たない前提で、本体があれば fail にする。本体から呼ぶレシピは
 # 依存列に現れないので、この検査から見えない。
@@ -61,13 +63,17 @@ ci_recipes() {
     workflow=$(yq -o=json '.' "$1") || return 1
     local unreadable
     unreadable=$(jq -r '
-        [.defaults.run // {} | keys[] | "workflow の defaults.run.\(.)"] as $workflow_reasons
+        def just_env: .env // {} | keys[] | select(startswith("JUST_"));
+        [ (.defaults.run // {} | keys[] | "workflow の defaults.run.\(.)"),
+          (just_env | "workflow の env.\(.)") ] as $workflow_reasons
         | .jobs | to_entries[] | .key as $job_id | .value as $job
         | $job.steps[]? | select(has("run") and (.run | test("\\bjust\\b")))
         | [ (if (.run | test("^just [a-z0-9-]+$")) then empty else "run の形" end),
             (keys[] | select(IN("if", "continue-on-error", "shell", "working-directory")) | "step の \(.)"),
+            (just_env | "step の env.\(.)"),
             ($job | keys[] | select(IN("if", "continue-on-error")) | "job の \(.)"),
             ($job.defaults.run // {} | keys[] | "job の defaults.run.\(.)"),
+            ($job | just_env | "job の env.\(.)"),
             $workflow_reasons[] ] as $reasons
         | select($reasons | length > 0)
         | "\($job_id): \(.run | @json)(\($reasons | join(", ")))"' <<<"$workflow") || return 1
@@ -295,6 +301,65 @@ YAML
     run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
     assert_failure
     assert_output --partial "workflow の defaults.run.shell"
+}
+
+@test "fixture: step / job / workflow の env で JUST_* を設定すると落ちる" {
+    write_justfile
+    write_workflow <<'YAML'
+jobs:
+  a:
+    steps:
+      - run: just alpha
+        env:
+          JUST_DRY_RUN: 'true'
+      - run: just beta
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_failure
+    assert_output --partial "step の env.JUST_DRY_RUN"
+
+    write_workflow <<'YAML'
+jobs:
+  a:
+    env:
+      JUST_JUSTFILE: other.just
+    steps:
+      - run: just alpha
+      - run: just beta
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_failure
+    assert_output --partial "job の env.JUST_JUSTFILE"
+
+    write_workflow <<'YAML'
+env:
+  JUST_DRY_RUN: 'true'
+jobs:
+  a:
+    steps:
+      - run: just alpha
+      - run: just beta
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_failure
+    assert_output --partial "workflow の env.JUST_DRY_RUN"
+}
+
+@test "fixture: JUST_ で始まらない env は検査しない" {
+    write_justfile
+    write_workflow <<'YAML'
+env:
+  FOO: bar
+jobs:
+  a:
+    steps:
+      - run: just alpha
+        env:
+          LC_ALL: C
+      - run: just beta
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_success
 }
 
 @test "fixture: just を含まない step の修飾子は検査しない" {
