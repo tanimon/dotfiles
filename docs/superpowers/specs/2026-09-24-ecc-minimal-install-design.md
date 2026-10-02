@@ -43,7 +43,7 @@
 - `ecc-code-review` にリネームする理由: user command を `code-review` にすると組込みの `code-review` skill と名前が衝突するため。また、plugin を外すと `ecc:` 名前空間は消える。
 - `code-review.md` は他ファイルへの参照を持たない。`vue-reviewer` は `skills/vue-patterns` を参照するが、参照先が無くても動作する。
 - `rules/typescript` と `rules/web` は `../common/*.md` を extends とリンクしている。common を撤去するとリンク切れになるが、中身は各ファイルで自己完結しているので許容する。
-- `rules/{typescript,web}/hooks.md` は取り込まない(2026-10-02 追記)。どちらも PostToolUse フックの設定例を勧める内容で、ECC の hook を全廃したこの設計とも、フックが対象ファイルを stdin の JSON で受け取る契約(`.claude/rules/shell-scripts.md`)とも合わず、上の「各ファイルで自己完結している」が成り立たない。chezmoi の external は `exclude` を足すと `include` 外のファイルまで取り込む(実測)ため、残すファイルを `include` に列挙する。配置済みの 2 ファイルは `.chezmoiremove` で消す。
+- `rules/{typescript,web}/hooks.md` は取り込まない(2026-10-02 追記)。どちらも PostToolUse フックの設定例を勧める内容で、ECC の hook を全廃したこの設計とも、フックが対象ファイルを stdin の JSON で受け取る契約(`.claude/rules/shell-scripts.md`)とも合わず、上の「各ファイルで自己完結している」が成り立たない。chezmoi の external は `exclude` を足すと `include` 外のファイルまで取り込む(実測)ため、残すファイルを `include` に列挙する。配置済みの 2 ファイルは `.chezmoiremove` で消す。残す `typescript/coding-style.md` には hooks.md を指す一文(「See hooks for automatic detection」)が残るが、upstream のファイルなので書き換えず、`../common/*.md` のリンク切れと同じく許容する。
 
 ## 撤去するもの
 
