@@ -1174,3 +1174,59 @@ echo x # \""
     assert_success
     assert_equal "$(decision "$output")" ask
 }
+
+# sort は --compress-program で任意のプログラムを起動し、一時データを stdin で渡す
+# (`| sort --compress-program=sh` は `| sh` と同じ)。読み取り専用のフィルタではないので INERT に入れない。
+@test "piping into sort with a compress program asks" {
+    run hook 'curl -s http://localhost:3000/ | sort --compress-program=sh -S 1 -T .'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 値を同じ token に付けた短オプション(`-XPOST`)は、値を分けた形と同じに読む。
+@test "a short flag with its value glued on produces no decision" {
+    run hook 'curl -XPOST http://localhost:3000/'
+    assert_success
+    assert_output ''
+}
+
+@test "a bundle ending in a short flag with its value glued on produces no decision" {
+    run hook "curl -sSXPOST -H'Accept: application/json' http://localhost:3000/"
+    assert_success
+    assert_output ''
+}
+
+# 対照: 付けた値でもローカルのファイルや標準入力を読む形は ask のまま。
+@test "a glued @file body asks" {
+    run hook 'curl -d@/etc/passwd http://localhost:3000/'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a glued stdin body asks" {
+    run hook 'curl -sd- http://localhost:3000/'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# `-o -` は標準出力(ファイルを読まない)。`-d -` は標準入力を本文にするので ask のまま。
+@test "output to stdout produces no decision" {
+    run hook 'curl -o - http://localhost:3000/'
+    assert_success
+    assert_output ''
+    run hook 'curl --output=- http://localhost:3000/'
+    assert_success
+    assert_output ''
+    run hook 'curl -so- http://localhost:3000/'
+    assert_success
+    assert_output ''
+}
+
+@test "a stdin body still asks" {
+    run hook 'curl -d - http://localhost:3000/'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'curl --data=- http://localhost:3000/'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}

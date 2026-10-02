@@ -41,6 +41,9 @@ _shell_reader_flush() {
 #   SHELL_READER_OPERATOR_INDEXES 引用符の外の redirect 演算子の token の index(同じ形式)。
 #                                 引用された `">"` や `\>` は引数なので含めない — token の字面だけでは
 #                                 演算子と区別できないので、redirect として読み飛ばす側はここを見る
+#   SHELL_READER_HEREDOC_INDEXES  heredoc 演算子(`<<` / `<<-`)の最初の `<` の token の index(同じ形式)。
+#                                 `<<` も here-string の `<<<` も `< <(…)` も token 列では `<`, `<` に
+#                                 なるので、本文を持つ heredoc かどうかは走査の時点でしか分からない
 #   SHELL_READER_TOO_LONG         上限超過。token は空
 #   SHELL_READER_EXPANSION        $ かバッククォートがある(引用符の中も含む)
 #   SHELL_READER_WORD_MULTIPLIER  引用符の外の { } *(シェルの展開で単語数が変わる)
@@ -63,6 +66,7 @@ shell_reader_read() {
     SHELL_READER_GLOB_INDEXES=' '
     SHELL_READER_BRACE_INDEXES=' '
     SHELL_READER_OPERATOR_INDEXES=' '
+    SHELL_READER_HEREDOC_INDEXES=' '
     SHELL_READER_TOO_LONG=0
     SHELL_READER_EXPANSION=0
     SHELL_READER_WORD_MULTIPLIER=0
@@ -259,6 +263,12 @@ shell_reader_read() {
                 operator=''
             fi
             operator+=$character
+            # 引用符の外の `<<` で、前にも後ろにも `<` が続かないものだけが heredoc(`<<<` は here-string)。
+            # 2 つ目の `<` は前が `<` なので記録しない。`< <(…)` は間に空白があるので一致しない。
+            if [[ "$character" == '<' && "${s:index+1:1}" == '<' && "${s:index+2:1}" != '<' ]] &&
+                [[ $index -eq 0 || "${s:index-1:1}" != '<' ]]; then
+                SHELL_READER_HEREDOC_INDEXES+="${#SHELL_READER_TOKENS[@]} "
+            fi
             # `>|`(noclobber を無視する redirect)は 1 つの演算子。`|` を区切りに読むと、後ろの
             # ファイル名と引数(`git push origin main >| out --force` の `--force`)が別の segment になる。
             if [[ "$character" == '>' && "${s:index+1:1}" == '|' ]]; then

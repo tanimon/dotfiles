@@ -273,3 +273,23 @@ joined() {
     run shell_reader_any_line_matches 'match*' 'matched-file'
     assert_failure
 }
+
+# heredoc 演算子(`<<` / `<<-`)だけを HEREDOC_INDEXES に記録する。here-string の `<<<` と
+# `< <(…)` は token 列では `<<` と同じ `<`, `<` に見えるので、reader が走査の時点で区別する。
+@test "heredoc operators are recorded at the index of their first <" {
+    shell_reader_read "cat <<'EOF'"
+    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' 1 '
+    shell_reader_read 'cat <<-EOF'
+    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' 1 '
+    shell_reader_read 'cat <<EOF; cat <<X'
+    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' 1 6 '
+}
+
+@test "a here-string, a process substitution input and a quoted << are not heredocs" {
+    shell_reader_read 'cat <<< x'
+    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
+    shell_reader_read 'cat < <(echo x)'
+    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
+    shell_reader_read 'echo "<<" x \<<y'
+    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
+}

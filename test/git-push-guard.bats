@@ -1173,3 +1173,17 @@ EOF"
     assert_success
     assert_equal "$(decision "$output")" ask
 }
+
+# here-string と `< <(…)` は本文を持たないので、その後ろの force push は deny のまま。
+# 対照は上の "a commit message heredoc naming git push --force asks rather than denies"。
+@test "a force push after a here-string is still denied" {
+    run hook 'cat <<< x; git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a force push after a process substitution input is still denied" {
+    run hook 'cat < <(echo x); git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}

@@ -237,9 +237,12 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 - **heredoc の本文とコメントの中の危険な綴りは `ask` 止まり。** reader は heredoc もコメントも知らないので、
   `git commit -F - <<'EOF'` の本文の行 `git push --force を deny する` や、`git push origin main # do not --force`
   の `--force` が `deny` になっていた。`deny` は承認しても通せないので、このフックについてのコミットメッセージを
-  heredoc で書けなかった。heredoc 演算子(reader は `<<` を `<` と `<…` の 2 つの演算子 token に読む)より後ろの
+  heredoc で書けなかった。heredoc 演算子(reader の `SHELL_READER_HEREDOC_INDEXES`)より後ろの
   segment と、push の引数の語頭の `#` より後ろでは、危険な綴りを `ask` にする。受容した格下げ: heredoc の後ろに
   実際に書かれた force push と、引用された `'#x'` の後ろの `--force` も `ask` になる(どちらも確認は出る)。
+  heredoc かどうかを token 列から判定してはいけない: `<<`・here-string の `<<<`・`< <(…)` はどれも `<`, `<` の
+  演算子 token になり、初版は本文を持たない `cat <<< x; git push origin main --force` まで `ask` に下げていた。
+  reader が走査の時点で「前後に `<` が続かない引用符の外の `<<`」だけを記録する。
 - **コマンド全体を見る検査は 1 回だけ走らせる。** `GIT_CONFIG*` の token の検査を push の segment ごとに
   コマンド全体へ当てていたため segment 数 × token 数の二乗になり、8 KB 近い
   `git push origin main --force;git push;…` が 5 秒(フックの timeout)を越えて判定なし = フェイルオープンに
@@ -305,7 +308,9 @@ lib が読めない・壊れているときも `ask` を返す(下の「shell co
 判定は2値 — `ask` か無出力のみで、`allow` も `deny` も返さない。無出力にする条件は、コマンドの
 **すべての**セグメントが「ループバック宛の curl」か `INERT_COMMANDS` の読み取り専用フィルタ
 (`jq` / `grep` / `cd` など)であること、または**curl を実行しうる token が1つも無く、下の字面の床にも
-一致しない**こと。
+一致しない**こと。`INERT_COMMANDS` に入れるのは、プログラムを起動する経路を持たないコマンドだけ。
+`sort` は `--compress-program=sh` で一時データを sh に実行させられる(`curl … | sort --compress-program=sh`
+が `| sh` と同じになる。macOS の `/usr/bin/sort` で実測)ので外してある。
 「curl を実行しうる token」= basename(先頭のバッククォートと、zsh の EQUALS の語頭の `=` を
 除いたもの)が `curl` の token か、ブレース展開・パス名展開の印(reader の `BRACE_INDEXES` /
 `GLOB_INDEXES`)が付いていて、展開の結果として basename が `curl` の語になりうる token(ブレースは
@@ -450,6 +455,9 @@ glob なので落ちる(ホスト名が伸びうる)。`jq .[0]` のような in
 
 **`--data-urlencode` の `@` は先頭だけではない。** `name@file` の形でローカルファイルを読むので、
 このフラグに限り値のどこに `@` があっても落とす。`-d @file` の先頭一致だけでは塞がらない。
+値の検査は `value_reads_local_input` 1 か所にまとめてあり、値を別の token に書いた形・`--flag=値`・
+短オプションに付けた形(`-XPOST`、`-d@file`。curl は束の途中の値を取る文字から後ろを値として読む)の
+すべてが同じ規則を通る。`-` は標準入力なので落とすが、`-o -` / `--output=-` だけは標準出力への書き出しなので通す。
 
 **【共有 reader の性質】長さで打ち切る。** 走査は O(n²) で、`matcher: "Bash"` のため **curl を実行しないコマンドでも
 本文に "curl" と書いてあれば全文を走る**。修正前は curl に言及する 15,062 文字の
@@ -492,6 +500,9 @@ OS レベルの床になるが、**フックはその床に依存していない
   `">"` や `\>` は引数なのに演算子と同じ字面の token になるので、redirect の対象を読み飛ばす側
   (curl-guard)はこれを見る。字面で読むと `curl http://localhost/ ">" https://evil.example/x` の
   2 つ目の URL を redirect の対象として読み飛ばし、無出力になっていた。
+  heredoc 演算子(引用符の外の `<<` / `<<-`)の最初の `<` の token の index を `SHELL_READER_HEREDOC_INDEXES` で
+  返す。here-string の `<<<` と `< <(…)` も `<`, `<` の token になるので、token 列からは区別できない(git-push-guard の
+  heredoc 本文の格下げが使う)。
   `shell_reader_read <文字列>` が引用符を外した token 列(`SHELL_READER_TOKENS`。
   セグメントの境目は `SHELL_READER_SEP` 番兵、リダイレクトは fd の数字ごと 1 token)と、読み切れなかった
   理由の flag(`TOO_LONG` / `EXPANSION` / `WORD_MULTIPLIER` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE`)、

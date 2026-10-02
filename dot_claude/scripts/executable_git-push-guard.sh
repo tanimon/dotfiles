@@ -150,23 +150,18 @@ UNQUOTED_SUBSTITUTION_INDEX=-1
 # `git push origin main --force;git push;…` が 5 秒を越えてフックの timeout(= 判定なし =
 # フェイルオープン)に届いた。そこでここで 1 回だけ数え、classify_from は結果だけを見る。
 GIT_CONFIG_IN_COMMAND=0
-# 最初の heredoc 演算子(reader は `<<` を `<` と `<…` の 2 つの演算子 token に読む)の index。無ければ -1。
-# reader は heredoc を知らないので、本文の行は普通の segment に見える。この位置より後ろの segment では
+# 最初の heredoc 演算子の index(reader の SHELL_READER_HEREDOC_INDEXES の先頭。印は昇順に並ぶ)。無ければ -1。
+# reader は heredoc の本文を知らないので、本文の行は普通の segment に見える。この位置より後ろの segment では
 # 危険な綴りを deny ではなく ask にする(本文の `git push --force を deny する` は承認しても通せない
 # deny にしない)。heredoc の後ろに実際に書かれた force push も ask に下がるのは受容した格下げ。
-HEREDOC_INDEX=-1
+# 本文を持たない here-string(`<<<`)と `< <(…)` は reader が heredoc として記録しないので、格下げしない。
+HEREDOC_INDEX=${SHELL_READER_HEREDOC_INDEXES:- }
+HEREDOC_INDEX=${HEREDOC_INDEX# }
+HEREDOC_INDEX=${HEREDOC_INDEX%% *}
+[[ -z "$HEREDOC_INDEX" ]] && HEREDOC_INDEX=-1
 if [[ ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
     for index in "${!SHELL_READER_TOKENS[@]}"; do
         case "${SHELL_READER_TOKENS[$index]}" in GIT_CONFIG*) GIT_CONFIG_IN_COMMAND=1 ;; esac
-        if [[ $HEREDOC_INDEX -lt 0 ]]; then
-            case "${SHELL_READER_TOKENS[$index]}:${SHELL_READER_TOKENS[$((index + 1))]:-}" in
-            *'<:<'*)
-                case "$SHELL_READER_OPERATOR_INDEXES" in
-                *" $index $((index + 1)) "*) HEREDOC_INDEX=$index ;;
-                esac
-                ;;
-            esac
-        fi
         case "${SHELL_READER_TOKENS[$index]}" in
         *'$')
             if [[ $UNQUOTED_SUBSTITUTION_INDEX -lt 0 &&

@@ -257,8 +257,24 @@ in_list() {
     return 1
 }
 
+# $1 = flag(`-d` / `--data` の形), $2 = その値。値がローカルのファイルか標準入力を本文などに
+# 読み込む形なら 0。`@file` はファイルを、`-` は標準入力を読む。ただし `-o` / `--output` の `-` は
+# 標準出力への書き出しなので読み込みではない。`--data-urlencode` は `name@file` の形でもファイルを読む。
+value_reads_local_input() {
+    case "$2" in
+    @*) return 0 ;;
+    -)
+        [[ "$1" == -o || "$1" == --output ]] && return 1
+        return 0
+        ;;
+    esac
+    [[ "$1" == --data-urlencode && "$2" == *@* ]] && return 0
+    return 1
+}
+
 # Every token of a bundled short flag must be a known no-value short flag; a
 # bundle whose LAST letter takes a value (`-sSo out.json`) is also accepted.
+# 途中の文字が値を取る flag なら、残りがその値になる(curl と同じ読み。`-XPOST`、`-sSHAccept: x`)。
 # Returns 0 = no value consumed, 1 = value token consumed, 2 = unrecognized.
 classify_short_bundle() {
     local bundle=${1#-} index letter last
@@ -266,7 +282,12 @@ classify_short_bundle() {
     last=${bundle: -1}
     for ((index = 0; index < ${#bundle} - 1; index++)); do
         letter=${bundle:index:1}
-        [[ "$SAFE_SHORT_FLAGS" == *"$letter"* ]] || return 2
+        [[ "$SAFE_SHORT_FLAGS" == *"$letter"* ]] && continue
+        if [[ "$SAFE_VALUE_SHORT_FLAGS" == *"$letter"* ]]; then
+            value_reads_local_input "-$letter" "${bundle:index+1}" && return 2
+            return 0
+        fi
+        return 2
     done
     if [[ "$SAFE_SHORT_FLAGS" == *"$last"* ]]; then
         return 0
@@ -334,12 +355,7 @@ classify_curl() {
         --*=*)
             in_list "${token%%=*}" "$SAFE_VALUE_LONG_FLAGS" || return 1
             # `-d @file` / `--data=@file` reads a local file into the body.
-            case "${token#*=}" in @* | -) return 1 ;; esac
-            # `--data-urlencode` takes the file form as `name@file`, so for it
-            # the `@` is not only a prefix.
-            if [[ "${token%%=*}" == --data-urlencode ]]; then
-                case "${token#*=}" in *@*) return 1 ;; esac
-            fi
+            value_reads_local_input "${token%%=*}" "${token#*=}" && return 1
             index=$((index + 1))
             ;;
         --*)
@@ -348,10 +364,7 @@ classify_curl() {
             elif in_list "$token" "$SAFE_VALUE_LONG_FLAGS"; then
                 value=${tokens[$((index + 1))]:-}
                 [[ -z "$value" ]] && return 1
-                case "$value" in @* | -) return 1 ;; esac
-                if [[ "$token" == --data-urlencode ]]; then
-                    case "$value" in *@*) return 1 ;; esac
-                fi
+                value_reads_local_input "$token" "$value" && return 1
                 index=$((index + 2))
             else
                 # --proxy, --resolve, --connect-to, --next, --config,
@@ -373,7 +386,7 @@ classify_curl() {
             1)
                 value=${tokens[$((index + 1))]:-}
                 [[ -z "$value" ]] && return 1
-                case "$value" in @* | -) return 1 ;; esac
+                value_reads_local_input "-${token: -1}" "$value" && return 1
                 index=$((index + 2))
                 ;;
             *) return 1 ;;
@@ -395,7 +408,9 @@ classify_curl() {
 # Commands allowed to sit beside curl in a pipeline or a compound command.
 # Read-only text filters only: the point is to keep `curl … | sh` out while
 # `curl … | jq .` stays frictionless.
-INERT_COMMANDS='jq head tail cat wc grep egrep fgrep sort uniq tr cut column echo printf true rev cd sleep'
+# `sort` は入れない: `--compress-program=PROG` は PROG を起動して一時データを stdin で渡すので、
+# `curl … | sort --compress-program=sh` が `| sh` と同じになる(macOS の /usr/bin/sort で実測)。
+INERT_COMMANDS='jq head tail cat wc grep egrep fgrep uniq tr cut column echo printf true rev cd sleep'
 
 # --- segment walk ------------------------------------------------------------
 
