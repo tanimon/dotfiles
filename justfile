@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
 
 # Scan for leaked secrets
 @secretlint:
@@ -167,6 +167,16 @@ check-templates:
 # Smoke test scan-sensitive-info.sh
 @test-sensitive:
     pnpm exec bats test/scan-sensitive-info.bats
+
+# ファイル名は渡さない。スクリプトが `git ls-files` を自分で走査する。
+# コードコメントのノイズ(計画の内部番号・経緯の番号・存在しないパス)を検出する
+@check-comment-noise:
+    bash scripts/check-comment-noise.sh
+
+# LC_ALL=C は bats-core のロケールのバグを避けるため(@test 名が日本語)。
+# check-comment-noise.sh のスモークテスト
+@test-comment-noise:
+    LC_ALL=C pnpm exec bats test/check-comment-noise.bats
 
 # Smoke test pr-context.sh. LC_ALL=C for the same bats-core locale bug as
 # test-scripts: this suite's @test names are in Japanese.
