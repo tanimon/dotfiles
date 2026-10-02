@@ -182,7 +182,7 @@ EOF
     assert_equal "$common_includes" "$files"
 }
 
-# 以下 2 件の `chezmoi managed` はネットワークを要求する: chezmoi は source state を
+# 以下 3 件の `chezmoi managed` はネットワークを要求する: chezmoi は source state を
 # 組み立てる際に .chezmoiexternal.toml の archive external(github.com の tarball)を
 # 必ず取得しにいく。`--exclude=externals` も `--refresh-externals=never` も取得自体は
 # 止められないことを実測済み。落ちたときのメッセージは external の tarball URL(affaan-m/ECC や
@@ -199,4 +199,29 @@ EOF
     run chezmoi managed --config "$CONFIG" --source "$REPO"
     assert_success
     assert_line '.claude/CLAUDE.md'
+}
+
+@test "ECC の rules/{typescript,web} は列挙した 10 ファイルだけが配置される" {
+    # .chezmoiexternal.toml の include はファイルを列挙しているので、ECC の SHA 更新で
+    # upstream のファイルが改名・削除されると黙って配置されなくなる(古いファイルは
+    # ~/ に残って読み込まれ続ける)。hooks.md を外した理由は
+    # docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md
+    run chezmoi managed --config "$CONFIG" --source "$REPO" --include=files
+    assert_success
+    local ecc_rules
+    ecc_rules=$(printf '%s\n' "$output" | grep -E '^\.claude/rules/(typescript|web)/')
+    assert_equal "$ecc_rules" "$(
+        cat <<'LIST'
+.claude/rules/typescript/coding-style.md
+.claude/rules/typescript/patterns.md
+.claude/rules/typescript/security.md
+.claude/rules/typescript/testing.md
+.claude/rules/web/coding-style.md
+.claude/rules/web/design-quality.md
+.claude/rules/web/patterns.md
+.claude/rules/web/performance.md
+.claude/rules/web/security.md
+.claude/rules/web/testing.md
+LIST
+    )"
 }
