@@ -75,3 +75,9 @@ bin/cco
 .claude/rules/common/testing.md
 .claude/rules/golang
 .claude/continuous-learning-config.json
+
+# ECC の rules/{typescript,web}/hooks.md は .chezmoiexternal.toml の include から外した
+# (廃止済みの ECC hook を前提にした設定例のため)。管理を外しただけでは配置済みの
+# ファイルが残って読み込まれ続けるので、ここで消す。
+.claude/rules/typescript/hooks.md
+.claude/rules/web/hooks.md

@@ -6,6 +6,8 @@
 # ECC(affaan-m/ECC)から実際に使っているファイルだけを取り込む。plugin 全体(skill 292 /
 # agent 68 / hook 24 系統)は読み込まない。経緯: docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md
 # 4 エントリは同じ SHA を指す。Renovate はそれぞれの url 行を個別に更新する。
+# rules/{typescript,web} は hooks.md を除いて include に列挙する(廃止済みの ECC hook を前提にした設定例のため)。
+# exclude を足すと include 外のファイルまで取り込まれるので使わない。
 [".claude/commands/ecc-code-review.md"]
   type = "archive-file"
   url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
@@ -27,7 +29,7 @@
   url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
   # renovate: branch=main
   stripComponents = 3
-  include = ["*/rules/typescript/**"]
+  include = ["*/rules/typescript/coding-style.md", "*/rules/typescript/patterns.md", "*/rules/typescript/security.md", "*/rules/typescript/testing.md"]
   refreshPeriod = "168h"
 
 [".claude/rules/web"]
@@ -35,7 +37,7 @@
   url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
   # renovate: branch=main
   stripComponents = 3
-  include = ["*/rules/web/**"]
+  include = ["*/rules/web/coding-style.md", "*/rules/web/design-quality.md", "*/rules/web/patterns.md", "*/rules/web/performance.md", "*/rules/web/security.md", "*/rules/web/testing.md"]
   refreshPeriod = "168h"
 
 # openai/skills の curated skill `define-goal` を Claude Code と Codex の両方に配る。
