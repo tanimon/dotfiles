@@ -6,6 +6,8 @@
 # 成否は STUB_CLAUDE_MODE(success / is_error / exit1)で切り替える。
 setup() {
     load 'helpers/setup'
+    # スクリプトが読む環境変数を、このマシンのシェルから漏らさない
+    unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-weekly.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     HDIR="$HOME/.claude/harness"
