@@ -11,7 +11,7 @@ description: 実装計画(plan)を受け取り、実装 → レビュー修正�
 
 1. **ブランチを検査する。** `git rev-parse --abbrev-ref HEAD` が `main` / `master` / `development` / `HEAD`(detached)であれば、理由を伝えて**中止する**。worktree やブランチは作らない。`git status --porcelain` が空でなければ、未コミットの変更があることを伝えて中止する(実装エージェントのコミットに混ざるため)。
 2. **plan を確認する。** 引数の plan パスを絶対パスにし、ファイルが存在してタスク分解(見出しやチェックボックスで区切られたタスク)を含むことを確認する。spec や PRD しか無い場合は中止し、先に plan を作るよう伝える(`superpowers:writing-plans` など)。
-3. **差分の基点を決める。** 引数 `base=` があればそれを使う。無ければ `origin/HEAD` が指すブランチ(`git symbolic-ref --short refs/remotes/origin/HEAD`。`origin/main` の形で出る)を使う。プロジェクトの規約で別のブランチと比較するもの(例: hotfix 以外は `development` と比較する)があれば、その規約に従う。
+3. **差分の基点を決める。** 引数 `base=` があればそれを使う。無ければ `origin/HEAD` が指すブランチ(`git symbolic-ref --short refs/remotes/origin/HEAD`。`origin/main` の形で出る)を使う。`refs/remotes/origin/HEAD` は clone の仕方によってはローカルに無く、このコマンドが失敗する。その場合は推測せず `AskUserQuestion` で基点を聞く。プロジェクトの規約で別のブランチと比較するもの(例: hotfix 以外は `development` と比較する)があれば、その規約に従う。
 4. **テスト/lint のコマンドを決める。** プロジェクトの CLAUDE.md が示す検証コマンド(例: `just lint`、`bash scripts/lint/git-diff-lint.sh`、`npm test`)を列挙する。特定できない、または候補が複数あって選べない場合は、`AskUserQuestion` で選んでもらう。1件以上が必要。
 5. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。
 6. **上限回数を決める。** 引数 `rounds=` があれば `maxReviewRounds` に使い、無ければ省略する(既定は 3)。
@@ -21,7 +21,8 @@ description: 実装計画(plan)を受け取り、実装 → レビュー修正�
    Workflow({
      scriptPath: "<ホームディレクトリの絶対パス>/.claude/workflows/deliver.js",
      args: {
-       planPath: "<絶対パス>",
+       mode: "deliver",
+       requirementsPath: "<手順2の plan の絶対パス>",
        baseRef: "<手順3>",
        checkCommands: ["<手順4>", ...],
        verifySkill: "<手順5>",
@@ -30,4 +31,4 @@ description: 実装計画(plan)を受け取り、実装 → レビュー修正�
    })
    ```
 
-8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを、`publishError` の理由とともに先頭に書き、返り値の `report` と `ledger` をそれぞれ `$(git rev-parse --absolute-git-dir)/deliver/pr-body.md` / `ledger.json` に Write ツールでそのまま書き出す(Workflow 内の書き出しが予算の上限などで失敗していても残すため。PR は作らない)。`stopReason` があれば、何が原因で止まったかを1文で添える。報告の中身を要約して丸めない(Unresolved Finding と Plan Concern は人間の判断材料なので、省略しない)。
+8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを、`publishError` の理由とともに先頭に書き、返り値の `report` と `ledger` をそれぞれ `$(git rev-parse --absolute-git-dir)/deliver/pr-body.md` / `ledger.json` に Write ツールでそのまま書き出す(Workflow 内の書き出しが予算の上限などで失敗していても残すため。PR は作らない)。`stopReason` があれば、何が原因で止まったかを1文で添える。`git status --porcelain` が空でなければ、Workflow のエージェントが未コミットの変更を残したこと(テスト/lint や動作確認の修正を途中で諦めた場合に起きる)と変更のあるファイルを、出力の先頭に書く。この変更は push されず PR にも入らないため、黙っていると人間が見落とす。消したりコミットしたりはせず、扱いはユーザーに委ねる。報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。

@@ -2,6 +2,8 @@
 
 plan を受け取り、実装、レビュー修正ループ、動作確認を経て draft PR と人間への報告までを agent が自律で行う。方式の選定理由は [ADR 0007](../../adr/0007-deliver-workflow-enforces-review-loop-in-code.md)、用語(Review Finding / Deferred Finding / Unresolved Finding / Plan Concern)は `CONTEXT.md` の「Autonomous delivery」節を参照。本書は 2026-09-25 の grilling セッションで合意した内容を記録する。
 
+> **注記(2026-10-01)**: Plan Concern は [ADR 0008](../../adr/0008-review-verify-is-a-mode-of-the-deliver-workflow.md) で Requirements Concern に改名し、識別子も `planPath` → `requirementsPath`、`planBreaking` → `requirementsBreaking`、停止理由 `plan-breaking` → `requirements-breaking`、`target: "plan"` → `target: "requirements"` に改名した。本書は当時の用語のまま残す。また、「適用範囲」節の入力についての記述(「入力は実装計画(タスクに分解済みの plan)だけ」)は Deliver についてのもので、spec を受け付ける Review-Verify は ADR 0008 で扱う。
+
 ## 適用範囲
 
 - 対象は個人リポジトリと仕事リポジトリの両方。リポジトリごとに違うもの(動作確認 skill、テスト/lint コマンド)は起動時の引数で受け取る。
@@ -47,8 +49,12 @@ Workflows は実行中に人間へ質問できないので、質問は必ず入�
 4. 動作確認の結果(失敗していれば、このリストの先頭に上げる)
 5. Deferred Finding(検証者が同意した理由を付ける)
 6. 参考指摘(修正必須ではない指摘)
-7. observations
-8. 統計
+7. 修正した指摘(修正エージェントが直したと申告し、後で Unresolved にならなかった指摘)
+8. テスト/lint を通すための変更(checks のエージェントがレビュー前にコードを変えた内容。通った場合も出す)
+9. レビュー指摘を直すための変更(修正エージェントがコードを変えた内容)
+10. 動作確認を通すための変更(動作確認の修正エージェントがコードを変えた内容。直った場合も出す)
+11. observations
+12. 統計
 
 エージェントの例外(予算の上限到達など)で途中終了しても、その時点の状態で報告を組み立て、公開を試みる。公開に失敗しても報告と ledger の中身は返し、入口 skill(メインループ側なので `agent()` の上限の対象外)が `pr-body.md` / `ledger.json` を書き出す。(ラウンド数、ラウンドごとの修正必須指摘の件数、消費トークン)
 
