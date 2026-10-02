@@ -57,8 +57,12 @@ description: >-
    別 worktree のアプリが同じポートを握っていると、無関係なブランチを検証して pass を出してしまう。
    queue worker などの常駐ワーカーも確かめる。ワーカーは起動時のコードで動き続けるので、HTTP は新しいコードで
    返しても非同期ジョブだけ古いコードで処理され、ジョブ経由の観点が古い実装に対して pass になる。
-   起動時刻(コンテナなら `docker inspect -f '{{.State.StartedAt}}' <container>`)が HEAD のコミット時刻より古ければ、
-   再起動してから検証する
+   既定では検証前にワーカーを無条件で再起動する。再起動できない構成でだけ時刻で判定し、起動時刻
+   (コンテナなら `docker inspect -f '{{.State.StartedAt}}' <container>`。UTC の RFC3339 なので epoch 秒に直して比べる)を、
+   コードがこの worktree に入った最終時刻と比べる。HEAD のコミット時刻は使わない — pull したコミット・
+   ブランチの切り替え・未コミットの変更では、コミット時刻がワーカー起動より古くてもコードは新しい。
+   最終時刻は `git reflog -1 --format=%ct HEAD` と、未コミットの変更があればそのファイルの mtime の最大値の、遅い方。
+   ビルド済みアセットの鮮度も同じ最終時刻と比べる
 6. **seed 実装**: 観点の前提データを seed/setup.ts に冪等に実装
 7. **シナリオ実装**: 観点ごとに探索 → spec 化 → 単体実行で安定化
    → references/scenario-authoring.md
