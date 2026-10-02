@@ -12,8 +12,14 @@
 # `chezmoi source-path` に解決させる(.chezmoiignore と属性 prefix の解釈を chezmoi に任せるため)。
 #
 # chezmoi が無い場合は skip せず fail する(skip にすると CI で全検査が空振りする)。
-# 描画は suite 全体で 1 回だけ行う(どの test も同じ描画結果を読むだけなので)
+# 描画は suite 全体で 1 回だけ行う(どの test も同じ描画結果を読むだけなので)。
+# chezmoi の有無は個別の test ではなくここで見る — setup_file が失敗すると
+# どの test も実行されないので、test として書いても到達しない
 setup_file() {
+    command -v chezmoi >/dev/null || {
+        echo "chezmoi が必要(この suite は skip しない)" >&2
+        return 1
+    }
     export REPO="$BATS_TEST_DIRNAME/.."
     export TMPDIR="$BATS_FILE_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
@@ -42,11 +48,6 @@ guard_registrations() {
         | {matcher: $group.matcher, type, command, timeout, exact: (.command == $cmd),
             extra: (keys - ["type", "command", "timeout"])}
     ' "$SETTINGS"
-}
-
-@test "chezmoi が使える(この suite は skip しない)" {
-    run command -v chezmoi
-    assert_success
 }
 
 @test "描画結果が JSON として読める" {
