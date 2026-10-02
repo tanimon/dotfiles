@@ -20,6 +20,19 @@
 # Residuals this scan does not cover (documented in the tier-model spec):
 #   - a force refspec reached through an alias or a shell function
 #   - `gh api` calls that perform the equivalent server-side operation
+#   - `git pu""sh … --force`: 下の `*push*` の早期終了が reader の引用符除去より先に走る(ADR 0009)。
+#     `git {pu,}sh …` のように展開で `push` を作る綴りも同じ理由で素通りする
+#   - 永続した設定: 同じコマンドや前の呼び出しの `git config remote.origin.mirror true`
+#     (や `remote.<name>.push=+…`)の後の素の push。読むのはコマンド文字列だけで、リポジトリの
+#     設定は読まない
+#   - `git push origin $(…) --force` は reader が `$(` で segment を切るので、`--force` が push の
+#     segment に入らず deny ではなく ask になる(`$` による ask)
+#   - zsh のグロブの `(…)`(`README.md(e:'reply=(-f)':)`)、git-core の `git-push` と `git send-pack`、
+#     `echo --force | xargs git push …`、`env -S "git push … --force"`(scripts/CLAUDE.md)
+#
+# classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
+# 新しい shellcheck は SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する。
+# shellcheck disable=SC2317,SC2329
 set -euo pipefail
 
 # Errors go to a log file when one can be opened, and to the hook's own stderr
@@ -77,23 +90,155 @@ case "$COMMAND" in
 *) exit 0 ;;
 esac
 
-# Strip one layer of surrounding quotes so `"+main"` is seen as `+main`. The
-# token is never re-executed, only matched, so this is a read of intent rather
-# than a shell-accurate unquote. A backtick is stripped alongside the quotes
-# because it delimits a *substitution*: `` `git push … --force` `` runs, so the
-# tokens inside it are a command, unlike the text inside `"…"`.
-unquote() {
-    local s=$1
-    s=${s#[\"\'\`]}
-    s=${s%[\"\'\`]}
-    printf '%s' "$s"
+# 共有 reader を読む。このフックの無出力はフェイルオープンなので、読めないときは ask に倒す。
+# `source` は存在しないファイルで `||` に届く前に bash 自身が終了する
+# (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
+# 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `"$BASH" -n` で
+# 先に確かめ(PATH 上の bash ではなく、このフックを動かしている interpreter で検査する)、
+# 空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)になるので
+# `declare -F` で確かめる。
+reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
+if [[ ! -r "$reader_library" ]] || ! "$BASH" -n "$reader_library"; then
+    emit ask "$ASK_REASON"
+    exit 0
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/shell-reader.bash
+source "$reader_library" || {
+    emit ask "$ASK_REASON"
+    exit 0
 }
+declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches >/dev/null || {
+    emit ask "$ASK_REASON"
+    exit 0
+}
+
+DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
+# 長オプションは token の判定(long_option_is_dangerous)と同じく前方一致も見る(`--forc` / `--dele`)。
+# `-c` / `--config-env` の push・mirror の設定も、token の判定と同じく床に一致させる。
+# 短オプションの束も token の判定(`-*` のうち f か d を含むもの)と同じく数字を含めて見る(`-4f` は
+# `--ipv4` + `--force`)。英字だけにすると、token の判定が deny する綴りが床では一致しない。
+DANGER_FLAG_RE='(--(f|fo|for|forc|force(-[[:alnum:]-]*)?|d|de|del|dele|delet|delete|m|mi|mir|mirr|mirro|mirror|p|pr|pru|prun|prune)([^[:alnum:]_-]|$)|[[:space:]](-c|--config-env)[[:space:]=]*[^[:space:]]*([Pp][Uu][Ss][Hh]|[Mm][Ii][Rr][Rr][Oo][Rr])|[[:space:]]-[[:alnum:]]*[fd][[:alnum:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
+# 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
+# 組み合わせて ask にしないようにする(以前も改行で分割していたので同じ粒度になる)。
+# 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_any_line_matches が行う
+# (`'git' push …` や `git push … \⏎--force` も同じ行の `git push … --force` として見る)。
+text_floor() {
+    shell_reader_any_line_matches "$1" "$DANGER_TEXT_RE" "$DANGER_FLAG_RE"
+}
+
+shell_reader_read "$COMMAND"
+# 長すぎる入力は reader が token を作らない(安く読めない)。字面の床(行単位の正規表現で、
+# reader の byte ごとの走査ではない)だけを生のコマンドに当て、一致したら ask にする。deny に
+# しないのは、長い PR 本文の散文も同じ形になるため。一致しなければ classifier に任せる(ADR 0009)。
+if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
+    text_floor "$COMMAND" && emit ask "$ASK_REASON"
+    exit 0
+fi
 
 DANGER_TOKEN=""
 NEEDS_ASK=0
 
+# 引用符の外の `$(` は reader が `(` で segment を切るので、`$` で終わる token の直後に区切りが来る。
+# その位置より後ろの segment は、置換の出力をコマンド語にした続き(`$(which git) push …`)でありうる
+# (classify_segment が読む)。見つからなければ -1。空配列の展開は bash 3.2 の set -u で落ちるので数を先に見る。
+UNQUOTED_SUBSTITUTION_INDEX=-1
+# `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_<n>` / `GIT_CONFIG_PARAMETERS` などの環境変数は `-c` と同じ
+# 設定を運ぶ(`GIT_CONFIG_KEY_0=remote.origin.mirror` + `GIT_CONFIG_VALUE_0=true` で mirror push)。
+# 前置きの代入でも前の segment の `export` でも効くので、コマンド全体の token を語頭で見る。
+# push の segment ごとにコマンド全体を走査すると segment 数 × token 数の二乗になり、8 KB 近い
+# `git push origin main --force;git push;…` が 5 秒を越えてフックの timeout(= 判定なし =
+# フェイルオープン)に届いた。そこでここで 1 回だけ数え、classify_from は結果だけを見る。
+GIT_CONFIG_IN_COMMAND=0
+# 最初の heredoc 演算子の index(reader の SHELL_READER_HEREDOC_INDEXES の先頭。印は昇順に並ぶ)。無ければ -1。
+# reader は heredoc の本文を知らないので、本文の行は普通の segment に見える。この位置より後ろの segment では
+# 危険な綴りを deny ではなく ask にする(本文の `git push --force を deny する` は承認しても通せない
+# deny にしない)。heredoc の後ろに実際に書かれた force push も ask に下がるのは受容した格下げ。
+# 本文を持たない here-string(`<<<`)と `< <(…)` は reader が heredoc として記録しないので、格下げしない。
+HEREDOC_INDEX=${SHELL_READER_HEREDOC_INDEXES:- }
+HEREDOC_INDEX=${HEREDOC_INDEX# }
+HEREDOC_INDEX=${HEREDOC_INDEX%% *}
+[[ -z "$HEREDOC_INDEX" ]] && HEREDOC_INDEX=-1
+if [[ ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
+    for index in "${!SHELL_READER_TOKENS[@]}"; do
+        case "${SHELL_READER_TOKENS[$index]}" in GIT_CONFIG*) GIT_CONFIG_IN_COMMAND=1 ;; esac
+        case "${SHELL_READER_TOKENS[$index]}" in
+        *'$')
+            if [[ $UNQUOTED_SUBSTITUTION_INDEX -lt 0 &&
+                "${SHELL_READER_TOKENS[$((index + 1))]:-}" == "$SHELL_READER_SEP" ]]; then
+                UNQUOTED_SUBSTITUTION_INDEX=$index
+            fi
+            ;;
+        esac
+    done
+fi
+
+# 番兵の byte が入力にあると、reader が作る segment の境目を偽造できる(`git push origin main 2>\x01 --force`
+# は bash では stderr の redirect 先が `\x01` の force push だが、reader には `--force` だけの segment が
+# 別にあるように見える)。この時点でコマンドは `push` を含むので、読み切れないとして ask にする。
+# プロセス置換も同じ: `git push origin <(echo) --force` の `)` の後ろは git の引数の続きだが、reader の
+# segment では `--force` だけの segment に見える。
+# ここで終わらずに segment の走査を続ける。読み切れた別の segment に危険な綴りがあれば deny が勝つ
+# (`git push origin main --force; cat <(true)` を ask に格下げしない)。
+if [[ $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ]]; then
+    NEEDS_ASK=1
+fi
+
+# reader が引用符を外すので、ここで外すのはバッククォートだけ。`` `git push … --force` `` は
+# 実行されるので、前後の 1 つを外して読む。token ごとに呼ぶので $(…) で fork しない。
+STRIPPED=''
+strip_backticks() {
+    STRIPPED=${1#\`}
+    STRIPPED=${STRIPPED%\`}
+}
+
+# $1(`--` 付き、`=` より前)が、破壊的な push の長オプションのどれかの前方一致か。
+long_option_is_dangerous() {
+    local option
+    for option in --force --force-with-lease --force-if-includes --delete --mirror --prune; do
+        [[ "$option" == "$1"* ]] && return 0
+    done
+    return 1
+}
+
+# 現在の segment(SHELL_READER_SEGMENT_START から token_count 個)にブレース展開かパス名展開
+# (引用符の外の * ? [)があるか。展開の結果は reader の token に現れない(`{main,--force}` の token は
+# `main,--force`、`-?` は cwd に `-f` があれば `-f` になる)ので、危険な綴りを探す代わりに、
+# 展開がある push を読み切れないとして扱う。
+# 印の全件ではなく segment の token ごとに引く。印は入力の長さに比例して増えうる(` *` を 2 byte ごと)ので、
+# push の segment ごとに全件を走査すると segment 数 × 印の数の二乗になり、8 KB でフックの timeout(5 秒)を
+# 越えた(= 判定なし = フェイルオープン)。
+segment_has_expansion_mark() {
+    local position=0
+    while [[ $position -lt $token_count ]]; do
+        token_is_marked "$position" && return 0
+        position=$((position + 1))
+    done
+    return 1
+}
+
+# $1(`-c` の値、`key=value` か `key`)が push を壊しうる設定か。キーは大文字小文字を区別しない。
+# `remote.<name>.push` は force の refspec を、`remote.<name>.mirror` は mirror push を運び、
+# `include.path` / `includeIf.*.path` は読めないファイルの設定を取り込む。
+config_is_dangerous() {
+    case "$1" in
+    [Rr][Ee][Mm][Oo][Tt][Ee].*.[Pp][Uu][Ss][Hh] | [Rr][Ee][Mm][Oo][Tt][Ee].*.[Pp][Uu][Ss][Hh]=*) return 0 ;;
+    [Rr][Ee][Mm][Oo][Tt][Ee].*.[Mm][Ii][Rr][Rr][Oo][Rr] | [Rr][Ee][Mm][Oo][Tt][Ee].*.[Mm][Ii][Rr][Rr][Oo][Rr]=*) return 0 ;;
+    [Ii][Nn][Cc][Ll][Uu][Dd][Ee]*) return 0 ;;
+    esac
+    return 1
+}
+
+# 現在の segment の $1 番目(segment 内の index)の token に、ブレース展開かパス名展開の印があるか。
+token_is_marked() {
+    case "$SHELL_READER_BRACE_INDEXES$SHELL_READER_GLOB_INDEXES" in
+    *" $((SHELL_READER_SEGMENT_START + $1)) "*) return 0 ;;
+    esac
+    return 1
+}
+
 # Classify one segment as a git invocation whose binary sits at token index $1.
-# Reads the `tokens` / `count` / `segment` globals the loop below sets.
+# Reads the `tokens` / `token_count` globals classify_segment sets.
 #
 # $2 is 1 when that index is the command position — the segment's first token,
 # or the first one past a recognized prefix — and 0 when the `git` token was
@@ -106,28 +251,54 @@ NEEDS_ASK=0
 classify_from() {
     local start=$1 strict=$2
     local index=$((start + 1))
-    local subcommand="" config_ask=0 danger="" token value argument
+    local subcommand="" config_ask=0 config_danger=0 alias_ask=0 danger="" token value argument
 
     # Walk git's own options to find the subcommand. `-c <cfg>` and friends take
     # a separate value token, so they advance by two.
-    while [[ $index -lt $count ]]; do
-        token=$(unquote "${tokens[$index]}")
+    while [[ $index -lt $token_count ]]; do
+        strip_backticks "${tokens[$index]}"
+        token=$STRIPPED
         case "$token" in
         -c | --config-env)
-            value=$(unquote "${tokens[$((index + 1))]:-}")
+            strip_backticks "${tokens[$((index + 1))]:-}"
+            value=$STRIPPED
             # Config can make a plain push destructive without any flag the
             # argument scan below would see: `remote.<name>.push=+refs/…`
             # carries a force refspec, and `remote.<name>.mirror=true` makes
             # every push behave as `--mirror`. `mirror` does not contain `push`,
             # so it needs its own pattern. Unreadable rather than safe.
-            case "$value" in *push* | *mirror*) config_ask=1 ;; esac
+            # 設定キーは大文字小文字を区別しない(`remote.origin.MIRROR=true` も mirror になる)ので、
+            # 下の alias と同じく両方の綴りに一致させる。
+            # `include.path` / `includeIf.*.path` は読めないファイルの設定(`remote.origin.mirror=true`
+            # を含みうる)を取り込むので、同じく読み切れないとして扱う。
+            case "$value" in *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]* | [Ii][Nn][Cc][Ll][Uu][Dd][Ee]*) config_ask=1 ;; esac
+            config_is_dangerous "$value" && config_danger=1
+            # `-c alias.p='push --force' p` は、サブコマンドが `push` でなくても push になる。
+            # git の設定キーは大文字小文字を区別しないので、`ALIAS.p=…` も同じに扱う。
+            case "$value" in [Aa][Ll][Ii][Aa][Ss].*=*push*) alias_ask=1 ;; esac
+            # `--config-env alias.p=VAR` の `=` の後ろは値ではなく環境変数の名前で、展開先
+            # (`VAR='push --force'`)はここから読めない。alias のキーなら値に関係なく ask。
+            if [[ "$token" == --config-env ]]; then
+                case "$value" in [Aa][Ll][Ii][Aa][Ss].*) alias_ask=1 ;; esac
+            fi
             index=$((index + 2))
             ;;
-        -C | --git-dir | --work-tree | --namespace | --exec-path)
+        # `--attr-source <tree>` も値を別の token に取る(git 2.55 で実測)。並べないと値が
+        # サブコマンドに見え、`git --attr-source HEAD push … --force` が無出力になる。
+        -C | --git-dir | --work-tree | --namespace | --exec-path | --attr-source)
             index=$((index + 2))
             ;;
         -c* | --config-env=*)
-            case "$token" in *push* | *mirror*) config_ask=1 ;; esac
+            case "$token" in
+            *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]* | -c[Ii][Nn][Cc][Ll][Uu][Dd][Ee]* | --config-env=[Ii][Nn][Cc][Ll][Uu][Dd][Ee]*)
+                config_ask=1
+                ;;
+            esac
+            case "$token" in
+            -c[Aa][Ll][Ii][Aa][Ss].*=*push* | --config-env=[Aa][Ll][Ii][Aa][Ss].*) alias_ask=1 ;;
+            esac
+            config_is_dangerous "${token#-c}" && config_danger=1
+            config_is_dangerous "${token#--config-env=}" && config_danger=1
             index=$((index + 1))
             ;;
         -*)
@@ -139,19 +310,43 @@ classify_from() {
             ;;
         esac
     done
+    # 下の `push` でないときの早期 return より前に立てる(alias の展開先はここでは読めない)。
+    [[ $alias_ask -eq 1 ]] && NEEDS_ASK=1
+    # サブコマンドそのものを展開で作る綴り(`git {push,origin,main,--force}`)は、token が
+    # `push,origin,main,--force` なので push に見えない。印のある token が push を含めば ask。
+    if [[ "$subcommand" != "push" && $index -lt $token_count ]] && token_is_marked "$index"; then
+        case "$subcommand" in *push*) NEEDS_ASK=1 ;; esac
+    fi
     [[ "$subcommand" == "push" ]] || return 0
 
+    local expansion=0 raw_argument after_comment=0 commented_danger=0 danger_before
+    # ブレース展開とパス名展開は `--force` や `+main` を token に現さずに作れる
+    # (`git push origin {main,--force}`、cwd に `-f` を置いた `git push origin main -?`)。
+    # strict=0 でも同じ理由で ask にする(`expansion` は両方の分岐で ask になる)。
+    segment_has_expansion_mark && expansion=1
     argument=$((index + 1))
-    while [[ $argument -lt $count ]]; do
-        token=$(unquote "${tokens[$argument]}")
+    while [[ $argument -lt $token_count ]]; do
+        # strict=0 用: push の引数に `$` かバッククォートがあるか。末尾の 1 つだけは除く —
+        # `` x=`git push origin main` `` の `` main` `` は、git を包む置換を閉じるだけのもの。
+        raw_argument=${tokens[$argument]%\`}
+        case "$raw_argument" in *'$'* | *'`'*) expansion=1 ;; esac
+        strip_backticks "${tokens[$argument]}"
+        token=$STRIPPED
+        # 語頭の `#` から行末まではコメント(reader はコメントを知らない)。その後ろの危険な綴りは
+        # deny ではなく ask にする(`git push origin main # do not --force`)。引用された `'#x'` と
+        # 区別できないので、無視はせず ask 止まりにする。
+        [[ "$token" == \#* ]] && after_comment=1
+        danger_before=$danger
         case "$token" in
-        --force | --force-with-lease | --force-with-lease=* | --force-if-includes | --delete | --mirror | --prune)
-            [[ -z "$danger" ]] && danger=$token
-            ;;
-        --*)
-            # Every other long option is safe, and matching the exact spellings
-            # above rather than a substring is what keeps `--no-force-with-lease`
-            # out of the deny set.
+        --?*)
+            # git は長オプションの一意な前方一致を受け付ける(`--dele` は `--delete`、`--force-w` は
+            # `--force-with-lease`)。そこで `=` より前が危険なオプションの前方一致なら danger にする。
+            # 曖昧な前方一致(`--d` は `--dry-run` とも一致する)は git 自身がエラーにするので、
+            # deny しても失うものは無い。部分一致ではなく前方一致なので、`--no-force-with-lease` は
+            # 一致しない。
+            if long_option_is_dangerous "${token%%=*}"; then
+                [[ -z "$danger" ]] && danger=$token
+            fi
             ;;
         -*)
             # Bundled short options: -f is --force, -d is --delete.
@@ -168,14 +363,30 @@ classify_from() {
             [[ -z "$danger" ]] && danger=$token
             ;;
         esac
+        if [[ $after_comment -eq 1 && "$danger" != "$danger_before" ]]; then
+            danger=$danger_before
+            commented_danger=1
+        fi
         argument=$((argument + 1))
     done
+    [[ $commented_danger -eq 1 ]] && NEEDS_ASK=1
+    # heredoc 演算子より後ろの segment(本文の行でありうる)は、危険な綴りでも ask 止まり。
+    if [[ -n "$danger" && $HEREDOC_INDEX -ge 0 && $SHELL_READER_SEGMENT_START -gt $HEREDOC_INDEX ]]; then
+        danger=''
+        NEEDS_ASK=1
+    fi
 
     if [[ $strict -eq 0 ]]; then
-        # An unconfirmed command position never denies, and the fail-closed
-        # triggers below would fire on ordinary prose, so only a dangerous
-        # spelling counts here.
-        [[ -n "$danger" ]] && NEEDS_ASK=1
+        # コマンド位置を確定できないので deny にはしない(ask 止まり)。下の -c の検査は散文でも
+        # 立ちうるので使わず、危険な綴りと、push の引数の `$` / バッククォートだけを見る。
+        # 後者が無いと、`` x=`git push origin $r` `` のように変数が --force を運ぶ push が、
+        # バッククォートで包むだけで無出力になる。push の引数に限るので、git より前の token や
+        # 引用符の中の散文(`echo "git push origin $r"` は token 1 つで、git と読める token が無い)は巻き込まない。
+        # ただし push を壊す設定(remote.*.push / remote.*.mirror / include)と GIT_CONFIG_* は見る。
+        # `nice -n 0` / `timeout 60` / `sudo -n` の後ろの git はこの分岐に来るので、見ないと
+        # `timeout 60 git -c remote.origin.mirror=true push origin` が無出力になる。ask 止まりなので
+        # deny は増えない。`-c push.autoSetupRemote=true` のような無害な設定は巻き込まない。
+        [[ -n "$danger" || $expansion -eq 1 || $config_danger -eq 1 || $GIT_CONFIG_IN_COMMAND -eq 1 ]] && NEEDS_ASK=1
         return 0
     fi
 
@@ -184,45 +395,30 @@ classify_from() {
     # A variable or command substitution can carry `--force` or `+main` into the
     # argument list without either appearing here. Scoped to the push segment on
     # purpose: `git commit -m "$(date)" && git push origin x` stays frictionless.
-    case "$segment" in
-    *'$'* | *'`'*) NEEDS_ASK=1 ;;
-    esac
+    local raw
+    for raw in "${tokens[@]}"; do
+        case "$raw" in *'$'* | *'`'*) NEEDS_ASK=1 ;; esac
+    done
+    # コマンド全体の token の `GIT_CONFIG*`(下の GIT_CONFIG_IN_COMMAND の説明)。
+    [[ $GIT_CONFIG_IN_COMMAND -eq 1 ]] && NEEDS_ASK=1
+    [[ $expansion -eq 1 ]] && NEEDS_ASK=1
 
     [[ -n "$danger" && -z "$DANGER_TOKEN" ]] && DANGER_TOKEN=$danger
     return 0
 }
 
-# Split into command segments. `git commit -m wip && git push --force` must not
-# hide behind the first verb, and over-splitting only ever produces segments
-# that fail the `git push` test below, which is the safe direction.
-# Normalize before splitting. Each of these was a fail-open hole: shell
-# punctuation either glues onto a flag (`--force)` no longer matches `--force`)
-# or splits a segment so that the half carrying the flag no longer starts with
-# `git`. `(cd dir && git push … --force)` is a routine agent idiom, so this is
-# not a theoretical concern.
-NORMALIZED=$COMMAND
-# A backslash-newline continuation is not a separator.
-NORMALIZED=${NORMALIZED//\\$'\n'/ }
-# Redirect operators contain & but do not separate commands (2>&1, &>f, >&2).
-NORMALIZED=$(printf '%s' "$NORMALIZED" | sed -E 's/[<>]&|&>/ /g')
-# Grouping punctuation is noise for this scan. Spacing it out rather than
-# deleting it keeps `$` intact, so the substitution check below still fires.
-NORMALIZED=$(printf '%s' "$NORMALIZED" | tr '(){}' '    ')
-
-# tr pads a short replacement set with its last character, so all three map to
-# a newline; the command's own newlines are already separators.
-SEGMENTS=$(printf '%s' "$NORMALIZED" | tr ';&|' '\n')
-
-while IFS= read -r segment || [[ -n "$segment" ]]; do
-    [[ -z "$segment" ]] && continue
-
-    # bash 3.2 errors on expanding an empty array under `set -u`, so the count
-    # is checked before `${tokens[...]}` is touched anywhere below.
-    tokens=()
-    read -ra tokens <<<"$segment" || true
-    [[ ${#tokens[@]} -eq 0 ]] && continue
-
-    count=${#tokens[@]}
+# segment への分割と、グルーピング記号・リダイレクトの `&`・継続行の正規化は
+# reader が行う(test/shell-reader.bats)。`git commit -m wip && git push --force` が
+# 最初の動詞に隠れず、`(cd dir && git push … --force)` の `)` がフラグに接着しないのは
+# そのため。この関数は segment ごとに tokens / token_count を設定して判定する。
+#
+# shell_reader_each_segment の callback。常に 0 を返す(全 segment を見る)。
+# classify_from は tokens / token_count を動的スコープ(または global)経由で読む。
+# reader の local は `_sr_` 接頭辞なので、ここの変数名と衝突しない。
+classify_segment() {
+    # 空配列の展開は bash 3.2 の set -u で落ちるが、callback は空でない segment でしか呼ばれない。
+    tokens=("$@")
+    token_count=$#
 
     # Skip what can legitimately precede the binary. Shell keywords and command
     # prefixes are the fourth way a segment stops starting with `git` — after
@@ -231,26 +427,71 @@ while IFS= read -r segment || [[ -n "$segment" ]]; do
     # one-line `for … do git push … ; done` or `if true; then …; fi` is ordinary
     # phrasing. Walking an index rather than re-slicing the array avoids
     # expanding an empty array, which bash 3.2 rejects under `set -u`.
-    start=0
-    while [[ $start -lt $count ]]; do
-        probe=$(unquote "${tokens[$start]}")
+    command_start=0
+    while [[ $command_start -lt $token_count ]]; do
+        strip_backticks "${tokens[$command_start]}"
+        probe=$STRIPPED
         case "$probe" in
         # `VAR=value git push …`. Anchored so a token that merely contains `=`
         # is not mistaken for an assignment.
-        [A-Za-z_]*=*) start=$((start + 1)) ;;
+        [A-Za-z_]*=*) command_start=$((command_start + 1)) ;;
         if | then | elif | else | fi | while | until | do | done | '!' | time | nohup | command | env | sudo | nice | exec)
-            start=$((start + 1))
+            command_start=$((command_start + 1))
             ;;
         *) break ;;
         esac
     done
 
-    if [[ $start -lt $count ]]; then
-        binary=$(unquote "${tokens[$start]}")
+    # コマンドの位置の語そのものを展開で作る綴り(bash の `{git,push,origin,main,--force}`、
+    # `/usr/bin/gi? push …`)は、`git` と読める token が無いので下の走査が何も見つけない。コマンドの
+    # 位置の token に印があり、segment に push を含む token があれば読み切れないとして ask にする。
+    # コマンドの位置に限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため。
+    # 置換や変数がコマンドの位置にある綴り(`$G push …`、`` `which git` push … ``、
+    # `"$(command -v git)" push …`)も同じく git と読める token が無いので、同じ扱いにする。
+    # 単独の `$` は、後ろの token にブレースの印があるときだけ数える: 引用符の外の `${G}` は reader が
+    # `{` で切るので `$` と `G` に分かれる。印が無い単独の `$` は bash でも zsh でも文字のままで、
+    # heredoc 本文のプロンプト表記(`$ git push origin main`)がこの形になる。
+    # 引用符の外の `$(which git) push …` は reader が `)` で segment を切るので、push の segment が
+    # `push` そのものか、git の全体オプション・リダイレクト(`-C . push …`、`2>/dev/null push …`)から
+    # 始まる。これは前置きが無く、segment が引用符の外の `$(` より後ろにあるときに限る(heredoc の散文の
+    # 行頭の push と、`` x=`git push origin main` `` の代入の後ろの push を巻き込まないため)。
+    command_word_unreadable=0
+    if [[ $command_start -lt $token_count ]]; then
+        token_is_marked "$command_start" && command_word_unreadable=1
+        case "${tokens[$command_start]}" in
+        '$')
+            if [[ $((command_start + 1)) -lt $token_count ]] && token_is_marked $((command_start + 1)); then
+                command_word_unreadable=1
+            fi
+            ;;
+        *'$'* | *'`'*) command_word_unreadable=1 ;;
+        esac
+        if [[ $command_start -eq 0 && $UNQUOTED_SUBSTITUTION_INDEX -ge 0 &&
+            $SHELL_READER_SEGMENT_START -gt $UNQUOTED_SUBSTITUTION_INDEX ]]; then
+            case "${tokens[0]}" in
+            push | -* | *[\<\>]*) command_word_unreadable=1 ;;
+            esac
+        fi
+    fi
+    if [[ $command_word_unreadable -eq 1 ]]; then
+        for marked_token in "${tokens[@]}"; do
+            case "$marked_token" in *push*)
+                NEEDS_ASK=1
+                break
+                ;;
+            esac
+        done
+    fi
+
+    if [[ $command_start -lt $token_count ]]; then
+        strip_backticks "${tokens[$command_start]}"
+        # 語頭の `=` は zsh の EQUALS(`=git` は PATH 上の git に展開される。Bash ツールが zsh で
+        # 動く環境では、そのまま force push になる)。
+        binary=${STRIPPED#=}
         # Accept an absolute or relative path to git as well as the bare name.
         if [[ "${binary##*/}" == "git" ]]; then
-            classify_from "$start" 1
-            continue
+            classify_from "$command_start" 1
+            return 0
         fi
     fi
 
@@ -259,16 +500,67 @@ while IFS= read -r segment || [[ -n "$segment" ]]; do
     # look for it and classify from there, at `ask` strength only. Quotes are
     # *not* stripped for this match, so `echo "git push --force"` stays silent
     # (a quoted `git` is text); a leading backtick is, because that one runs.
-    probe=$start
-    while [[ $probe -lt $count ]]; do
-        raw=${tokens[$probe]#\`}
+    # token の途中のバッククォートも同じく実行される。引用符の外の `` x=`git push … --force` `` は
+    # reader が空白で割るので、代入の token が `` x=`git `` になり、上の前置の読み飛ばしで
+    # command_start の手前に置かれる。そこで走査は先頭から始め、最後のバッククォートより後ろを見る
+    # (バッククォートを含まない token では何も外さない)。command_start の手前にあるのは代入と
+    # キーワード・前置詞だけで、ここから見つかった git は ask 止まり(危険な綴りがあるときだけ)。
+    probe=0
+    while [[ $probe -lt $token_count ]]; do
+        raw=${tokens[$probe]##*\`}
+        raw=${raw#=}
         if [[ "${raw##*/}" == "git" ]]; then
             classify_from "$probe" 0
             break
         fi
         probe=$((probe + 1))
     done
-done <<<"$SEGMENTS"
+    return 0
+}
+
+shell_reader_each_segment classify_segment
+
+# reader は $(…) やバッククォートの中を読まないので、引用符の中の置換に埋まった push
+# (`echo "$(git push origin main --force)"`、PR 本文の heredoc)は token 1 つの文字列になる。
+# 閉じていない引用符(heredoc の `don't`)も、それ以降を 1 token に飲み込む。これらの token に
+# git・push・危険な綴りがそろっていれば ask にする。deny にしないのは、PR 本文の散文も同じ形になるため。
+# 同じ行に「git … push」と ` -f ` や ` :x` を含む散文が ask になるのは、受容した誤 ask。
+# text_floor と正規表現は上(長さ超過の分岐と共用)。
+# 対象の token は改行で区切って 1 つにまとめ、床は 1 回だけ呼ぶ。床は引用符や backslash を含む
+# 入力で awk / tr を fork するので、token ごとに呼ぶと `"$'"` を 1000 個並べただけで秒単位になり、
+# フックの timeout(5 秒)を越えると判定なし = フェイルオープンになる。
+# 引用符の中の置換に入れ子の引用符があると(`"$(echo "a it's")"`)、reader は入れ子の `"` で引用符が
+# 閉じたと読み、その後ろの同期がずれる。`echo "$(echo "a it's")" ; git push origin main --force ; echo ' x'`
+# では、bash が実行する push が改行も `$` も無い 1 token に飲み込まれ、閉じない引用符の最後の token も
+# 空になる。ずれはその置換より後ろでしか起きないので、`$(` / `${` / バッククォートを含む最初の token
+# から後ろはすべて床に当てる(token ごとに 1 行なので、別々の token が 1 行に組み合わさることはない)。
+if [[ -z "$DANGER_TOKEN" && ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
+    last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
+    floor_text=''
+    after_substitution=0
+    for index in "${!SHELL_READER_TOKENS[@]}"; do
+        token=${SHELL_READER_TOKENS[$index]}
+        case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
+        if [[ $after_substitution -eq 1 ]]; then
+            floor_text+=$token$'\n'
+            continue
+        fi
+        case "$token" in
+        # 改行を含む token も見る。reader は heredoc とコメントを知らないので、本文やコメントの中の
+        # 引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、次の同じ引用符までの行(bash が
+        # 実行する push を含む)が 1 token に飲み込まれる。
+        *'$'* | *'`'* | *$'\n'*) floor_text+=$token$'\n' ;;
+        *)
+            if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index ]]; then
+                floor_text+=$token$'\n'
+            fi
+            ;;
+        esac
+    done
+    if [[ -n "$floor_text" ]] && text_floor "$floor_text"; then
+        NEEDS_ASK=1
+    fi
+fi
 
 if [[ -n "$DANGER_TOKEN" ]]; then
     emit deny "git-push-guard: 破壊的な push の綴りを検出しました(${DANGER_TOKEN})。force push とリモートブランチ削除は人間が自分の端末で行う方針です。"
