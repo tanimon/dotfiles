@@ -16,7 +16,7 @@ date: 2026-10-02
 ## Consequences
 
 - suite を足すときは、justfile のレシピと `lint:`、lint.yml の job の 2 箇所を触る。片方を忘れると `test-ci-parity` が落ちる。
-- lint.yml の `run` は `just <recipe>` の 1 行か、`just` という語を含まない行に限る。それ以外の形は検査が読み切れないので fail になる。
+- lint.yml の `run` は `just <recipe>` の 1 行か、`just` という語を含まない行に限る。それ以外の形は検査が読み切れないので fail になる。`just` を呼ぶ step とその job には、レシピを走らせない・失敗を握りつぶす・別の justfile を読ませる修飾子(`if` / `continue-on-error` / `shell` / `working-directory` / `defaults.run`)も付けられない。`lint:` は本体を持たない。
 - 検査は mikefarah 版の yq v4 を要求する(CI は runner に入っているもの、ローカルは `darwin/Brewfile`)。
 - ローカル action を全 job が参照するため、zizmor の self-repository 監査は `.github/zizmor.yml` で 1 箇所で無効にしている(`$/...` 構文を actionlint が拒否するため。rhysd/actionlint#711)。
 - pre-commit の hook は、今も justfile とは独立した entry と `files:` のトリガを持っている。この決定の範囲外。

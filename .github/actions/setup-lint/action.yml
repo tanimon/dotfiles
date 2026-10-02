@@ -1,9 +1,10 @@
 name: Setup lint tools
 description: >
   lint.yml の各 job が使うツールを導入する。just は常に入れ、それ以外は input で選ぶ。
-  ツールの版と action の pin はこのファイルにだけ書く(job ごとに写すと、
+  ツールの版と、checkout 以外の action の pin はこのファイルにだけ書く(job ごとに写すと、
   更新が一部の job にしか届かない drift が起きるため)。
-  checkout はこの action の外で先に行うこと(action 自身を読むために要る)。
+  checkout はこの action の外で先に行うこと(action 自身を読むために要る)。そのため
+  checkout の pin だけは lint.yml の各 job に残る。
 
 inputs:
   node:

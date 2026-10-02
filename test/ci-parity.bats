@@ -9,6 +9,13 @@
 # lint.yml の各 step の `run` は「`just <recipe>` の 1 行」か「`just` という語を含まない」の
 # どちらかに限る。それ以外(`run: |` の中の `just a && just b` など)は読み切れないので
 # fail にする — 読めない形を通すと、検査が黙って空振りする。
+# `just` を呼ぶ step とその job には、レシピを走らせない・失敗を握りつぶす・別の
+# justfile を読ませる修飾子(step の if / continue-on-error / shell / working-directory、
+# job の if / continue-on-error / defaults.run、workflow の defaults.run)も付けられない。
+# 集合が一致していても、それらがあると CI はそのレシピを実際には検査していない。
+#
+# `lint:` は本体を持たない前提で、本体があれば fail にする。本体から呼ぶレシピは
+# 依存列に現れないので、この検査から見えない。
 #
 # yq は mikefarah 版の v4 を要求する。python 版の yq は構文が違い、誤読が黙って
 # 空集合になりうる。yq が無いときも skip せず fail する(CI で空振りさせないため)。
@@ -36,25 +43,40 @@ require_yq() {
 
 # justfile の `lint:` の依存から local-only を除いた集合(1 行 1 recipe、ソート済み)。
 expected_recipes() {
-    just --justfile "$1" --dump --dump-format json |
-        jq -r '.recipes as $r
-            | .recipes.lint.dependencies[].recipe
-            | select([$r[.].attributes[]? | objects | .group?] | index("local-only") | not)' |
+    local dump
+    dump=$(just --justfile "$1" --dump --dump-format json) || return 1
+    if [ "$(jq '.recipes.lint.body | length' <<<"$dump")" != 0 ]; then
+        echo "lint: が本体を持っている(依存列だけにすること)" >&2
+        return 1
+    fi
+    jq -r '.recipes as $r
+        | .recipes.lint.dependencies[].recipe
+        | select([$r[.].attributes[]? | objects | .group?] | index("local-only") | not)' <<<"$dump" |
         sort -u
 }
 
-# workflow の各 step の run が呼ぶ recipe の集合。読み切れない run があれば非ゼロで返る。
+# workflow の各 step の run が呼ぶ recipe の集合。読み切れない step があれば非ゼロで返る。
 ci_recipes() {
-    local runs
-    runs=$(yq -o=json '[.jobs[].steps[] | select(has("run")) | .run]' "$1") || return 1
+    local workflow
+    workflow=$(yq -o=json '.' "$1") || return 1
     local unreadable
-    unreadable=$(jq -r '.[] | select((test("^just [a-z0-9-]+$") | not) and test("\\bjust\\b")) | @json' <<<"$runs")
+    unreadable=$(jq -r '
+        [.defaults.run // {} | keys[] | "workflow の defaults.run.\(.)"] as $workflow_reasons
+        | .jobs | to_entries[] | .key as $job_id | .value as $job
+        | $job.steps[]? | select(has("run") and (.run | test("\\bjust\\b")))
+        | [ (if (.run | test("^just [a-z0-9-]+$")) then empty else "run の形" end),
+            (keys[] | select(IN("if", "continue-on-error", "shell", "working-directory")) | "step の \(.)"),
+            ($job | keys[] | select(IN("if", "continue-on-error")) | "job の \(.)"),
+            ($job.defaults.run // {} | keys[] | "job の defaults.run.\(.)"),
+            $workflow_reasons[] ] as $reasons
+        | select($reasons | length > 0)
+        | "\($job_id): \(.run | @json)(\($reasons | join(", ")))"' <<<"$workflow") || return 1
     if [ -n "$unreadable" ]; then
-        echo "読み切れない run(\`just <recipe>\` の 1 行にすること):" >&2
+        echo "読み切れない step(修飾子の無い \`just <recipe>\` の 1 行にすること):" >&2
         echo "$unreadable" >&2
         return 1
     fi
-    jq -r '.[] | select(test("^just [a-z0-9-]+$")) | sub("^just "; "")' <<<"$runs" | sort -u
+    jq -r '.jobs[].steps[]? | select(has("run")) | .run | select(test("^just [a-z0-9-]+$")) | sub("^just "; "")' <<<"$workflow" | sort -u
 }
 
 check_parity() {
@@ -209,4 +231,113 @@ EOF
     PATH="$BATS_TEST_TMPDIR/bin:$PATH" run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
     assert_failure
     assert_output --partial "mikefarah"
+}
+
+@test "fixture: 1 行に複数のレシピを並べた run は読み切れないので落ちる" {
+    write_justfile
+    write_workflow <<'YAML'
+jobs:
+  a:
+    steps:
+      - run: just alpha beta
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_failure
+    assert_output --partial "読み切れない"
+}
+
+@test "fixture: step の if / continue-on-error / shell / working-directory は落ちる" {
+    write_justfile
+    for modifier in "if: false" "continue-on-error: true" "shell: 'echo {0}'" "working-directory: sub"; do
+        write_workflow <<YAML
+jobs:
+  a:
+    steps:
+      - run: just alpha
+        ${modifier}
+      - run: just beta
+YAML
+        run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+        assert_failure
+        assert_output --partial "step の ${modifier%%:*}"
+    done
+}
+
+@test "fixture: job の if / continue-on-error / defaults.run は落ちる" {
+    write_justfile
+    for modifier in "if: false" "continue-on-error: true" "defaults: {run: {working-directory: sub}}"; do
+        write_workflow <<YAML
+jobs:
+  a:
+    ${modifier}
+    steps:
+      - run: just alpha
+      - run: just beta
+YAML
+        run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+        assert_failure
+        assert_output --partial "job の ${modifier%%:*}"
+    done
+}
+
+@test "fixture: workflow の defaults.run は落ちる" {
+    write_justfile
+    write_workflow <<'YAML'
+defaults:
+  run:
+    shell: 'echo {0}'
+jobs:
+  a:
+    steps:
+      - run: just alpha
+      - run: just beta
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_failure
+    assert_output --partial "workflow の defaults.run.shell"
+}
+
+@test "fixture: just を含まない step の修飾子は検査しない" {
+    write_justfile
+    write_workflow <<'YAML'
+jobs:
+  a:
+    steps:
+      - run: pnpm install
+        if: always()
+        working-directory: sub
+      - run: just alpha
+      - run: just beta
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_success
+}
+
+@test "fixture: lint: が本体を持つと落ちる" {
+    cat >"$BATS_TEST_TMPDIR/justfile" <<'JUST'
+lint: alpha
+    just beta
+
+alpha:
+    true
+
+beta:
+    true
+JUST
+    write_workflow <<'YAML'
+jobs:
+  a:
+    steps:
+      - run: just alpha
+YAML
+    run check_parity "$BATS_TEST_TMPDIR/justfile" "$BATS_TEST_TMPDIR/lint.yml"
+    assert_failure
+    assert_output --partial "本体"
+}
+
+@test "fixture: yq が無いと落ちる" {
+    mkdir -p "$BATS_TEST_TMPDIR/empty"
+    PATH="$BATS_TEST_TMPDIR/empty" run require_yq
+    assert_failure
+    assert_output --partial "yq が見つからない"
 }
