@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
 
 # Scan for leaked secrets
 @secretlint:
@@ -93,12 +93,21 @@ actionlint:
         echo "WARNING: actionlint not found, skipping"
     fi
 
-# Security audit GitHub Actions workflows
+# actionlint does not shellcheck composite actions' run: scripts — see the script header
+@check-composite-actions:
+    bash scripts/check-composite-actions.sh
+
+# Smoke test check-composite-actions.sh. LC_ALL=C for the same bats-core locale
+# bug as test-scripts: this suite's @test names are in Japanese.
+@test-composite-actions:
+    LC_ALL=C pnpm exec bats test/check-composite-actions.bats
+
+# Security audit GitHub Actions workflows and composite actions
 zizmor:
     #!/usr/bin/env bash
     if command -v zizmor >/dev/null 2>&1; then
         echo "Running zizmor..."
-        zizmor .github/workflows/
+        zizmor .github/workflows/ .github/actions/
     else
         echo "WARNING: zizmor not found, skipping"
     fi
