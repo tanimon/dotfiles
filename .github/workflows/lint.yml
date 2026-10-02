@@ -184,6 +184,28 @@ jobs:
           pnpm: 'true'
       - run: just test-sensitive
 
+  check-comment-noise:
+    name: Check comment noise
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+      - run: just check-comment-noise
+
+  test-comment-noise:
+    name: comment noise smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+      - run: just test-comment-noise
+
   test-pr-context:
     name: pr-context smoke tests
     runs-on: ubuntu-latest

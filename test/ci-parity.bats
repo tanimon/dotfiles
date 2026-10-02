@@ -2,7 +2,7 @@
 # justfile の `lint:` と .github/workflows/lint.yml が同じ suite 集合を回していることの検査。
 #
 # 正本は justfile の `lint:` の依存列。CI で回せないレシピは `[group('local-only')]` で
-# 印を付ける。lint.yml の job は static なまま残すので(ADR 0011)、その写しが正本と
+# 印を付ける。lint.yml の job は static なまま残すので(ADR 0013)、その写しが正本と
 # 双方向に一致することをここで確かめる: CI への入れ忘れも、CI にだけある recipe も落とす。
 # job 名は見ない(1 job が複数のレシピを回してよい)。
 #
