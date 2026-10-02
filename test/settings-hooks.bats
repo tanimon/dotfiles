@@ -8,29 +8,39 @@
 # seam は 1 つだけ: `chezmoi execute-template --config <test toml> --source <repo>`
 # で描画した結果を jq で見る(test/global-instructions.bats と同じ)。Source の
 # 文字列を直接 grep しないのは、テンプレートのコメントや分岐を通った後の実体が
-# Claude Code の読むものだから。
+# Claude Code の読むものだから。hook が呼ぶ script の配置だけは同じ config で
+# `chezmoi source-path` に解決させる(.chezmoiignore と属性 prefix の解釈を chezmoi に任せるため)。
 #
 # chezmoi が無い場合は skip せず fail する(skip にすると CI で全検査が空振りする)。
-setup() {
-    load 'helpers/setup'
-    REPO="$BATS_TEST_DIRNAME/.."
-    export TMPDIR="$BATS_TEST_TMPDIR/tmp"
+# 描画は suite 全体で 1 回だけ行う(どの test も同じ描画結果を読むだけなので)
+setup_file() {
+    export REPO="$BATS_TEST_DIRNAME/.."
+    export TMPDIR="$BATS_FILE_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
-    CONFIG="$BATS_TEST_TMPDIR/chezmoi-test.toml"
+    export CONFIG="$BATS_FILE_TMPDIR/chezmoi-test.toml"
     printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' >"$CONFIG"
-    SETTINGS="$BATS_TEST_TMPDIR/settings.json"
+    export DEST="$BATS_FILE_TMPDIR/home"
+    mkdir -p "$DEST"
+    export SETTINGS="$BATS_FILE_TMPDIR/settings.json"
     chezmoi execute-template --config "$CONFIG" --source "$REPO" \
         <"$REPO/dot_claude/settings.json.tmpl" >"$SETTINGS"
 }
 
-# guard_registrations NAME: PreToolUse で NAME を呼ぶ hook エントリを 1 行 1 JSON で出す
+setup() {
+    load 'helpers/setup'
+}
+
+# guard_registrations NAME: PreToolUse で NAME を呼ぶ hook エントリを 1 行 1 JSON で出す。
+# extra は type / command / timeout 以外のキー(`async: true` は判定を捨てて
+# バックグラウンドで走らせ、`if` は起動条件を絞る — どちらも配線を残したまま guard を無効化する)
 guard_registrations() {
     jq -c --arg cmd "\"\$HOME/.claude/scripts/$1.sh\"" '
         .hooks.PreToolUse[]
         | . as $group
         | .hooks[]
         | select((.command // "") | contains($cmd))
-        | {matcher: $group.matcher, type, command, timeout, exact: (.command == $cmd)}
+        | {matcher: $group.matcher, type, command, timeout, exact: (.command == $cmd),
+            extra: (keys - ["type", "command", "timeout"])}
     ' "$SETTINGS"
 }
 
@@ -50,7 +60,8 @@ guard_registrations() {
     assert_success
 }
 
-# guard ごとの契約: PreToolUse / matcher Bash / 1 回だけ / wrapper なしの直接呼び出し / timeout あり。
+# guard ごとの契約: PreToolUse / matcher Bash / 1 回だけ / wrapper なしの直接呼び出し / timeout あり /
+# async や if のような起動・判定を変えるキーを持たない。
 # 直接呼び出しを要求する理由は settings.json.tmpl の該当コメントにある:
 # `mkdir -p … && script 2>>log` の形はログの失敗でスクリプト自体が走らず、
 # 判定なし=フェイルオープンに化ける。
@@ -60,7 +71,7 @@ assert_guard_wired() {
     [ "$(printf '%s\n' "$output" | grep -c .)" -eq 1 ] ||
         fail "$1 の PreToolUse 登録がちょうど 1 つではない: $output"
     run jq -e '.matcher == "Bash" and .type == "command" and .exact
-        and (.timeout | type == "number" and . > 0)' <<<"$output"
+        and (.timeout | type == "number" and . > 0) and .extra == []' <<<"$output"
     assert_success
 }
 
@@ -72,7 +83,7 @@ assert_guard_wired() {
     assert_guard_wired curl-localhost-guard
 }
 
-@test "hook が呼ぶ script はすべて実行可能な Source として実在する" {
+@test "hook が呼ぶ script はすべて chezmoi が実行可能として配置する" {
     # 拡張子と subdirectory を問わず拾う(lib/ 配下や .sh 以外を呼ぶ hook も検査から漏らさない)
     run jq -r '[.hooks[][].hooks[] | (.command // "")
         | scan("\\.claude/scripts/([A-Za-z0-9._/-]+\\.[A-Za-z0-9]+)") | .[0]] | unique[]' "$SETTINGS"
@@ -83,12 +94,17 @@ assert_guard_wired() {
     assert_line curl-localhost-guard.sh
     local name source
     while IFS= read -r name; do
-        # executable_ prefix が無いと chezmoi は実行権限なしで配置し、hook は起動できない
-        case "$name" in
-        */*) source="dot_claude/scripts/${name%/*}/executable_${name##*/}" ;;
-        *) source="dot_claude/scripts/executable_$name" ;;
+        # Source の有無を自前の命名規則で推測せず chezmoi に解決させる。
+        # .chezmoiignore で除外された target も "not managed" で失敗するので、
+        # 「Source はあるがデプロイされない」も捕まえる
+        source=$(chezmoi source-path --config "$CONFIG" --source "$REPO" \
+            --destination "$DEST" "$DEST/.claude/scripts/$name") ||
+            fail "hook が呼ぶ $name を chezmoi が配置しない(Source が無いか .chezmoiignore で除外されている)"
+        # executable_ 属性が無いと chezmoi は実行権限なしで配置し、hook は起動できない
+        case "${source##*/}" in
+        *executable_*) ;;
+        *) fail "hook が呼ぶ $name の Source $source に executable_ 属性が無い" ;;
         esac
-        [ -f "$REPO/$source" ] || fail "hook が呼ぶ $name に対応する $source が無い"
     done <<<"$scripts"
 }
 
@@ -117,8 +133,8 @@ assert_guard_wired() {
     # 2 つ以上持つ event と、1 文字でも違うコピーを捕まえる
     run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] | "\(length) \(unique | length)"' "$SETTINGS"
     assert_output "${#expected[@]} 1"
-    # matcher が絞られると orca はその event の大半を受け取れなくなる。全件一致(省略か "*")だけを許す
+    # matcher が絞られると orca はその event の大半を受け取れなくなる。全件一致(省略・"" ・"*")だけを許す
     run jq -r '[.hooks[][] | select(any(.hooks[]; (.command // "") | test("orca/agent-hooks")))
-        | .matcher // "*"] | unique | join(" ")' "$SETTINGS"
+        | (.matcher // "") | if . == "" then "*" else . end] | unique | join(" ")' "$SETTINGS"
     assert_output "*"
 }
