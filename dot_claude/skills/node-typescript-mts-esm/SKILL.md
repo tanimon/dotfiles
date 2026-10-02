@@ -28,9 +28,11 @@ This happens because `.ts` doesn't carry an ESM signal. Node.js first tries to
 parse as CommonJS, fails, then re-parses as ESM — wasting time and polluting stderr.
 
 ## Context / Trigger Conditions
-- Using `node --experimental-strip-types` (Node.js v22.6.0+)
+- Running a `.ts` file directly with Node.js type stripping (`--experimental-strip-types`;
+  Node 24 では型ストリップが既定で有効で、フラグなしでも実行できる。v24.16.0 で実測)
 - TypeScript file uses ESM syntax (`import`/`export`)
-- No `"type": "module"` in the nearest `package.json`
+- The nearest `package.json` exists but has no `"type"` field(package.json が一つも
+  見つからない場所では警告は出ない。v24.16.0 で実測)
 - Common in standalone scripts, CLI tools, or chezmoi-managed dotfiles where
   modifying `package.json` is undesirable
 
