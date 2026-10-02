@@ -36,3 +36,56 @@ doctor() {
     run doctor
     assert_failure
 }
+
+weekly_installed() {
+    mkdir -p "$HOME/Library/LaunchAgents"
+    : >"$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    printf '#!/usr/bin/env bash\n' >"$HOME/.claude/scripts/harness-weekly.sh"
+    chmod +x "$HOME/.claude/scripts/harness-weekly.sh"
+}
+
+@test "weekly: plist が無ければ未導入として WARN にとどめる" {
+    run doctor
+    assert_success
+    assert_output --partial 'WARN: weekly job not installed'
+}
+
+@test "weekly: heartbeat が新しければ PASS" {
+    weekly_installed
+    printf '%s\n' "$(date +%s)" >"$HOME/.claude/harness/weekly-heartbeat"
+    run doctor
+    assert_success
+    assert_output --partial 'PASS: weekly job last succeeded 0d ago'
+}
+
+@test "weekly: heartbeat が古ければ FAIL" {
+    weekly_installed
+    printf '%s\n' "$(( $(date +%s) - 10*86400 ))" >"$HOME/.claude/harness/weekly-heartbeat"
+    run doctor
+    assert_failure
+    assert_output --partial 'FAIL: weekly job last succeeded 10d ago'
+}
+
+@test "weekly: heartbeat が無ければ WARN" {
+    weekly_installed
+    run doctor
+    assert_success
+    assert_output --partial 'WARN: weekly job has never succeeded'
+}
+
+@test "weekly: heartbeat が数値でなければ FAIL" {
+    weekly_installed
+    printf 'oops\n' >"$HOME/.claude/harness/weekly-heartbeat"
+    run doctor
+    assert_failure
+    assert_output --partial 'weekly-heartbeat'
+}
+
+@test "weekly: plist があるのに入口スクリプトが無ければ FAIL" {
+    weekly_installed
+    rm "$HOME/.claude/scripts/harness-weekly.sh"
+    printf '%s\n' "$(date +%s)" >"$HOME/.claude/harness/weekly-heartbeat"
+    run doctor
+    assert_failure
+    assert_output --partial 'harness-weekly.sh deployed and executable'
+}

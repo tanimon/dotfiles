@@ -18,6 +18,8 @@ check() { # <ok flag: 0 ok / nonzero fail> <label> <remedy>
 HARNESS_DIR="$HOME/.claude/harness"
 SETTINGS="$HOME/.claude/settings.json"
 TRIGGER_STALE_WARN_DAYS=7 # keep in sync with REVIEW_OVERDUE_DAYS in harness-briefing.sh
+WEEKLY_STALE_DAYS=8       # keep in sync with WEEKLY_STALE_DAYS in harness-briefing.sh
+WEEKLY_PLIST="$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
 
 ok=0
 command -v jq >/dev/null 2>&1 || ok=1
@@ -80,6 +82,32 @@ if [[ -f "$HARNESS_DIR/state.json" ]] && jq empty "$HARNESS_DIR/state.json" 2>/d
         fi
     else
         printf 'WARN: SessionEnd trigger has never recorded a run (fresh install?)\n'
+    fi
+fi
+
+# 週次ジョブ(ADR 0012)。plist が無いのは未 apply か launchd の無いマシンなので
+# WARN にとどめる。plist があるなら、入口スクリプトと heartbeat の鮮度を見る
+if [[ ! -f "$WEEKLY_PLIST" ]]; then
+    printf "WARN: weekly job not installed (%s missing) — run 'chezmoi apply' on macOS\n" "$WEEKLY_PLIST"
+else
+    ok=0
+    [[ -x "$HOME/.claude/scripts/harness-weekly.sh" ]] || ok=1
+    check "$ok" "harness-weekly.sh deployed and executable" "run 'chezmoi apply'"
+
+    WEEKLY_REMEDY="check ~/Library/Logs/harness-weekly.log, then run bash ~/.claude/scripts/harness-weekly.sh"
+    HEARTBEAT_FILE="$HARNESS_DIR/weekly-heartbeat"
+    if [[ ! -f "$HEARTBEAT_FILE" ]]; then
+        printf 'WARN: weekly job has never succeeded (fresh install?) — %s\n' "$WEEKLY_REMEDY"
+    else
+        HEARTBEAT=$(tr -d '[:space:]' <"$HEARTBEAT_FILE")
+        if [[ ! "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
+            check 1 "weekly-heartbeat is a number" "delete $HEARTBEAT_FILE and $WEEKLY_REMEDY"
+        else
+            AGE_DAYS=$((($(date +%s) - HEARTBEAT) / 86400))
+            ok=0
+            [[ "$AGE_DAYS" -lt "$WEEKLY_STALE_DAYS" ]] || ok=1
+            check "$ok" "weekly job last succeeded ${AGE_DAYS}d ago" "$WEEKLY_REMEDY"
+        fi
     fi
 fi
 
