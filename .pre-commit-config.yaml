@@ -88,6 +88,15 @@ repos:
         files: '^(\.chezmoiignore|\.chezmoitemplates/agent-instructions-common|dot_claude/CLAUDE\.md\.tmpl|dot_codex/AGENTS\.md\.tmpl|dot_claude/rules/common/.*|test/global-instructions\.bats|justfile)$'
         pass_filenames: false
         types: [file]
+      # guard hook の配線が外れても guard 単体の suite は緑のままなので、
+      # settings.json.tmpl や hook script の改名はここで捕まえる。
+      - id: test-settings-hooks
+        name: test-settings-hooks
+        entry: bash -c 'if command -v just &>/dev/null; then just test-settings-hooks; else echo "just not found, skipping"; fi' --
+        language: system
+        files: '^(dot_claude/settings\.json\.tmpl|dot_claude/scripts/.*|test/settings-hooks\.bats|justfile)$'
+        pass_filenames: false
+        types: [file]
       # Not restricted to .md: a literal org path is most likely to land in a
       # template or config (settings.json.tmpl, nono profiles, gitconfig).
       # The pattern/allowlist files are excluded because they hold

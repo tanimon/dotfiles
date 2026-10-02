@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
 
 # Scan for leaked secrets
 @secretlint:
@@ -197,6 +197,11 @@ check-templates:
 # Smoke test the global instruction composition (~/.claude/CLAUDE.md + ~/.codex/AGENTS.md)
 @test-global-instructions:
     LC_ALL=C pnpm exec bats test/global-instructions.bats
+
+# Needs chezmoi — fails (not skips) without it, for the same reason as above.
+# Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca)
+@test-settings-hooks:
+    LC_ALL=C pnpm exec bats test/settings-hooks.bats
 
 # The static Source checks always run; the behaviour checks need the apm CLI and
 # skip without it — bats prints the skip reason, so a green run never claims the

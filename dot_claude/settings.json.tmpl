@@ -135,7 +135,7 @@
       "Bash(sudo -i:*)",
       "Bash(sudo su:*)",
       "Bash(rm -rf .git)",
-      {{/* force push の先頭フラグ形。2026-09-16 に `Bash(git push:*)` を ask から外し、代わりに PreToolUse フック(hooks の該当コメント参照)がフラグ位置に依存しない判定を持つようになったが、この 3 行は**残す** — フックが未配置・未配線・クラッシュした環境ではフックが無出力=判定なしになりフェイルオープンするため、最も一般的な綴りだけでも rule 側で塞いでおく多層防御。フック側は同じ綴りを deny で返すので、通常は先に rule が当たって結果は変わらない。 */ -}}
+      {{/* force push の先頭フラグ形。2026-09-16 に `Bash(git push:*)` を ask から外し、代わりに PreToolUse フック(hooks の該当コメント参照)がフラグ位置に依存しない判定を持つようになったが、この 3 行は**残す** — フックが未配置・未配線・クラッシュした環境ではフックが無出力=判定なしになりフェイルオープンするため、最も一般的な綴りだけでも rule 側で塞いでおく多層防御。この 3 行の存在と hook の配線は test/settings-hooks.bats が描画結果で固定している(デプロイ先での未配置・クラッシュは対象外)。フック側は同じ綴りを deny で返すので、通常は先に rule が当たって結果は変わらない。 */ -}}
       "Bash(git push --force-with-lease:*)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
@@ -419,7 +419,7 @@
       }
     ],
     "PreToolUse": [
-      {{/* git push の破壊的な綴りだけをゲートするフック。`Bash(git push:*)` を permissions.ask に置いていた頃は日常の push まで毎回プロンプトになっていたが、ask を外すだけでは `git push origin main --force` / `+main` / `--delete` / `--mirror` が無ゲートになる — deny はプレフィックス照合なので、フラグが `git push` の直後に来る綴りしか捕まえられないため(2026-07-25 の tier model spec が push を Tier 1 から撤回した理由そのもの)。フックはコマンド文字列全体を受け取るので、引数位置に依存しない判定が書ける。素の push は無出力 exit 0 で defaultMode: auto のクラシファイア判定に落ち、プロンプトは出ない。複数の PreToolUse が一致した場合の合成は deny > ask > allow なので、下の orca フック(matcher "*")と併存して問題ない。残存: スクリプトが未配置・クラッシュした場合は無出力=判定なしとなりフェイルオープンする(deny 側に残した先頭フラグ形の 3 行が最後の砦)。ラッパーを噛ませずスクリプトを直接呼ぶ: `mkdir -p … && script 2>>log` の形はログディレクトリを作れないとリダイレクトの失敗でスクリプト自体が走らず、ログの問題が判定なし=フェイルオープンに化ける。ログ先の決定はスクリプト内に持たせてある。 */ -}}
+      {{/* git push の破壊的な綴りだけをゲートするフック。`Bash(git push:*)` を permissions.ask に置いていた頃は日常の push まで毎回プロンプトになっていたが、ask を外すだけでは `git push origin main --force` / `+main` / `--delete` / `--mirror` が無ゲートになる — deny はプレフィックス照合なので、フラグが `git push` の直後に来る綴りしか捕まえられないため(2026-07-25 の tier model spec が push を Tier 1 から撤回した理由そのもの)。フックはコマンド文字列全体を受け取るので、引数位置に依存しない判定が書ける。素の push は無出力 exit 0 で defaultMode: auto のクラシファイア判定に落ち、プロンプトは出ない。複数の PreToolUse が一致した場合の合成は deny > ask > allow なので、下の orca フック(matcher "*")と併存して問題ない。残存: スクリプトが未配置・クラッシュした場合は無出力=判定なしとなりフェイルオープンする(deny 側に残した先頭フラグ形の 3 行が最後の砦)。Source 上の未配線は test/settings-hooks.bats が捕まえる。ラッパーを噛ませずスクリプトを直接呼ぶ: `mkdir -p … && script 2>>log` の形はログディレクトリを作れないとリダイレクトの失敗でスクリプト自体が走らず、ログの問題が判定なし=フェイルオープンに化ける。ログ先の決定はスクリプト内に持たせてある。 */ -}}
       {
         "matcher": "Bash",
         "hooks": [
@@ -430,7 +430,7 @@
           }
         ]
       },
-      {{/* curl の宛先がループバックだけだと示せないときに `ask` を返すフック。`Bash(curl:*)` は permissions.ask に置かない: Claude Code 2.1.285 ではフックの `allow` が一致する ask ルールに負けるため、「ask を土台にループバック宛だけ緩める」向きが作れない(ADR 0008 / 0009)。代わりにフック自身が `ask` を返す(フックの ask / deny は default でも auto mode でも効く)。ループバック宛だけの curl と curl を含まないコマンドは無出力で classifier に任せる。フックが未配置・クラッシュ・出力なしのときは curl は classifier の判定だけになる — git-push-guard と同じ向きで、`ask` を外した穴をフックで塞ぐ構成。permissions で書けない理由は git push と同じプレフィックス照合の限界で、URL はフラグの後ろ(`curl -sS -H … URL`)に来るため `Bash(curl http://localhost:*)` では届かない。判定は全階層がホワイトリスト(フラグ・パイプ先・URL スキーム・ホスト)で、読み切れない綴りは `ask`。宛先は localhost / 127.0.0.0/8 / [::1] のみで、0.0.0.0 と host.docker.internal は意図的に除外(前者は全インターフェイス表記、後者はホスト名解決依存)。残存: ループバックのリスナーは外部への中継になりうるので「宛先アドレスがループバック」は最終到達先の保証ではない — ただし `Bash(python3:*)` が既に allow にあり同じソケットを開けるため、これで新たな到達性が増えるわけではない(nono 側の同じ経路は dot_config/nono/CLAUDE.md の `open_port: [0]` に記載)。 */ -}}
+      {{/* curl の宛先がループバックだけだと示せないときに `ask` を返すフック。`Bash(curl:*)` は permissions.ask に置かない: Claude Code 2.1.285 ではフックの `allow` が一致する ask ルールに負けるため、「ask を土台にループバック宛だけ緩める」向きが作れない(ADR 0008 / 0009)。代わりにフック自身が `ask` を返す(フックの ask / deny は default でも auto mode でも効く)。ループバック宛だけの curl と curl を含まないコマンドは無出力で classifier に任せる。フックが未配置・クラッシュ・出力なしのときは curl は classifier の判定だけになる(Source 上の未配線は test/settings-hooks.bats が捕まえる) — git-push-guard と同じ向きで、`ask` を外した穴をフックで塞ぐ構成。permissions で書けない理由は git push と同じプレフィックス照合の限界で、URL はフラグの後ろ(`curl -sS -H … URL`)に来るため `Bash(curl http://localhost:*)` では届かない。判定は全階層がホワイトリスト(フラグ・パイプ先・URL スキーム・ホスト)で、読み切れない綴りは `ask`。宛先は localhost / 127.0.0.0/8 / [::1] のみで、0.0.0.0 と host.docker.internal は意図的に除外(前者は全インターフェイス表記、後者はホスト名解決依存)。残存: ループバックのリスナーは外部への中継になりうるので「宛先アドレスがループバック」は最終到達先の保証ではない — ただし `Bash(python3:*)` が既に allow にあり同じソケットを開けるため、これで新たな到達性が増えるわけではない(nono 側の同じ経路は dot_config/nono/CLAUDE.md の `open_port: [0]` に記載)。 */ -}}
       {
         "matcher": "Bash",
         "hooks": [
