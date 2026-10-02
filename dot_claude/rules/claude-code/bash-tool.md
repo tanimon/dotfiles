@@ -50,7 +50,7 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 `Operation not permitted` になり、作業ツリーに untracked の残骸を残して止まる。
 `--abort` で戻ったと思わず `git status` で残骸を確認し、サンドボックス外でやり直す。
 
-`.git/config` もサンドボックス内では書けない(意図した設定。dotfiles リポジトリの `dot_config/nono/CLAUDE.md`)。upstream を書こうとする操作は
+`.git/config` もサンドボックス内では書けない(nono・ネイティブのどちらの境界でも。nono 側の意図は dotfiles リポジトリの `dot_config/nono/CLAUDE.md`)。upstream を書こうとする操作は
 `could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
 
 - **`git push -u` / `push.autoSetupRemote`:** push 自体は成功し、upstream だけが付かない。エラーは無害なので調査・報告しなくてよい。

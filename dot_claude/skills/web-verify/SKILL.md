@@ -61,7 +61,9 @@ description: >-
    (コンテナなら `docker inspect -f '{{.State.StartedAt}}' <container>`。UTC の RFC3339 なので epoch 秒に直して比べる)を、
    コードがこの worktree に入った最終時刻と比べる。HEAD のコミット時刻は使わない — pull したコミット・
    ブランチの切り替え・未コミットの変更では、コミット時刻がワーカー起動より古くてもコードは新しい。
-   最終時刻は `git reflog -1 --format=%ct HEAD` と、未コミットの変更があればそのファイルの mtime の最大値の、遅い方。
+   最終時刻は HEAD の reflog の最新エントリが記録された時刻
+   (`git reflog -1 --date=unix --format=%gd HEAD | sed 's/.*{\(.*\)}/\1/'`。`--format=%ct` はコミット時刻を返すので使わない)と、
+   未コミットの変更があればそのファイルの mtime の最大値の、遅い方。
    ビルド済みアセットの鮮度も同じ最終時刻と比べる
 6. **seed 実装**: 観点の前提データを seed/setup.ts に冪等に実装
 7. **シナリオ実装**: 観点ごとに探索 → spec 化 → 単体実行で安定化
