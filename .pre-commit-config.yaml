@@ -107,10 +107,11 @@ repos:
         language: system
         exclude: '(^scripts/sensitive-(patterns|patterns\.local|allowlist)\.txt$|^pnpm-lock\.yaml$)'
         types: [text]
-      # リポジトリ全体を走査するのでファイル名は渡さない
+      # リポジトリ全体を走査するのでファイル名は渡さない。参照先を消すだけのコミット
+      # (staged にテキストファイルが無い)でも走らせるため、types で絞らない
       - id: check-comment-noise
         name: check-comment-noise
         entry: bash scripts/check-comment-noise.sh
         language: system
         pass_filenames: false
-        types: [text]
+        always_run: true

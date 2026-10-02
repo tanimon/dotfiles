@@ -232,3 +232,12 @@ scan() {
     assert_failure 1
     assert_output --partial '[missing-path]'
 }
+
+@test "missing-path: ./ で始まるパスも実在で判定する" {
+    put docs/real.md 'x'
+    put a.sh $'# ./docs/real.md を読む\n# ./docs/missing.md を実行'
+    run scan
+    assert_failure 1
+    assert_output --partial 'a.sh:2: [missing-path]'
+    refute_output --partial 'a.sh:1:'
+}

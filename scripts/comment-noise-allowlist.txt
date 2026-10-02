@@ -6,4 +6,4 @@
 .chezmoiremove:`\.claude/skills/gstack` は external の
 
 # Claude Code が worktree ごとに書くローカル設定。リポジトリの .gitignore には無い(個人のグローバルな除外で無視している)
-*:\.claude/settings\.local\.json
+executable_worktree-include.sh:\.claude/settings\.local\.json

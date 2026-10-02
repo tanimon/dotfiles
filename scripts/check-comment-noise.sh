@@ -100,12 +100,16 @@ check_paths() {
     tokens=${text//$separator/ }
     for token in $tokens; do
         while [[ $token == *. ]]; do token=${token%.}; done
+        token=${token#./}
         [[ $token == */* ]] || continue
         case $token in *'{'* | *'}'* | *'<'* | *'>'* | *'*'* | *'$'*) continue ;; esac
         is_top_dir "${token%%/*}" || continue
+        # 実在は作業ツリーで見るので、未追跡のファイルへの参照はローカルでは通り、
+        # そのファイルを commit せずに push すると CI でだけ止まる
         [[ -e $token ]] && continue
         # gitignore されたパス(ローカルにだけ置くファイル)は、無いのが正常。
-        # マシンごとのグローバルな除外(core.excludesfile)は読まない。.git/info/exclude は読む
+        # マシンごとのグローバルな除外(core.excludesfile)は読まない。.git/info/exclude は
+        # 設定では外せないので読む(そこで除外したパスへの参照も、CI でだけ止まる)
         git -c core.excludesfile=/dev/null check-ignore -q --no-index -- "$token" && continue
         report "$file" "$lineno" missing-path "$text"
     done
