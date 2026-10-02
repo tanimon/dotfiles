@@ -1,0 +1,25 @@
+{{- /*
+orca agent-hooks integration の hook エントリ(type / command / timeout)。
+settings.json.tmpl の hooks で、orca が dispatcher を差し込む全 event から
+`{{ template "orca-agent-hook" . }}` で参照する(12 箇所が同一だったものを 1 つにまとめた)。
+
+orca は claude-hook の dispatcher を自分が扱う hook event(PostCompact を含む。Notification / SessionEnd は含まない)に差し込む。
+command は dispatcher を実行時に $HOME から解決する — Unix では .orca/agent-hooks/claude-hook.sh、
+Windows では claude-hook.cmd(cmd のメタ文字を含むパスでは PowerShell に fallback)。
+$HOME が未設定か dispatcher が無ければ printf '{}' で何もしないので、orca の無いマシンに
+配っても安全。パスを焼き込まず実行時に $HOME を解決するので、homeDir の置換も要らない。
+
+下の $command は生の shell で、JSON の escape は toJson が行う。orca が snippet を
+更新したら、live の ~/.claude/settings.json から次の 1 行で取り出して置き換える
+(backtick を含むようになったら Go の raw string に入らないので、通常の文字列に変える):
+
+  jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] | unique[]' ~/.claude/settings.json
+
+出力が 2 行以上なら live 側の event 間で食い違っているので、どれを採るか確かめてから取り込む。
+
+toJson は & < > を \u0026 / \u003c / \u003e に escape するので、replace で元の文字に戻し、
+描画結果の byte 列を live(orca が書く形)と揃える。command はこの 6 文字の並びを文字列として
+含まないので、戻す置換が別の箇所を壊すことは無い。
+*/ -}}
+{{- $command := `if [ -z "${HOME-}" ]; then case "${OSTYPE-}" in msys*|cygwin*|win32*) printf '{}\n'; if [ -z "${ORCA_AGENT_HOOK_PORT-}" ] || [ -z "${ORCA_AGENT_HOOK_TOKEN-}" ] || [ -z "${ORCA_PANE_KEY-}" ]; then exit 0; fi; { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || : ;; *) { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; printf '{}\n' ;; esac; else case "${OSTYPE-}" in msys*|cygwin*|win32*) if [ -f "${HOME-}/.orca/agent-hooks/claude-hook.cmd" ]; then case "${HOME-}" in *\&*|*\^*|*\(*|*\)*|*\;*|*,*|*=*|*%*|*\!*) if [ -f "${SYSTEMROOT-}/System32/WindowsPowerShell/v1.0/powershell.exe" ]; then "${SYSTEMROOT-}/System32/WindowsPowerShell/v1.0/powershell.exe" -NoProfile -EncodedCommand JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQAnADsAIAB0AHIAeQAgAHsAIABTAGUAdAAtAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5ACAALQBTAGMAbwBwAGUAIABQAHIAbwBjAGUAcwBzACAALQBFAHgAZQBjAHUAdABpAG8AbgBQAG8AbABpAGMAeQAgAEIAeQBwAGEAcwBzACAALQBGAG8AcgBjAGUAIAAtAEUAcgByAG8AcgBBAGMAdABpAG8AbgAgAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAIAB9ACAAYwBhAHQAYwBoACAAewB9ADsAIAAkAGgAbwBtAGUAUABhAHQAaAAgAD0AIAAkAGUAbgB2ADoASABPAE0ARQAgAC0AcgBlAHAAbABhAGMAZQAgACcAXgAvACgAWwBBAC0AWgBhAC0AegBdACkALwAnACwAIAAnACQAMQA6AC8AJwA7ACAAJABzAGMAcgBpAHAAdABQAGEAdABoACAAPQAgAEoAbwBpAG4ALQBQAGEAdABoACAAJABoAG8AbQBlAFAAYQB0AGgAIAAnAC4AbwByAGMAYQBcAGEAZwBlAG4AdAAtAGgAbwBvAGsAcwBcAGMAbABhAHUAZABlAC0AaABvAG8AawAuAGMAbQBkACcAOwAgAGkAZgAgACgAVABlAHMAdAAtAFAAYQB0AGgAIAAtAEwAaQB0AGUAcgBhAGwAUABhAHQAaAAgACQAcwBjAHIAaQBwAHQAUABhAHQAaAAgAC0AUABhAHQAaABUAHkAcABlACAATABlAGEAZgApACAAewAgACYAIAAkAHMAYwByAGkAcAB0AFAAYQB0AGgAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFACAAfQA7ACAAVwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAHsAfQAnADsAIABpAGYAIAAoAC0AbgBvAHQAIAAkAGUAbgB2ADoATwBSAEMAQQBfAEEARwBFAE4AVABfAEgATwBPAEsAXwBQAE8AUgBUACAALQBvAHIAIAAtAG4AbwB0ACAAJABlAG4AdgA6AE8AUgBDAEEAXwBBAEcARQBOAFQAXwBIAE8ATwBLAF8AVABPAEsARQBOACAALQBvAHIAIAAtAG4AbwB0ACAAJABlAG4AdgA6AE8AUgBDAEEAXwBQAEEATgBFAF8ASwBFAFkAKQAgAHsAIABlAHgAaQB0ACAAMAAgAH0AOwAgAFsAQwBvAG4AcwBvAGwAZQBdADoAOgBJAG4ALgBSAGUAYQBkAFQAbwBFAG4AZAAoACkAIAB8ACAATwB1AHQALQBOAHUAbABsADsAIABlAHgAaQB0ACAAMAA=; else printf '{}\n'; if [ -z "${ORCA_AGENT_HOOK_PORT-}" ] || [ -z "${ORCA_AGENT_HOOK_TOKEN-}" ] || [ -z "${ORCA_PANE_KEY-}" ]; then exit 0; fi; { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi ;; *) "${HOME-}/.orca/agent-hooks/claude-hook.cmd" ;; esac; else printf '{}\n'; if [ -z "${ORCA_AGENT_HOOK_PORT-}" ] || [ -z "${ORCA_AGENT_HOOK_TOKEN-}" ] || [ -z "${ORCA_PANE_KEY-}" ]; then exit 0; fi; { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi ;; *) if [ -f "${HOME-}/.orca/agent-hooks/claude-hook.sh" ] && [ -r "${HOME-}/.orca/agent-hooks/claude-hook.sh" ] && [ -x "${HOME-}/.orca/agent-hooks/claude-hook.sh" ]; then /bin/sh "${HOME-}/.orca/agent-hooks/claude-hook.sh"; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; printf '{}\n'; fi ;; esac; fi` -}}
+{"type": "command", "command": {{ $command | toJson | replace "\\u0026" "&" | replace "\\u003c" "<" | replace "\\u003e" ">" }}, "timeout": 10}

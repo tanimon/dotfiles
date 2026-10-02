@@ -284,8 +284,10 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 
 フックが未配置・クラッシュした場合は無出力=判定なしで**フェイルオープン**する。そのため
 `settings.json.tmpl` の `deny` にある先頭フラグ形3行(`--force` / `--force-with-lease` / `-f`)は
-冗長に見えても**残してある**(多層防御の床)。`just test-scripts`(`test/git-push-guard.bats`)が
-テストする。テストは危険な綴りだけでなく**無出力になるべきケース**と対で書くこと — 片側だけだと
+冗長に見えても**残してある**(多層防御の床)。Source 上の配線(`PreToolUse` / `matcher: "Bash"` /
+直接呼び出し / timeout / `disableAllHooks` が立っていないこと)とこの 3 行の存在は
+`just test-settings-hooks`(`test/settings-hooks.bats`)が描画結果で固定している。
+フック自身の判定は `just test-scripts`(`test/git-push-guard.bats`)がテストする。テストは危険な綴りだけでなく**無出力になるべきケース**と対で書くこと — 片側だけだと
 「常に deny するフック」が全テストを通過してしまう。
 設計: `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の 2026-09-16 addendum。
 
@@ -490,7 +492,8 @@ curl-guard は行単位の字面の床(線形)だけを生のコマンドに当�
 OS レベルの床になるが、**フックはその床に依存していない** — サンドボックス外の launch path には
 床が無い。
 
-`just test-scripts`(`test/curl-localhost-guard.bats`)がテストする。git-push-guard と同じく
+Source 上の配線は git-push-guard と同じく `just test-settings-hooks`(`test/settings-hooks.bats`)が固定している。
+フック自身の判定は `just test-scripts`(`test/curl-localhost-guard.bats`)がテストする。git-push-guard と同じく
 **対で書くこと** — ここでは「`ask` になるべきケース」だけを書くと「常に ask するフック」が
 全件通過してしまうので、無出力になるべきケースを必ず並べる。macOS の bash 3.2 でも動くこと
 (`mapfile` なし・空配列展開なし)を実機で確認済み。

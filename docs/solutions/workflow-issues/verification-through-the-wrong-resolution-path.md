@@ -249,6 +249,20 @@ the chezmoi one:
   「利用不可なら素通し」フラグ）はすべて同じ形の空虚な PASS を生むので、許可を足した側の成功では
   なく、**外した側の失敗**が証拠になる。(See
   `../integration-issues/native-sandbox-1password-socket-signing-2026-07-09.md`.)
+- **変異テストの複製で、runner がそもそも走っていない**（2026-10-02）。`test/settings-hooks.bats` の
+  修正を確かめるため、`git ls-files | tar` で作った複製のテンプレートを 1 箇所ずつ壊し、
+  `bats … | grep '^not ok' || echo "ALL GREEN"` で判定したところ、5 変異すべてが「ALL GREEN」になった。
+  複製には gitignore 済みの `node_modules`（pnpm が入れる bats）が無く、PATH にも bats が無かったため、
+  テストは 1 件も実行されていなかった。「失敗行が無い」を緑と読む判定は、runner が起動しなかった
+  場合（command not found）と区別できない。上の例と同じく**検査の検査**（変異・対比）の側で起きる空振りで、
+  対処は 2 つ: 変異の前に変異なしの control を流すこと、bats の**終了コード**と `^ok ` の行数で
+  判定すること。`| grep '^not ok' || echo` の形は終了コードを捨てる。`1..N` の行は実行前に出る
+  予定件数で、実行件数ではない — `1..12` を出したあと `Executed 0 instead of expected 12 tests` で
+  1 件も走らず exit 1 になった実行でも、この判定は「ALL GREEN」を出した。判定は
+  `out=$(bats … 2>&1); rc=$?; n=$(sed -n 's/^1\.\.//p' <<<"$out"); ok=$(grep '^ok ' <<<"$out" | grep -vc '# skip'); [ "$rc" -eq 0 ] && [ "$ok" -eq "$n" ]`
+  のように両方を見る。skip は `ok N … # skip` と出て exit 0 になるので、`^ok ` を数えるだけだと
+  全件 skip（前提のツールが無い環境）も緑になる — skip の行は実行件数から除く。bats は worktree の `node_modules/.bin/bats` を絶対パスで呼ぶか、複製に
+  `node_modules` を symlink する。
 
 ## When to Apply
 
