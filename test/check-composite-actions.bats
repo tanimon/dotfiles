@@ -150,6 +150,48 @@ EOF
     run bash "$SCRIPT" "$BATS_TEST_TMPDIR/action.yml"
     assert_failure
     assert_output --partial "could not parse"
+    refute_output --partial "psych/"
+}
+
+# 式展開を 1 語に置き換えると定数式に見える。actionlint と同じルールを除外していないと SC2050 で落ちる。
+@test "式展開を置き換えたプレースホルダ由来の shellcheck 警告では落ちない" {
+    command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not installed"
+    write_action <<'EOF'
+name: placeholder
+runs:
+  using: composite
+  steps:
+    - name: Compare input
+      shell: bash
+      run: |
+        if [ "${{ inputs.flag }}" = true ]; then
+          echo on
+        fi
+EOF
+    run bash "$SCRIPT" "$BATS_TEST_TMPDIR/action.yml"
+    assert_success
+    assert_output --partial "ok   $BATS_TEST_TMPDIR/action.yml (Compare input)"
+}
+
+@test "YAML のアンカーとエイリアスを使った action を読める" {
+    write_action <<'EOF'
+name: anchors
+runs:
+  using: composite
+  steps:
+    - name: First
+      shell: bash
+      env: &env
+        WHO: world
+      run: echo "hello ${WHO}"
+    - name: Second
+      shell: bash
+      env: *env
+      run: echo "bye ${WHO}"
+EOF
+    run bash "$SCRIPT" "$BATS_TEST_TMPDIR/action.yml"
+    assert_success
+    assert_output --partial "ok   $BATS_TEST_TMPDIR/action.yml (Second)"
 }
 
 @test "リポジトリの composite action はすべて通る" {
