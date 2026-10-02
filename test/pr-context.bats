@@ -304,15 +304,13 @@ EOF
 }
 
 @test "書き込み系の git サブコマンドを含まない" {
-    # これは「git コマンドを bash scripts/*.sh に包む」このリポジトリで最初の例。
-    # 包むと引数が dot_claude/scripts/executable_git-push-guard.sh からも
-    # permission rule からも見えなくなるため、書き込み系をここに足してはいけない。
-    # commit メッセージに書いた設計判断を、文書ではなくコードで固定する。
+    # git コマンドを bash scripts/*.sh に包むと、引数が
+    # dot_claude/scripts/executable_git-push-guard.sh からも permission rule からも
+    # 見えなくなる。そのため書き込み系をこのスクリプトに足してはいけない。
     # (git fetch はリモート追跡 ref のみを更新する既知の例外なので対象外)
     # `git` とサブコマンドの間のグローバルオプション(`-C <dir>` / `-c k=v` / `--git-dir=…`)
-    # を読み飛ばす。ここを許さないと `git -C "$dir" push` が素通りし、ガード自身が
-    # フェイルオープンする —— このファイル自身が `git -C` を多用しているとおり、
-    # 最も書かれやすい綴りがちょうど穴になっていた。
+    # を読み飛ばす。読み飛ばさないと `git -C "$dir" push`(このテストファイルも多用する綴り)が
+    # 素通りし、ガード自身がフェイルオープンする。
     local subcommands='push|commit|reset|rebase|merge|checkout|switch|restore|clean|stash|cherry-pick|am|apply|tag|gc|prune|update-ref|symbolic-ref|remote +(add|remove|rename|set-url)'
     local pattern="(^|[^[:alnum:]_-])git( +-[^ ]+)*( +[^-][^ ]*)? +(${subcommands})([^[:alnum:]_-]|\$)"
 

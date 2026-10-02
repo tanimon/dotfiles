@@ -6,9 +6,10 @@
 # seeing the offending text is what makes the finding actionable.
 #
 # A line prefixed with `@redact ` reports file:line only and never echoes the
-# pattern. Use it when the matched text is itself the secret — this scanner runs
-# in CI on a PUBLIC repo, so a printed match would copy the guarded string into a
-# public Actions log.
+# matched text (the pattern itself is committed and public, so the report still
+# names it). Use it when the matched text is itself the secret — this scanner
+# runs in CI on a PUBLIC repo, so a printed match would copy the guarded string
+# into a public Actions log.
 #
 # Either way, a *literal* secret (the work GitHub org name) must never be
 # written into this file: it is committed. The org name is resolved at scan time
@@ -45,7 +46,8 @@ BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY
 # Literal org name in a ghq checkout path, where a chezmoi template variable
 # belongs. Which org a `~/ghq/github.com/<org>` path names is exactly the
 # work-affiliation fact this public repo should not carry. The intended form
-# is `~/ghq/github.com/{{ .ghOrg }}/**` (dot_claude/settings.json.tmpl:97,237);
+# is `~/ghq/github.com/{{ .ghOrg }}/**` (the `Read(...)` permission and the
+# `additionalDirectories` entry in dot_claude/settings.json.tmpl);
 # `<work-org>` is the placeholder for prose and docs. Both are excluded by the
 # character class below, so the correct spellings never trip this.
 # Redacted because the org name is what a match would print, and file:line is

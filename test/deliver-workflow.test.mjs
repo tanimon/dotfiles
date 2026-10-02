@@ -648,7 +648,7 @@ test("2回目の見送りも却下された指摘は、再指摘されなくて�
   assert.match(section(result.report, "Unresolved Finding"), /issue a.js::bug/);
 });
 
-// H1: 見送りを却下された指摘は、次のラウンドで修正必須として判定されない限り「報告された」とみなさない。
+// 見送りを却下された指摘は、次のラウンドで修正必須として判定されない限り「報告された」とみなさない。
 const rejectedOnce = {
   fixes: [
     {

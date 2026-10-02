@@ -1,10 +1,6 @@
 /* ~/Library/KeyBindings/DefaultKeyBinding.Dict
 
-This file remaps the key bindings of a single user on Mac OS X 10.5 to more
-closely match default behavior on Windows systems. This makes the Command key
-behave like Windows Control key. To use Control instead of Command, either swap
-Control and Command in Apple->System Preferences->Keyboard->Modifier Keys...
-or replace @ with ^ in this file.
+Ctrl-[ を Esc、JIS の _ キーを \ (Shift で _) として入力する。
 
 Here is a rough cheatsheet for syntax.
 Key Modifiers

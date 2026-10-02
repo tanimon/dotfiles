@@ -13,8 +13,8 @@ set -euo pipefail
 #   * `--no-ext-diff` is carried even on `--stat`. This repo sets
 #     `diff.external = difft` globally, and a bare `git diff` then emits
 #     difftastic's rendering with no `+`/`-` prefixes — any check that greps for
-#     them matches nothing and *looks like it passed* (the CLAUDE.md pitfall of
-#     the same name). `--stat` does not invoke the external driver today, so the
+#     them matches nothing and *looks like it passed* (dot_claude/rules/
+#     claude-code/bash-tool.md). `--stat` does not invoke the external driver today, so the
 #     flag is currently redundant; it is here so that widening this to patch
 #     output later cannot silently reintroduce the pitfall.
 #   * `origin/main...HEAD` (three dots) diffs against the merge base, not

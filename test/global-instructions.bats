@@ -105,8 +105,6 @@ render_codex() {
     #      Claude 固有の「ルール構成」を間に挟んだ元の並びは再現できない)
     #   2. AskUserQuestion は Claude 固有なので末尾の「ユーザーへの確認に使うツール」へ
     #
-    # 以後の意図した追加(2026-09-28 の harness-review): 共有本文の「主張の裏取り」「テストが検証するもの」「成果物に書かないもの」、
-    # 「ルール構成」への claude-code/ の追記、末尾の「知見の記録先」。全文固定は維持し、
     # 本文を変えるときはこの期待値も同じ PR で更新する。
     run render_claude
     assert_success

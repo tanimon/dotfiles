@@ -2,9 +2,9 @@ name: Harness Issue Alert
 description: >
   Create or update a harness-analysis issue so scheduled workflow failures
   surface as a GitHub issue for human triage instead of failing silently
-  (no automation consumes these issues; the label is only the dedup key).
-  Deduplicates by exact title: comments on an existing open issue,
-  creates a new one otherwise.
+  (no automation consumes these issues; the label only scopes the dedup search).
+  Deduplicates by exact title among open harness-analysis issues: comments on
+  an existing one, creates a new one otherwise.
 
 inputs:
   title:

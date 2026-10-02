@@ -11,11 +11,9 @@ targets:
 # MCP として Codex に配る再帰を避けるため、未使用の codex サーバーは宣言しない。
 dependencies:
   mcp:
-    # code-review-graph は /doctor(2026-09-18)で全トランスクリプト中 0 回の呼び出しと判定して削除した。
-    # ここから消すと次の apm install が両 target から prune する(ADR 0006 の所有境界)。
-    # ただし APM 0.30.0 の prune は ~/.claude.json が symlink だと拒否して install ごと失敗する。
-    # 素の `apm install --global` ではなく `bash scripts/apm-install-global.sh` を使うこと
-    # (chezmoi の run_onchange もこれを呼ぶ)。理由は CLAUDE.md の Known Pitfalls 参照。
+    # ここから消すと次の apm install が両 target から prune する(ADR 0006)。prune は
+    # ~/.claude.json が symlink だと install ごと失敗するので、素の `apm install --global`
+    # ではなく `bash scripts/apm-install-global.sh` を使う(dot_apm/CLAUDE.md)。
     - name: deepwiki
       registry: false
       transport: http
