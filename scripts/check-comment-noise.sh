@@ -19,10 +19,11 @@ PLAN_STEP_RE='(^|[^A-Za-z])(Task|Step) [0-9]+'
 ISSUE_ORIGIN_JA_RE='#[0-9]+[^#]{0,24}(で発覚|で追加|で導入|で修正|で判明)'
 ISSUE_ORIGIN_EN_RE='(added|introduced|found|fixed) in #[0-9]+'
 
-# Markdown・docs は経緯の記録が正当な場合が多く、JSON はコメントを持たない
+# Markdown(拡張子が .md でないテンプレートと生成物を含む)・docs は経緯の記録が
+# 正当な場合が多く、JSON はコメントを持たない
 is_excluded() {
     case $1 in
-    *.md | docs/* | *.json | pnpm-lock.yaml) return 0 ;;
+    *.md | *.md.tmpl | *.mdc | .chezmoitemplates/* | docs/* | *.json | pnpm-lock.yaml) return 0 ;;
     esac
     return 1
 }
@@ -39,24 +40,34 @@ read_allowlist() {
 }
 ALLOW_ENTRIES="$(read_allowlist)"
 
+# =~ の終了コード 2(不正な正規表現)を返す。0 と 1 はどちらも 0 にする
+regex_status() {
+    local regex=$1 status=0
+    # shellcheck disable=SC2319
+    [[ '' =~ $regex ]] || status=$?
+    ((status == 2)) && return 2
+    return 0
+}
+
+# 不正な正規表現は、そのエントリに一致する違反が出る前に止める
+if [[ -n $ALLOW_ENTRIES ]]; then
+    while IFS= read -r entry; do
+        if ! regex_status "${entry#*:}"; then
+            printf 'error: invalid regex in %s: %s\n' "$ALLOWLIST_FILE" "$entry" >&2
+            exit 2
+        fi
+    done <<<"$ALLOW_ENTRIES"
+fi
+
 # 許可リストの各行は <path-suffix or *>:<regex>
 is_allowed() {
-    local file=$1 text=$2 entry suffix regex status
+    local file=$1 text=$2 entry suffix regex
     [[ -n $ALLOW_ENTRIES ]] || return 1
     while IFS= read -r entry; do
         suffix=${entry%%:*}
         regex=${entry#*:}
         [[ $suffix == '*' || $file == *"$suffix" ]] || continue
-        status=0
-        # $? は =~ の結果(0 一致 / 1 不一致 / 2 不正な正規表現)をそのまま拾う
-        # shellcheck disable=SC2319
-        [[ $text =~ $regex ]] || status=$?
-        if ((status == 0)); then
-            return 0
-        elif ((status == 2)); then
-            printf 'error: invalid regex in %s: %s\n' "$ALLOWLIST_FILE" "$entry" >&2
-            exit 2
-        fi
+        [[ $text =~ $regex ]] && return 0
     done <<<"$ALLOW_ENTRIES"
     return 1
 }
@@ -83,16 +94,19 @@ report() {
 
 check_paths() {
     local file=$1 lineno=$2 text=$3 tokens token
-    # パスに使う文字以外を区切りにする。:行番号・#アンカー・括弧・句読点・CR はここで落ちる
-    tokens=$(printf '%s' "$text" | sed 's#[^A-Za-z0-9_./~{}<>*$-]# #g')
+    # パスに使う文字以外を区切りにする。:行番号・#アンカー・括弧・句読点・CR はここで落ちる。
+    # 行ごとに外部コマンドを起動しないよう、パラメータ展開で置き換える
+    local separator='[!A-Za-z0-9_./~{}<>*$-]'
+    tokens=${text//$separator/ }
     for token in $tokens; do
         while [[ $token == *. ]]; do token=${token%.}; done
         [[ $token == */* ]] || continue
         case $token in *'{'* | *'}'* | *'<'* | *'>'* | *'*'* | *'$'*) continue ;; esac
         is_top_dir "${token%%/*}" || continue
         [[ -e $token ]] && continue
-        # gitignore されたパス(ローカルにだけ置くファイル)は、無いのが正常
-        git check-ignore -q --no-index -- "$token" && continue
+        # gitignore されたパス(ローカルにだけ置くファイル)は、無いのが正常。
+        # マシンごとのグローバルな除外は読まず、CI と同じ判定にする
+        git -c core.excludesfile=/dev/null check-ignore -q --no-index -- "$token" && continue
         report "$file" "$lineno" missing-path "$text"
     done
 }

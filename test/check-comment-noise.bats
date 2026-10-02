@@ -193,3 +193,35 @@ scan() {
     assert_output --partial 'a.sh:2: [missing-path]'
     refute_output --partial 'a.sh:1:'
 }
+
+@test "許可リストの正規表現が不正なら、違反が別ファイルでも exit 2" {
+    put a.sh '# Task 2'
+    printf 'b.sh:([\n' >"$COMMENT_NOISE_ALLOWLIST"
+    run scan
+    assert_failure 2
+}
+
+@test "許可リストの正規表現が不正なら、違反が無くても exit 2" {
+    put a.sh '# ふつうのコメント'
+    printf 'a.sh:([\n' >"$COMMENT_NOISE_ALLOWLIST"
+    run scan
+    assert_failure 2
+}
+
+@test "拡張子が md でない Markdown(md.tmpl / mdc / chezmoitemplates)は見ない" {
+    put x.md.tmpl '## Step 1: install'
+    put .cursor/rules/y.mdc '## Step 1: install'
+    put .chezmoitemplates/z '## Step 1: install'
+    run scan
+    assert_success
+}
+
+@test "missing-path: マシンのグローバルな gitignore は判定に使わない" {
+    put docs/real.md 'x'
+    printf 'docs/*.local\n' >"$BATS_TEST_TMPDIR/global-ignore"
+    printf '[core]\n\texcludesfile = %s\n' "$BATS_TEST_TMPDIR/global-ignore" >"$BATS_TEST_TMPDIR/gitconfig"
+    put a.sh '# docs/x.local'
+    GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig" run scan
+    assert_failure 1
+    assert_output --partial '[missing-path]'
+}

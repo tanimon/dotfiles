@@ -4,3 +4,6 @@
 # .chezmoiremove は撤去したものの記録なので、消えた source や配置先のパスへの参照が正当
 .chezmoiremove:source\(dot_claude/commands/\)を削除した
 .chezmoiremove:`\.claude/skills/gstack` は external の
+
+# Claude Code が worktree ごとに書くローカル設定。リポジトリの .gitignore には無い(個人のグローバルな除外で無視している)
+*:\.claude/settings\.local\.json

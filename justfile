@@ -159,13 +159,13 @@ check-templates:
 @test-sensitive:
     pnpm exec bats test/scan-sensitive-info.bats
 
-# No file list is passed: the script walks `git ls-files` itself.
-# Flag noise in code comments (plan step numbers, issue-origin notes, missing paths)
+# ファイル名は渡さない。スクリプトが `git ls-files` を自分で走査する。
+# コードコメントのノイズ(計画の内部番号・経緯の番号・存在しないパス)を検出する
 @check-comment-noise:
     bash scripts/check-comment-noise.sh
 
-# LC_ALL=C for the bats-core locale bug: this suite's @test names are in Japanese.
-# Smoke test check-comment-noise.sh
+# LC_ALL=C は bats-core のロケールのバグを避けるため(@test 名が日本語)。
+# check-comment-noise.sh のスモークテスト
 @test-comment-noise:
     LC_ALL=C pnpm exec bats test/check-comment-noise.bats
 
