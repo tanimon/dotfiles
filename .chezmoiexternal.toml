@@ -68,7 +68,7 @@
 # ディレクトリが作られず、apply が `stat …/references: no such file or directory` で失敗する。
 [".claude/skills/gh-stack"]
   type = "archive"
-  url = "https://github.com/github/gh-stack/archive/bceeab9586e5d7de958c9af137e95dcc73371a69.tar.gz"
+  url = "https://github.com/github/gh-stack/archive/d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419.tar.gz"
   # renovate: branch=main
   stripComponents = 3
   include = ["*/skills/gh-stack/SKILL.md", "*/skills/gh-stack/references", "*/skills/gh-stack/references/*.md"]
@@ -76,7 +76,7 @@
 
 [".codex/skills/gh-stack"]
   type = "archive"
-  url = "https://github.com/github/gh-stack/archive/bceeab9586e5d7de958c9af137e95dcc73371a69.tar.gz"
+  url = "https://github.com/github/gh-stack/archive/d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419.tar.gz"
   # renovate: branch=main
   stripComponents = 3
   include = ["*/skills/gh-stack/SKILL.md", "*/skills/gh-stack/references", "*/skills/gh-stack/references/*.md"]
