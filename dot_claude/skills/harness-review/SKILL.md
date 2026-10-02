@@ -47,7 +47,8 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
    - behavioral guidelines → the shared body
      `.chezmoitemplates/agent-instructions-common` if product-neutral,
      `dot_claude/CLAUDE.md.tmpl` if it names Claude-only tools
-   - this-repo pitfall → repo `CLAUDE.md` Known Pitfalls or `.claude/rules/`
+   - this-repo pitfall → `harness/modules/project/50-pitfalls.md` (then run
+     `just harness-sync`; `CLAUDE.md` is generated from it) or `.claude/rules/`
    - incident record → `docs/solutions/`
 
    Scope `project:<other-repo>` → verdict
@@ -58,9 +59,9 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
 
 ## Step 4: Staleness scan
 
-Sample existing rules for rot (do all of `.claude/rules/` and
-`dot_claude/rules/common/` when the queue is small; otherwise at least the
-files touched by adopted changes plus one more):
+Sample existing rules for rot (do all of `.claude/rules/`,
+`dot_claude/rules/common/`, and `dot_claude/rules/claude-code/` when the
+queue is small; otherwise at least the files touched by adopted changes plus one more):
 
 - Referenced files, commands, and workflows still exist?
 - Contradicted by newer learnings or by how work is actually done now?

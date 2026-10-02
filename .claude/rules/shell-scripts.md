@@ -105,7 +105,7 @@ Rules for Claude Code hook scripts (`dot_claude/scripts/`).
 
 - `exit 0` — intentional skip (tool guard missing, non-project context, already ran)
 - `exit 1` + stderr message — actionable error(ユーザーにだけ見える)
-- `exit 2` + stderr message — モデルに stderr を返して対処させる(`PreToolUse` ではブロック、`PostToolUse` では結果の後に注入)。旧 secretlint フックは `exit 1` だったため、仮に発火していても Claude 側には見えなかった
+- `exit 2` + stderr message — モデルに stderr を返して対処させる(`PreToolUse` ではブロック、`PostToolUse` では結果の後に注入)
 - Never `exit 1` without stderr — produces confusing "No stderr output" message in Claude Code
 
 ### PostToolUse フックが対象ファイルを知る方法

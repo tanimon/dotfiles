@@ -13,7 +13,7 @@ CLAUDE.md とルールは**エージェントの振る舞いのバグトラッ�
 
 When an agent produces a bad outcome:
 1. Identify the root cause (wrong assumption, missing context, bad pattern)
-2. Determine scope: project-specific (CLAUDE.md or `.claude/rules/`) vs global (`~/.claude/rules/`)
+2. Determine scope: 今のリポに閉じるか、セッション・リポを横断するか。記録先と経路は上の Core Principle に従う
 3. Write a concise, actionable rule that prevents recurrence
 4. Include the "why" — rules without rationale get ignored or misapplied
 

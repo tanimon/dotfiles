@@ -24,7 +24,7 @@ Web の取得は組込みの WebFetch / WebSearch を使う(専用のブラウ�
 
 どちらも 2026-09-18 の `/doctor` で実際に踏んだもので、**症状が「失敗」ではなく「別のものに成功した」ように見える**のが共通点。
 
-- **`dangerouslyDisableSandbox: true` のコマンドは `$TMPDIR` が別になる。** 跨がせるファイルは scratchpad の絶対パスに置く。全リポジトリ共通のルールとして `dot_claude/rules/claude-code/bash-tool.md` に移した。
+- **`dangerouslyDisableSandbox: true` のコマンドは `$TMPDIR` が別になる。** 跨がせるファイルは scratchpad の絶対パスに置く(全リポジトリ共通のルールは `dot_claude/rules/claude-code/bash-tool.md` の「一時ファイルとファイルの置き場所」)。
 - **`dangerouslyDisableSandbox: true` のコマンドは、完了しているのにタイムアウトを誤報告することがある。** コマンド本体は終わっているのにシェルが生き残り、60s/120s で「background に移した」と報告される。**再実行する前に必ずタスク出力ファイルを読むこと** — 中身が完了を示していれば、そのまま再実行すると同じ破壊的操作を二度走らせる。
 
 ### Global configuration
