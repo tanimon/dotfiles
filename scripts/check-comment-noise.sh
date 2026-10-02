@@ -61,6 +61,17 @@ is_allowed() {
     return 1
 }
 
+# git 管理下のトップレベルのディレクトリ。先頭の要素がこれと一致するトークンだけを
+# リポジトリ内のパスとみなす(~/ で始まる配置先のパスや、ファイルからの相対パスを避ける)
+TOP_DIRS="$(git ls-files | grep / | cut -d/ -f1 | sort -u || true)"
+
+is_top_dir() {
+    case $'\n'"$TOP_DIRS"$'\n' in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+    esac
+    return 1
+}
+
 violations=0
 
 report() {
@@ -68,6 +79,19 @@ report() {
     is_allowed "$file" "$text" && return 0
     printf '%s:%s: [%s] %s\n' "$file" "$lineno" "$pattern" "$text"
     violations=$((violations + 1))
+}
+
+check_paths() {
+    local file=$1 lineno=$2 text=$3 tokens token
+    # パスに使う文字以外を区切りにする。:行番号・#アンカー・括弧・句読点・CR はここで落ちる
+    tokens=$(printf '%s' "$text" | sed 's#[^A-Za-z0-9_./~{}<>*$-]# #g')
+    for token in $tokens; do
+        while [[ $token == *. ]]; do token=${token%.}; done
+        [[ $token == */* ]] || continue
+        case $token in *'{'* | *'}'* | *'<'* | *'>'* | *'*'* | *'$'*) continue ;; esac
+        is_top_dir "${token%%/*}" || continue
+        [[ -e $token ]] || report "$file" "$lineno" missing-path "$text"
+    done
 }
 
 check_line() {
@@ -78,6 +102,7 @@ check_line() {
     if [[ $text =~ $ISSUE_ORIGIN_JA_RE || $text =~ $ISSUE_ORIGIN_EN_RE ]]; then
         report "$file" "$lineno" issue-origin "$text"
     fi
+    check_paths "$file" "$lineno" "$text"
 }
 
 while IFS= read -r -d '' file; do

@@ -136,3 +136,50 @@ scan() {
     assert_failure 2
     assert_output --partial 'invalid regex'
 }
+
+@test "missing-path: 存在しないパスを止める" {
+    put docs/real.md 'x'
+    put a.sh '# 詳細: docs/missing.md を参照'
+    run scan
+    assert_failure 1
+    assert_output --partial 'a.sh:1: [missing-path]'
+    assert_output --partial 'docs/missing.md'
+}
+
+@test "missing-path: 実在するパスは句読点・行番号・アンカー付きでも通す" {
+    put docs/real.md 'x'
+    put a.sh $'# docs/real.md を参照。\n# (docs/real.md:12)\n# `docs/real.md#節`、\n# docs/ 配下'
+    run scan
+    assert_success
+}
+
+@test "missing-path: トップレベルのディレクトリで始まらないトークンは見ない" {
+    put docs/real.md 'x'
+    put a.sh $'# ~/docs/x と ~/.claude/x\n# lib/shell-reader.bash\n# https://example.com/docs/x\n# ../docs/x'
+    run scan
+    assert_success
+}
+
+@test "missing-path: プレースホルダ・テンプレート・glob・変数を含むパスは見ない" {
+    put docs/real.md 'x'
+    put a.sh $'# docs/<name>/x\n# docs/{a,b}/\n# docs/*.md\n# docs/$X/y\n# {{ .x }}/docs/y'
+    run scan
+    assert_success
+}
+
+@test "missing-path: CRLF の行でも実在するパスは通す" {
+    put docs/real.md 'x'
+    printf '# docs/real.md\r\n' >"$REPO/a.sh"
+    git -C "$REPO" add a.sh
+    run scan
+    assert_success
+}
+
+@test "missing-path: ディレクトリへの参照も実在で判定する" {
+    put docs/sub/real.md 'x'
+    put a.sh $'# docs/sub/\n# docs/nosuch/'
+    run scan
+    assert_failure 1
+    assert_output --partial 'a.sh:2: [missing-path]'
+    refute_output --partial 'a.sh:1:'
+}
