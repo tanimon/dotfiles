@@ -90,7 +90,10 @@ check_paths() {
         [[ $token == */* ]] || continue
         case $token in *'{'* | *'}'* | *'<'* | *'>'* | *'*'* | *'$'*) continue ;; esac
         is_top_dir "${token%%/*}" || continue
-        [[ -e $token ]] || report "$file" "$lineno" missing-path "$text"
+        [[ -e $token ]] && continue
+        # gitignore されたパス(ローカルにだけ置くファイル)は、無いのが正常
+        git check-ignore -q --no-index -- "$token" && continue
+        report "$file" "$lineno" missing-path "$text"
     done
 }
 

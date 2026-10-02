@@ -183,3 +183,13 @@ scan() {
     assert_output --partial 'a.sh:2: [missing-path]'
     refute_output --partial 'a.sh:1:'
 }
+
+@test "missing-path: gitignore されたパスは存在しなくても止めない" {
+    put .gitignore 'scripts/*.local.txt'
+    put scripts/real.sh ':'
+    put a.sh $'# scripts/x.local.txt に書く\n# scripts/x.other.txt に書く'
+    run scan
+    assert_failure 1
+    assert_output --partial 'a.sh:2: [missing-path]'
+    refute_output --partial 'a.sh:1:'
+}

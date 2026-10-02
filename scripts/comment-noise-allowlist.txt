@@ -1,0 +1,6 @@
+# check-comment-noise.sh の例外。各行は <path-suffix or *>:<regex>。
+# 例外にする理由を、その行の直前のコメントに書く。
+
+# .chezmoiremove は撤去したものの記録なので、消えた source や配置先のパスへの参照が正当
+.chezmoiremove:source\(dot_claude/commands/\)を削除した
+.chezmoiremove:`\.claude/skills/gstack` は external の
