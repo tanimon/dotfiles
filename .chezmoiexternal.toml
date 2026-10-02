@@ -66,12 +66,14 @@
 # skill が呼ぶ `gh stack` 拡張本体は dot_config/gh/extensions.txt で入れる。拡張は最新版を入れるので、
 # この SHA と拡張のバージョンは一致しない(Renovate が skill を追随させる)。
 # 2 エントリは同じ SHA を指す。LICENSE(MIT)は skill ディレクトリの外にあるので取り込まない。
+# include はディレクトリエントリにも効くので `references` 自体も列挙する。`references/*.md` だけだと
+# ディレクトリが作られず、apply が `stat …/references: no such file or directory` で失敗する。
 [".claude/skills/gh-stack"]
   type = "archive"
   url = "https://github.com/github/gh-stack/archive/bceeab9586e5d7de958c9af137e95dcc73371a69.tar.gz"
   # renovate: branch=main
   stripComponents = 3
-  include = ["*/skills/gh-stack/SKILL.md", "*/skills/gh-stack/references/*.md"]
+  include = ["*/skills/gh-stack/SKILL.md", "*/skills/gh-stack/references", "*/skills/gh-stack/references/*.md"]
   refreshPeriod = "168h"
 
 [".codex/skills/gh-stack"]
@@ -79,5 +81,5 @@
   url = "https://github.com/github/gh-stack/archive/bceeab9586e5d7de958c9af137e95dcc73371a69.tar.gz"
   # renovate: branch=main
   stripComponents = 3
-  include = ["*/skills/gh-stack/SKILL.md", "*/skills/gh-stack/references/*.md"]
+  include = ["*/skills/gh-stack/SKILL.md", "*/skills/gh-stack/references", "*/skills/gh-stack/references/*.md"]
   refreshPeriod = "168h"
