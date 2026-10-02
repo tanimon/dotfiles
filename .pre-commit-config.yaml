@@ -48,7 +48,14 @@ repos:
         name: zizmor
         entry: bash -c 'if command -v zizmor &>/dev/null; then zizmor "$@"; else echo "zizmor not found, skipping"; fi' --
         language: system
-        files: '\.github/workflows/.*\.yml$'
+        files: '\.github/(workflows/.*\.yml|actions/.*/action\.yml)$'
+        types: [file]
+      # actionlint は composite action の run: を shellcheck にかけない(#411 の穴)。
+      - id: check-composite-actions
+        name: check-composite-actions
+        entry: bash scripts/check-composite-actions.sh
+        language: system
+        files: '\.github/actions/.*/action\.yml$'
         types: [file]
       # CLAUDE.md / AGENTS.md / .cursor/rules は harness/modules/ からの生成物。
       # 手編集を commit 時点で止める(検出だけ。再生成は `just harness-sync`)。
