@@ -96,23 +96,25 @@ const IMPLEMENT_SCHEMA = {
   required: ["status"],
 };
 
+// changes は必須にし、変えなかったことも空配列で明示させる(省略を「変更なし」と読まない)。
+// file を分けて持つのは、入口 skill が git の差分と照合するため(review-verify の手順8)。
+const CHANGES = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: { file: { type: "string" }, summary: { type: "string" } },
+    required: ["file", "summary"],
+  },
+};
+
 const CHECKS_SCHEMA = {
   type: "object",
   properties: {
     passed: { type: "boolean" },
     details: { type: "string" },
-    changes: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { file: { type: "string" }, summary: { type: "string" } },
-        required: ["file", "summary"],
-      },
-    },
+    changes: CHANGES,
     observations: STRINGS,
   },
-  // changes を必須にし、変えなかったことも空配列で明示させる(省略を「変更なし」と読まない)。
-  // file を分けて持つのは、入口 skill が git の差分と照合するため(review-verify の手順8)。
   required: ["passed", "changes"],
 };
 
@@ -196,8 +198,13 @@ const VERIFY_SCHEMA = {
 
 const FIX_VERIFY_SCHEMA = {
   type: "object",
-  properties: { fixed: { type: "boolean" }, summary: { type: "string" }, observations: STRINGS },
-  required: ["fixed", "summary"],
+  properties: {
+    fixed: { type: "boolean" },
+    summary: { type: "string" },
+    changes: CHANGES,
+    observations: STRINGS,
+  },
+  required: ["fixed", "summary", "changes"],
 };
 
 const WRITE_SCHEMA = {
@@ -275,6 +282,7 @@ function newState(config) {
     verification: [],
     observations: [],
     checksChanges: [],
+    verifyFixChanges: [],
     reviewerFailures: [],
     stopReason: null,
     stopDetail: "",
@@ -379,7 +387,7 @@ const keepRequirements = (config) =>
 // 逆に「未着手」を口実にブランチ自身の不具合を見送らせないよう、歯止めの文も必ず添える。
 const unstartedScope = (config, rule) =>
   config.features.branchScope
-    ? `\n- 要件文書のうち、このブランチがまだ着手していない項目は範囲外である。${rule}ただし、このブランチが追加・変更したコードの不具合(例外、誤動作、着手済みの項目とのずれ)は、未着手の項目に関わっていても範囲外にしない。`
+    ? `\n- 要件文書のうち、このブランチがまだ着手していない項目は範囲外である。この規則は、要件文書とのずれを直す指示より優先する。${rule}ただし、このブランチが追加・変更したコードの不具合(例外、誤動作、着手済みの項目とのずれ)は、未着手の項目に関わっていても範囲外にしない。`
     : "";
 
 function planPrompt(config) {
@@ -398,6 +406,9 @@ function implementPrompt(task, index, total, config) {
 - タスクの範囲外で気づいた問題は observations に書く(直さない)。`;
 }
 
+const reportChanges =
+  "- コードを変更したら、変更したファイルごとに、リポジトリルートからの相対パスを file に、何をなぜ変えたかを summary に書いて changes に入れる。変更しなければ空配列にする。";
+
 function checksPrompt(config) {
   // Review-Verify では人間が書いたブランチに最初に触れるのがこのエージェントなので、未着手の項目を
   // 検査するテストが落ちていても、それを実装して通させない(ADR 0008)。
@@ -405,7 +416,7 @@ function checksPrompt(config) {
   return `次のコマンドを全て実行せよ: ${commands(config)}
 - 失敗があれば原因を直してコミットし(push はしない)、全て成功するまで繰り返す。
 - テストを消す・スキップする・lint を無効化するなど、検査そのものを弱める変更はしない。
-- コードを変更したら、変更したファイルごとに、リポジトリルートからの相対パスを file に、何をなぜ変えたかを summary に書いて changes に入れる。変更しなければ空配列にする。
+${reportChanges}
 - 3回試しても直らなければ、passed=false と失敗内容を返す。${keepRequirements(config)}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと通らない場合は、passed=false とし、その旨を details に書く。")}`;
 }
 
@@ -456,7 +467,8 @@ function verifyPrompt(config) {
 
 function fixVerifyPrompt(result, config) {
   return `動作確認が失敗した。結果(JSON): ${JSON.stringify(result)}
-原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}${keepRequirements(config)}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと直らない場合は、fixed=false とし、その旨を summary に書く。")}`;
+原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}
+${reportChanges}${keepRequirements(config)}${unstartedScope(config, "それを実装しない。未着手の項目を実装しないと直らない場合は、fixed=false とし、その旨を summary に書く。")}`;
 }
 
 function ledgerJson(state) {
@@ -520,6 +532,8 @@ function formatItem(item) {
   const location = item.line ? `${item.file}:${item.line}` : item.file;
   return `\`${location}\` ${item.summary} [${item.severities.join(", ")}]`;
 }
+
+const formatChange = (c) => `${c.label}: \`${c.file}\` ${c.summary}`;
 
 function renderReport(state) {
   const lines = [];
@@ -586,11 +600,8 @@ function renderReport(state) {
     (d) => `${formatItem(d)} — 見送り理由: ${d.reason} / 検証者: ${d.verifierReason}`,
   );
   pushSection("参考指摘(修正必須ではない)", uniqueByKey(state.advisory), formatItem);
-  pushSection(
-    "テスト/lint を通すための変更",
-    state.checksChanges,
-    (c) => `${c.label}: \`${c.file}\` ${c.summary}`,
-  );
+  pushSection("テスト/lint を通すための変更", state.checksChanges, formatChange);
+  pushSection("動作確認を通すための変更", state.verifyFixChanges, formatChange);
   pushSection("Observations", state.observations, (o) => o);
 
   lines.push("## 統計", "");
@@ -718,7 +729,7 @@ async function mergeFindings(state, findings) {
   }
   for (const c of clusters) {
     if (!state.knownClusters.some((k) => k.key === c.key))
-      state.knownClusters.push({ key: c.key, summary: c.summary });
+      state.knownClusters.push({ key: c.key, file: c.file, summary: c.summary });
   }
   return clusters;
 }
@@ -903,6 +914,10 @@ async function verify(state) {
       schema: FIX_VERIFY_SCHEMA,
     });
     collectObservations(state, fixLabel, fix);
+    // 動作確認の修正も人間のブランチを変えるので、checks と同じく直った場合も報告に出す。
+    if (fix && Array.isArray(fix.changes))
+      for (const c of fix.changes)
+        state.verifyFixChanges.push({ label: fixLabel, file: c.file, summary: c.summary });
     // 直せなかった場合も途中までのコミットが残りうるので、レビューは回す。再確認はしない。
     await reviewLoop(state);
     if (state.stopReason) return;

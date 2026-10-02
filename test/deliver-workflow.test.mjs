@@ -67,6 +67,7 @@ function scenario({
   fixes = [],
   verdicts = {},
   verifies = [{ passed: true, summary: "ok" }],
+  fixVerify = () => ({ fixed: true, summary: "fixed", changes: [], observations: [] }),
 } = {}) {
   let mergeIndex = 0;
   let fixIndex = 0;
@@ -90,7 +91,7 @@ function scenario({
       verifyIndex++;
       return v;
     }
-    if (label.startsWith("fix-verify:")) return { fixed: true, summary: "fixed", observations: [] };
+    if (label.startsWith("fix-verify:")) return fixVerify(Number(label.split(":")[1]));
     if (label.startsWith("publish-write:")) return faithfulWrite(calls[calls.length - 1].prompt);
     if (label === "publish") return { pushed: true, prUrl: "https://example.invalid/pr/1" };
     throw new Error(`unexpected agent label: ${label}`);
@@ -1118,4 +1119,59 @@ test("checks がコードを変えなければ、その節は「なし」と出�
     respond: scenario({ checks: () => ({ passed: true, details: "", changes: [] }) }),
   });
   assert.equal(section(result.report, "テスト/lint を通すための変更").trim(), "なし");
+});
+
+test("動作確認の修正がコードを変えたら、直った場合も報告と ledger に残す", async () => {
+  const { result, calls } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      verifies: [
+        { passed: false, summary: "画面が真っ白" },
+        { passed: true, summary: "ok" },
+      ],
+      fixVerify: () => ({
+        fixed: true,
+        summary: "初期化の順序を直した",
+        changes: [{ file: "src/app.js", summary: "描画前に store を初期化する" }],
+      }),
+    }),
+  });
+  assert.match(calls.find((c) => c.label === "fix-verify:1").prompt, /変更したファイルごとに/);
+  assert.match(
+    section(result.report, "動作確認を通すための変更"),
+    /fix-verify:1: `src\/app\.js` 描画前に store を初期化する/,
+  );
+  // 入口 skill が git の差分と照合できるよう、ファイルを ledger に構造のまま残す。
+  assert.deepEqual(JSON.parse(result.ledger).verifyFixChanges, [
+    { label: "fix-verify:1", file: "src/app.js", summary: "描画前に store を初期化する" },
+  ]);
+});
+
+test("ledger の knownClusters は、key の書式に頼らず照合できるよう file を持つ", async () => {
+  const { result } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      reviews: [{ requesting: [finding("Important")] }, {}],
+      merges: [[cluster("./a.js::bug", ["requesting#0"], { file: "a.js" })]],
+      fixes: [{ results: [{ key: "./a.js::bug", action: "fixed" }], observations: [] }],
+    }),
+  });
+  assert.deepEqual(JSON.parse(result.ledger).knownClusters, [
+    { key: "./a.js::bug", file: "a.js", summary: "issue ./a.js::bug" },
+  ]);
+});
+
+test("review-verify では、未着手の項目を範囲外とする規則が要件文書とのずれを直す指示より優先すると明示する", async () => {
+  const { calls } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      reviews: [{ requesting: [finding("Important")] }, {}],
+      merges: [[cluster("a.js::bug", ["requesting#0"])]],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], observations: [] }],
+    }),
+  });
+  for (const prefix of ["checks:", "fix:"]) {
+    const prompt = calls.find((c) => c.label.startsWith(prefix)).prompt;
+    assert.match(prompt, /要件文書とのずれを直す指示より優先する/, prefix);
+  }
 });
