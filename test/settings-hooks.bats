@@ -136,6 +136,10 @@ assert_guard_wired() {
     # 2 つ以上持つ event と、1 文字でも違うコピーを捕まえる
     run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] | "\(length) \(unique | length)"' "$SETTINGS"
     assert_output "${#expected[@]} 1"
+    # partial の type / timeout が崩れても command の照合は通るので、別に見る(timeout は文字列化を捕まえる)
+    run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks"))
+        | "\(.type) \(.timeout | type)"] | unique | join(",")' "$SETTINGS"
+    assert_output "command number"
     # matcher が絞られると orca はその event の大半を受け取れなくなる。全件一致(省略・"" ・"*")だけを許す
     run jq -r '[.hooks[][] | select(any(.hooks[]; (.command // "") | test("orca/agent-hooks")))
         | (.matcher // "") | if . == "" then "*" else . end] | unique | join(" ")' "$SETTINGS"
