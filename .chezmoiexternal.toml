@@ -37,3 +37,24 @@
   stripComponents = 3
   include = ["*/rules/web/**"]
   refreshPeriod = "168h"
+
+# openai/skills の curated skill `define-goal` を Claude Code と Codex の両方に配る。
+# 本来は Codex の goal ツール(get_goal / create_goal)を呼ぶ前提で書かれており、Claude Code では
+# その手順(5・6)だけが空振りする。原文のまま使うと決めたうえで取り込んでいる(2026-10-01)。
+# Codex 側は ~/.agents/skills ではなく ~/.codex/skills に置く(~/.agents/ は .chezmoiignore 済み)。
+# 2 エントリは同じ SHA を指す。agents/openai.yaml は Codex アプリの表示用メタデータなので取り込まない。
+[".claude/skills/define-goal"]
+  type = "archive"
+  url = "https://github.com/openai/skills/archive/49f948faa9258a0c61caceaf225e179651397431.tar.gz"
+  # renovate: branch=main
+  stripComponents = 4
+  include = ["*/skills/.curated/define-goal/SKILL.md", "*/skills/.curated/define-goal/LICENSE.txt"]
+  refreshPeriod = "168h"
+
+[".codex/skills/define-goal"]
+  type = "archive"
+  url = "https://github.com/openai/skills/archive/49f948faa9258a0c61caceaf225e179651397431.tar.gz"
+  # renovate: branch=main
+  stripComponents = 4
+  include = ["*/skills/.curated/define-goal/SKILL.md", "*/skills/.curated/define-goal/LICENSE.txt"]
+  refreshPeriod = "168h"
