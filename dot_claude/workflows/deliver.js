@@ -179,9 +179,10 @@ const FIX_SCHEMA = {
         required: ["key", "action"],
       },
     },
+    changes: CHANGES,
     observations: STRINGS,
   },
-  required: ["results"],
+  required: ["results", "changes"],
 };
 
 const VERDICT_SCHEMA = {
@@ -239,6 +240,8 @@ function validateArgs(input) {
   if (!Array.isArray(a.checkCommands) || a.checkCommands.length === 0)
     missing.push("checkCommands");
   if (typeof a.verifySkill !== "string" || a.verifySkill === "") missing.push("verifySkill");
+  // 欠落は他の必須引数と同じ段で挙げる(別に throw すると、直して再実行するまで mode の欠落が見えない)。
+  if (a.mode === undefined) missing.push("mode");
   if (missing.length > 0) {
     throw new Error(
       `deliver: 必須の引数がありません: ${missing.join(", ")}(入口 skill /deliver か /review-verify から起動してください)`,
@@ -282,6 +285,8 @@ function newState(config) {
     verification: [],
     observations: [],
     checksChanges: [],
+    fixed: [],
+    fixChanges: [],
     verifyFixChanges: [],
     reviewerFailures: [],
     stopReason: null,
@@ -449,6 +454,7 @@ function fixPrompt(items, config) {
 - unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。全ての指摘について、必ず fixed か propose-defer のどちらかを返す。
 - 修正した後、次のコマンドを全て成功させる: ${commands(config)}
 - 修正をまとめて新しい1コミットにする(push はしない)。${keepRequirements(config).trimStart()}
+${reportChanges}
 - 指摘の範囲外で気づいた問題は observations に書く。${unstartedScope(config, "それを実装しない。実装しないと解消しない指摘は、要件文書の範囲外として propose-defer にする。")}`;
 }
 
@@ -600,7 +606,15 @@ function renderReport(state) {
     (d) => `${formatItem(d)} — 見送り理由: ${d.reason} / 検証者: ${d.verifierReason}`,
   );
   pushSection("参考指摘(修正必須ではない)", uniqueByKey(state.advisory), formatItem);
+  // 修正エージェントは人間が書いたブランチにもコミットを足すので、何を直したかを残す。
+  // 直したと申告しても後で Unresolved になった指摘は、直っていないので出さない。
+  pushSection(
+    "修正した指摘",
+    uniqueByKey(state.fixed).filter((i) => !state.unresolvedKeys.has(i.key)),
+    formatItem,
+  );
   pushSection("テスト/lint を通すための変更", state.checksChanges, formatChange);
+  pushSection("レビュー指摘を直すための変更", state.fixChanges, formatChange);
   pushSection("動作確認を通すための変更", state.verifyFixChanges, formatChange);
   pushSection("Observations", state.observations, (o) => o);
 
@@ -729,7 +743,7 @@ async function mergeFindings(state, findings) {
   }
   for (const c of clusters) {
     if (!state.knownClusters.some((k) => k.key === c.key))
-      state.knownClusters.push({ key: c.key, file: c.file, summary: c.summary });
+      state.knownClusters.push({ key: c.key, summary: c.summary });
   }
   return clusters;
 }
@@ -754,7 +768,11 @@ async function runFix(state, roundNo, blocking) {
     return { firstRejections: new Set(), rejected: new Set() };
   }
   collectObservations(state, label, fix);
+  if (Array.isArray(fix.changes))
+    for (const c of fix.changes) state.fixChanges.push({ label, file: c.file, summary: c.summary });
   const byKey = Object.fromEntries(blocking.map((b) => [b.key, b]));
+  for (const r of fix.results)
+    if (r.action === "fixed" && byKey[r.key]) state.fixed.push(byKey[r.key]);
   // 対応結果の無い指摘は直したとは言っていないので、見送りを却下された指摘と同じく次のラウンドで確かめる。
   const firstRejections = new Set();
   const rejected = new Set();

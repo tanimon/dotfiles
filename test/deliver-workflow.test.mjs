@@ -1147,20 +1147,6 @@ test("動作確認の修正がコードを変えたら、直った場合も報�
   ]);
 });
 
-test("ledger の knownClusters は、key の書式に頼らず照合できるよう file を持つ", async () => {
-  const { result } = await runWorkflow({
-    args: { mode: "review-verify" },
-    respond: scenario({
-      reviews: [{ requesting: [finding("Important")] }, {}],
-      merges: [[cluster("./a.js::bug", ["requesting#0"], { file: "a.js" })]],
-      fixes: [{ results: [{ key: "./a.js::bug", action: "fixed" }], observations: [] }],
-    }),
-  });
-  assert.deepEqual(JSON.parse(result.ledger).knownClusters, [
-    { key: "./a.js::bug", file: "a.js", summary: "issue ./a.js::bug" },
-  ]);
-});
-
 test("review-verify では、未着手の項目を範囲外とする規則が要件文書とのずれを直す指示より優先すると明示する", async () => {
   const { calls } = await runWorkflow({
     args: { mode: "review-verify" },
@@ -1174,4 +1160,50 @@ test("review-verify では、未着手の項目を範囲外とする規則が要
     const prompt = calls.find((c) => c.label.startsWith(prefix)).prompt;
     assert.match(prompt, /要件文書とのずれを直す指示より優先する/, prefix);
   }
+});
+
+test("レビュー指摘を直したら、直した指摘と変えたファイルを報告と ledger に残す", async () => {
+  const { result, calls } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::bug", action: "fixed" }],
+          changes: [{ file: "a.js", summary: "null を弾く" }],
+          observations: [],
+        },
+      ],
+    }),
+  });
+  assert.match(calls.find((c) => c.label === "fix:1").prompt, /変更したファイルごとに/);
+  assert.match(section(result.report, "修正した指摘"), /`a\.js:1` issue a\.js::bug \[ecc:HIGH\]/);
+  assert.match(
+    section(result.report, "レビュー指摘を直すための変更"),
+    /fix:1: `a\.js` null を弾く/,
+  );
+  // 入口 skill が git の差分と照合できるよう、ファイルを ledger に構造のまま残す。
+  assert.deepEqual(JSON.parse(result.ledger).fixChanges, [
+    { label: "fix:1", file: "a.js", summary: "null を弾く" },
+  ]);
+});
+
+test("直したと申告した指摘が Unresolved になったら、修正した指摘には出さない", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, { ecc: [finding("HIGH")] }],
+      merges: [[cluster("a.js::bug", ["ecc#0"])], [cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], changes: [], observations: [] }],
+    }),
+  });
+  assert.match(section(result.report, "Unresolved Finding"), /a\.js::bug/);
+  assert.equal(section(result.report, "修正した指摘").trim(), "なし");
+});
+
+test("mode と他の必須引数が同時に欠けていれば、1回の throw で両方を挙げる", async () => {
+  await assert.rejects(
+    runWorkflow({ args: { mode: undefined, requirementsPath: "" } }),
+    /必須の引数がありません: requirementsPath, mode/,
+  );
 });
