@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -168,6 +168,11 @@ check-templates:
 @test-deliver:
     node --test test/deliver-workflow.test.mjs
 
+# Needs mikefarah yq v4 — fails (not skips) without it, so CI cannot pass vacuously.
+# Check that lint.yml runs exactly the lint: recipes minus the local-only group
+@test-ci-parity:
+    LC_ALL=C pnpm exec bats test/ci-parity.bats
+
 # Smoke test harness loop scripts (reflect-trigger, briefing, doctor)
 @test-harness-scripts:
     pnpm exec bats test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats
@@ -217,11 +222,13 @@ check-templates:
     LC_ALL=C pnpm exec bats test/apm-install-global.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
+[group('local-only')]
 @test-nono-profile:
     pnpm exec bats test/nono-profile.bats
 
 # The nono pack sync script drives a fake nono. Local only: the template is
 # darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).
 # Smoke test the nono pack sync script (version hash + pull/update)
+[group('local-only')]
 @test-nono-packs:
     LC_ALL=C pnpm exec bats test/nono-packs-script.bats
