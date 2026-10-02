@@ -102,6 +102,28 @@ _Avoid_: プロジェクト設定、dotfiles 側のプロジェクト定義
 明示的に登録され、Project Harness の Source と生成済み Target をバージョン管理し、Semantic Sync の検証対象になっているプロジェクト。未登録のリポジトリは同期・変更の対象にならない。
 _Avoid_: 対応プロジェクト、設定済みリポジトリ
 
+### Self-improvement
+
+**Improvement Surface**:
+自己改善ループが書き換えてよい Harness Asset の範囲。指示・ルール・Skill・フック・スクリプトを含む。改善ループ自身と Evaluator は含まない。
+_Avoid_: 改善対象(無限定)、学習対象
+
+**Evaluator**:
+改善が効いたかを判定する仕組みと、その判定に使う基準と事例。失敗の検出と Failure Pattern への分類も含む。Improvement Surface の外に置き、自己改善ループとは別の経路でしか変更しない。
+_Avoid_: 評価(無限定)、doctor(稼働検査と混同する)
+
+**Failure Pattern**:
+同じ根本原因から繰り返し起こりうる、エージェントの失敗の類型。個々の失敗事例ではなく類型で数え、harness 全体の健康度はその再発率で測る。
+_Avoid_: 失敗(無限定)、学び、エラー
+
+**Eval Case**:
+1つのルールの有無で結果が分かれるかを確かめる、Evaluator の事例。ルールの無い側で失敗が再現することを確かめたものだけが有効で、どちらの側でも成功するものは効果の証拠にならない。
+_Avoid_: テストケース(bats と紛らわしい)、評価(無限定)
+
+**Rule Ledger**:
+自己改善ループが採否を判定したルールごとの記録。Failure Pattern、Eval Case、効果、採否の経緯を、仕事の文脈を含まない形で公開リポジトリに残す。生の証拠はローカルにだけ置く。
+_Avoid_: queue-archive(ローカルの作業記録と混同する)、履歴
+
 ### Profiles
 
 **Machine Profile**:
