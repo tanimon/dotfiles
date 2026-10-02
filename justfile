@@ -1,4 +1,4 @@
-# File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
+# File discovery — keep in step with the files:/exclude: filters in .pre-commit-config.yaml (CI calls these recipes through lint.yml)
 # `| tr '\n' ' '` is required: unlike GNU Make's $(shell ...), just's backtick
 # variables do NOT collapse embedded newlines to spaces, so without this a
 # multi-match `find` would put each path on its own line inside the recipe
@@ -108,9 +108,10 @@ zizmor:
     pnpm exec bats test/modify-karabiner.bats
 
 # LC_ALL=C works around a bats-core locale bug: under some locales, @test names
-# containing non-ASCII characters (this file's test names are in Japanese)
+# containing non-ASCII characters (notify.bats and
+# secretlint-guard.bats have Japanese test names)
 # register under a different name than they're looked up by, causing spurious
-# "unknown test name" failures (23 -> 16 executed). See .claude/rules/shell-scripts.md.
+# "unknown test name" failures (notify.bats: 23 -> 16 executed). See .claude/rules/shell-scripts.md.
 # Smoke test hook scripts
 @test-scripts:
     LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats

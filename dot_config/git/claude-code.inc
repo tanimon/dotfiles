@@ -1,7 +1,8 @@
 # Claude Code の Bash tool 経由で実行されるgit専用の上書き設定。
 # dot_claude/settings.json.tmpl の env で GIT_CONFIG_GLOBAL からこのファイルを
-# 指すことで、通常の ~/.gitconfig を丸ごと include したうえで core.fsmonitor だけ
-# 上書きする(単一値キーは後勝ちのため、includeより後に書く必要がある)。
+# 指すことで、通常の ~/.gitconfig を丸ごと include したうえで、サンドボックス下で
+# 問題になるキー(core.fsmonitor / credential.helper / 署名鍵)だけを上書きする
+# (単一値キーは後勝ちのため、includeより後に書く必要がある)。
 #
 # 背景: Claude Codeのネイティブサンドボックスはgit組み込みfsmonitorデーモンの
 # IPCソケット(.git/fsmonitor--daemon.ipc)への接続を拒否するため、fsmonitor有効な

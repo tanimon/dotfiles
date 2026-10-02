@@ -1,5 +1,3 @@
-# gstack(`.claude/skills/gstack`)は 2026-09-24 の /doctor で撤去した(導入以降 4 回の利用に
-# 対し WebFetch が使われていたため。配置済みの残骸は .chezmoiremove で消す)。
 # エントリを追加するときは .claude/rules/renovate-external.md の隣接契約
 # (`url = ".../archive/<sha>.tar.gz"` の直後に `# renovate: branch=<branch>`)に従うこと。
 

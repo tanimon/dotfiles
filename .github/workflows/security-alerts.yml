@@ -126,7 +126,6 @@ jobs:
           jq -n --argjson dep "$dep" --argjson cs "$cs" --argjson ss "$ss" \
             '{dependabot: $dep, code_scanning: $cs, secret_scanning: $ss}' > /tmp/security-alerts.json
 
-          # Summary for logging
           echo "Dependabot: $(echo "$dep" | jq length) open"
           echo "Code scanning: $(echo "$cs" | jq length) open"
           echo "Secret scanning: $(echo "$ss" | jq length) open"

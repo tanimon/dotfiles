@@ -76,7 +76,7 @@ harness() {
     bash "$HARNESS" "$@"
 }
 
-# ---------- Task 1: 入口と manifest 検証 ----------
+# ---------- 入口と manifest 検証 ----------
 
 @test "コマンド無しは使い方を出して exit 64" {
     run harness
@@ -269,7 +269,7 @@ harness() {
     assert_output --partial 'exit codes:'
 }
 
-# ---------- Task 2: Capability Probe ----------
+# ---------- Capability Probe ----------
 
 @test "4 runtime が揃っていれば OK 行 4 つで exit 0" {
     stub_all
@@ -369,7 +369,7 @@ EOF
     assert_output --partial 'runtime "gemini" は manifest に宣言されていません'
 }
 
-# ---------- Task 3: Atomic Sync ----------
+# ---------- Atomic Sync ----------
 
 # two_targets: file adapter と flaky adapter の target を 1 つずつ持つ manifest と source を用意する。
 # flaky を最後(index 1)に置くのは意図的: 「1 件目を置換してから 2 件目で失敗する」実装を
@@ -497,7 +497,7 @@ EOF
     assert_equal "$(stat -c '%a' "$ROOT/AGENTS.md" 2>/dev/null || stat -f '%Lp' "$ROOT/AGENTS.md")" '600'
 }
 
-# ---------- Task 4: drift 検出 ----------
+# ---------- drift 検出 ----------
 
 check() {
     harness check --manifest "$MANIFEST" --root "$ROOT" --source-dir "$SRC" "$@"
@@ -577,7 +577,7 @@ check() {
     assert_equal "$(find "$TMPDIR" -mindepth 1 | wc -l | tr -d ' ')" '0'
 }
 
-# ---------- レビュー(PR #328)で見つかった穴 ----------
+# ---------- 失敗系(manifest・probe・置換・中断) ----------
 
 @test "型の違う manifest も manifest: の理由付きで exit 2 (jq のエラーで exit 5 にならない)" {
     stub_all
@@ -761,7 +761,7 @@ EOF2
     assert_line 'harness check: 1 failures, 0 warnings'
 }
 
-# ---------- Task 5: 本物の manifest ----------
+# ---------- 本物の manifest ----------
 
 @test "リポジトリの harness/manifest.json は検証を通り、4 runtime の probe 形式が実際の help 出力と合う" {
     # 各 runtime の --help 実出力(2026-09-12 時点、manifest の maxVerifiedVersion と同じ版)の該当行を模した stub。

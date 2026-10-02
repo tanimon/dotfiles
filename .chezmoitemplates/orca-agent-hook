@@ -3,7 +3,7 @@ orca agent-hooks integration の hook エントリ(type / command / timeout)。
 settings.json.tmpl の hooks で、orca が dispatcher を差し込む全 event から
 `{{ template "orca-agent-hook" . }}` で参照する(12 箇所が同一だったものを 1 つにまとめた)。
 
-orca は claude-hook の dispatcher を全 hook event(PostCompact を含む)に差し込む。
+orca は claude-hook の dispatcher を自分が扱う hook event(PostCompact を含む。Notification / SessionEnd は含まない)に差し込む。
 command は dispatcher を実行時に $HOME から解決する — Unix では .orca/agent-hooks/claude-hook.sh、
 Windows では claude-hook.cmd(cmd のメタ文字を含むパスでは PowerShell に fallback)。
 $HOME が未設定か dispatcher が無ければ printf '{}' で何もしないので、orca の無いマシンに

