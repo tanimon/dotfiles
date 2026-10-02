@@ -45,6 +45,10 @@ case "${STUB_CLAUDE_MODE:-success}" in
 success) printf '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.1}\n' ;;
 is_error) printf '{"type":"result","subtype":"error_max_budget_usd","is_error":true}\n' ;;
 exit1) exit 1 ;;
+error_exit1)
+    printf '{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":4.9}\n'
+    exit 1
+    ;;
 killed)
     # trap も動かない強制終了(SIGKILL)の再現。入口スクリプトの PID はテストが
     # $KILL_PID_FILE に書く(書かれる前に呼ばれうるので少し待つ)
@@ -171,4 +175,11 @@ PRE
     assert_success
     run cat "$ARGV_LOG"
     assert_output --partial 'at most 7 entries'
+}
+
+@test "claude が非 0 で終わっても結果をログに残し、原因を stderr に出す" {
+    STUB_CLAUDE_MODE=error_exit1 run weekly
+    assert_failure
+    assert_output --partial '"total_cost_usd":4.9'
+    assert_output --partial 'heartbeat not updated'
 }

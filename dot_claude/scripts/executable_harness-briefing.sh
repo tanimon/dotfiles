@@ -105,7 +105,8 @@ if [[ -f "$WEEKLY_PLIST" ]]; then
         else
             WARNINGS+=("weekly-heartbeat is not a number — delete $WEEKLY_HEARTBEAT and $WEEKLY_REMEDY")
         fi
-    elif [[ -n "$(find "$WEEKLY_PLIST" -mtime +"$WEEKLY_STALE_DAYS" 2>/dev/null)" ]]; then
+    # find の -mtime +N は「N+1 日以上前」なので 1 引く(heartbeat 側の -ge と揃える)
+    elif [[ -n "$(find "$WEEKLY_PLIST" -mtime +"$((WEEKLY_STALE_DAYS - 1))" 2>/dev/null)" ]]; then
         WARNINGS+=("weekly job has never succeeded since it was installed — $WEEKLY_REMEDY")
     fi
 fi

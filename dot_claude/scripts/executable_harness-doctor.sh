@@ -99,7 +99,7 @@ else
     if [[ ! -f "$HEARTBEAT_FILE" ]]; then
         printf 'WARN: weekly job has never succeeded (fresh install?) — %s\n' "$WEEKLY_REMEDY"
     else
-        HEARTBEAT=$(tr -d '[:space:]' <"$HEARTBEAT_FILE")
+        HEARTBEAT=$(tr -d '[:space:]' <"$HEARTBEAT_FILE" 2>/dev/null) || HEARTBEAT=""
         if [[ ! "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
             check 1 "weekly-heartbeat is a number" "delete $HEARTBEAT_FILE and $WEEKLY_REMEDY"
         else

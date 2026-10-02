@@ -11,12 +11,19 @@ HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
 BUDGET_USD="${HARNESS_WEEKLY_BUDGET_USD:-5}"
 MAX_SESSIONS="${HARNESS_WEEKLY_MAX_SESSIONS:-10}"
 
+command -v jq >/dev/null 2>&1 || {
+    printf 'harness-weekly: jq not found (brew install jq)\n' >&2
+    exit 1
+}
+
 mkdir -p "$HARNESS_DIR"
 cd "$HARNESS_DIR"
 
 # 同時実行を防ぐ lock。mkdir の成否で取り合い、持ち主の PID を中に置く。
 # 持ち主が死んでいる lock(SIGKILL や電源断で trap が動かなかった実行の残骸)は
-# 取り戻す。生きている実行がいれば、それに任せて何もせず終わる(失敗ではない)
+# 取り戻す。生きている実行がいれば、それに任せて何もせず終わる(失敗ではない)。
+# 取り戻しは rm → mkdir で原子的ではない。2 つの実行が同時に取り戻しに入ると
+# 両方が走りうるが、週 1 回の起動と手動実行が同じ瞬間に重なる場合に限るので受容する
 LOCK="$HARNESS_DIR/weekly.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
     LOCK_PID=$(cat "$LOCK/pid" 2>/dev/null || true)
@@ -25,7 +32,10 @@ if ! mkdir "$LOCK" 2>/dev/null; then
         exit 0
     fi
     rm -rf "$LOCK"
-    mkdir "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || {
+        printf 'harness-weekly: lost the race to reclaim a stale lock; skipping\n' >&2
+        exit 1
+    }
 fi
 printf '%s\n' "$$" >"$LOCK/pid"
 
@@ -37,8 +47,9 @@ JOB_SESSIONS="$HARNESS_DIR/weekly-sessions.txt"
 # (環境変数が nono や hook まで届かなかった)ときのために、起動前に記録した
 # session id を pending から外す。外すのは実行の前と後の両方で、前に外すのは
 # 前回の実行が後片付けの前に止まった場合の積み残しのため。
-# pending は SessionEnd hook が並行に追記するので、読んだ時点の写しを書き戻さず、
-# いまのファイルを grep -v で絞って mv する(/harness-reflect の Bookkeeping と同じ)
+# pending は SessionEnd hook が並行に追記するので、前に読んだ写しは書き戻さず、
+# その場で grep -v で絞って mv する(/harness-reflect の Bookkeeping と同じ)。
+# grep と mv の間に追記された行は失われうる(reflect と同じ残余)
 strip_job_sessions() {
     [[ -s "$JOB_SESSIONS" && -f "$PENDING" ]] || return 0
     local tmp
@@ -71,19 +82,21 @@ Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl,
 - Update last_reflect_epoch in state.json once at the end.
 - Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
 
+# 非 0 で終わっても結果(費用・エラーの種類)をログに残してから判定する
+CLAUDE_STATUS=0
 RESULT=$(nono run --profile claude-seal --allow-cwd -- \
     claude -p "$PROMPT" \
     --settings '{"sandbox":{"enabled":false}}' \
     --dangerously-skip-permissions \
     --max-budget-usd "$BUDGET_USD" \
     --session-id "$SESSION_ID" \
-    --output-format json)
+    --output-format json) || CLAUDE_STATUS=$?
 printf '%s\n' "$RESULT"
 
 # 予算の上限などで止まった run も exit 0 で終わりうるので、終了コードだけでなく
 # 結果の is_error も見る。読めない結果は失敗に倒す(heartbeat が嘘をつかないように)
-if ! printf '%s' "$RESULT" | jq -e '.is_error == false' >/dev/null 2>&1; then
-    printf 'harness-weekly: claude reported an error; heartbeat not updated\n' >&2
+if [[ "$CLAUDE_STATUS" -ne 0 ]] || ! printf '%s' "$RESULT" | jq -e '.is_error == false' >/dev/null 2>&1; then
+    printf 'harness-weekly: claude failed (exit %s) or reported an error; heartbeat not updated\n' "$CLAUDE_STATUS" >&2
     exit 1
 fi
 
