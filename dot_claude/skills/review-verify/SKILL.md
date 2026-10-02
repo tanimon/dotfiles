@@ -5,7 +5,7 @@ description: 既にコミットされたブランチに、要件文書(plan ま�
 
 # review-verify
 
-`~/.claude/workflows/deliver.js` を `mode: "review-verify"` で起動する前に、Workflow の中ではできない確認と質問をすべて済ませる。Workflow は実行中に質問できないので、ここで欠けた引数は後から補えない。Deliver と同じ Workflow を使う理由は chezmoi リポジトリの `docs/adr/0008-review-verify-is-a-mode-of-the-deliver-workflow.md`。
+`~/.claude/workflows/deliver.js` を `mode: "review-verify"` で起動する前に、Workflow の中ではできない確認と質問をすべて済ませる。Workflow は実行中に質問できないので、ここで欠けた引数は後から補えない。Deliver と同じ Workflow を使う理由は chezmoi リポジトリの `docs/adr/0010-review-verify-is-a-mode-of-the-deliver-workflow.md`。
 
 Workflow は実装も push も PR の作成もしない。修正エージェントのコミットはローカルのブランチに残る。
 

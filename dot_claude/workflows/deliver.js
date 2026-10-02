@@ -21,10 +21,10 @@ const DEFAULTS = { maxReviewRounds: 3, maxVerifyRetries: 2 };
 // - implement: plan のタスクを実装する
 // - publish: push して draft PR を作る(PR 向けの報告の体裁もこれに従う)
 // - branchScope: 要件文書のうちブランチが未着手の項目を範囲外として prompt で限る。plan の
-//   タスク分解で範囲が決まっていない入力の性質(ADR 0008)
+//   タスク分解で範囲が決まっていない入力の性質(ADR 0010)
 const MODES = {
   deliver: { label: "Deliver", implement: true, publish: true, branchScope: false },
-  // review-verify は実装も公開もしない(ADR 0008)。
+  // review-verify は実装も公開もしない(ADR 0010)。
   "review-verify": {
     label: "Review-Verify",
     implement: false,
@@ -388,7 +388,7 @@ const keepRequirements = (config) =>
 
 // Review-Verify の要件文書は spec でもよく、ブランチの範囲より広いことがある。そのままだと
 // 「要件文書とのずれ」として未着手の要件が修正必須になり、修正エージェントがそれを実装してしまう。
-// 実装の経路は mode の分岐で塞いでいるが、この経路はプロンプトでしか塞げない(ADR 0008)。
+// 実装の経路は mode の分岐で塞いでいるが、この経路はプロンプトでしか塞げない(ADR 0010)。
 // 逆に「未着手」を口実にブランチ自身の不具合を見送らせないよう、歯止めの文も必ず添える。
 const unstartedScope = (config, rule) =>
   config.features.branchScope
@@ -416,7 +416,7 @@ const reportChanges =
 
 function checksPrompt(config) {
   // Review-Verify では人間が書いたブランチに最初に触れるのがこのエージェントなので、未着手の項目を
-  // 検査するテストが落ちていても、それを実装して通させない(ADR 0008)。
+  // 検査するテストが落ちていても、それを実装して通させない(ADR 0010)。
   // 通るように直した変更は、通った場合も報告に出す。人間のコードをレビューの前に変えているため。
   return `次のコマンドを全て実行せよ: ${commands(config)}
 - 失敗があれば原因を直してコミットし(push はしない)、全て成功するまで繰り返す。
