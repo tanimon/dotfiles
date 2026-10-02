@@ -249,6 +249,15 @@ the chezmoi one:
   「利用不可なら素通し」フラグ）はすべて同じ形の空虚な PASS を生むので、許可を足した側の成功では
   なく、**外した側の失敗**が証拠になる。(See
   `../integration-issues/native-sandbox-1password-socket-signing-2026-07-09.md`.)
+- **変異テストの複製で、runner がそもそも走っていない**（2026-10-02）。`test/settings-hooks.bats` の
+  修正を確かめるため、`git ls-files | tar` で作った複製のテンプレートを 1 箇所ずつ壊し、
+  `bats … | grep '^not ok' || echo "ALL GREEN"` で判定したところ、5 変異すべてが「ALL GREEN」になった。
+  複製には gitignore 済みの `node_modules`（pnpm が入れる bats）が無く、PATH にも bats が無かったため、
+  テストは 1 件も実行されていなかった。「失敗行が無い」を緑と読む判定は、runner が起動しなかった
+  場合（command not found）と区別できない。上の例と同じく**検査の検査**（変異・対比）の側で起きる空振りで、
+  対処は 2 つ: 変異の前に変異なしの control を流すこと、`1..N`（実行件数）の行が出ていることを
+  判定の条件にすること。bats は worktree の `node_modules/.bin/bats` を絶対パスで呼ぶか、複製に
+  `node_modules` を symlink する。
 
 ## When to Apply
 

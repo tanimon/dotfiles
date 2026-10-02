@@ -50,6 +50,18 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 `Operation not permitted` になり、作業ツリーに untracked の残骸を残して止まる。
 `--abort` で戻ったと思わず `git status` で残骸を確認し、サンドボックス外でやり直す。
 
+`.git/config` もサンドボックス内では書けない(意図した設定。`dot_config/nono/CLAUDE.md`)。upstream を書こうとする操作は
+`could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
+
+- **`git push -u` / `push.autoSetupRemote`:** push 自体は成功し、upstream だけが付かない。エラーは無害なので調査・報告しなくてよい。
+- **`git switch -c <b> origin/<x>`:** ブランチは作られるが HEAD は移らない(追跡設定の書き込みで中断する)。
+  `git switch --no-track -c <b> origin/<x>` なら config を書かずに切り替わる(実測)。
+- **upstream の無いブランチで素の `git push` を打たない。** ローカル名で別のリモートブランチができ、その削除は
+  push guard が止める。既存 PR へ push するときは `gh pr view --json headRefName -q .headRefName` で head を引き、
+  `git push origin HEAD:<headRefName>` と明示する。
+
+これは issue #382(未解決)が直るまでの暫定の手順。直ったら見直す。
+
 ## 一時ファイルとファイルの置き場所
 
 - **`$TMPDIR` はサンドボックスの有無で変わる。** サンドボックス内で `$TMPDIR` に書いたファイルは、
@@ -59,6 +71,11 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
   scratchpad に置かず、リポジトリ内かユーザーが指定した場所に置く。パスを案内する前に `ls` で実在を確かめる。
 
 ## その他
+
+- **`run_in_background` の Bash の完了を `sleep` で待たない。** background の Bash も終了すると task-notification で
+  呼び戻される(サブエージェントと同じ。`subagents.md`)。待つ間はターンを終えるか別の作業をする。
+  途中経過が要るときだけ、sleep を付けずに出力ファイルを 1 回読む。`sleep 120〜300; tail <output>` を
+  1 セッションで 6 回繰り返した例がある。
 
 - **`gh auth token` の出力を表示しない。** `| head -c 20` のように一部だけ出しても分類器が拒否する。
   認証の確認は `gh auth status` か `gh auth token >/dev/null 2>&1 && echo ok` で行う。

@@ -54,7 +54,11 @@ description: >-
    URL が 200 を返すだけでは足りない。そのポートで応答しているのが対象 worktree の
    プロセスか(コンテナなら compose project 名)を確かめ、ビルド成果物を配信する構成では
    ビルド済みアセットが HEAD より新しいかも確かめる(vite dev server など HMR で配信する構成では不要)。
-   別 worktree のアプリが同じポートを握っていると、無関係なブランチを検証して pass を出してしまう
+   別 worktree のアプリが同じポートを握っていると、無関係なブランチを検証して pass を出してしまう。
+   queue worker などの常駐ワーカーも確かめる。ワーカーは起動時のコードで動き続けるので、HTTP は新しいコードで
+   返しても非同期ジョブだけ古いコードで処理され、ジョブ経由の観点が古い実装に対して pass になる。
+   起動時刻(コンテナなら `docker inspect -f '{{.State.StartedAt}}' <container>`)が HEAD のコミット時刻より古ければ、
+   再起動してから検証する
 6. **seed 実装**: 観点の前提データを seed/setup.ts に冪等に実装
 7. **シナリオ実装**: 観点ごとに探索 → spec 化 → 単体実行で安定化
    → references/scenario-authoring.md

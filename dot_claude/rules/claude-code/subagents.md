@@ -35,7 +35,7 @@ Claude Code 専用のルール。`~/.codex/AGENTS.md` には連結しない(Code
 
 完了したサブエージェントは task-notification で親を呼び戻す。待つ間はターンを終えるか別の作業をする。
 `sleep` で待つ Bash を繰り返さない。Agent の出力ファイル(transcript の JSONL)を Bash で `tail` / `cat` して
-進捗を覗かない — 全文がコンテキストに流れ込む。
+進捗を覗かない — 全文がコンテキストに流れ込む。`run_in_background` の Bash も同じ(`bash-tool.md`)。
 
 **理由:** タイムアウトする `sleep` 待ちを 20 回繰り返してセッション上限に達した例がある。
 
