@@ -162,6 +162,22 @@ jobs:
           zizmor: 'true'
       - run: just zizmor
 
+  # ubuntu-latest には ruby と shellcheck が入っているので導入しない。shellcheck が無いと
+  # 検査は bash -n だけに落ち、テストの一部が skip になるので、無ければここで落とす。
+  composite-actions:
+    name: composite action scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+      - run: shellcheck --version
+      - run: just check-composite-actions
+      - run: just test-composite-actions
+
   scan-sensitive:
     name: Scan sensitive info
     runs-on: ubuntu-latest

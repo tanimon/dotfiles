@@ -50,6 +50,13 @@ repos:
         language: system
         files: '\.github/(workflows/.*\.yml|actions/.*/action\.ya?ml)$'
         types: [file]
+      # actionlint は composite action の run: を shellcheck にかけない。
+      - id: check-composite-actions
+        name: check-composite-actions
+        entry: bash scripts/check-composite-actions.sh
+        language: system
+        files: '\.github/actions/.*/action\.ya?ml$'
+        types: [file]
       # CLAUDE.md / AGENTS.md / .cursor/rules は harness/modules/ からの生成物。
       # 手編集を commit 時点で止める(検出だけ。再生成は `just harness-sync`)。
       # pass_filenames: false — `just check-instructions` はレシピ引数を取らない。
