@@ -108,7 +108,8 @@ zizmor:
     pnpm exec bats test/modify-karabiner.bats
 
 # LC_ALL=C works around a bats-core locale bug: under some locales, @test names
-# containing non-ASCII characters (these suites' test names are in Japanese)
+# containing non-ASCII characters (notify.bats and
+# secretlint-guard.bats have Japanese test names)
 # register under a different name than they're looked up by, causing spurious
 # "unknown test name" failures (notify.bats: 23 -> 16 executed). See .claude/rules/shell-scripts.md.
 # Smoke test hook scripts
