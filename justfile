@@ -168,10 +168,10 @@ check-templates:
     node --test test/deliver-workflow.test.mjs
 
 # LC_ALL=C for the same bats-core locale bug as test-scripts: the weekly-job
-# tests in briefing / doctor have Japanese @test names.
-# Smoke test harness loop scripts (reflect-trigger, briefing, doctor)
+# tests in briefing / doctor / weekly have Japanese @test names.
+# Smoke test harness loop scripts (reflect-trigger, briefing, doctor, weekly job)
 @test-harness-scripts:
-    LC_ALL=C pnpm exec bats test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats
+    LC_ALL=C pnpm exec bats test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats
 
 # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 @test-harness-sync:

@@ -1,0 +1,16 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+# 自己改善ループの週次ジョブ(ADR 0012)を launchd に登録する。plist が変わったときに
+# 再登録するため、テンプレートのハッシュを持つ。
+# plist hash: {{ include "private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl" | sha256sum }}
+set -euo pipefail
+
+LABEL=local.dotfiles.harness-weekly
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DOMAIN="gui/$(id -u)"
+
+# 登録済みの古い定義を外してから入れ直す。未登録なら bootout は失敗するので無視する
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+launchctl bootstrap "$DOMAIN" "$PLIST"
+echo "registered $LABEL (weekly; see launchctl print $DOMAIN/$LABEL)"
+{{ end -}}

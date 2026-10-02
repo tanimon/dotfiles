@@ -543,3 +543,10 @@ Source 上の配線は git-push-guard と同じく `just test-settings-hooks`(`t
   (lib の無いコピー・空の lib・構文エラーの lib)。
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在せず、それを読んでいた旧インライン版は 2026-03-06 の導入以来一度も発火していなかった(2026-09-25 の prompt-audit で判明。同時に旧 format フックは削除)。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
+
+**Weekly harness job** — `dot_claude/scripts/executable_harness-weekly.sh` は自己改善ループの週次ジョブの入口(ADR 0012、#398)。launchd(`private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl`、土曜 10:00、`RunAtLoad` は false)が起動し、`cd ~/.claude/harness` してから `nono run --profile claude-seal --allow-cwd -- claude -p …` を実行する。claude に渡すフラグは `dot_config/zsh/sandbox.zsh` の wrapper と同じ(`--settings '{"sandbox":{"enabled":false}}'` と `--dangerously-skip-permissions`)に、`--max-budget-usd`(既定 5、`HARNESS_WEEKLY_BUDGET_USD`)・`--session-id`・`--output-format json` を足したもの。launchd は zsh の wrapper を通らないので、nono はこのスクリプトが明示しないと掛からない。
+- **成功の判定**は exit 0 かつ結果の `is_error == false`。予算切れなどの run は exit 0 でも `is_error` が立ちうるので終了コードだけを見ない。成功時だけ `~/.claude/harness/weekly-heartbeat`(epoch)を tmp+mv で書く。`state.json` に入れないのは、trigger と reflect も `state.json` を書き換えるため(lost update)。
+- **予算と件数**: 1 回で扱うセッション数はプロンプトで上限を置き(既定 30、`HARNESS_WEEKLY_MAX_SESSIONS`)、予算は歯止めにする。予算だけだと、溜まった分を捌けない週は毎回予算切れで失敗し、進んでいても heartbeat が書かれない。
+- **自分のセッションの除外は 2 段**: `HARNESS_DISABLE=1` で SessionEnd trigger に積ませず、加えて起動前に `weekly-sessions.txt` へ記録した session id を pending から実行の前後に外す。後者は環境変数が nono や hook まで届かなかった場合と、SIGKILL で後片付けの trap が動かなかった前回の積み残しのため。
+- **再実行の安全性**: `weekly.lock/`(中に PID)で同時実行を防ぎ、持ち主が死んだ lock は取り戻す。プロンプトでセッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進ませるので、途中で止まっても失うのは高々 1 セッション分。
+- ログは `~/Library/Logs/harness-weekly.log`。briefing / doctor は plist が置かれたマシンでだけ heartbeat を見る(古さの閾値 8 日は両スクリプトで揃える)。テストは `test/harness-weekly.bats`(nono / claude / uuidgen をスタブにする)。

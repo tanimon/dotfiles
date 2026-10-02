@@ -107,6 +107,7 @@ opens one PR per run; humans review and merge — no auto-apply. Runtime state i
 monitoring is deterministic shell — the briefing prints a status line every session, so
 silence itself signals a dead hook. Design:
 `docs/superpowers/specs/2026-07-06-harness-engineering-rebuild-design.md`.
+人の起動に頼らないよう、抽出の工程は週次ジョブでも回る(ADR 0012): launchd(`private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl`、登録は darwin 限定の `run_onchange_after_darwin-register-harness-weekly.sh.tmpl`)が週 1 回 `dot_claude/scripts/executable_harness-weekly.sh` を起動し、nono の内側で headless の `claude -p` が `/harness-reflect` を実行する。成功時だけ `~/.claude/harness/weekly-heartbeat` を書き、briefing と doctor がその古さを示す。自分のセッションの除外・lock・予算の扱いは `dot_claude/scripts/CLAUDE.md` の「Weekly harness job」。
 
 **Harness sync seam (`harness/`)** — Claude Code / Codex / Cursor / APM の harness 設定を Harness Manifest から検証・同期する repo-only ツール(#308 の基盤、#309)。`bash harness/bin/harness.sh check` が runtime の Capability Probe と Target の drift を報告し、`sync` が Atomic Sync(staging → 全体検証 → 置換)で Target を更新する。`--no-probe` を付けると Capability Probe を飛ばして Target の drift だけを見る(製品が入っていない CI 用。省略したことは出力に必ず出る)。`init` / `update` は未実装(#322 / #323)。`harness/` は `.chezmoiignore` で除外され `~/` には配置されない。manifest は 2 つある: `harness/manifest.json` はグローバル用で **runtime 宣言のみ、`targets` は空のまま**(グローバル指示は harness ではなく chezmoi テンプレートが合成する。下の「Global agent instructions」と ADR 0005 を参照)、`harness/project.json` はこのリポジトリを Managed Project として扱うもので、下の「Generated agent instructions」の 3 Target を持つ。adapter は `harness/adapters/<owner>.sh render <staging-file> <target-json>` の契約で追加する。設計: `docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md`
 
@@ -210,6 +211,7 @@ Everything above applies to every agent working in this repository. This section
 /harness-reflect                     # Extract session learnings into ~/.claude/harness/queue.md
 /harness-review                      # Health check + queue triage -> one PR (7-day cadence)
 bash ~/.claude/scripts/harness-doctor.sh  # Deterministic liveness check
+bash ~/.claude/scripts/harness-weekly.sh  # 週次ジョブを今すぐ 1 回実行する(launchd が週 1 回起動するものと同じ。有料)
 ```
 
 The loop itself (SessionEnd hook, queue, briefing) is described under "Harness self-improvement loop" above; these are the Claude Code entry points into it.
