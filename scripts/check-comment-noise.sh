@@ -23,7 +23,7 @@ ISSUE_ORIGIN_EN_RE='(added|introduced|found|fixed) in #[0-9]+'
 # 正当な場合が多く、JSON はコメントを持たない
 is_excluded() {
     case $1 in
-    *.md | *.md.tmpl | *.mdc | .chezmoitemplates/* | docs/* | *.json | pnpm-lock.yaml) return 0 ;;
+    *.md | *.md.tmpl | *.mdc | .chezmoitemplates/agent-instructions-common | docs/* | *.json | pnpm-lock.yaml) return 0 ;;
     esac
     return 1
 }
@@ -105,7 +105,7 @@ check_paths() {
         is_top_dir "${token%%/*}" || continue
         [[ -e $token ]] && continue
         # gitignore されたパス(ローカルにだけ置くファイル)は、無いのが正常。
-        # マシンごとのグローバルな除外は読まず、CI と同じ判定にする
+        # マシンごとのグローバルな除外(core.excludesfile)は読まない。.git/info/exclude は読む
         git -c core.excludesfile=/dev/null check-ignore -q --no-index -- "$token" && continue
         report "$file" "$lineno" missing-path "$text"
     done

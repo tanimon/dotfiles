@@ -208,12 +208,19 @@ scan() {
     assert_failure 2
 }
 
-@test "拡張子が md でない Markdown(md.tmpl / mdc / chezmoitemplates)は見ない" {
+@test "拡張子が md でない Markdown(md.tmpl / mdc / 共有本文の partial)は見ない" {
     put x.md.tmpl '## Step 1: install'
     put .cursor/rules/y.mdc '## Step 1: install'
-    put .chezmoitemplates/z '## Step 1: install'
+    put .chezmoitemplates/agent-instructions-common '## Step 1: install'
     run scan
     assert_success
+}
+
+@test "Markdown 以外の .chezmoitemplates の partial は見る" {
+    put .chezmoitemplates/gitignore-common '# Task 2 で追加'
+    run scan
+    assert_failure 1
+    assert_output --partial '.chezmoitemplates/gitignore-common:1: [plan-step]'
 }
 
 @test "missing-path: マシンのグローバルな gitignore は判定に使わない" {
