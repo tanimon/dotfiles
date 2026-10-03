@@ -6,6 +6,16 @@ setup() {
     if ! command -v nono >/dev/null 2>&1; then
         skip "nono not installed"
     fi
+    # nono の内側(claude-seal が INSIDE_NONO_SANDBOX を注入する。普段の Claude Code
+    # セッションもここ)では、入れ子の nono が profile の全パスを canonicalize する際に
+    # 外側の境界が grant していない親ディレクトリ(~/Library/Application Support/orca/
+    # 等)で ENOENT ではなく EPERM を受け、`nono why` が判定前に失敗する。
+    # `nono profile validate` は canonicalize しないので内側でも通る(nono 0.79.0 で
+    # 実測)。内側でも通ると実測したテストだけを tag 付けで残し、それ以外は skip する。
+    # tag の無い新しいテストは内側で skip される側に倒れる。
+    if [[ -n "${INSIDE_NONO_SANDBOX:-}" ]] && [[ " ${BATS_TEST_TAGS[*]} " != *" runs-inside-nono "* ]]; then
+        skip "nono の内側では入れ子の nono が外側の境界に阻まれて検証できない。nono の外(素のターミナル)で実行すること(CI にも無いため、ここ以外では走らない)"
+    fi
 }
 
 # `nono why` は -s (--silent) でもALLOWED/DENIED の判定行と Reason は出す。
@@ -14,6 +24,7 @@ why() {
     nono why -s --path "$1" --op read --profile "$PROFILE"
 }
 
+# bats test_tags=runs-inside-nono
 @test "claude-seal.json validates against the nono profile schema" {
     run nono profile validate "$PROFILE"
     assert_success
