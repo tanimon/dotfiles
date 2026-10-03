@@ -58,14 +58,32 @@ strip_job_sessions() {
     mv "$tmp" "$PENDING"
 }
 
+# 実行ログで run の区切りと進み具合を読めるように、開始と終了の行を出す。
+# 処理件数は claude の結果(成功時の要約文)に頼らず pending の行数の前後で残す。
+# 予算切れなどで失敗した run の結果には要約文が無いため。終了の行は EXIT trap で
+# 出すので、失敗の run でも残る(SIGKILL では残らない)
+count_pending() {
+    if [[ -f "$PENDING" ]]; then
+        wc -l <"$PENDING" | tr -d ' '
+    else
+        printf '0\n'
+    fi
+}
+
 SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 # 記録は起動より前に行い、直近の分だけ残す
 printf '%s\n' "$SESSION_ID" >>"$JOB_SESSIONS"
 tail -n 20 "$JOB_SESSIONS" >"$JOB_SESSIONS.tmp" && mv "$JOB_SESSIONS.tmp" "$JOB_SESSIONS"
 strip_job_sessions
+PENDING_BEFORE=$(count_pending)
+printf 'harness-weekly: start %s session=%s pending=%s\n' \
+    "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$PENDING_BEFORE"
 cleanup() {
+    local status=$?
     strip_job_sessions
     rm -rf "$LOCK"
+    printf 'harness-weekly: end %s session=%s exit=%s pending=%s->%s\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$status" "$PENDING_BEFORE" "$(count_pending)"
 }
 trap cleanup EXIT
 export HARNESS_DISABLE=1

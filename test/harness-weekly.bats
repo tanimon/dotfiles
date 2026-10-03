@@ -183,3 +183,25 @@ PRE
     assert_output --partial '"total_cost_usd":4.9'
     assert_output --partial 'heartbeat not updated'
 }
+
+@test "実行ログに run の開始・終了の時刻と session id、pending の処理前後の件数を出す" {
+    printf '{"session_id":"o1","recorded_epoch":1}\n{"session_id":"o2","recorded_epoch":2}\n{"session_id":"o3","recorded_epoch":3}\n' \
+        >"$HDIR/pending.jsonl"
+    # claude が 2 件を処理して pending から外した状況を再現する
+    cat >"$STUBS/claude-pre" <<'PRE'
+sed -i.bak '/"o1"/d;/"o2"/d' "$HOME/.claude/harness/pending.jsonl"
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_success
+    assert_line --regexp '^harness-weekly: start [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}[+-][0-9]{4} session=aaaaaaaa-0000-0000-0000-000000000001 pending=3$'
+    assert_line --regexp '^harness-weekly: end [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}[+-][0-9]{4} session=aaaaaaaa-0000-0000-0000-000000000001 exit=0 pending=3->1$'
+}
+
+@test "失敗の run でも終了の行に終了コードと pending の件数を残す" {
+    printf '{"session_id":"o1","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
+    STUB_CLAUDE_MODE=error_exit1 run weekly
+    assert_failure
+    assert_line --regexp '^harness-weekly: start .* pending=1$'
+    assert_line --regexp '^harness-weekly: end .* exit=1 pending=1->1$'
+}
