@@ -911,8 +911,11 @@ async function reviewRounds(state, tracker) {
       else result.repeated.push(item);
     }
     result.advisory = result.advisory.filter((i) => !carried.has(i.key));
+    // merge が同じ key の cluster を複数返すと、同じ key が修正必須と参考の両方に入りうる。
+    // 修正必須として渡した key の見送りは検証者を通すので、参考指摘からは外す。
+    const blockingKeys = new Set([...result.blocking, ...result.repeated].map((i) => i.key));
     const pendingAdvisory = uniqueByKey(result.advisory).filter(
-      (i) => !state.advisoryClosedKeys.has(i.key),
+      (i) => !state.advisoryClosedKeys.has(i.key) && !blockingKeys.has(i.key),
     );
     tracker.unverified = [];
     tracker.unverifiedAdvisory = [];

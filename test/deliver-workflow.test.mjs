@@ -326,7 +326,7 @@ test("参考指摘だけの修正で修正エージェントが結果を返さ�
 });
 
 test("修正必須と参考指摘は1回の修正にまとめ、見送りの検証者は修正必須にだけ付ける", async () => {
-  const { labels } = await runWorkflow({
+  const { result, labels, calls } = await runWorkflow({
     respond: scenario({
       reviews: [{ ecc: [finding("HIGH"), finding("MEDIUM", { summary: "style" })] }, {}],
       merges: [[cluster("a.js::bug", ["ecc#0"]), cluster("a.js::style", ["ecc#1"])]],
@@ -344,10 +344,37 @@ test("修正必須と参考指摘は1回の修正にまとめ、見送りの検�
     }),
   });
   assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 1);
+  const prompt = calls.find((c) => c.label === "fix:1").prompt;
+  assert.match(prompt.slice(prompt.indexOf("参考指摘(JSON):")), /a\.js::style/);
   assert.deepEqual(
     labels.filter((l) => l.startsWith("defer-verify:")),
     ["defer-verify:a.js::bug"],
   );
+  assert.match(
+    section(result.report, "見送った参考指摘"),
+    /issue a\.js::style .* — 見送り理由: nit/,
+  );
+});
+
+test("同じ key が同じラウンドで修正必須と参考の両方に出たら、修正必須としてだけ扱う", async () => {
+  const { result, calls } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH"), finding("MEDIUM", { summary: "style" })] }, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"]), cluster("a.js::bug", ["ecc#1"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::bug", action: "propose-defer", reason: "偽陽性" }],
+          changes: [],
+          observations: [],
+        },
+      ],
+      verdicts: { "a.js::bug": { agree: true, reason: "偽陽性" } },
+    }),
+  });
+  const prompt = calls.find((c) => c.label === "fix:1").prompt;
+  assert.doesNotMatch(prompt.slice(prompt.indexOf("参考指摘(JSON):")), /a\.js::bug/);
+  assert.equal(section(result.report, "見送った参考指摘").trim(), "なし");
+  assert.match(section(result.report, "Deferred Finding"), /issue a\.js::bug/);
 });
 
 test("参考指摘を修正に回した後、checks が落ちて止まったら、Unresolved にせず再レビューされていない参考指摘として出す", async () => {
