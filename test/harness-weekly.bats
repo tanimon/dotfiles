@@ -128,6 +128,10 @@ EOF
     cat >"$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GH_LOG"
+if [[ "$1 $2" == "pr list" ]]; then
+    printf '%s\n' "${STUB_GH_PR_LIST-https://github.com/example/dotfiles/pull/41}"
+    exit 0
+fi
 while [[ $# -gt 0 ]]; do
     [[ "$1" == "--body-file" ]] && cp "$2" "$GH_BODY"
     shift
@@ -491,10 +495,12 @@ PRE
     run weekly
     assert_success
     assert [ ! -f "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
+    # origin にあるのでローカルのブランチは消す
+    run git -C "$HARNESS_WEEKLY_REPO" rev-parse --verify --quiet "refs/heads/$BRANCH"
+    assert_failure
     seed_queue
     rm -f "$GH_LOG"
     git -C "$ORIGIN" branch -D "$BRANCH" >/dev/null
-    git -C "$HARNESS_WEEKLY_REPO" branch -D "$BRANCH" >/dev/null
     STUB_GH_FAIL=1 run weekly
     assert_failure
     assert [ -s "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
@@ -507,8 +513,28 @@ PRE
     assert_failure
     assert_output --partial "review failed after 1 commit(s) on local branch ${BRANCH}"
     assert_output --partial "push origin ${BRANCH}"
-    assert_output --partial "gh pr create --draft --base main --head ${BRANCH}"
+    assert_output --partial "gh pr create --draft --base main --head ${BRANCH} --body-file $HDIR/review-pr-body-"
     assert [ ! -f "$GH_LOG" ]
+}
+
+@test "push に失敗した run の後に同じ日に再実行しても、手で PR を作るための本文と worktree を消さない" {
+    seed_queue
+    printf '#!/bin/sh\nexit 1\n' >"$ORIGIN/hooks/pre-receive"
+    chmod +x "$ORIGIN/hooks/pre-receive"
+    run weekly
+    assert_failure
+    assert_output --partial "push of ${BRANCH} failed"
+    assert_output --partial "--body-file $HDIR/review-pr-body-"
+    rm -f "$ORIGIN/hooks/pre-receive"
+    seed_queue
+    run weekly
+    assert_failure
+    assert_output --partial 'not on origin/main'
+    run cat "$HDIR/review-pr-body-$(date +%Y-%m-%d).md"
+    assert_output --partial '## 純増'
+    run git -C "$WT" log --format=%s -1
+    assert_output 'harness: add rule'
+    assert [ ! -e "$WT.new" ]
 }
 
 @test "origin/main に無い commit を持つ当日のローカルブランチは作り直さずに失敗する" {
@@ -610,10 +636,32 @@ PRE
     git -C "$HARNESS_WEEKLY_REPO" push -q origin "main:refs/heads/${BRANCH}"
     run weekly
     assert_success
-    assert_output --partial "${BRANCH} already exists on origin; skipped review"
+    assert_output --partial "${BRANCH} already exists on origin (PR https://github.com/example/dotfiles/pull/41); skipped review"
     run cat "$STAGE_LOG"
     assert_output 'reflect'
-    assert [ ! -f "$GH_LOG" ]
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "当日のブランチが origin にあっても PR が無ければ、健全に見せずに失敗する" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" push -q origin "main:refs/heads/${BRANCH}"
+    STUB_GH_PR_LIST= run weekly
+    assert_failure
+    assert_output --partial "${BRANCH} exists on origin but has no PR"
+    assert_output --partial "--body-file $HDIR/review-pr-body-"
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "無人の選別に chezmoi apply をさせない" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'Never run chezmoi apply'
 }
 
 @test "陳腐化したルールの修正だけでも commit させる(採用 0 件で PR を諦めさせない)" {

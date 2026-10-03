@@ -220,22 +220,30 @@ count_queue() {
 # --no-track は追跡の設定を .git/config に書かせないため(nono の内側から書けない)。
 # 同じ日のブランチが残っていれば -C で作り直すが、origin/main に無い commit を持つなら
 # 作り直さずに失敗する。push か PR の作成に失敗した run の commit は、そのブランチから
-# 手で push / PR を作るよう案内しているので、同じ日の再実行で消してはいけない
+# 手で push / PR を作るよう案内しているので、同じ日の再実行で消してはいけない。
+# その判定は fetch の要る新しい worktree($WORKTREE.new)で行い、通ってから前回の
+# worktree を消して置き換える。判定の前に消すと、失敗した run を調べるための状態を失う
 prepare_worktree() {
-    local ahead
-    git -C "$REPO" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
-    rm -rf "$WORKTREE"
+    local ahead fresh="$WORKTREE.new"
+    git -C "$REPO" worktree remove --force "$fresh" >/dev/null 2>&1 || true
+    rm -rf "$fresh"
     git -C "$REPO" worktree prune || return 1
-    git -C "$REPO" worktree add --quiet --detach "$WORKTREE" HEAD || return 1
-    git -C "$WORKTREE" fetch --quiet origin main || return 1
-    if git -C "$WORKTREE" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
-        ahead=$(git -C "$WORKTREE" rev-list --count "FETCH_HEAD..refs/heads/$BRANCH") || return 1
+    git -C "$REPO" worktree add --quiet --detach "$fresh" HEAD || return 1
+    git -C "$fresh" fetch --quiet origin main || return 1
+    if git -C "$fresh" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
+        ahead=$(git -C "$fresh" rev-list --count "FETCH_HEAD..refs/heads/$BRANCH") || return 1
         if [[ "$ahead" -gt 0 ]]; then
-            printf 'harness-weekly: local branch %s in %s has %s commit(s) not on origin/main; push / open the PR by hand or delete the branch, then rerun\n' \
-                "$BRANCH" "$REPO" "$ahead" >&2
+            git -C "$REPO" worktree remove --force "$fresh" >/dev/null 2>&1 || rm -rf "$fresh"
+            git -C "$REPO" worktree prune >/dev/null 2>&1 || true
+            printf 'harness-weekly: local branch %s in %s has %s commit(s) not on origin/main; push / open the PR by hand (PR body %s, if present) or delete the branch, then rerun\n' \
+                "$BRANCH" "$REPO" "$ahead" "$PR_BODY" >&2
             return 1
         fi
     fi
+    git -C "$REPO" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+    rm -rf "$WORKTREE"
+    git -C "$REPO" worktree prune || return 1
+    git -C "$REPO" worktree move "$fresh" "$WORKTREE" || return 1
     git -C "$WORKTREE" switch --quiet --no-track -C "$BRANCH" FETCH_HEAD || {
         printf 'harness-weekly: could not reset branch %s (is it checked out in another worktree of %s?)\n' \
             "$BRANCH" "$REPO" >&2
@@ -341,13 +349,14 @@ publish_review() {
     fi
     net_change_section "$base" >>"$PR_BODY" || return 1
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
-        printf 'harness-weekly: push of %s failed; no PR created\n' "$BRANCH" >&2
+        printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
+            "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
         return 1
     }
     url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
         --title "harness: 週次レビュー $REVIEW_DATE" --body-file "$PR_BODY") || {
-        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand (verdicts in %s still say adopted (%s))\n' \
-            "$BRANCH" "$ARCHIVE" "$BRANCH" >&2
+        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand with gh pr create --draft --base main --head %s --body-file %s (verdicts in %s still say adopted (%s))\n' \
+            "$BRANCH" "$BRANCH" "$PR_BODY" "$ARCHIVE" "$BRANCH" >&2
         return 1
     }
     url=${url##*$'\n'}
@@ -355,6 +364,9 @@ publish_review() {
     rm -f "$PR_BODY"
     record_pr_url "$url"
     remove_worktree
+    # ブランチは origin にあるので、ローカルの分は消す(残すと週ごとに溜まる)
+    git -C "$REPO" branch --quiet -D "$BRANCH" >/dev/null 2>&1 ||
+        printf 'harness-weekly: WARN could not delete local branch %s in %s\n' "$BRANCH" "$REPO" >&2
 }
 
 # 選別の claude が失敗した(予算切れを含む)run の後始末の案内。claude は commit や
@@ -369,8 +381,8 @@ report_failed_review() {
             "$WORKTREE" "$ARCHIVE" >&2
         return 0
     fi
-    printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say adopted (%s). To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s\n' \
-        "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" >&2
+    printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say adopted (%s). To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
+        "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
 }
 
 # 処理対象が無い工程は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
@@ -408,7 +420,17 @@ fi
 REMOTE_STATUS=0
 git -C "$REPO" ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null || REMOTE_STATUS=$?
 if [[ "$REMOTE_STATUS" -eq 0 ]]; then
-    printf 'harness-weekly: %s already exists on origin; skipped review\n' "$BRANCH"
+    # PR が無いまま(push 後に gh pr create が失敗した)なら、健全に見せないよう失敗させる
+    EXISTING_PR=$(cd "$REPO" && gh pr list --head "$BRANCH" --state all --json url --jq '.[0].url // empty') || {
+        printf 'harness-weekly: %s exists on origin but listing its PR failed; skipped review\n' "$BRANCH" >&2
+        exit 1
+    }
+    if [[ -z "$EXISTING_PR" ]]; then
+        printf 'harness-weekly: %s exists on origin but has no PR; open it by hand (gh pr create --draft --base main --head %s --body-file %s); skipped review\n' \
+            "$BRANCH" "$BRANCH" "$PR_BODY" >&2
+        exit 1
+    fi
+    printf 'harness-weekly: %s already exists on origin (PR %s); skipped review\n' "$BRANCH" "$EXISTING_PR"
     write_heartbeat
     exit 0
 elif [[ "$REMOTE_STATUS" -ne 2 ]]; then
@@ -417,11 +439,13 @@ elif [[ "$REMOTE_STATUS" -ne 2 ]]; then
 fi
 
 printf 'harness-weekly: review session=%s queue=%s branch=%s\n' "$REVIEW_SESSION_ID" "$QUEUE_ENTRIES" "$BRANCH"
-rm -f "$PR_BODY"
 prepare_worktree || {
     printf 'harness-weekly: failed to prepare the review worktree %s\n' "$WORKTREE" >&2
     exit 1
 }
+# 前回の本文を消すのは prepare_worktree の判定を通った後。手で publish すべき commit が
+# 残っている間は、その PR に使う本文を残す
+rm -f "$PR_BODY"
 REVIEW_BASE=$(git -C "$WORKTREE" rev-parse HEAD)
 # commit フック(prek)と just lint が node_modules を要るので、claude の前に入れる。
 # claude に入れさせないのは、失敗したときに予算を使って直そうとさせないため
@@ -437,6 +461,7 @@ REVIEW_PROMPT="This is the unattended weekly harness job (no human is present, a
 Use the harness-review skill, following its rules, with these changes:
 - Your working directory is a git worktree of the chezmoi source repo, on branch ${BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
 - Skip \"Reflect over pending sessions\"; this job already ran it.
+- Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). Report a deploy-only fix in the PR body instead.
 - In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit the adopted changes and the staleness fixes on the current branch and leave the working tree clean. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the PR body with the failing hook or lint check. Whenever a change was dropped, always write the PR body, even if nothing was committed.
 - Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts; this job appends the net additions and deletions. If nothing is adopted and nothing is stale, make no commits and do not create that file.
 - In \"Bookkeeping\", record each adopted verdict as \"adopted (${BRANCH})\"; this job replaces it with the PR URL.
