@@ -1,4 +1,5 @@
-# chezmoi テンプレートを Machine Profile の fixture で描画する、テスト用の唯一の seam。
+# chezmoi テンプレートを Machine Profile の fixture で描画する、bats suite 用の唯一の seam。
+# just check-templates はこれを通らず chezmoi execute-template を直接呼ぶ別経路。
 #
 # 読み込んだ時点で chezmoi を絶対パスに解決し、無ければ読み込みごと失敗する。
 # skip にしないのは、CI で描画を使う検査が全部素通りして緑になるため。
