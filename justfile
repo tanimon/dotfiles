@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -197,6 +197,16 @@ check-templates:
 # Smoke test harness loop scripts (reflect-trigger, briefing, doctor, weekly job)
 @test-harness-scripts:
     LC_ALL=C pnpm exec bats test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats
+
+# 人の PR とローカルの通常のブランチでは何も判定せずに通る。CI の base は merge commit の第 1 親。
+# 自己改善ループの PR(ブランチ名 harness/review-*)が Evaluator のパスに触れていたら落とす
+@check-evaluator-guard:
+    bash scripts/check-evaluator-guard.sh
+
+# LC_ALL=C は bats-core のロケールのバグを避けるため(@test 名が日本語)。
+# check-evaluator-guard.sh のテスト
+@test-evaluator-guard:
+    LC_ALL=C pnpm exec bats test/check-evaluator-guard.bats
 
 # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 @test-harness-sync:

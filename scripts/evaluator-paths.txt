@@ -1,0 +1,17 @@
+# Evaluator のパスの一覧(ADR 0011)。自己改善ループの PR がここに載ったパスに触れると、
+# scripts/check-evaluator-guard.sh が CI で失敗させる。人の PR は判定しない。
+# 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
+# それ以外は完全一致。# で始まる行と空行は無視する。
+#
+# Evaluator(失敗の検出器、Failure Pattern の一覧、判定の基準、Eval Case の目録)を足したら、
+# その PR でここにも足す。ガードは base 側の版を読むので、足した行はマージ後に効く。
+
+# ガード自身。一覧・判定・テストを書き換えられると、ガードを外せる
+scripts/evaluator-paths.txt
+scripts/check-evaluator-guard.sh
+test/check-evaluator-guard.bats
+
+# ガードを CI に配線しているもの。job や recipe を外す・ツールを差し替えるとガードが走らない
+.github/workflows/lint.yml
+.github/actions/setup-lint/
+justfile
