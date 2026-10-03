@@ -4,6 +4,8 @@
 # 実物の claude もサンドボックスも使わない。サンドボックスが拒否する状況は chmod 000 の
 # fixture で、claude は PATH 上のスタブで再現する。HOME は必ず $BATS_TEST_TMPDIR 配下に
 # 差し替え、このマシンの認証情報ファイルには触れない。
+# root はパーミッションを無視して読み書きできるので chmod では拒否を再現できない。拒否の
+# 再現に頼るテストは require_chmod_denial で root のとき skip する。
 setup() {
     load 'helpers/setup'
     # driver が「サンドボックスの内側」の印として読む変数を、このシェルから漏らさない
@@ -96,7 +98,12 @@ teardown() {
 
 # サンドボックスが拒否する状況の再現: 拒否側を読めなくする(probe を直接走らせるテスト用。
 # driver のテストでは、driver から見える状態を変えないよう claude のスタブの中で塞ぐ)
+require_chmod_denial() {
+    [[ "$(id -u)" -ne 0 ]] || skip 'root では chmod による拒否を再現できない'
+}
+
 deny_reads() {
+    require_chmod_denial
     chmod 000 "$HOME/.ssh/id_test" "$HOME/.netrc"
     chmod 311 "$HOME/.ssh"
 }
@@ -194,6 +201,24 @@ run_probe() {
     assert [ ! -e "$BATS_TEST_TMPDIR/tmp-target" ]
 }
 
+@test "probe: ラベルがあれば結果にはパスの代わりにラベルを書き、空ディレクトリと重ならない許可側は SKIP にする" {
+    deny_reads
+    write_manifest \
+        "read-file	deny	$HOME/.ssh/id_test	~/.ssh/#1" \
+        "read-empty	deny	$HOME/.aws" \
+        "read-unscoped	allow	$HOME/.config/other" \
+        "read-file	allow	$HOME/.ssh/config"
+    run_probe
+    assert_success
+    run cat "$WORK/results.tsv"
+    assert_line --regexp '^read-file:~/\.ssh/#1	deny	[1-9][0-9]*	PASS$'
+    refute_output --partial 'id_test'
+    assert_line "read-empty:~/.aws	deny	-	SKIP"
+    assert_line "read-unscoped:~/.config/other	allow	-	SKIP"
+    # SKIP の項目は coverage に数えない
+    assert_line --regexp '^coverage:allow	allow	1	PASS$'
+}
+
 @test "probe: 認証情報ファイルの内容を出力にも結果ファイルにも出さない" {
     write_manifest \
         "read-file	deny	$HOME/.ssh/id_test" \
@@ -219,6 +244,7 @@ run_probe() {
 }
 
 @test "driver: claude -p を haiku・予算・サンドボックス設定・プローブ限定のツールで起動する" {
+    require_chmod_denial
     export STUB_SANDBOX=all
     run bash "$DRIVER"
     assert_success
@@ -247,6 +273,7 @@ run_probe() {
 }
 
 @test "driver: 一時ディレクトリを cwd にして起動し、終了後に消す" {
+    require_chmod_denial
     export STUB_SANDBOX=all
     run bash "$DRIVER"
     assert_success
@@ -257,6 +284,7 @@ run_probe() {
 }
 
 @test "driver: プローブが全項目を満たせば PASS を表示して 0 で終わる" {
+    require_chmod_denial
     export STUB_SANDBOX=all
     run bash "$DRIVER"
     assert_success
@@ -268,8 +296,11 @@ run_probe() {
     # denyRead と allowRead の両方にあるパスは許可側として扱う
     assert_output --partial 'read-dir:~/.config/gh	allow	0	PASS'
     refute_output --partial 'read-dir:~/.config/gh	deny'
-    # 拒否側のディレクトリ直下のファイルも読み取りの項目にし、allowRead のものは除く
-    assert_output --regexp 'read-file:~/\.ssh/id_test	deny	[1-9][0-9]*	PASS'
+    # 拒否側のディレクトリ直下のファイルも読み取りの項目にし、allowRead のものは除く。
+    # ファイル名は出さず、settings の値と連番のラベルにする
+    assert_output --regexp 'read-file:~/\.ssh/#1	deny	[1-9][0-9]*	PASS'
+    refute_output --partial 'read-file:~/.ssh/#2'
+    refute_output --partial 'id_test'
     refute_output --partial 'read-file:~/.ssh/config	deny'
     assert_output --partial 'native-sandbox-smoke: PASS'
     # source とデプロイ先が一致していれば警告しない(食い違いの警告テストの対)
@@ -334,4 +365,27 @@ run_probe() {
     STUB_CHEZMOI_FAIL=1 run bash "$DRIVER"
     assert_output --partial 'warning'
     assert_output --partial 'could not compare'
+}
+
+@test "driver: 拒否側のディレクトリに数える子が無ければ、理由の分かる SKIP 行を出す" {
+    require_chmod_denial
+    rm "$HOME/.ssh/id_test"
+    export STUB_SANDBOX=none
+    # 拒否側の読み取りは ~/.netrc で塞ぐ(id_test が無いのでスタブの chmod は使えない)
+    chmod 000 "$HOME/.netrc"
+    chmod 555 "$HOME"
+    run bash "$DRIVER"
+    assert_success
+    assert_output --partial 'read-empty:~/.ssh	deny	-	SKIP'
+}
+
+@test "driver: denyRead と重ならない allowRead は許可側の coverage に数えない" {
+    jq '.sandbox.filesystem.allowRead = ["~/.config/other"]' "$STUB_RENDERED" >"$HOME/.claude/settings.json"
+    cp "$HOME/.claude/settings.json" "$STUB_RENDERED"
+    mkdir -p "$HOME/.config/other"
+    export STUB_SANDBOX=all
+    run bash "$DRIVER"
+    assert_failure
+    assert_output --partial 'read-unscoped:~/.config/other	allow	-	SKIP'
+    assert_output --partial 'coverage:allow	allow	0	FAIL'
 }

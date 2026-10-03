@@ -3,9 +3,12 @@
 # scripts/native-sandbox-smoke.sh が `claude -p` に実行させる Bash ツールで、cwd は
 # driver が用意した一時ディレクトリ。引数は取らない。
 #
-# 入力は cwd の targets.tsv(1 行 1 項目、タブ区切り: 操作・期待・パス)。
+# 入力は cwd の targets.tsv(1 行 1 項目、タブ区切り: 操作・期待・パス・省略可のラベル)。
+# ラベルがあれば結果にはパスの代わりにラベルを書く(ファイル名を結果に出さないため)。
 #   read-file / read-dir   ファイルを読む / ディレクトリを列挙する
 #   read-absent            driver(サンドボックスの外)から見て存在しなかったパス。SKIP にする
+#   read-empty             拒否側のディレクトリで、直下に allowRead 以外の通常ファイルが無かった。SKIP にする
+#   read-unscoped          denyRead と重ならない allowRead。元から読めるので SKIP にする
 #   write                  ファイルを作る。結果にかかわらず消す
 # 期待は deny(失敗するはず)か allow(成功するはず)。存在の判定を driver に任せるのは、
 # サンドボックスの内側では拒否されたパスの stat も失敗することがあり、「無い」と「読めない」を
@@ -51,12 +54,13 @@ verdict_for() {
     fi
 }
 
-while IFS=$'\t' read -r op expect target; do
+while IFS=$'\t' read -r op expect target label; do
     [[ -n "$op" ]] || continue
     code=0
+    shown=${label:-$target}
     case "$op" in
-    read-absent)
-        record "$op" "$target" "$expect" - SKIP
+    read-absent | read-empty | read-unscoped)
+        record "$op" "$shown" "$expect" - SKIP
         continue
         ;;
     read-file) cat -- "$target" >/dev/null 2>&1 || code=$? ;;
@@ -66,11 +70,11 @@ while IFS=$'\t' read -r op expect target; do
         rm -f -- "$target" 2>/dev/null || true
         ;;
     *)
-        record "$op" "$target" "$expect" - FAIL
+        record "$op" "$shown" "$expect" - FAIL
         continue
         ;;
     esac
-    record "$op" "$target" "$expect" "$code" "$(verdict_for "$expect" "$code")"
+    record "$op" "$shown" "$expect" "$code" "$(verdict_for "$expect" "$code")"
     if [[ "$op" == read-* ]]; then
         if [[ "$expect" == deny ]]; then
             deny_checked=$((deny_checked + 1))

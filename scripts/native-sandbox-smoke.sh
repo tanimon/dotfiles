@@ -82,7 +82,11 @@ trap cleanup EXIT
 # denyRead と allowRead の両方にあるパスは allowRead が優先されるので許可側に入れる。
 # 拒否側のディレクトリは、ディレクトリ自体ではなく直下のファイル(allowRead にあるものを除く)の
 # 読み取りを項目にする。守りたいのは中身で、列挙はディレクトリ内に allowRead の子がある
-# (~/.ssh/config など)と許されうるため、項目にすると誤った FAIL になりうる
+# (~/.ssh/config など)と許されうるため、項目にすると誤った FAIL になりうる。
+# 直下のファイル名(鍵ファイル名など)には work org 名やホスト名が入りやすく、結果は public な
+# PR に貼られるので、結果には「<settings の値>/#<連番>」というラベルだけを出す。
+# 許可側として数えるのは denyRead と重なる allowRead だけ。重ならないパスは元から読めるので、
+# 読めても denyRead の中で allowRead が効いていることの証拠にならない
 expand() {
     local path=$1
     # settings の値に書かれたリテラルの ~ と照合するので、展開させないのが意図どおり
@@ -93,12 +97,25 @@ expand() {
     *) printf '%s\n' "$path" ;;
     esac
 }
-allow_list=$(jq -r '.sandbox.filesystem.allowRead // [] | .[]' "$SETTINGS")
+expand_all() {
+    local entry
+    while IFS= read -r entry; do
+        [[ -n "$entry" ]] || continue
+        expand "$entry"
+    done
+}
+allowed_paths=$(jq -r '.sandbox.filesystem.allowRead // [] | .[]' "$SETTINGS" | expand_all)
+denied_paths=$(jq -r '.sandbox.filesystem.denyRead // [] | .[]' "$SETTINGS" | expand_all)
 deny_list=$(jq -r '.sandbox.filesystem as $f | ($f.denyRead // []) - ($f.allowRead // []) | .[]' "$SETTINGS")
-allowed_paths=$(while IFS= read -r entry; do
-    [[ -n "$entry" ]] || continue
-    expand "$entry"
-done <<<"$allow_list")
+# denyRead のいずれかと一致するか、その配下にあれば真
+overlaps_deny() {
+    local target=$1 denied
+    while IFS= read -r denied; do
+        [[ -n "$denied" ]] || continue
+        [[ "$target" == "$denied" || "$target" == "$denied"/* ]] && return 0
+    done <<<"$denied_paths"
+    return 1
+}
 add_read_target() {
     local expect=$1 target=$2
     if [[ -d "$target" ]]; then
@@ -117,13 +134,22 @@ add_read_target() {
             add_read_target deny "$target"
             continue
         fi
+        n=0
         while IFS= read -r child; do
-            grep -qxF -- "$child" <<<"$allowed_paths" || printf 'read-file\tdeny\t%s\n' "$child"
+            grep -qxF -- "$child" <<<"$allowed_paths" && continue
+            n=$((n + 1))
+            printf 'read-file\tdeny\t%s\t%s/#%d\n' "$child" "$entry" "$n"
         done < <(find "$target" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | LC_ALL=C sort || true)
+        # 項目が 0 件のディレクトリも、数えなかった理由が出力から読めるよう SKIP 行を出す
+        [[ "$n" -gt 0 ]] || printf 'read-empty\tdeny\t%s\n' "$target"
     done <<<"$deny_list"
     while IFS= read -r target; do
         [[ -n "$target" ]] || continue
-        add_read_target allow "$target"
+        if overlaps_deny "$target"; then
+            add_read_target allow "$target"
+        else
+            printf 'read-unscoped\tallow\t%s\n' "$target"
+        fi
     done <<<"$allowed_paths"
     printf 'write\tallow\t%s\n' "$TMP_WRITE"
     printf 'write\tdeny\t%s\n' "$HOME_WRITE"
