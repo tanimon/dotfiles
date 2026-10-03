@@ -12,7 +12,8 @@ set -euo pipefail
 
 command -v jq >/dev/null 2>&1 || exit 0
 
-# Opt-out guard (also keeps scripted/CI runs from polluting the queue)
+# Opt-out guard (also keeps scripted/CI runs from polluting the queue).
+# harness-weekly.sh が自分のセッションを積ませないためにも使う
 [[ -n "${HARNESS_DISABLE:-}" ]] && exit 0
 
 STDIN_JSON=$(cat) || exit 0

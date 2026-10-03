@@ -8,6 +8,7 @@ Everything above applies to every agent working in this repository. This section
 /harness-reflect                     # Extract session learnings into ~/.claude/harness/queue.md
 /harness-review                      # Health check + queue triage -> one PR (7-day cadence)
 bash ~/.claude/scripts/harness-doctor.sh  # Deterministic liveness check
+launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly  # 週次ジョブを今すぐ 1 回実行する(ターミナルから。launchd の定義どおり nono の内側で走る。有料)
 ```
 
 The loop itself (SessionEnd hook, queue, briefing) is described under "Harness self-improvement loop" above; these are the Claude Code entry points into it.

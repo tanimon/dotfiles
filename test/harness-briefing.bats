@@ -72,3 +72,63 @@ briefing() {
     run briefing
     assert_success
 }
+
+# 週次ジョブ(harness-weekly.sh)の heartbeat。表示するのは launchd の plist が
+# 置かれている(= このマシンでジョブを動かす前提の)ときだけ。
+weekly_installed() {
+    mkdir -p "$HOME/Library/LaunchAgents"
+    : >"$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    printf '{"version":1,"last_review_epoch":%s}' "$(date +%s)" >"$HDIR/state.json"
+}
+
+@test "weekly: plist が無ければ heartbeat を表示しない" {
+    run briefing
+    assert_success
+    refute_output --partial 'weekly'
+}
+
+@test "weekly: heartbeat が新しければ OK 行に経過日数を出す" {
+    weekly_installed
+    printf '%s\n' "$(( $(date +%s) - 2*86400 ))" >"$HDIR/weekly-heartbeat"
+    run briefing
+    assert_success
+    assert_output --partial 'Harness: OK'
+    assert_output --partial 'weekly: 2d ago'
+}
+
+@test "weekly: heartbeat が古ければ対処コマンド付きで警告する" {
+    weekly_installed
+    printf '%s\n' "$(( $(date +%s) - 10*86400 ))" >"$HDIR/weekly-heartbeat"
+    run briefing
+    assert_success
+    assert_output --partial 'ATTENTION'
+    assert_output --partial 'weekly job last succeeded 10d ago'
+    assert_output --partial 'launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
+}
+
+@test "weekly: heartbeat が無く plist が新しければ never と出して警告しない" {
+    weekly_installed
+    run briefing
+    assert_success
+    assert_output --partial 'Harness: OK'
+    assert_output --partial 'weekly: never'
+}
+
+@test "weekly: heartbeat が無いまま plist が古ければ警告する" {
+    weekly_installed
+    touch -t 202001010000 "$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    run briefing
+    assert_success
+    assert_output --partial 'ATTENTION'
+    assert_output --partial 'weekly job has never succeeded'
+    assert_output --partial 'launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
+}
+
+@test "weekly: heartbeat が数値でなければ警告する" {
+    weekly_installed
+    printf 'oops\n' >"$HDIR/weekly-heartbeat"
+    run briefing
+    assert_success
+    assert_output --partial 'ATTENTION'
+    assert_output --partial 'weekly-heartbeat is not a number'
+}

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 自己改善ループの週次ジョブ(ADR 0012)。登録は
+     .chezmoiscripts/run_onchange_after_darwin-register-harness-weekly.sh.tmpl が行う。
+     入口スクリプトは nono の内側で起動する。スクリプトは nono の内側から書き換えられる
+     (~/.claude は claude-seal で read+write)ので、境界の外で無人実行するのは nono の実体と
+     この plist(どちらも内側から書けない)だけにする。nono は PATH に頼らず絶対パスで書く。
+     WorkingDirectory は claude の project slug を決める。存在しないと起動に失敗するので、
+     登録スクリプトが先に作る。--allow-cwd は付けない: このディレクトリは nono の内側から
+     symlink に差し替えられ、付けると差し替え先に read+write が付与される。付けなくても
+     claude-seal が ~/.claude を付与しているので動き、差し替えられていれば nono が cwd を
+     付与せず(cwd は / になる)、ジョブは書き込みに失敗する(どちらも実測)。
+     PATH は launchd の既定(/usr/bin:/bin:/usr/sbin:/sbin)に claude(~/.local/bin)と
+     jq(/opt/homebrew/bin)を足す。
+     RunAtLoad は false: true にすると apply のたびの再登録で有料の実行が走る。
+     スリープ中に予定時刻を過ぎた分は、launchd が復帰時に 1 回だけ実行する。電源オフ中に
+     過ぎた分は実行されず、次の週まで待つ(heartbeat の古さとして briefing に出る)。 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.dotfiles.harness-weekly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{ lookPath "nono" | default "/opt/homebrew/bin/nono" }}</string>
+    <string>run</string>
+    <string>--profile</string>
+    <string>claude-seal</string>
+    <string>--</string>
+    <string>/bin/bash</string>
+    <string>{{ .chezmoi.homeDir }}/.claude/scripts/harness-weekly.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>{{ .chezmoi.homeDir }}/.claude/harness</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{{ .chezmoi.homeDir }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>6</integer>
+    <key>Hour</key>
+    <integer>10</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>{{ .chezmoi.homeDir }}/Library/Logs/harness-weekly.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{ .chezmoi.homeDir }}/Library/Logs/harness-weekly.log</string>
+</dict>
+</plist>

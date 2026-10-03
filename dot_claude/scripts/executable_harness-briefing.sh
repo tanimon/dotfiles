@@ -18,6 +18,14 @@ REVIEW_OVERDUE_DAYS=7
 PENDING_MAX=5
 PENDING_OLDEST_MAX_DAYS=20
 QUEUE_MAX=10
+# 週次ジョブの間隔(7 日)に、スリープ明けの追いつき実行の分の猶予を足す。
+# harness-doctor.sh の WEEKLY_STALE_DAYS と揃えること
+WEEKLY_STALE_DAYS=8
+WEEKLY_PLIST="$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+WEEKLY_HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
+# $(id -u) はユーザーが貼り付けて実行するコマンドの一部なので展開しない
+# shellcheck disable=SC2016
+WEEKLY_REMEDY='check ~/Library/Logs/harness-weekly.log, then run launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly from a terminal'
 
 # Bootstrap on first run (new machine / after manual reset).
 mkdir -p "$HARNESS_DIR"
@@ -82,9 +90,34 @@ if [[ "$QUEUE_COUNT" -gt "$QUEUE_MAX" ]]; then
     WARNINGS+=("improvement queue piling up (${QUEUE_COUNT} unprocessed) — run /harness-review")
 fi
 
+# 週次ジョブの heartbeat。plist が無いマシン(未 apply・Linux)ではジョブが
+# 動く前提が無いので表示しない。heartbeat が無いのは、plist を置いてから
+# 1 周期経っていなければ「まだ初回が来ていない」、経っていれば「動いていない」
+WEEKLY_TEXT=""
+if [[ -f "$WEEKLY_PLIST" ]]; then
+    WEEKLY_TEXT="never"
+    if [[ -f "$WEEKLY_HEARTBEAT" ]]; then
+        HEARTBEAT=$(tr -d '[:space:]' <"$WEEKLY_HEARTBEAT" 2>/dev/null) || HEARTBEAT=""
+        if [[ "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
+            WEEKLY_DAYS=$(((NOW - HEARTBEAT) / 86400))
+            WEEKLY_TEXT="${WEEKLY_DAYS}d ago"
+            if [[ "$WEEKLY_DAYS" -ge "$WEEKLY_STALE_DAYS" ]]; then
+                WARNINGS+=("weekly job last succeeded ${WEEKLY_DAYS}d ago — $WEEKLY_REMEDY")
+            fi
+        else
+            WARNINGS+=("weekly-heartbeat is not a number — delete $WEEKLY_HEARTBEAT and $WEEKLY_REMEDY")
+        fi
+    # find の -mtime +N は「N+1 日以上前」なので 1 引く(heartbeat 側の -ge と揃える)
+    elif [[ -n "$(find "$WEEKLY_PLIST" -mtime +"$((WEEKLY_STALE_DAYS - 1))" 2>/dev/null)" ]]; then
+        WARNINGS+=("weekly job has never succeeded since it was installed — $WEEKLY_REMEDY")
+    fi
+fi
+
 if [[ ${#WARNINGS[@]} -eq 0 ]]; then
-    printf 'Harness: OK | queue: %s | pending: %s | last review: %s\n' \
+    printf 'Harness: OK | queue: %s | pending: %s | last review: %s' \
         "$QUEUE_COUNT" "$PENDING_COUNT" "$LAST_REVIEW_TEXT"
+    [[ -n "$WEEKLY_TEXT" ]] && printf ' | weekly: %s' "$WEEKLY_TEXT"
+    printf '\n'
 else
     printf 'Harness: ATTENTION\n'
     for w in "${WARNINGS[@]}"; do

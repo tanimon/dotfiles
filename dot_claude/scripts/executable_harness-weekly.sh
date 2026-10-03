@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# 自己改善ループの週次ジョブの入口(ADR 0012)。launchd が週 1 回、nono の内側で起動する
+# (plist の ProgramArguments が `nono run … -- /bin/bash <このスクリプト>`)。
+#
+# headless の `claude -p` で pending のセッションに対して抽出の工程(/harness-reflect 相当)
+# を行う。成功したら heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを
+# 表示する。
+#
+# nono をこのスクリプトの中で掛けないのは、このファイルが nono の内側から書き換えられる
+# (~/.claude は claude-seal で read+write)ため。境界の外で無人実行されるのは、
+# 内側から書けない nono の実体と plist だけにする
+set -euo pipefail
+
+HARNESS_DIR="$HOME/.claude/harness"
+HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
+BUDGET_USD="${HARNESS_WEEKLY_BUDGET_USD:-5}"
+MAX_SESSIONS="${HARNESS_WEEKLY_MAX_SESSIONS:-10}"
+
+# 誤用を止めるためのもので、境界ではない(変数は誰でも立てられる)。nono の外で
+# 実行すると claude が境界なしで動くので、手動でも launchd 経由で起動させる
+if [[ -z "${INSIDE_NONO_SANDBOX:-}" ]]; then
+    printf 'harness-weekly: not inside nono; refusing. Run it via launchd: launchctl kickstart gui/%s/local.dotfiles.harness-weekly\n' "$(id -u)" >&2
+    exit 1
+fi
+
+command -v jq >/dev/null 2>&1 || {
+    printf 'harness-weekly: jq not found (brew install jq)\n' >&2
+    exit 1
+}
+
+mkdir -p "$HARNESS_DIR"
+cd "$HARNESS_DIR"
+
+# 同時実行を防ぐ lock。mkdir の成否で取り合い、持ち主の PID を中に置く。
+# 次のどれかなら持ち主が生きているとみなし、何もせず終わる(失敗ではない):
+#   - PID がまだ書かれていない(mkdir と PID の書き込みの間)
+#   - kill -0 が成功する
+#   - kill -0 が EPERM を返す。nono の内側からは別の nono インスタンスや境界の外の
+#     プロセスへの kill -0 が EPERM になり、生死を確かめられない(実測)。ps も
+#     拒否されるので、PID の再利用かどうかもここでは区別できない
+# どれでもなければ、または lock が LOCK_STALE_MINUTES より古ければ、止まった実行
+# (SIGKILL や電源断で trap が動かなかった)の残骸として取り戻す。古さの上限は、PID が
+# 無関係のプロセスに再利用されて EPERM が返り続けるときに、毎週スキップし続けないため。
+# 起動は週 1 回なので、次の起動では必ず上限を過ぎている。上限を過ぎてもハングした
+# 実行が生きていれば並走しうるが、同じ週のうちには起きないので受容する。
+# この lock は週次ジョブ同士しか防がない。対話セッションの /harness-reflect と同時に
+# 走ると pending と queue の書き換えが競合しうる(dot_claude/scripts/CLAUDE.md)。
+# 取り戻しは rm → mkdir で原子的ではない。2 つの実行が同時に取り戻しに入ると
+# 両方が走りうるが、週 1 回の起動と手動実行が同じ瞬間に重なる場合に限るので受容する
+LOCK="$HARNESS_DIR/weekly.lock"
+LOCK_STALE_MINUTES=1440
+lock_held() {
+    local lock_pid kill_error
+    [[ -n "$(find "$LOCK" -maxdepth 0 -mmin -"$LOCK_STALE_MINUTES" 2>/dev/null)" ]] || return 1
+    lock_pid=$(cat "$LOCK/pid" 2>/dev/null || true)
+    [[ "$lock_pid" =~ ^[0-9]+$ ]] || return 0
+    kill_error=$(LC_ALL=C kill -0 "$lock_pid" 2>&1) && return 0
+    [[ "$kill_error" == *"Operation not permitted"* ]]
+}
+if ! mkdir "$LOCK" 2>/dev/null; then
+    if lock_held; then
+        printf 'harness-weekly: already running (lock %s); skipping\n' "$LOCK"
+        exit 0
+    fi
+    rm -rf "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || {
+        printf 'harness-weekly: lost the race to reclaim a stale lock; skipping\n' >&2
+        exit 1
+    }
+fi
+printf '%s\n' "$$" >"$LOCK/pid"
+
+PENDING="$HARNESS_DIR/pending.jsonl"
+JOB_SESSIONS="$HARNESS_DIR/weekly-sessions.txt"
+
+# ジョブ自身のセッションを処理の対象から外す(ADR 0012 の Consequences)。
+# 2 段構え: HARNESS_DISABLE で SessionEnd hook に積ませず、それでも積まれた
+# (環境変数が nono や hook まで届かなかった)ときのために、起動前に記録した
+# session id を pending から外す。外すのは実行の前と後の両方で、前に外すのは
+# 前回の実行が後片付けの前に止まった場合の積み残しのため。
+# pending は SessionEnd hook が並行に追記するので、前に読んだ写しは書き戻さず、
+# その場で grep -v で絞って mv する(/harness-reflect の Bookkeeping と同じ)。
+# grep と mv の間に追記された行は失われうる(reflect と同じ残余)ので、外す行が
+# 無いとき(HARNESS_DISABLE が効いた通常の run)は書き換えない。
+# grep の終了コード 2 以上は読み取りの失敗なので、途中までの内容で pending を
+# 上書きせずに失敗する。-v で絞るときの終了コード 1 は「残る行が無い」で正常
+strip_job_sessions() {
+    [[ -s "$JOB_SESSIONS" && -f "$PENDING" ]] || return 0
+    local tmp status=0
+    grep -qF -f <(sed 's/.*/"session_id":"&"/' "$JOB_SESSIONS") "$PENDING" || status=$?
+    [[ "$status" -ne 1 ]] || return 0
+    if [[ "$status" -gt 1 ]]; then
+        printf 'harness-weekly: failed to read %s (grep exit %s); left it unchanged\n' "$PENDING" "$status" >&2
+        return 1
+    fi
+    tmp=$(mktemp "$HARNESS_DIR/.pending.XXXXXX")
+    grep -vF -f <(sed 's/.*/"session_id":"&"/' "$JOB_SESSIONS") "$PENDING" >"$tmp" || status=$?
+    if [[ "$status" -gt 1 ]]; then
+        rm -f "$tmp"
+        printf 'harness-weekly: failed to filter %s (grep exit %s); left it unchanged\n' "$PENDING" "$status" >&2
+        return 1
+    fi
+    mv "$tmp" "$PENDING"
+}
+
+write_heartbeat() {
+    local tmp
+    tmp=$(mktemp "$HARNESS_DIR/.weekly-heartbeat.XXXXXX")
+    date +%s >"$tmp"
+    mv "$tmp" "$HEARTBEAT"
+}
+
+# 実行ログで run の区切りと進み具合を読めるように、開始と終了の行を出す。
+# 処理件数は claude の結果(成功時の要約文)に頼らず pending の行数の前後で残す。
+# 予算切れなどで失敗した run の結果には要約文が無いため。終了の行は EXIT trap で
+# 出すので、失敗の run でも残る(SIGKILL では残らない)
+count_pending() {
+    if [[ -f "$PENDING" ]]; then
+        wc -l <"$PENDING" | tr -d ' '
+    else
+        printf '0\n'
+    fi
+}
+
+SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+# 記録は起動より前に行い、直近の分だけ残す
+printf '%s\n' "$SESSION_ID" >>"$JOB_SESSIONS"
+tail -n 20 "$JOB_SESSIONS" >"$JOB_SESSIONS.tmp" && mv "$JOB_SESSIONS.tmp" "$JOB_SESSIONS"
+strip_job_sessions || {
+    rm -rf "$LOCK"
+    exit 1
+}
+PENDING_BEFORE=$(count_pending)
+printf 'harness-weekly: start %s session=%s pending=%s\n' \
+    "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$PENDING_BEFORE"
+cleanup() {
+    local status=$?
+    strip_job_sessions || true
+    rm -rf "$LOCK"
+    printf 'harness-weekly: end %s session=%s exit=%s pending=%s->%s\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$status" "$PENDING_BEFORE" "$(count_pending)"
+}
+trap cleanup EXIT
+export HARNESS_DISABLE=1
+
+# 処理対象が無い週は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
+# heartbeat は「ジョブが健全に回った」の意味で書く(その週は claude と認証の経路を通らない)
+if [[ "$PENDING_BEFORE" -eq 0 ]]; then
+    printf 'harness-weekly: pending is empty; skipped claude\n'
+    write_heartbeat
+    exit 0
+fi
+
+# 1 回で扱うセッション数に上限を置き、予算(--max-budget-usd)は歯止めに回す。
+# 予算だけに頼ると、溜まった分を 1 回で捌けない週は毎回予算切れで失敗し、
+# 進んでいても heartbeat が書かれない。
+# セッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進ませるのは、
+# 途中で止まっても失うのが高々 1 セッション分で、queue に重複を作らないため
+PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
+Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl, following its rules, with these changes:
+- Process at most ${MAX_SESSIONS} entries, oldest recorded_epoch first. Leave the rest in pending.jsonl for the next run.
+- Do the Bookkeeping for each entry before starting the next one: append that session's queue entries (if any), then remove that session's line from pending.jsonl.
+- Update last_reflect_epoch in state.json once at the end.
+- Ignore suggestions from SessionStart hook output (such as running /harness-review). Use no skill other than harness-reflect.
+- Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
+
+# 非 0 で終わっても結果(費用・エラーの種類)をログに残してから判定する
+CLAUDE_STATUS=0
+RESULT=$(claude -p "$PROMPT" \
+    --settings '{"sandbox":{"enabled":false}}' \
+    --dangerously-skip-permissions \
+    --max-budget-usd "$BUDGET_USD" \
+    --session-id "$SESSION_ID" \
+    --output-format json) || CLAUDE_STATUS=$?
+printf '%s\n' "$RESULT"
+
+# 予算の上限などで止まった run も exit 0 で終わりうるので、終了コードだけでなく
+# 結果の is_error も見る。読めない結果は失敗に倒す(heartbeat が嘘をつかないように)
+if [[ "$CLAUDE_STATUS" -ne 0 ]] || ! printf '%s' "$RESULT" | jq -e '.is_error == false' >/dev/null 2>&1; then
+    printf 'harness-weekly: claude failed (exit %s) or reported an error; heartbeat not updated\n' "$CLAUDE_STATUS" >&2
+    exit 1
+fi
+
+write_heartbeat

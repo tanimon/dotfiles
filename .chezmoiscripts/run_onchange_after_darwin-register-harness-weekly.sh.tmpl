@@ -1,0 +1,26 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+# 自己改善ループの週次ジョブ(ADR 0012)を launchd に登録する。plist が変わったときに
+# 再登録するため、テンプレートのハッシュを持つ。
+# plist hash: {{ include "private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl" | sha256sum }}
+# plist は nono の場所を描画時に解決するので、それが変わったときも再登録する。
+# nono: {{ lookPath "nono" | default "/opt/homebrew/bin/nono" }}
+set -euo pipefail
+
+LABEL=local.dotfiles.harness-weekly
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DOMAIN="gui/$(id -u)"
+
+# plist の WorkingDirectory。無いと launchd が起動に失敗する
+mkdir -p "$HOME/.claude/harness"
+
+# 登録済みの古い定義を外してから入れ直す。未登録なら bootout は失敗するので無視する
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+# bootout は非同期に完了するので、直後の bootstrap は Input/output error で失敗しうる。数回待って再試行する
+for attempt in 1 2 3 4 5; do
+    launchctl bootstrap "$DOMAIN" "$PLIST" && break
+    [[ "$attempt" -lt 5 ]] || exit 1
+    sleep 1
+done
+echo "registered $LABEL (weekly; see launchctl print $DOMAIN/$LABEL)"
+{{ end -}}
