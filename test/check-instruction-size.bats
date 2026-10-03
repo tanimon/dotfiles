@@ -8,7 +8,7 @@ setup() {
     git -C "$REPO" init -q -b main
     # 既定値は 3 行 / 20 バイト。個別の上限は 5 行 / 40 バイト
     put scripts/instruction-size-limits.txt $'# コメント行\n\n* 3 20\nCLAUDE.md 5 40'
-    lines CLAUDE.md 1
+    make_lines CLAUDE.md 1
 }
 
 put() {
@@ -18,7 +18,7 @@ put() {
 }
 
 # n 行・各行 1 バイト + 改行 = 2n バイトのファイルを作る
-lines() {
+make_lines() {
     local i content=''
     for ((i = 1; i <= $2; i++)); do
         content+="x"$'\n'
@@ -33,19 +33,19 @@ check() {
 }
 
 @test "上限内のファイルは通る" {
-    lines .claude/rules/a.md 2
+    make_lines .claude/rules/a.md 2
     run check
     assert_success
 }
 
 @test "行数が上限ちょうどのファイルは通る" {
-    lines .claude/rules/a.md 3
+    make_lines .claude/rules/a.md 3
     run check
     assert_success
 }
 
 @test "行数が上限を超えたら落ち、ファイル名と超過量を表示する" {
-    lines .claude/rules/a.md 4
+    make_lines .claude/rules/a.md 4
     run check
     assert_failure 1
     assert_output --partial '.claude/rules/a.md: 4 行(上限 3、+1 行)'
@@ -74,18 +74,18 @@ check() {
 }
 
 @test "個別の上限は既定値より優先される" {
-    lines CLAUDE.md 5
+    make_lines CLAUDE.md 5
     run check
     assert_success
-    lines CLAUDE.md 6
+    make_lines CLAUDE.md 6
     run check
     assert_failure 1
     assert_output --partial 'CLAUDE.md: 6 行(上限 5、+1 行)'
 }
 
 @test "違反はすべて表示してから落ちる" {
-    lines .claude/rules/a.md 4
-    lines dot_config/x/CLAUDE.md 4
+    make_lines .claude/rules/a.md 4
+    make_lines dot_config/x/CLAUDE.md 4
     run check
     assert_failure 1
     assert_output --partial '.claude/rules/a.md: 4 行'
@@ -93,8 +93,8 @@ check() {
 }
 
 @test "対象はルールと指示のファイルだけで、それ以外は大きくても判定しない" {
-    lines docs/long.md 10
-    lines .claude/rules/sub/not-loaded.txt 10
+    make_lines docs/long.md 10
+    make_lines .claude/rules/sub/not-loaded.txt 10
     run check
     assert_success
 }
@@ -108,14 +108,14 @@ check() {
 }
 
 @test "作業ツリーから消したファイルは判定しない" {
-    lines .claude/rules/a.md 4
+    make_lines .claude/rules/a.md 4
     rm "$REPO/.claude/rules/a.md"
     run check
     assert_success
 }
 
 @test "上限の一覧に対象のファイルとして存在しないパスがあれば落ちる" {
-    lines docs/long.md 10
+    make_lines docs/long.md 10
     put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\ndocs/long.md 100 1000'
     run check
     assert_failure 2
@@ -133,4 +133,24 @@ check() {
     run check
     assert_failure 2
     assert_output --partial 'CLAUDE.md 5 forty'
+}
+
+@test "同じパスの行が複数あれば落ちる" {
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nCLAUDE.md 50 400'
+    run check
+    assert_failure 2
+    assert_output --partial '同じパスの行が複数ある: CLAUDE.md'
+}
+
+@test "既定値の行が複数あれば落ちる" {
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\n* 300 2000'
+    run check
+    assert_failure 2
+    assert_output --partial '同じパスの行が複数ある: *'
+}
+
+@test "上限の一覧が無ければ落ちる" {
+    git -C "$REPO" rm -q -f -- scripts/instruction-size-limits.txt
+    run check
+    assert_failure 2
 }

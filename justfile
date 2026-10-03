@@ -212,6 +212,7 @@ check-templates:
 @check-instruction-size:
     bash scripts/check-instruction-size.sh
 
+# check-instruction-size.sh のテスト。LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合の回避
 @test-instruction-size:
     LC_ALL=C pnpm exec bats test/check-instruction-size.bats
 

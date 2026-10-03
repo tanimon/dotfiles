@@ -29,15 +29,28 @@ if [[ ! -f $LIMITS_FILE ]]; then
     exit 2
 fi
 
+# プロセス置換に直接つなぐと git の失敗が set -e に拾われないので、先に代入する
+listed=$(git ls-files --cached --others --exclude-standard -- "${INSTRUCTION_PATHSPECS[@]}") || {
+    echo "instruction-size: git ls-files に失敗した" >&2
+    exit 2
+}
 targets=()
 while IFS= read -r file; do
-    [[ -f $file ]] && targets+=("$file")
-done < <(git ls-files --cached --others --exclude-standard -- "${INSTRUCTION_PATHSPECS[@]}" | sort -u)
+    [[ -n $file && -f $file ]] && targets+=("$file")
+done < <(sort -u <<<"$listed")
 
 is_target() {
     local target
     for target in ${targets[@]+"${targets[@]}"}; do
         [[ $target == "$1" ]] && return 0
+    done
+    return 1
+}
+
+is_overridden() {
+    local overridden
+    for overridden in ${override_paths[@]+"${override_paths[@]}"}; do
+        [[ $overridden == "$1" ]] && return 0
     done
     return 1
 }
@@ -52,6 +65,11 @@ while IFS= read -r line || [[ -n $line ]]; do
     read -r path max_lines max_bytes extra <<<"$line"
     if [[ -n ${extra:-} || ! ${max_lines:-} =~ ^[0-9]+$ || ! ${max_bytes:-} =~ ^[0-9]+$ ]]; then
         echo "instruction-size: $LIMITS_FILE の行を読めない(<パス> <行数> <バイト数> の形にする): $line" >&2
+        exit 2
+    fi
+    # 重複を後勝ちにすると、末尾に緩い行を足すだけで上限を上げられる
+    if [[ $path == '*' && -n $default_lines ]] || is_overridden "$path"; then
+        echo "instruction-size: $LIMITS_FILE に同じパスの行が複数ある: $path" >&2
         exit 2
     fi
     if [[ $path == '*' ]]; then
