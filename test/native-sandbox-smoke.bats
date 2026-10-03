@@ -126,8 +126,9 @@ run_probe() {
     assert_success
     run cat "$WORK/results.tsv"
     refute_output --partial 'FAIL'
-    assert_line "read-file:~/.netrc	deny	1	PASS"
-    assert_line "read-dir:~/.ssh	deny	1	PASS"
+    # 拒否時の終了コードの値は実装で違う(ls は BSD が 1、GNU が 2)ので 0 以外だけを見る
+    assert_line --regexp '^read-file:~/\.netrc	deny	[1-9][0-9]*	PASS$'
+    assert_line --regexp '^read-dir:~/\.ssh	deny	[1-9][0-9]*	PASS$'
     assert_line "read-file:~/.ssh/config	allow	0	PASS"
     assert_line --regexp '^coverage:deny	deny	2	PASS$'
     assert_line --regexp '^coverage:allow	allow	2	PASS$'
@@ -259,7 +260,7 @@ run_probe() {
     export STUB_SANDBOX=all
     run bash "$DRIVER"
     assert_success
-    assert_output --partial 'read-file:~/.netrc	deny	1	PASS'
+    assert_output --regexp 'read-file:~/\.netrc	deny	[1-9][0-9]*	PASS'
     assert_output --partial 'read-file:~/.ssh/config	allow	0	PASS'
     assert_output --partial 'read-absent:~/.aws/credentials	deny	-	SKIP'
     # 拒否側のディレクトリは列挙ではなく直下のファイルの読み取りを項目にする
@@ -268,7 +269,7 @@ run_probe() {
     assert_output --partial 'read-dir:~/.config/gh	allow	0	PASS'
     refute_output --partial 'read-dir:~/.config/gh	deny'
     # 拒否側のディレクトリ直下のファイルも読み取りの項目にし、allowRead のものは除く
-    assert_output --partial 'read-file:~/.ssh/id_test	deny	1	PASS'
+    assert_output --regexp 'read-file:~/\.ssh/id_test	deny	[1-9][0-9]*	PASS'
     refute_output --partial 'read-file:~/.ssh/config	deny'
     assert_output --partial 'native-sandbox-smoke: PASS'
     # source とデプロイ先が一致していれば警告しない(食い違いの警告テストの対)
