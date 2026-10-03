@@ -15,8 +15,7 @@ setup() {
     fi
     REPO="${BATS_TEST_DIRNAME}/.."
     TMPL="${REPO}/.chezmoiscripts/run_onchange_after_pull-nono-packs.sh.tmpl"
-    CONFIG="${BATS_TEST_TMPDIR}/chezmoi-test.toml"
-    printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' >"${CONFIG}"
+    CONFIG="${REPO}/test/fixtures/chezmoi-personal.toml"
     FAKE_BIN="${BATS_TEST_TMPDIR}/bin"
     mkdir -p "${FAKE_BIN}"
     CALLS="${BATS_TEST_TMPDIR}/calls"

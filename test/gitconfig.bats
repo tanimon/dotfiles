@@ -20,8 +20,7 @@ setup_file() {
         return 1
     }
     local repo="$BATS_TEST_DIRNAME/.."
-    local config="$BATS_FILE_TMPDIR/chezmoi-test.toml"
-    printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' >"$config"
+    local config="$repo/test/fixtures/chezmoi-personal.toml"
     export GITCONFIG_RENDERED="$BATS_FILE_TMPDIR/gitconfig"
     chezmoi execute-template --config "$config" --source "$repo" \
         <"$repo/dot_gitconfig.tmpl" >"$GITCONFIG_RENDERED"
