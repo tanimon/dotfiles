@@ -258,9 +258,21 @@ check-templates:
     LC_ALL=C pnpm exec bats test/apm-install-global.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
+# skip されたテストは CI でも走らない(nono が無い)ので、ok 行に紛れないよう
+# 末尾に件数を出す。skip が 1 件でもあれば、この実行では検証されていない。
 [group('local-only')]
 @test-nono-profile:
-    pnpm exec bats test/nono-profile.bats
+    #!/usr/bin/env bash
+    set -uo pipefail
+    out=$(mktemp)
+    trap 'rm -f "$out"' EXIT
+    pnpm exec bats --tap test/nono-profile.bats | tee "$out"
+    status=$?
+    skipped=$(grep -c '^ok .* # skip' "$out" || true)
+    if [ "$skipped" -gt 0 ]; then
+        echo "NOTE: test-nono-profile: ${skipped} 件を skip した(理由は各 ok 行)。nono の内側で skip された分は、素のターミナルから just test-nono-profile を実行するまで検証されていない"
+    fi
+    exit "$status"
 
 # The nono pack sync script drives a fake nono. Local only: the template is
 # darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).
