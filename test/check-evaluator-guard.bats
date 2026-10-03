@@ -151,3 +151,24 @@ guard() {
     assert_output --partial 'evaluator/a"b.md'
     assert_output --partial $'evaluator/t\tab.md'
 }
+
+# 一覧は完全一致・前方一致で照合し、行を正規化しない。書き損じた行は何にも一致せず
+# 警告も出ないので、リポジトリの一覧の各行が実在するパスを指すことをここで確かめる
+@test "リポジトリの一覧の各行は実在するファイルか、末尾 / 付きのディレクトリを指す" {
+    local root="$BATS_TEST_DIRNAME/.." entry tracked bad=()
+    while IFS= read -r entry; do
+        [[ -z $entry || $entry == \#* ]] && continue
+        if [[ $entry != "${entry#[[:space:]]}" || $entry != "${entry%[[:space:]]}" || $entry == ./* || $entry == /* ]]; then
+            bad+=("$entry (前後の空白か先頭の ./ や /)")
+            continue
+        fi
+        tracked="$(git -C "$root" -c core.quotePath=false ls-files -- ":(literal)$entry")"
+        if [[ $entry == */ ]]; then
+            [[ -n $tracked ]] || bad+=("$entry (追跡されたファイルを含むディレクトリではない)")
+        else
+            [[ $tracked == "$entry" ]] || bad+=("$entry (追跡されたファイルではない。ディレクトリなら末尾に / を付ける)")
+        fi
+    done <"$root/scripts/evaluator-paths.txt"
+    run printf '%s\n' "${bad[@]}"
+    assert_output ''
+}

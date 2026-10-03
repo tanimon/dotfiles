@@ -10,6 +10,10 @@
 scripts/evaluator-paths.txt
 scripts/check-evaluator-guard.sh
 test/check-evaluator-guard.bats
+# ガードのテストが依存するもの。assert_failure などや bats の版を差し替えると、テストが空振りで緑になる
+test/helpers/setup.bash
+package.json
+pnpm-lock.yaml
 
 # ガードを CI に配線しているもの。job や recipe を外す・ツールを差し替えるとガードが走らない。
 # CI は head 側の版を使うので、ここに載せても書き換えた PR でガードが走らなくなるのは防げない。
