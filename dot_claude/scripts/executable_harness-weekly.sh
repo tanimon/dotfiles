@@ -270,8 +270,16 @@ record_pr_url() {
     printf 'harness-weekly: recorded the PR URL on %s verdict(s)\n' "$count"
 }
 
-# 選別の結果から PR を作る。失敗の経路では worktree を残す(調べられるように。次の実行が
-# 作り直す)
+# 選別の結果から PR を作る。commit も本文も無ければ(採用も陳腐化の修正も無い週)PR を
+# 作らずに成功する。次はどれも失敗として扱い、heartbeat を書かせない:
+#   - commit されていない変更が残った
+#   - 本文があるのに commit が無い(commit フックの失敗を疑う。落とした変更があれば
+#     本文を必ず書かせているので、全部落ちた run を「採用なし」と取り違えない)
+#   - commit があるのに本文が無い
+#   - push か PR の作成が失敗した
+# 失敗の経路では worktree を残す(調べられるように。次の実行が作り直す)。queue の項目は
+# 既に archive に移っているので、push 以降で失敗した run の commit は $REPO のローカル
+# ブランチ $BRANCH から手で push / PR を作る
 publish_review() {
     local base=$1 commits url
     if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
