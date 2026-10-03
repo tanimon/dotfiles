@@ -94,3 +94,22 @@ why() {
     assert_success
     assert_output --partial "ALLOWED"
 }
+
+# --- 週次ジョブの plist ------------------------------------------------------
+# briefing と doctor は plist の有無で「週次ジョブが導入済みか」を判定し、無ければ
+# heartbeat を検査しない。普段の claude は nono の内側で動くので、plist が読めない
+# と停止の警告が黙って消える(nono 内で `test -f` が exit 1 になることを実測)。
+
+@test "claude-seal profile allows read on the weekly job plist" {
+    run why "$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    assert_success
+    assert_output --partial "ALLOWED"
+}
+
+@test "claude-seal profile denies write on the weekly job plist (contrast pair)" {
+    # plist は境界の外で無人実行される。内側から書けると境界の外へ出られる
+    # (dot_config/nono/CLAUDE.md の「境界の外で無人実行するもの」)。
+    run nono why -s --path "$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist" --op write --profile "$PROFILE"
+    assert_success
+    assert_output --partial "DENIED"
+}
