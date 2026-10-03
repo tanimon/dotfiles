@@ -261,7 +261,7 @@ check-templates:
 # skip されたテストは CI でも走らない(nono が無い)ので、ok 行に紛れないよう
 # 末尾に件数を出す。skip が 1 件でもあれば、この実行では検証されていない。
 [group('local-only')]
-@test-nono-profile:
+test-nono-profile:
     #!/usr/bin/env bash
     set -uo pipefail
     out=$(mktemp)
@@ -270,7 +270,7 @@ check-templates:
     status=$?
     skipped=$(grep -c '^ok .* # skip' "$out" || true)
     if [ "$skipped" -gt 0 ]; then
-        echo "NOTE: test-nono-profile: ${skipped} 件を skip した(理由は各 ok 行)。nono の内側で skip された分は、素のターミナルから just test-nono-profile を実行するまで検証されていない"
+        echo "NOTE: test-nono-profile: ${skipped} 件を skip した。skip されたテストはこの実行では検証されていない。原因と対処は各 ok 行の skip 理由を見ること"
     fi
     exit "$status"
 
