@@ -2,14 +2,20 @@
 # 自己改善ループの週次ジョブの入口(ADR 0012)。launchd が週 1 回、nono の内側で起動する
 # (plist の ProgramArguments が `nono run … -- /bin/bash <このスクリプト>`)。
 #
-# headless の `claude -p` で pending のセッションに対して抽出の工程(/harness-reflect 相当)
-# を行う。成功したら heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを
-# 表示する。
+# 工程は 2 つで、それぞれ headless の `claude -p` を 1 回ずつ起動する。
+#   1. 抽出: pending のセッションに対して harness-reflect スキルを行う(pending が空なら省く)
+#   2. 選別: queue に項目があれば、chezmoi の source リポジトリの使い捨ての worktree で
+#      harness-review スキルを行い、採用した変更を commit させる(queue が空なら省く)
+# 採用した commit があれば、push と `gh pr create --draft` はこのスクリプトが固定の引数で
+# 行う。claude にさせないのは、headless では PreToolUse フックの ask が拒否になり、
+# git push guard が変数を含む push に ask を返すため(#429)。
+# 両方の工程が成功したら heartbeat(最後に成功した時刻)を書き、briefing と doctor が
+# その古さを表示する。
 #
-# PR を作るようになったら、ブランチ名は `harness/review-<日付>` にする。CI はこの prefix で
-# 自己改善ループの PR を見分け、Evaluator のパス(scripts/evaluator-paths.txt)に触れた PR を
-# 落とす(scripts/check-evaluator-guard.sh)。名前を指定する手順は harness-review スキルの
-# 「Implement and open ONE PR」節にあり、PR を作るときはその手順を経由させる
+# PR のブランチ名は `harness/review-<日付>`。CI はこの prefix で自己改善ループの PR を
+# 見分け、Evaluator のパス(scripts/evaluator-paths.txt)に触れた PR を落とす
+# (scripts/check-evaluator-guard.sh)。手動の /harness-review が使う名前も同じで、
+# harness-review スキルの「Implement and open ONE PR」節が指定する
 #
 # nono をこのスクリプトの中で掛けないのは、このファイルが nono の内側から書き換えられる
 # (~/.claude は claude-seal で read+write)ため。境界の外で無人実行されるのは、
@@ -19,7 +25,12 @@ set -euo pipefail
 HARNESS_DIR="$HOME/.claude/harness"
 HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
 BUDGET_USD="${HARNESS_WEEKLY_BUDGET_USD:-5}"
+REVIEW_BUDGET_USD="${HARNESS_WEEKLY_REVIEW_BUDGET_USD:-5}"
 MAX_SESSIONS="${HARNESS_WEEKLY_MAX_SESSIONS:-10}"
+# 選別の工程が worktree を切る元。nono の内側からは作業ツリーに書けず、.git の
+# objects / refs / logs / worktrees にだけ書ける(claude-seal)ので、このリポジトリの
+# checkout そのものには触れず、linked worktree で作業する
+REPO="${HARNESS_WEEKLY_REPO:-$HOME/.local/share/chezmoi}"
 
 # 誤用を止めるためのもので、境界ではない(変数は誰でも立てられる)。nono の外で
 # 実行すると claude が境界なしで動くので、手動でも launchd 経由で起動させる
@@ -128,8 +139,9 @@ count_pending() {
 }
 
 SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+REVIEW_SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 # 記録は起動より前に行い、直近の分だけ残す
-printf '%s\n' "$SESSION_ID" >>"$JOB_SESSIONS"
+printf '%s\n%s\n' "$SESSION_ID" "$REVIEW_SESSION_ID" >>"$JOB_SESSIONS"
 tail -n 20 "$JOB_SESSIONS" >"$JOB_SESSIONS.tmp" && mv "$JOB_SESSIONS.tmp" "$JOB_SESSIONS"
 strip_job_sessions || {
     rm -rf "$LOCK"
@@ -148,42 +160,207 @@ cleanup() {
 trap cleanup EXIT
 export HARNESS_DISABLE=1
 
-# 処理対象が無い週は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
-# heartbeat は「ジョブが健全に回った」の意味で書く(その週は claude と認証の経路を通らない)
-if [[ "$PENDING_BEFORE" -eq 0 ]]; then
-    printf 'harness-weekly: pending is empty; skipped claude\n'
-    write_heartbeat
-    exit 0
-fi
+QUEUE="$HARNESS_DIR/queue.md"
+ARCHIVE="$HARNESS_DIR/queue-archive.md"
+WORKTREE="$HARNESS_DIR/review-worktree"
+PR_BODY="$HARNESS_DIR/review-pr-body.md"
+REVIEW_DATE=$(date +%Y-%m-%d)
+BRANCH="harness/review-$REVIEW_DATE"
 
-# 1 回で扱うセッション数に上限を置き、予算(--max-budget-usd)は歯止めに回す。
-# 予算だけに頼ると、溜まった分を 1 回で捌けない週は毎回予算切れで失敗し、
-# 進んでいても heartbeat が書かれない。
-# セッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進ませるのは、
-# 途中で止まっても失うのが高々 1 セッション分で、queue に重複を作らないため
-PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
+# headless の claude を 1 回起動し、結果をログに残してから成否を返す。
+# 非 0 で終わっても結果(費用・エラーの種類)を先に出す。予算の上限などで止まった run も
+# exit 0 で終わりうるので、終了コードだけでなく結果の is_error も見る。読めない結果は
+# 失敗に倒す(heartbeat が嘘をつかないように)。
+# permission_denials は headless で拒否されたツール呼び出し。PreToolUse フックの ask も
+# ここに入る(確認する人がいないため)。エージェントが別の形で再試行して進むこともあるので
+# 失敗にはしないが、黙って成功扱いにしないよう警告を出す
+run_claude() {
+    local stage=$1 session_id=$2 budget=$3 prompt=$4 status=0 result denials
+    result=$(claude -p "$prompt" \
+        --settings '{"sandbox":{"enabled":false}}' \
+        --dangerously-skip-permissions \
+        --max-budget-usd "$budget" \
+        --session-id "$session_id" \
+        --output-format json) || status=$?
+    printf '%s\n' "$result"
+    denials=$(printf '%s' "$result" | jq -r '(.permission_denials // []) | length' 2>/dev/null || true)
+    if [[ "$denials" =~ ^[0-9]+$ && "$denials" -gt 0 ]]; then
+        printf 'harness-weekly: WARN %s: %s permission denial(s) (in a headless run a hook that asks is a denial)\n' \
+            "$stage" "$denials" >&2
+    fi
+    if [[ "$status" -ne 0 ]] || ! printf '%s' "$result" | jq -e '.is_error == false' >/dev/null 2>&1; then
+        printf 'harness-weekly: %s: claude failed (exit %s) or reported an error; heartbeat not updated\n' \
+            "$stage" "$status" >&2
+        return 1
+    fi
+}
+
+# headless ではフックの ask が拒否になる。git push guard / curl localhost guard は
+# ヒアドキュメントの本文を読み切れないと ask を返すので、ファイルはシェルで書かせない(#429)
+WRITE_RULE="- Write and edit files only with the Write and Edit tools, never with shell redirection or heredocs: in this headless run a hook that asks for confirmation denies the command."
+
+count_queue() {
+    if [[ -f "$QUEUE" ]]; then
+        grep -c '^## ' "$QUEUE" || true
+    else
+        printf '0\n'
+    fi
+}
+
+# 前回の実行が止まって残した worktree(ディレクトリと .git/worktrees の登録のどちらか、
+# または両方)を片付けてから作り直す。ブランチは origin/main の最新から切る。
+# fetch を linked worktree の中で行うのは、FETCH_HEAD が worktree ごとの git dir に
+# 書かれるため(元の checkout の .git 直下は nono の内側から書けない)。
+# --no-track は追跡の設定を .git/config に書かせないため(nono の内側から書けない)。
+# 同じ日のブランチが残っていれば -C で作り直す
+prepare_worktree() {
+    git -C "$REPO" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+    rm -rf "$WORKTREE"
+    git -C "$REPO" worktree prune || return 1
+    git -C "$REPO" worktree add --quiet --detach "$WORKTREE" HEAD || return 1
+    git -C "$WORKTREE" fetch --quiet origin main || return 1
+    git -C "$WORKTREE" switch --quiet --no-track -C "$BRANCH" FETCH_HEAD || return 1
+}
+
+remove_worktree() {
+    git -C "$REPO" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || rm -rf "$WORKTREE"
+    git -C "$REPO" worktree prune >/dev/null 2>&1 || true
+}
+
+# PR の本文に付ける純増の節。claude の申告ではなく diff から数える
+net_change_section() {
+    git -C "$WORKTREE" diff --no-ext-diff --numstat "$1" HEAD | awk -F'\t' '
+        BEGIN { print ""; print "## 純増"; print ""; print "| ファイル | 追加 | 削除 |"; print "|---|---:|---:|" }
+        {
+            printf "| `%s` | +%s | -%s |\n", $3, $1, $2
+            if ($1 != "-") added += $1
+            if ($2 != "-") deleted += $2
+        }
+        END {
+            net = added - deleted
+            printf "\n合計: +%d / -%d(純増 %s%d 行)\n", added, deleted, (net > 0 ? "+" : ""), net
+        }'
+}
+
+# 判定の記録で、選別が書いた adopted (<ブランチ>) を PR の URL に置き換える。
+# 置き換えが 0 件なら、選別が決めた書式で記録しなかったので警告する
+record_pr_url() {
+    local from="adopted ($BRANCH)" to="adopted (PR $1)" count=0 tmp
+    if [[ -f "$ARCHIVE" ]]; then
+        count=$(grep -cF -- "$from" "$ARCHIVE" || true)
+    fi
+    if [[ "$count" -eq 0 ]]; then
+        printf 'harness-weekly: WARN no "%s" verdict in %s; PR URL not recorded\n' "$from" "$ARCHIVE" >&2
+        return 0
+    fi
+    tmp=$(mktemp "$HARNESS_DIR/.queue-archive.XXXXXX")
+    awk -v from="$from" -v to="$to" '{
+        out = ""
+        while ((i = index($0, from)) > 0) {
+            out = out substr($0, 1, i - 1) to
+            $0 = substr($0, i + length(from))
+        }
+        print out $0
+    }' "$ARCHIVE" >"$tmp"
+    mv "$tmp" "$ARCHIVE"
+    printf 'harness-weekly: recorded the PR URL on %s verdict(s)\n' "$count"
+}
+
+# 選別の結果から PR を作る。失敗の経路では worktree を残す(調べられるように。次の実行が
+# 作り直す)
+publish_review() {
+    local base=$1 commits url
+    if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
+        printf 'harness-weekly: review left uncommitted changes in %s; no PR created\n' "$WORKTREE" >&2
+        return 1
+    fi
+    commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD") || return 1
+    if [[ "$commits" -eq 0 ]]; then
+        if [[ -s "$PR_BODY" ]]; then
+            printf 'harness-weekly: review wrote %s but made no commits (a commit hook may have failed); no PR created\n' "$PR_BODY" >&2
+            return 1
+        fi
+        printf 'harness-weekly: review adopted no changes; no PR created\n'
+        remove_worktree
+        return 0
+    fi
+    if [[ ! -s "$PR_BODY" ]]; then
+        printf 'harness-weekly: review made %s commit(s) but wrote no PR body; no PR created\n' "$commits" >&2
+        return 1
+    fi
+    net_change_section "$base" >>"$PR_BODY" || return 1
+    git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
+        printf 'harness-weekly: push of %s failed; no PR created\n' "$BRANCH" >&2
+        return 1
+    }
+    url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
+        --title "harness: 週次レビュー $REVIEW_DATE" --body-file "$PR_BODY") || {
+        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand\n' "$BRANCH" >&2
+        return 1
+    }
+    url=${url##*$'\n'}
+    printf 'harness-weekly: opened draft PR %s (%s commit(s))\n' "$url" "$commits"
+    record_pr_url "$url"
+    remove_worktree
+}
+
+# 処理対象が無い工程は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
+# 両方の工程を省いた週も heartbeat は書く(「ジョブが健全に回った」の意味。その週は
+# claude と認証の経路を通らない)
+if [[ "$PENDING_BEFORE" -eq 0 ]]; then
+    printf 'harness-weekly: pending is empty; skipped reflect\n'
+else
+    # 1 回で扱うセッション数に上限を置き、予算(--max-budget-usd)は歯止めに回す。
+    # 予算だけに頼ると、溜まった分を 1 回で捌けない週は毎回予算切れで失敗し、
+    # 進んでいても heartbeat が書かれない。
+    # セッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進ませるのは、
+    # 途中で止まっても失うのが高々 1 セッション分で、queue に重複を作らないため
+    PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
 Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl, following its rules, with these changes:
 - Process at most ${MAX_SESSIONS} entries, oldest recorded_epoch first. Leave the rest in pending.jsonl for the next run.
 - Do the Bookkeeping for each entry before starting the next one: append that session's queue entries (if any), then remove that session's line from pending.jsonl.
 - Update last_reflect_epoch in state.json once at the end.
+${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output (such as running /harness-review). Use no skill other than harness-reflect.
 - Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
-
-# 非 0 で終わっても結果(費用・エラーの種類)をログに残してから判定する
-CLAUDE_STATUS=0
-RESULT=$(claude -p "$PROMPT" \
-    --settings '{"sandbox":{"enabled":false}}' \
-    --dangerously-skip-permissions \
-    --max-budget-usd "$BUDGET_USD" \
-    --session-id "$SESSION_ID" \
-    --output-format json) || CLAUDE_STATUS=$?
-printf '%s\n' "$RESULT"
-
-# 予算の上限などで止まった run も exit 0 で終わりうるので、終了コードだけでなく
-# 結果の is_error も見る。読めない結果は失敗に倒す(heartbeat が嘘をつかないように)
-if [[ "$CLAUDE_STATUS" -ne 0 ]] || ! printf '%s' "$RESULT" | jq -e '.is_error == false' >/dev/null 2>&1; then
-    printf 'harness-weekly: claude failed (exit %s) or reported an error; heartbeat not updated\n' "$CLAUDE_STATUS" >&2
-    exit 1
+    run_claude reflect "$SESSION_ID" "$BUDGET_USD" "$PROMPT" || exit 1
 fi
+
+QUEUE_ENTRIES=$(count_queue)
+if [[ "$QUEUE_ENTRIES" -eq 0 ]]; then
+    printf 'harness-weekly: queue is empty; skipped review\n'
+    write_heartbeat
+    exit 0
+fi
+
+printf 'harness-weekly: review session=%s queue=%s branch=%s\n' "$REVIEW_SESSION_ID" "$QUEUE_ENTRIES" "$BRANCH"
+rm -f "$PR_BODY"
+prepare_worktree || {
+    printf 'harness-weekly: failed to prepare the review worktree %s\n' "$WORKTREE" >&2
+    exit 1
+}
+REVIEW_BASE=$(git -C "$WORKTREE" rev-parse HEAD)
+# commit フック(prek)と just lint が node_modules を要るので、claude の前に入れる。
+# claude に入れさせないのは、失敗したときに予算を使って直そうとさせないため
+(cd "$WORKTREE" && pnpm install --frozen-lockfile --prefer-offline) || {
+    printf 'harness-weekly: pnpm install failed in %s; skipped review\n' "$WORKTREE" >&2
+    exit 1
+}
+
+# 手順は harness-review スキルのまま使い、手動の /harness-review と同じ queue と判定の
+# 記録(queue-archive.md・state.json)を更新させる。変えるのは、作業場所と、push と PR を
+# このスクリプトが行う点だけ。節は番号ではなく見出しで指す(番号は SKILL.md の変更で黙ってずれる)
+REVIEW_PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
+Use the harness-review skill, following its rules, with these changes:
+- Your working directory is a git worktree of the chezmoi source repo, on branch ${BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
+- Skip \"Reflect over pending sessions\"; this job already ran it.
+- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit the adopted changes on the current branch and leave the working tree clean. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change and say so in the PR body.
+- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; then the rejected and handoff counts and the staleness findings. Do not write line counts; this job appends the net additions and deletions. If nothing is adopted, make no commits and do not create that file.
+- In \"Bookkeeping\", record each adopted verdict as \"adopted (${BRANCH})\"; this job replaces it with the PR URL.
+${WRITE_RULE}
+- Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
+- Finish with a one-line summary: entries adopted, rejected, handed off."
+(cd "$WORKTREE" && run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || exit 1
+publish_review "$REVIEW_BASE" || exit 1
 
 write_heartbeat

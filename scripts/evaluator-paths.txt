@@ -26,6 +26,7 @@ pnpm-lock.yaml
 justfile
 
 # ループの PR の識別規約。ブランチ名を指定する手順を書き換えると、以後のループの PR が
-# prefix に一致せず判定から外れる。週次ジョブの入口は、PR を作るようになればその名前に従う
+# prefix に一致せず判定から外れる。手動の /harness-review は SKILL.md の手順で、週次ジョブは
+# 入口スクリプト自身がその名前でブランチを切って push する
 dot_claude/skills/harness-review/SKILL.md
 dot_claude/scripts/executable_harness-weekly.sh
