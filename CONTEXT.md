@@ -145,7 +145,7 @@ _Avoid_: 自律実装(無限定)
 _Avoid_: レビューだけモード、deliver の後半
 
 **Review Finding**:
-レビューが返す個々の指摘。重大度を持ち、修正されるか Deferred Finding になるかのどちらかで閉じる。
+レビューが返す個々の指摘。重大度を持つ。修正必須のものは修正されるか Deferred Finding になるかで閉じ、Advisory Finding は修正されるか Declined Advisory Finding になるかで閉じる。
 _Avoid_: コメント、issue(GitHub Issue と紛らわしい)
 
 **Deferred Finding**:
@@ -155,6 +155,14 @@ _Avoid_: 見送り(無限定)、スキップした指摘、却下
 **Unresolved Finding**:
 修正必須なのに、ループの上限に達するか収束しなかったために修正されずに残った Review Finding。Deferred Finding と違い誰も見送りに同意していないため、最終報告で最優先に扱う。
 _Avoid_: 見送り、残課題(無限定)
+
+**Advisory Finding**:
+修正必須の重大度を含まない Review Finding。修正エージェントに渡すが、ループの収束条件には数えず、上限に達しても Unresolved Finding にしない。
+_Avoid_: nit(重大度を問わず使われる)、参考指摘(報告の節名としては使う)
+
+**Declined Advisory Finding**:
+修正エージェントが直さないと判断した Advisory Finding。Deferred Finding と違い検証者の同意を要さず、理由付きで最終報告に載る。
+_Avoid_: Deferred Finding(検証者の同意を経たものに限る)
 
 **Requirements Document**:
 何を作るつもりかを人間が書いた、レビュー・修正・動作確認が意図の正本として読む文書。plan(タスク分解を持つもの)と spec のどちらもこの一種で、実装から始めるには plan が要る。
