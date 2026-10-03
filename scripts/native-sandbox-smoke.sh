@@ -37,7 +37,10 @@ warn() {
 
 # サンドボックスの内側からは意味のある結果が出ないので、skip ではなく fail にする。
 # macOS は入れ子の sandbox_apply を拒否し、プローブの Bash ツールが起動できないか、
-# 外側の境界の結果を測ることになる。変数は誰でも立てられるので境界ではなく誤用の検出
+# 外側の境界の結果を測ることになる。変数は誰でも立てられるので境界ではなく誤用の検出。
+# SANDBOX_RUNTIME=1 は、ネイティブサンドボックスがサンドボックス内で走らせるコマンドの環境に
+# Claude Code が足す変数(2.1.288 のバイナリ内の環境変数リストで確認)。Bash ツールの内側は
+# CLAUDECODE でも検出できるので、SANDBOX_RUNTIME はそれが消えた場合の保険
 for var in INSIDE_NONO_SANDBOX CLAUDECODE SANDBOX_RUNTIME; do
     [[ -z "${!var:-}" ]] && continue
     case "$var" in
@@ -181,9 +184,17 @@ cp "$PROBE" "$WORK/probe.sh"
 #                                    --allowedTools のプローブ 1 つだけを通す
 # --permission-mode default は、デプロイ先の defaultMode(auto)の分類器がプローブ以外の
 # コマンドを通さないため。--tools Bash は、Bash サンドボックスの対象外の Read などで
-# モデルが結果ファイルを作れないようにするため。残余: デプロイ先の permissions.allow に
-# ある Bash ルールは有効なままなので、モデルがそれを使って results.tsv を偽造する経路は
-# 塞いでいない
+# モデルが結果ファイルを作れないようにするため。
+# 残余(受容): --allowedTools は許可を足すだけで、デプロイ先の permissions.allow にある
+# Bash ルールは有効なまま。そのため (1) モデルがそれを使って results.tsv を偽造する経路と、
+# (2) allow と sandbox.excludedCommands の両方に当たるコマンド(gh pr comment / gh pr create /
+# docker exec など)がプロンプトなしでサンドボックスの外で走る経路は塞いでいない。
+# allowUnsandboxedCommands: false が止めるのはコマンドごとの dangerouslyDisableSandbox だけで、
+# excludedCommands による外での実行は止めない。(2) は PR へのコメントのような外向きの操作に
+# なりうる。塞ぐ候補の --setting-sources で user settings を外す案は permissions の
+# Read / Edit ルールがサンドボックスのパス集合に入る場合に検証する境界そのものを変え、
+# --settings で excludedCommands を空にする案は配列がマージで置き換わるか連結されるかを
+# 確かめていないので採っていない。歯止めはプロンプトの指示と --max-budget-usd の上限だけ
 sandbox_settings=$(jq -c '{sandbox: (.sandbox + {enabled: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: false})}' "$SETTINGS")
 prompt="Use the Bash tool to run exactly this command once: ${PROBE_COMMAND}
 Do not run any other command, do not retry, and do not read or write any file yourself. Its exit status does not matter. Then reply with the single word: done."
