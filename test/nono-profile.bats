@@ -12,9 +12,11 @@ setup() {
     # 等)で ENOENT ではなく EPERM を受け、`nono why` が判定前に失敗する。
     # `nono profile validate` は内側でも通る(nono 0.79.0 で実測。理由は未確認)。
     # 内側でも通ると実測したテストだけを tag 付けで残し、それ以外は skip する。
-    # tag の無い新しいテストは内側で skip される側に倒れる。
+    # tag の無い新しいテストは内側で skip される側に倒れる。tag の綴り違いや付け忘れも
+    # 黙って skip になるので、skip 理由に判定に使う tag 名を出して確かめられるようにする。
+    # CI にも nono は無いため、skip されたテストは素のターミナルから実行しない限り走らない。
     if [[ -n "${INSIDE_NONO_SANDBOX:-}" ]] && [[ " ${BATS_TEST_TAGS[*]} " != *" runs-inside-nono "* ]]; then
-        skip "nono の内側では入れ子の nono が外側の境界に阻まれて検証できない。nono の外(素のターミナル)で実行すること(CI にも無いため、素のターミナルから実行しない限りこのテストは走らない)"
+        skip "nono の内側では入れ子の nono を検証できない(tag runs-inside-nono なし)。素のターミナルで実行すること"
     fi
 }
 
