@@ -1,7 +1,6 @@
 tap "coderabbitai/tap"
 tap "k1low/tap"
 tap "lambdalisue/cclens"
-tap "theboredteam/boring-notch"
 tap "yammerjp/tap"
 brew "shellcheck"
 brew "actionlint"
