@@ -1393,3 +1393,29 @@ test("mode と他の必須引数が同時に欠けていれば、1回の throw �
     /必須の引数がありません: requirementsPath, mode/,
   );
 });
+
+test("修正の prompt は receiving-code-review で判断させ、非対話の読み替えと、参考指摘を直す側に倒す指示を含む", async () => {
+  const { calls } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH"), finding("MEDIUM", { summary: "style" })] }, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"]), cluster("a.js::style", ["ecc#1"])]],
+      fixes: [
+        {
+          results: [
+            { key: "a.js::bug", action: "fixed" },
+            { key: "a.js::style", action: "fixed" },
+          ],
+          changes: [],
+          observations: [],
+        },
+      ],
+    }),
+  });
+  const prompt = calls.find((c) => c.label === "fix:1").prompt;
+  assert.match(prompt, /Skill ツールで「superpowers:receiving-code-review」を読み込み/);
+  assert.match(prompt, /人間に質問できない/);
+  assert.match(prompt, /action="propose-defer" とし、その旨を reason に書く/);
+  assert.match(prompt, /参考指摘は、技術的に正しく要件文書と衝突しないなら直す/);
+  assert.match(prompt, /直すのが大変だという理由では見送らない/);
+  assert.match(prompt, /修正必須・参考の両方/);
+});

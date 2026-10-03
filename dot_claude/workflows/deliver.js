@@ -450,12 +450,16 @@ function mergePrompt(findings, knownClusters) {
 }
 
 function fixPrompt(items, advisory, config) {
-  return `次の修正必須の指摘に対応せよ。要件文書は ${config.requirementsPath}、対象の差分は「${config.baseRef}...HEAD」。
+  return `次のレビュー指摘に対応せよ。要件文書は ${config.requirementsPath}、対象の差分は「${config.baseRef}...HEAD」。
 修正必須の指摘(JSON): ${JSON.stringify(items)}
 参考指摘(JSON): ${JSON.stringify(advisory)}
-- 指摘ごとに、修正したら action="fixed"、修正すべきでない(偽陽性、または要件文書の範囲外)と判断したら action="propose-defer" と具体的な理由を返す。直すのが大変だという理由では見送らない。
+- Skill ツールで「superpowers:receiving-code-review」を読み込み、その手順で各指摘を評価してから対応する。
+- この実行は非対話で、人間に質問できない。skill が人間に聞く・止まって相談するとする場面(指摘が不明確、人間の過去の判断や要件文書と衝突する、アーキテクチャに関わる)では、その指摘を action="propose-defer" とし、その旨を reason に書く。他の指摘への対応は止めない。
+- 全ての指摘(修正必須・参考の両方)について、修正したら action="fixed"、修正すべきでないと判断したら action="propose-defer" と具体的な理由を返す。
+- 修正必須の指摘を propose-defer にしてよいのは、偽陽性か要件文書の範囲外の場合と、上の非対話の読み替えに当たる場合だけ。直すのが大変だという理由では見送らない。
+- 参考指摘は、技術的に正しく要件文書と衝突しないなら直す。見送るのは、偽陽性・この差分の範囲外・要件文書との衝突・上の非対話の読み替えに当たる場合だけ。
 - deferralRejectedReason がある指摘は、見送りの提案が検証者に却下されている。その理由を読んだうえで修正する。
-- unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。全ての指摘について、必ず fixed か propose-defer のどちらかを返す。
+- unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。
 - 修正した後、次のコマンドを全て成功させる: ${commands(config)}
 - 修正をまとめて新しい1コミットにする(push はしない)。${keepRequirements(config).trimStart()}
 ${reportChanges}
