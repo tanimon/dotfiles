@@ -130,28 +130,26 @@ check-templates:
     #!/usr/bin/env bash
     if command -v chezmoi >/dev/null 2>&1; then
         echo "Validating chezmoi templates..."
-        # chezmoi は --config の拡張子から形式を判別するので .toml が要るが、BSD mktemp
-        # (macOS) はテンプレートの X が末尾にないと置換せず literal なファイル名を作る。
-        # そのため直接 '...-XXXXXX.toml' を渡すと毎回同じ名前になり、クラッシュ後の残骸や
-        # 並行実行で "mkstemp failed: File exists" で落ちる。ディレクトリ側をランダム化する。
-        tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/chezmoi-test-XXXXXX") || { echo "FAIL: mktemp failed"; exit 1; }
-        trap 'rm -rf "$tmpdir"' EXIT
-        tmpconfig="$tmpdir/chezmoi-test.toml"
-        printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' > "$tmpconfig"
+        # .profile で分岐するテンプレートは、描画した側の分岐しか実行時に評価されない。
+        # 構文エラーは分岐に関係なく parse で落ちるが、未描画の分岐内の実行時エラー
+        # (存在しないキーの参照など)は落ちないので、全 profile の fixture で描画する
         fail=0
-        for file in {{tmpl_files}}; do
-            rendered=$(chezmoi execute-template \
-                --config "$tmpconfig" \
-                --source "$(pwd)" \
-                < "$file") || { echo "FAIL: $file (render)"; fail=1; continue; }
-            case "$file" in
-                *.json.tmpl)
-                    printf '%s\n' "$rendered" | jq -e . >/dev/null || { echo "FAIL: $file (invalid JSON)"; fail=1; }
-                    ;;
-            esac
+        for profile in personal work; do
+            config="test/fixtures/chezmoi-$profile.toml"
+            for file in {{tmpl_files}}; do
+                rendered=$(chezmoi execute-template \
+                    --config "$config" \
+                    --source "$(pwd)" \
+                    < "$file") || { echo "FAIL: [$profile] $file (render)"; fail=1; continue; }
+                case "$file" in
+                    *.json.tmpl)
+                        printf '%s\n' "$rendered" | jq -e . >/dev/null || { echo "FAIL: [$profile] $file (invalid JSON)"; fail=1; }
+                        ;;
+                esac
+            done
         done
         if [ "$fail" -eq 1 ]; then exit 1; fi
-        echo "PASS: all templates valid"
+        echo "PASS: all templates valid (profiles: personal work)"
     else
         echo "WARNING: chezmoi not found, skipping template validation"
     fi

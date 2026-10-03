@@ -12,8 +12,7 @@ setup() {
     REPO="$BATS_TEST_DIRNAME/.."
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
-    CONFIG="$BATS_TEST_TMPDIR/chezmoi-test.toml"
-    printf '[data]\n  profile = "personal"\n  ghOrg = "test-org"\n' >"$CONFIG"
+    CONFIG="$REPO/test/fixtures/chezmoi-personal.toml"
     SHARED="$REPO/.chezmoitemplates/agent-instructions-common"
     RULES_DIR="$REPO/dot_claude/rules/common"
 }
