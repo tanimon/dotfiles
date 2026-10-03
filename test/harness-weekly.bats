@@ -81,7 +81,9 @@ if [[ "$all_args" == *'harness-review skill'* ]]; then
     adopt)
         adopt
         printf '## 採用した変更\n\n- 理由: 同じ失敗の再発を防ぐため\n' >"$body"
-        printf -- '- **Verdict:** adopted (%s)\n' "$branch" >>"$archive"
+        # 記録の書式はプロンプトが指定したものをそのまま使う(run ごとの印を含む)
+        verdict=$(grep -oE 'adopted \(harness/review-[^)]*\)' <<<"$all_args" | head -n 1)
+        printf -- '- **Verdict:** %s\n' "$verdict" >>"$archive"
         ;;
     no_verdict)
         adopt
@@ -156,6 +158,10 @@ EOF
     export PATH="$STUBS:$PATH"
     # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く
     printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
+}
+
+teardown() {
+    [[ -z "${LOCKED_DIR:-}" ]] || chmod 755 "$LOCKED_DIR"
 }
 
 weekly() {
@@ -490,6 +496,19 @@ PRE
     assert_output '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/42)'
 }
 
+@test "同じ日の前の run が残した採用は今回の PR の URL に置き換えず、heartbeat を書かずに知らせる" {
+    printf -- '- **Verdict:** adopted (%s)\n' "$BRANCH" >"$HDIR/queue-archive.md"
+    seed_queue
+    run weekly
+    assert_failure
+    assert_output --partial "never became a PR: adopted (${BRANCH})"
+    run grep -cF "adopted (${BRANCH})" "$HDIR/queue-archive.md"
+    assert_output '1'
+    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
+    assert_output '1'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
 @test "判定の記録にブランチ名が無ければ、URL を記録できなかったことを、陳腐化の修正だけなら正常と添えて残す" {
     seed_queue
     STUB_REVIEW_MODE=no_verdict run weekly
@@ -595,6 +614,7 @@ PRE
     STUB_REVIEW_MODE=body_only run weekly
     assert_failure
     assert_output --partial 'no commits'
+    assert_output --partial 'deploy-only'
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
 }
@@ -612,7 +632,7 @@ PRE
     STUB_GH_FAIL=1 run weekly
     assert_failure
     assert_output --partial "pushed ${BRANCH} but gh pr create failed"
-    assert_output --partial "still say adopted (${BRANCH})"
+    assert_output --partial "still say adopted (${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001)"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
@@ -704,6 +724,21 @@ EOF
     refute_output --partial 'leftover.md'
 }
 
+@test "gitdir を stat できない他の linked worktree の登録を消さない(nono の内側の状況)" {
+    [[ "$(id -u)" -ne 0 ]] || skip 'root は権限に関係なく stat できるので状況を作れない'
+    seed_queue
+    LOCKED_DIR="$BATS_TEST_TMPDIR/workspaces"
+    mkdir -p "$LOCKED_DIR"
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q --detach "$LOCKED_DIR/other" HEAD
+    chmod 000 "$LOCKED_DIR"
+    run test -e "$LOCKED_DIR/other/.git"
+    assert_failure
+    run weekly
+    assert_success
+    assert [ -f "$GH_LOG" ]
+    assert [ -d "$HARNESS_WEEKLY_REPO/.git/worktrees/other" ]
+}
+
 @test "worktree の登録だけが残っていても、次の実行は PR まで進む" {
     seed_queue
     git -C "$HARNESS_WEEKLY_REPO" worktree add -q --detach "$WT" HEAD
@@ -776,4 +811,12 @@ EOF
     assert_success
     run grep -c 'moving it into place' "$ARGV_LOG"
     assert_output '2'
+}
+
+@test "commit が無い週は deploy-only の修正だけで本文を書かせない(commit の無い本文は落とした変更の印)" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'If you commit nothing, put deploy-only fixes in your final summary instead'
 }
