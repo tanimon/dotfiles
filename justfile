@@ -156,7 +156,9 @@ check-templates:
         if [ "$fail" -eq 1 ]; then exit 1; fi
         echo "PASS: all templates valid (profiles: $profiles)"
     else
-        echo "WARNING: chezmoi not found, skipping template validation"
+        # 描画を伴う検査は chezmoi が無ければ素通りせず失敗させる(test/helpers/render.bash と同じ方針)
+        echo "FAIL: chezmoi not found (check-templates は skip しない)"
+        exit 1
     fi
 
 # No file list is passed: the script does its own repo-wide walk, which also
