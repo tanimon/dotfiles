@@ -108,8 +108,9 @@ for file in ${targets[@]+"${targets[@]}"}; do
             limit_bytes=${override_bytes[$i]}
         fi
     done
-    # wc -l は末尾に改行の無い最終行を数えない
-    actual_lines=$(awk 'END { print NR }' "$file")
+    # wc -l は末尾に改行の無い最終行を数えない。awk にはリダイレクトで渡す: オペランドで渡すと
+    # x=y/CLAUDE.md のような名前が変数代入と読まれ、ファイルの代わりに stdin を数える
+    actual_lines=$(awk 'END { print NR }' <"$file")
     # BSD の wc -c は数値の前に空白を付ける
     actual_bytes=$(($(wc -c <"$file")))
     if ((actual_lines > limit_lines)); then

@@ -124,6 +124,14 @@ check() {
     assert_success
 }
 
+@test "パスが = を含む指示のファイルも行数を数える" {
+    # awk のオペランドに渡すと x=y/CLAUDE.md が変数代入と読まれ、stdin を数えて 0 行になる
+    make_lines x=y/CLAUDE.md 4
+    run check </dev/null
+    assert_failure 1
+    assert_output --partial 'x=y/CLAUDE.md: 4 行(上限 3、+1 行)'
+}
+
 @test "字下げしたコメント行と空白だけの行は読み飛ばす" {
     put scripts/instruction-size-limits.txt $'  # 字下げしたコメント\n   \n* 3 20\nCLAUDE.md 5 40'
     run check
