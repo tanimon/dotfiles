@@ -370,10 +370,9 @@ run_probe() {
 @test "driver: 拒否側のディレクトリに数える子が無ければ、理由の分かる SKIP 行を出す" {
     require_chmod_denial
     rm "$HOME/.ssh/id_test"
-    export STUB_SANDBOX=none
-    # 拒否側の読み取りは ~/.netrc で塞ぐ(id_test が無いのでスタブの chmod は使えない)
-    chmod 000 "$HOME/.netrc"
-    chmod 555 "$HOME"
+    # 拒否側の読み取りはスタブが ~/.netrc で塞ぐ。driver より前に塞ぐと、サンドボックスの外でも
+    # 読めないパスとして SKIP になる(スタブの id_test への chmod は失敗するが無害)
+    export STUB_SANDBOX=all
     run bash "$DRIVER"
     assert_success
     assert_output --partial 'read-empty:~/.ssh	deny	-	SKIP'
@@ -388,4 +387,44 @@ run_probe() {
     assert_failure
     assert_output --partial 'read-unscoped:~/.config/other	allow	-	SKIP'
     assert_output --partial 'coverage:allow	allow	0	FAIL'
+}
+
+@test "driver: サンドボックスの外でも読めない拒否側のファイルは SKIP にし、coverage に数えない" {
+    require_chmod_denial
+    printf 'other-key\n' >"$HOME/.ssh/id_other"
+    chmod 000 "$HOME/.ssh/id_other"
+    export STUB_SANDBOX=all
+    run bash "$DRIVER"
+    assert_success
+    assert_output --partial 'read-unreadable:~/.ssh/!1	deny	-	SKIP'
+    refute_output --partial 'id_other'
+    # 数えるのは読めた id_test と ~/.netrc だけ
+    assert_output --regexp 'read-file:~/\.ssh/#1	deny	[1-9][0-9]*	PASS'
+    refute_output --partial 'read-file:~/.ssh/#2'
+}
+
+@test "driver: 拒否側がすべてサンドボックスの外でも読めなければ、空振りの PASS にせず coverage を FAIL にする" {
+    require_chmod_denial
+    jq '.sandbox.filesystem.denyRead = ["~/.netrc", "~/.config/gh"]' "$STUB_RENDERED" >"$HOME/.claude/settings.json"
+    cp "$HOME/.claude/settings.json" "$STUB_RENDERED"
+    chmod 000 "$HOME/.netrc"
+    export STUB_SANDBOX=none
+    run bash "$DRIVER"
+    assert_failure
+    assert_output --partial 'read-unreadable:~/.netrc	deny	-	SKIP'
+    assert_output --partial 'coverage:deny	deny	0	FAIL'
+}
+
+@test "driver: denyRead / allowRead の末尾の / を落として照合する" {
+    require_chmod_denial
+    jq '.sandbox.filesystem.denyRead = ["~/.netrc", "~/.ssh/"] | .sandbox.filesystem.allowRead = ["~/.ssh/config/"]' \
+        "$STUB_RENDERED" >"$HOME/.claude/settings.json"
+    cp "$HOME/.claude/settings.json" "$STUB_RENDERED"
+    export STUB_SANDBOX=all
+    run bash "$DRIVER"
+    assert_success
+    refute_output --partial 'read-file:~/.ssh/config	deny'
+    assert_output --partial 'read-file:~/.ssh/config	allow	0	PASS'
+    assert_output --regexp 'read-file:~/\.ssh/#1	deny	[1-9][0-9]*	PASS'
+    refute_output --partial 'read-file:~/.ssh/#2'
 }

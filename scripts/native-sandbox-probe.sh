@@ -9,6 +9,8 @@
 #   read-absent            driver(サンドボックスの外)から見て存在しなかったパス。SKIP にする
 #   read-empty             拒否側のディレクトリで、直下に allowRead 以外の通常ファイルが無かった。SKIP にする
 #   read-unscoped          denyRead と重ならない allowRead。元から読めるので SKIP にする
+#   read-unreadable        driver(サンドボックスの外)からも読めなかったパス。失敗がサンドボックスの
+#                          拒否によるものか区別できないので SKIP にする
 #   write                  ファイルを作る。結果にかかわらず消す
 # 期待は deny(失敗するはず)か allow(成功するはず)。存在の判定を driver に任せるのは、
 # サンドボックスの内側では拒否されたパスの stat も失敗することがあり、「無い」と「読めない」を
@@ -59,7 +61,7 @@ while IFS=$'\t' read -r op expect target label; do
     code=0
     shown=${label:-$target}
     case "$op" in
-    read-absent | read-empty | read-unscoped)
+    read-absent | read-empty | read-unscoped | read-unreadable)
         record "$op" "$shown" "$expect" - SKIP
         continue
         ;;

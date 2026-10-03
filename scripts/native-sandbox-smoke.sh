@@ -86,9 +86,16 @@ trap cleanup EXIT
 # 直下のファイル名(鍵ファイル名など)には work org 名やホスト名が入りやすく、結果は public な
 # PR に貼られるので、結果には「<settings の値>/#<連番>」というラベルだけを出す。
 # 許可側として数えるのは denyRead と重なる allowRead だけ。重ならないパスは元から読めるので、
-# 読めても denyRead の中で allowRead が効いていることの証拠にならない
+# 読めても denyRead の中で allowRead が効いていることの証拠にならない。
+# サンドボックスの外でも読めないパス(他ユーザー所有や mode 000)は read-unreadable として SKIP にする。
+# 読み取りの失敗がサンドボックスの拒否によるものか区別できず、拒否側の coverage に数えると空振りで通るため。
+# settings の値は末尾の / を落としてから照合する。"~/.ssh/" と "~/.ssh/config" の前方一致や、
+# find が返す "//" 入りのパスと allowRead の文字列一致が外れないようにするため
 expand() {
     local path=$1
+    while [[ "$path" == */ && "$path" != / ]]; do
+        path=${path%/}
+    done
     # settings の値に書かれたリテラルの ~ と照合するので、展開させないのが意図どおり
     # shellcheck disable=SC2088
     case "$path" in
@@ -106,7 +113,8 @@ expand_all() {
 }
 allowed_paths=$(jq -r '.sandbox.filesystem.allowRead // [] | .[]' "$SETTINGS" | expand_all)
 denied_paths=$(jq -r '.sandbox.filesystem.denyRead // [] | .[]' "$SETTINGS" | expand_all)
-deny_list=$(jq -r '.sandbox.filesystem as $f | ($f.denyRead // []) - ($f.allowRead // []) | .[]' "$SETTINGS")
+deny_list=$(jq -r 'def norm: if test("^/+$") then "/" else sub("/+$"; "") end;
+    .sandbox.filesystem as $f | (($f.denyRead // []) | map(norm)) - (($f.allowRead // []) | map(norm)) | .[]' "$SETTINGS")
 # denyRead のいずれかと一致するか、その配下にあれば真
 overlaps_deny() {
     local target=$1 denied
@@ -118,30 +126,39 @@ overlaps_deny() {
 }
 add_read_target() {
     local expect=$1 target=$2
-    if [[ -d "$target" ]]; then
-        printf 'read-dir\t%s\t%s\n' "$expect" "$target"
-    elif [[ -e "$target" ]]; then
-        printf 'read-file\t%s\t%s\n' "$expect" "$target"
-    else
+    if [[ ! -e "$target" ]]; then
         printf 'read-absent\t%s\t%s\n' "$expect" "$target"
+    elif [[ ! -r "$target" ]] || [[ -d "$target" && ! -x "$target" ]]; then
+        printf 'read-unreadable\t%s\t%s\n' "$expect" "$target"
+    elif [[ -d "$target" ]]; then
+        printf 'read-dir\t%s\t%s\n' "$expect" "$target"
+    else
+        printf 'read-file\t%s\t%s\n' "$expect" "$target"
     fi
 }
 {
     while IFS= read -r entry; do
         [[ -n "$entry" ]] || continue
         target=$(expand "$entry")
-        if [[ ! -d "$target" ]]; then
+        if [[ ! -d "$target" || ! -r "$target" || ! -x "$target" ]]; then
             add_read_target deny "$target"
             continue
         fi
         n=0
+        skipped=0
         while IFS= read -r child; do
             grep -qxF -- "$child" <<<"$allowed_paths" && continue
-            n=$((n + 1))
-            printf 'read-file\tdeny\t%s\t%s/#%d\n' "$child" "$entry" "$n"
+            if [[ -r "$child" ]]; then
+                n=$((n + 1))
+                printf 'read-file\tdeny\t%s\t%s/#%d\n' "$child" "$entry" "$n"
+            else
+                # ラベルの連番は数えた項目にだけ振るので、読めない子は ! 付きの別の連番にする
+                skipped=$((skipped + 1))
+                printf 'read-unreadable\tdeny\t%s\t%s/!%d\n' "$child" "$entry" "$skipped"
+            fi
         done < <(find "$target" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | LC_ALL=C sort || true)
         # 項目が 0 件のディレクトリも、数えなかった理由が出力から読めるよう SKIP 行を出す
-        [[ "$n" -gt 0 ]] || printf 'read-empty\tdeny\t%s\n' "$target"
+        [[ "$n" -gt 0 || "$skipped" -gt 0 ]] || printf 'read-empty\tdeny\t%s\n' "$target"
     done <<<"$deny_list"
     while IFS= read -r target; do
         [[ -n "$target" ]] || continue
