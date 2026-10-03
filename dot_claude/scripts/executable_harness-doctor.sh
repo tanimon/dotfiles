@@ -97,7 +97,14 @@ else
     WEEKLY_REMEDY="check ~/Library/Logs/harness-weekly.log, then run bash ~/.claude/scripts/harness-weekly.sh"
     HEARTBEAT_FILE="$HARNESS_DIR/weekly-heartbeat"
     if [[ ! -f "$HEARTBEAT_FILE" ]]; then
-        printf 'WARN: weekly job has never succeeded (fresh install?) — %s\n' "$WEEKLY_REMEDY"
+        # plist を置いてから 1 周期経っていなければ初回がまだ来ていないだけなので WARN、
+        # 経っていれば一度も成功していないので FAIL(harness-briefing.sh と同じ判定)。
+        # find の -mtime +N は「N+1 日以上前」なので 1 引く
+        if [[ -n "$(find "$WEEKLY_PLIST" -mtime +"$((WEEKLY_STALE_DAYS - 1))" 2>/dev/null)" ]]; then
+            check 1 "weekly job has never succeeded since it was installed" "$WEEKLY_REMEDY"
+        else
+            printf 'WARN: weekly job has never succeeded (fresh install?) — %s\n' "$WEEKLY_REMEDY"
+        fi
     else
         HEARTBEAT=$(tr -d '[:space:]' <"$HEARTBEAT_FILE" 2>/dev/null) || HEARTBEAT=""
         if [[ ! "$HEARTBEAT" =~ ^[0-9]+$ ]]; then

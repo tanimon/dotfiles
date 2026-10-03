@@ -66,11 +66,19 @@ weekly_installed() {
     assert_output --partial 'FAIL: weekly job last succeeded 10d ago'
 }
 
-@test "weekly: heartbeat が無ければ WARN" {
+@test "weekly: heartbeat が無く plist が新しければ WARN" {
     weekly_installed
     run doctor
     assert_success
     assert_output --partial 'WARN: weekly job has never succeeded'
+}
+
+@test "weekly: heartbeat が無く plist が 1 周期より古ければ FAIL" {
+    weekly_installed
+    touch -t 202001010000 "$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    run doctor
+    assert_failure
+    assert_output --partial 'FAIL: weekly job has never succeeded since it was installed'
 }
 
 @test "weekly: heartbeat が数値でなければ FAIL" {
