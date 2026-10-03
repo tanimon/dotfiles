@@ -1,6 +1,7 @@
 # ルールと指示のファイルごとのサイズ上限(ADR 0011 の肥大の歯止め)。
 # scripts/check-instruction-size.sh が読み、超えたファイルがあると just lint と CI が落ちる。
-# 1 行 1 件で「<パス> <最大行数> <最大バイト数>」。パスが * の行は既定値。# で始まる行と空行は無視する。
+# 1 行 1 件で「<パス> <最大行数> <最大バイト数>」を空白で区切る(空白を含むパスは登録できない)。
+# パスが * の行は既定値。# で始まる行(字下げしてもよい)と空行は無視する。
 #
 # 既定値の根拠:
 # - 200 行: Claude Code 公式ドキュメント(https://code.claude.com/docs/en/memory)が CLAUDE.md の目安を
@@ -13,6 +14,10 @@
 # 人のレビューに見える。ファイルを削ったら値も下げる(下げ忘れは検査しない。削った分の余白は
 # 次の書き足しに使えてしまう)。自己改善ループの PR がこの一覧を変えると Evaluator ガードが
 # 落とす(scripts/evaluator-paths.txt)ので、ループがこれらのファイルに書き足すには同じだけ削る。
+#
+# 上限はファイルごとに測るので、グローバル指示はテンプレートのソース(dot_claude/CLAUDE.md.tmpl と
+# .chezmoitemplates/agent-instructions-common)を別々に測る。合成後の ~/.claude/CLAUDE.md は
+# 各ソースが上限内でも超えうるので、test/global-instructions.bats が合成後を既定値で測っている。
 #
 # AGENTS.md(生成物)の 32 KiB 超えは意図した設計で、Codex の切り捨てが 1 モジュールの内側で起きる
 # 並びを test/harness-instructions.bats が守っている。ここでは増加を止めるためだけに登録する。

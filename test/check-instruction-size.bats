@@ -107,6 +107,29 @@ check() {
     assert_output --partial '.claude/rules/new.md: 4 行'
 }
 
+@test "非 ASCII の名前のルールも判定する" {
+    # core.quotePath が既定の true でも、引用された名前で判定から外れないこと
+    git -C "$REPO" config core.quotePath true
+    make_lines .claude/rules/日本語.md 4
+    run check
+    assert_failure 1
+    assert_output --partial '.claude/rules/日本語.md: 4 行(上限 3、+1 行)'
+}
+
+@test "非 ASCII の名前のファイルにも個別の上限を登録できる" {
+    git -C "$REPO" config core.quotePath true
+    make_lines .claude/rules/日本語.md 4
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\n.claude/rules/日本語.md 4 8'
+    run check
+    assert_success
+}
+
+@test "字下げしたコメント行と空白だけの行は読み飛ばす" {
+    put scripts/instruction-size-limits.txt $'  # 字下げしたコメント\n   \n* 3 20\nCLAUDE.md 5 40'
+    run check
+    assert_success
+}
+
 @test "作業ツリーから消したファイルは判定しない" {
     make_lines .claude/rules/a.md 4
     rm "$REPO/.claude/rules/a.md"

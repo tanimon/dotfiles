@@ -29,16 +29,6 @@ if [[ ! -f $LIMITS_FILE ]]; then
     exit 2
 fi
 
-# プロセス置換に直接つなぐと git の失敗が set -e に拾われないので、先に代入する
-listed=$(git ls-files --cached --others --exclude-standard -- "${INSTRUCTION_PATHSPECS[@]}") || {
-    echo "instruction-size: git ls-files に失敗した" >&2
-    exit 2
-}
-targets=()
-while IFS= read -r file; do
-    [[ -n $file && -f $file ]] && targets+=("$file")
-done < <(sort -u <<<"$listed")
-
 is_target() {
     local target
     for target in ${targets[@]+"${targets[@]}"}; do
@@ -46,6 +36,21 @@ is_target() {
     done
     return 1
 }
+
+# プロセス置換に直接つなぐと git の失敗が set -e に拾われないので、先に一時ファイルに書く。
+# 改行区切りで読むと core.quotePath(既定 true)が非 ASCII のパスを "\346..." の形に引用し、
+# -f が偽になってそのファイルが黙って判定から外れる。-z の出力は引用されない。
+listed_file=$(mktemp)
+trap 'rm -f "$listed_file"' EXIT
+git ls-files -z --cached --others --exclude-standard -- "${INSTRUCTION_PATHSPECS[@]}" >"$listed_file" || {
+    echo "instruction-size: git ls-files に失敗した" >&2
+    exit 2
+}
+targets=()
+while IFS= read -r -d '' file; do
+    # --cached と --others は重ならないので重複は出ない
+    [[ -n $file && -f $file ]] && targets+=("$file")
+done <"$listed_file"
 
 is_overridden() {
     local overridden
@@ -55,13 +60,15 @@ is_overridden() {
     return 1
 }
 
+SKIP_LINE_PATTERN='^[[:space:]]*(#|$)'
 default_lines=''
 default_bytes=''
 override_paths=()
 override_lines=()
 override_bytes=()
 while IFS= read -r line || [[ -n $line ]]; do
-    [[ -z $line || $line == \#* ]] && continue
+    # 字下げしたコメント行と空白だけの行も読み飛ばす
+    [[ $line =~ $SKIP_LINE_PATTERN ]] && continue
     read -r path max_lines max_bytes extra <<<"$line"
     if [[ -n ${extra:-} || ! ${max_lines:-} =~ ^[0-9]+$ || ! ${max_bytes:-} =~ ^[0-9]+$ ]]; then
         echo "instruction-size: $LIMITS_FILE の行を読めない(<パス> <行数> <バイト数> の形にする): $line" >&2
