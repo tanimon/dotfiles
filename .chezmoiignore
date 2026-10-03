@@ -110,7 +110,8 @@ node_modules/
 .secretlintignore
 
 # 自己改善ループの週次ジョブの launchd 定義は macOS にだけ置く
-# (登録スクリプトも darwin 限定。ADR 0012)
+# (登録スクリプトも darwin 限定。ADR 0012)。ファイルだけを無視すると
+# 空の ~/Library/LaunchAgents が作られるので、Library ごと無視する
 {{ if ne .chezmoi.os "darwin" }}
-Library/LaunchAgents/local.dotfiles.harness-weekly.plist
+Library
 {{ end }}

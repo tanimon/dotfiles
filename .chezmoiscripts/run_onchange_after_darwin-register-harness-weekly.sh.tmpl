@@ -11,6 +11,11 @@ DOMAIN="gui/$(id -u)"
 
 # 登録済みの古い定義を外してから入れ直す。未登録なら bootout は失敗するので無視する
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-launchctl bootstrap "$DOMAIN" "$PLIST"
+# bootout は非同期に完了するので、直後の bootstrap は Input/output error で失敗しうる。数回待って再試行する
+for attempt in 1 2 3 4 5; do
+    launchctl bootstrap "$DOMAIN" "$PLIST" && break
+    [[ "$attempt" -lt 5 ]] || exit 1
+    sleep 1
+done
 echo "registered $LABEL (weekly; see launchctl print $DOMAIN/$LABEL)"
 {{ end -}}

@@ -22,12 +22,24 @@ cd "$HARNESS_DIR"
 # 同時実行を防ぐ lock。mkdir の成否で取り合い、持ち主の PID を中に置く。
 # 持ち主が死んでいる lock(SIGKILL や電源断で trap が動かなかった実行の残骸)は
 # 取り戻す。生きている実行がいれば、それに任せて何もせず終わる(失敗ではない)。
+# 生存は PID のプロセスのコマンドラインに harness-weekly を含むかで見る。kill -0 だけだと、
+# 再起動後に PID が無関係のプロセスに再利用されたとき、毎週スキップし続ける。
+# ps が使えない(サンドボックスの内側では setuid の ps が拒否される)ときは kill -0 の
+# 結果に従う。取り戻しに倒すと、生きている実行と並走してしまうため。
+# この lock は週次ジョブ同士しか防がない。対話セッションの /harness-reflect と同時に
+# 走ると pending と queue の書き換えが競合しうる(dot_claude/scripts/CLAUDE.md)。
 # 取り戻しは rm → mkdir で原子的ではない。2 つの実行が同時に取り戻しに入ると
 # 両方が走りうるが、週 1 回の起動と手動実行が同じ瞬間に重なる場合に限るので受容する
 LOCK="$HARNESS_DIR/weekly.lock"
+lock_owner_alive() {
+    local command_line
+    kill -0 "$1" 2>/dev/null || return 1
+    command_line=$(ps -p "$1" -o command= 2>/dev/null) || return 0
+    [[ "$command_line" == *harness-weekly* ]]
+}
 if ! mkdir "$LOCK" 2>/dev/null; then
     LOCK_PID=$(cat "$LOCK/pid" 2>/dev/null || true)
-    if [[ "$LOCK_PID" =~ ^[0-9]+$ ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    if [[ "$LOCK_PID" =~ ^[0-9]+$ ]] && lock_owner_alive "$LOCK_PID"; then
         printf 'harness-weekly: already running (pid %s); skipping\n' "$LOCK_PID"
         exit 0
     fi
@@ -49,13 +61,27 @@ JOB_SESSIONS="$HARNESS_DIR/weekly-sessions.txt"
 # 前回の実行が後片付けの前に止まった場合の積み残しのため。
 # pending は SessionEnd hook が並行に追記するので、前に読んだ写しは書き戻さず、
 # その場で grep -v で絞って mv する(/harness-reflect の Bookkeeping と同じ)。
-# grep と mv の間に追記された行は失われうる(reflect と同じ残余)
+# grep と mv の間に追記された行は失われうる(reflect と同じ残余)。
+# grep の終了コード 1 は「残る行が無い」で正常、2 以上は読み取りの失敗なので、
+# 途中までの内容で pending を上書きせずに失敗する
 strip_job_sessions() {
     [[ -s "$JOB_SESSIONS" && -f "$PENDING" ]] || return 0
-    local tmp
+    local tmp status=0
     tmp=$(mktemp "$HARNESS_DIR/.pending.XXXXXX")
-    grep -vF -f <(sed 's/.*/"session_id":"&"/' "$JOB_SESSIONS") "$PENDING" >"$tmp" || true
+    grep -vF -f <(sed 's/.*/"session_id":"&"/' "$JOB_SESSIONS") "$PENDING" >"$tmp" || status=$?
+    if [[ "$status" -gt 1 ]]; then
+        rm -f "$tmp"
+        printf 'harness-weekly: failed to filter %s (grep exit %s); left it unchanged\n' "$PENDING" "$status" >&2
+        return 1
+    fi
     mv "$tmp" "$PENDING"
+}
+
+write_heartbeat() {
+    local tmp
+    tmp=$(mktemp "$HARNESS_DIR/.weekly-heartbeat.XXXXXX")
+    date +%s >"$tmp"
+    mv "$tmp" "$HEARTBEAT"
 }
 
 # 実行ログで run の区切りと進み具合を読めるように、開始と終了の行を出す。
@@ -74,19 +100,30 @@ SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 # 記録は起動より前に行い、直近の分だけ残す
 printf '%s\n' "$SESSION_ID" >>"$JOB_SESSIONS"
 tail -n 20 "$JOB_SESSIONS" >"$JOB_SESSIONS.tmp" && mv "$JOB_SESSIONS.tmp" "$JOB_SESSIONS"
-strip_job_sessions
+strip_job_sessions || {
+    rm -rf "$LOCK"
+    exit 1
+}
 PENDING_BEFORE=$(count_pending)
 printf 'harness-weekly: start %s session=%s pending=%s\n' \
     "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$PENDING_BEFORE"
 cleanup() {
     local status=$?
-    strip_job_sessions
+    strip_job_sessions || true
     rm -rf "$LOCK"
     printf 'harness-weekly: end %s session=%s exit=%s pending=%s->%s\n' \
         "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$status" "$PENDING_BEFORE" "$(count_pending)"
 }
 trap cleanup EXIT
 export HARNESS_DISABLE=1
+
+# 処理対象が無い週は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
+# heartbeat は「ジョブが健全に回った」の意味で書く(その週は nono と claude の経路を通らない)
+if [[ "$PENDING_BEFORE" -eq 0 ]]; then
+    printf 'harness-weekly: pending is empty; skipped claude\n'
+    write_heartbeat
+    exit 0
+fi
 
 # 1 回で扱うセッション数に上限を置き、予算(--max-budget-usd)は歯止めに回す。
 # 予算だけに頼ると、溜まった分を 1 回で捌けない週は毎回予算切れで失敗し、
@@ -118,6 +155,4 @@ if [[ "$CLAUDE_STATUS" -ne 0 ]] || ! printf '%s' "$RESULT" | jq -e '.is_error ==
     exit 1
 fi
 
-TMP_HEARTBEAT=$(mktemp "$HARNESS_DIR/.weekly-heartbeat.XXXXXX")
-date +%s >"$TMP_HEARTBEAT"
-mv "$TMP_HEARTBEAT" "$HEARTBEAT"
+write_heartbeat

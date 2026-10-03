@@ -64,6 +64,8 @@ printf '%s\n' "${STUB_UUID:-AAAAAAAA-0000-0000-0000-000000000001}"
 EOF
     chmod +x "$STUBS"/*
     export PATH="$STUBS:$PATH"
+    # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く
+    printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
 }
 
 weekly() {
@@ -140,7 +142,9 @@ PRE
 }
 
 @test "別の実行が生きている間は claude を起動せずに終わる" {
-    sleep 30 &
+    # 生存はコマンドラインに harness-weekly を含むかで見るので、その名前のスクリプトで待たせる
+    printf 'sleep 30\n:\n' >"$BATS_TEST_TMPDIR/harness-weekly.sh"
+    bash "$BATS_TEST_TMPDIR/harness-weekly.sh" &
     live=$!
     mkdir -p "$HDIR/weekly.lock"
     printf '%s\n' "$live" >"$HDIR/weekly.lock/pid"
@@ -161,6 +165,43 @@ PRE
     run weekly
     assert_success
     assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert [ ! -d "$HDIR/weekly.lock" ]
+}
+
+@test "lock の PID が無関係のプロセスに再利用されていれば、取り戻して実行する" {
+    # サンドボックスの内側では ps が拒否され、スクリプトは kill -0 の判定に戻る
+    ps -p $$ >/dev/null 2>&1 || skip 'ps is not usable here'
+    sleep 30 &
+    unrelated=$!
+    mkdir -p "$HDIR/weekly.lock"
+    printf '%s\n' "$unrelated" >"$HDIR/weekly.lock/pid"
+    run weekly
+    kill "$unrelated"
+    assert_success
+    refute_output --partial 'already running'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "pending が空なら claude を起動せずに heartbeat を書く" {
+    : >"$HDIR/pending.jsonl"
+    run weekly
+    assert_success
+    assert_output --partial 'pending is empty'
+    assert [ ! -f "$ARGV_LOG" ]
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert [ ! -d "$HDIR/weekly.lock" ]
+}
+
+@test "pending を読めなければ書き換えずに失敗し、claude を起動しない" {
+    printf 'old-session\n' >"$HDIR/weekly-sessions.txt"
+    chmod 000 "$HDIR/pending.jsonl"
+    run weekly
+    chmod 644 "$HDIR/pending.jsonl"
+    assert_failure
+    assert_output --partial 'left it unchanged'
+    run cat "$HDIR/pending.jsonl"
+    assert_output --partial '"session_id":"seed"'
+    assert [ ! -f "$ARGV_LOG" ]
     assert [ ! -d "$HDIR/weekly.lock" ]
 }
 
