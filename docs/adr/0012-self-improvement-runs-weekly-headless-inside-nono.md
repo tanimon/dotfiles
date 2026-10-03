@@ -5,7 +5,7 @@ date: 2026-10-02
 
 # 自己改善ループを、ローカルの launchd から週 1 回、nono の内側で headless 実行する
 
-自己改善ループの全工程(失敗の検出 → Failure Pattern への分類 → 学びの抽出 → Eval Case の作成と 2 アーム評価 → draft PR 1 本)を、ローカルの launchd から週 1 回、`claude -p` で実行する。起動は launchd の plist が `nono run --profile claude-seal --allow-cwd -- /bin/bash <入口スクリプト>` と明示し、入口スクリプトごと nono の内側に置く。入口スクリプトは `~/.claude` 配下にあり nono の内側から書き換えられるので、境界の外で実行しない(境界の外で動くのは、内側から書けない nono の実体と plist だけ)。macOS ではサンドボックスを入れ子にできない(`dot_config/nono/CLAUDE.md`)ため、Bash を許可した Eval Case の実行のように子プロセスが Claude Code 自身のサンドボックスを必要とする部分だけは、nono の外でネイティブの sandbox と `--allowedTools` で絞って動かす。1 回の実行で扱う Eval Case は最大 20 件とし、`--max-budget-usd` で 1 回ごとの上限もかける。人間は週 1 本の draft PR をまとめて承認する。
+自己改善ループの全工程(失敗の検出 → Failure Pattern への分類 → 学びの抽出 → Eval Case の作成と 2 アーム評価 → draft PR 1 本)を、ローカルの launchd から週 1 回、`claude -p` で実行する。起動は launchd の plist が `nono run --profile claude-seal -- /bin/bash <入口スクリプト>` と明示し、入口スクリプトごと nono の内側に置く。入口スクリプトは `~/.claude` 配下にあり nono の内側から書き換えられるので、境界の外で実行しない(境界の外で動くのは、内側から書けない nono の実体と plist だけ)。macOS ではサンドボックスを入れ子にできない(`dot_config/nono/CLAUDE.md`)ため、Bash を許可した Eval Case の実行のように子プロセスが Claude Code 自身のサンドボックスを必要とする部分だけは、nono の外でネイティブの sandbox と `--allowedTools` で絞って動かす。1 回の実行で扱う Eval Case は最大 20 件とし、`--max-budget-usd` で 1 回ごとの上限もかける。人間は週 1 本の draft PR をまとめて承認する。
 
 人の起動に頼る設計は実績で破綻した。2026-07-06 に作り直したループは、最初の `/harness-review` が実行される 2026-09-28 まで約 12 週間止まり、その間に未処理のセッションが 426 件溜まった。そのうち 39 件は transcript もダイジェストも残っていなかった。transcript は既定で 30 日(`cleanupPeriodDays`)で消えるので、起動が遅れるほど証拠そのものが失われる。
 

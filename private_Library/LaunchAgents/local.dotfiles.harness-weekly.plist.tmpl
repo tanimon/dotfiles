@@ -5,8 +5,11 @@
      入口スクリプトは nono の内側で起動する。スクリプトは nono の内側から書き換えられる
      (~/.claude は claude-seal で read+write)ので、境界の外で無人実行するのは nono の実体と
      この plist(どちらも内側から書けない)だけにする。nono は PATH に頼らず絶対パスで書く。
-     WorkingDirectory は nono の allow-cwd の付与と claude の project slug を決める。
-     存在しないと起動に失敗するので、登録スクリプトが先に作る。
+     WorkingDirectory は claude の project slug を決める。存在しないと起動に失敗するので、
+     登録スクリプトが先に作る。--allow-cwd は付けない: このディレクトリは nono の内側から
+     symlink に差し替えられ、付けると差し替え先に read+write が付与される。付けなくても
+     claude-seal が ~/.claude を付与しているので動き、差し替えられていれば nono が cwd を
+     付与せず(cwd は / になる)、ジョブは書き込みに失敗する(どちらも実測)。
      PATH は launchd の既定(/usr/bin:/bin:/usr/sbin:/sbin)に claude(~/.local/bin)と
      jq(/opt/homebrew/bin)を足す。
      RunAtLoad は false: true にすると apply のたびの再登録で有料の実行が走る。
@@ -22,7 +25,6 @@
     <string>run</string>
     <string>--profile</string>
     <string>claude-seal</string>
-    <string>--allow-cwd</string>
     <string>--</string>
     <string>/bin/bash</string>
     <string>{{ .chezmoi.homeDir }}/.claude/scripts/harness-weekly.sh</string>

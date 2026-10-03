@@ -3,6 +3,8 @@
 # 自己改善ループの週次ジョブ(ADR 0012)を launchd に登録する。plist が変わったときに
 # 再登録するため、テンプレートのハッシュを持つ。
 # plist hash: {{ include "private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl" | sha256sum }}
+# plist は nono の場所を描画時に解決するので、それが変わったときも再登録する。
+# nono: {{ lookPath "nono" | default "/opt/homebrew/bin/nono" }}
 set -euo pipefail
 
 LABEL=local.dotfiles.harness-weekly

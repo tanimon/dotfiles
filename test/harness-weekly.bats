@@ -160,7 +160,8 @@ PRE
     # 境界の外で無人実行されるものを、内側から書けない nono の実体と plist に限る契約
     plist="$BATS_TEST_DIRNAME/../private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl"
     run tr -d ' \n' <"$plist"
-    assert_output --partial '<key>ProgramArguments</key><array><string>{{lookPath"nono"|default"/opt/homebrew/bin/nono"}}</string><string>run</string><string>--profile</string><string>claude-seal</string><string>--allow-cwd</string><string>--</string><string>/bin/bash</string><string>{{.chezmoi.homeDir}}/.claude/scripts/harness-weekly.sh</string></array>'
+    refute_output --partial '<string>--allow-cwd</string>'
+    assert_output --partial '<key>ProgramArguments</key><array><string>{{lookPath"nono"|default"/opt/homebrew/bin/nono"}}</string><string>run</string><string>--profile</string><string>claude-seal</string><string>--</string><string>/bin/bash</string><string>{{.chezmoi.homeDir}}/.claude/scripts/harness-weekly.sh</string></array>'
 }
 
 @test "別の実行が生きている間は claude を起動せずに終わる" {
@@ -225,13 +226,13 @@ PRE
 @test "外す行が無ければ pending を置き換えない" {
     # HARNESS_DISABLE が効いて SessionEnd がジョブのセッションを積まなかった通常の run。
     # 置き換え(mv)は SessionEnd の追記と競合しうるので、前後 2 回の除去のどちらも
-    # 書き換えないことを inode で見る
+    # 書き換えないことを見る。inode の番号は解放後に再利用されうるので、hard link を
+    # 張っておき同じファイルのままかを -ef で比べる
     printf 'old-session\n' >"$HDIR/weekly-sessions.txt"
-    before=$(ls -i "$HDIR/pending.jsonl" | awk '{print $1}')
+    ln "$HDIR/pending.jsonl" "$BATS_TEST_TMPDIR/pending-before"
     STUB_SKIP_PENDING=1 run weekly
     assert_success
-    after=$(ls -i "$HDIR/pending.jsonl" | awk '{print $1}')
-    assert_equal "$after" "$before"
+    assert [ "$HDIR/pending.jsonl" -ef "$BATS_TEST_TMPDIR/pending-before" ]
 }
 
 @test "pending が空なら claude を起動せずに heartbeat を書く" {
