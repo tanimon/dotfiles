@@ -114,18 +114,23 @@ setup() {
     assert_output 'git@github.com:o/r.git'
 }
 
-# https→ssh の逆向きルールと共存させると ssh→https が効かなくなる(dot_gitconfig.tmpl の work 分岐のコメント)
-@test "work: https から書き換える逆向きの insteadOf が無い" {
-    run git config --file "$GITCONFIG_WORK" --get-regexp '^url\..*\.insteadof$'
+# https→ssh の逆向きルールと共存させると ssh→https が効かなくなる(dot_gitconfig.tmpl の work 分岐のコメント)。
+# pushInsteadOf も見る。https→ssh の pushInsteadOf があると push だけが SSH 経路に戻るため
+@test "work: https から書き換える逆向きの insteadOf と pushInsteadOf が無い" {
+    run git config --file "$GITCONFIG_WORK" --get-regexp '^url\..*\.(push)?insteadof$'
     assert_success
     refute_line --regexp ' https://'
 }
 
 # profile ごとに描画して契約を見るのは .profile で分岐するテンプレートだけ(test/helpers/render.bash)。
 # 分岐するテンプレートが増えたらこのテストが落ちる。そのテンプレートの profile ごとの
-# 契約テストを書くかを判断してから、一覧を更新すること
+# 契約テストを書くかを判断してから、一覧を更新すること。
+# 走査対象は *.tmpl と .chezmoitemplates/* に加え、拡張子が無くても chezmoi が常にテンプレートとして
+# 評価する .chezmoiignore / .chezmoiremove / .chezmoiexternal.*。
+# 照合は単語境界つきの固定文字列なので、`~/.profile` のようなパスにも当たり(テストが落ちる側に倒れる)、
+# `index . "profile"` のように .profile と書かない参照は捕まえない
 @test ".profile で分岐するテンプレートは既知の一覧と一致する" {
-    run bash -c 'cd "$1" && git ls-files -z -- "*.tmpl" ".chezmoitemplates/*" | xargs -0 grep -lwF ".profile" | LC_ALL=C sort' _ "$RENDER_REPO"
+    run bash -c 'cd "$1" && git ls-files -z -- "*.tmpl" ".chezmoitemplates/*" ".chezmoiignore" ".chezmoiremove" ".chezmoiexternal.*" | xargs -0 grep -lwF ".profile" | LC_ALL=C sort' _ "$RENDER_REPO"
     assert_success
     assert_output 'dot_gitconfig.tmpl'
 }
