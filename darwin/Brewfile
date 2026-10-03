@@ -1,8 +1,6 @@
-tap "aws/tap"
 tap "coderabbitai/tap"
 tap "k1low/tap"
 tap "lambdalisue/cclens"
-tap "manaflow-ai/cmux"
 tap "theboredteam/boring-notch"
 tap "yammerjp/tap"
 brew "shellcheck"
