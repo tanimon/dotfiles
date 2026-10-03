@@ -33,10 +33,22 @@
   conflictstyle = zdiff3
 [pull]
   rebase = false
+# push.autoSetupRemote は書かない(理由は ~/.config/git/claude-code.inc の「背景4」)。
+# 代わりに default = current で upstream 無しの素の `git push` を同名のリモートブランチへ送り、
+# status.compareBranches の @{push} で upstream 無しでも長形式の `git status` に ahead/behind を出す。
+# upstream があるブランチは @{upstream} とも比べる(同じ ref なら 1 回だけ出る)。
+# status.compareBranches は git 2.54 以降。古い git(/usr/bin/git など)は黙って無視し、ahead/behind が出ない。
+# 受容するトレードオフ:
+# - upstream の無いブランチでは `git pull`、`@{u}`、`git rebase` の既定 upstream が無いものとして
+#   振る舞い、`git status -sb` の短形式と starship の ahead_behind には ahead/behind が出ない。
+#   対話ターミナルで upstream が欲しいブランチは、初回に `git push -u` を打つ。
+# - upstream の名前がローカル名と違うブランチでも、素の `git push` はエラーで止まらず
+#   ローカル名のリモートブランチへ送る(simple なら止まっていた)。
 [push]
-  default = simple
-  autoSetupRemote = true
+  default = current
   followTags = true
+[status]
+  compareBranches = @{upstream} @{push}
 [rebase]
   autoSquash = true
   autoStash = true
