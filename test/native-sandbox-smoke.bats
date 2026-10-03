@@ -7,7 +7,7 @@
 setup() {
     load 'helpers/setup'
     # driver が「サンドボックスの内側」の印として読む変数を、このシェルから漏らさない
-    unset INSIDE_NONO_SANDBOX CLAUDECODE SANDBOX_RUNTIME NATIVE_SANDBOX_SMOKE_BUDGET_USD STUB_SANDBOX
+    unset INSIDE_NONO_SANDBOX CLAUDECODE SANDBOX_RUNTIME NATIVE_SANDBOX_SMOKE_BUDGET_USD STUB_SANDBOX STUB_CLAUDE_MODE STUB_CHEZMOI_FAIL
     REPO="$BATS_TEST_DIRNAME/.."
     DRIVER="$REPO/scripts/native-sandbox-smoke.sh"
     PROBE="$REPO/scripts/native-sandbox-probe.sh"
@@ -223,7 +223,7 @@ run_probe() {
     assert_success
     run cat "$ARGV_LOG"
     assert_line --index 0 '-p'
-    assert_line --regexp '^--model$'
+    assert_line '--model'
     assert_line 'haiku'
     assert_line '--max-budget-usd'
     assert_line '--permission-mode'
@@ -250,7 +250,8 @@ run_probe() {
     run bash "$DRIVER"
     assert_success
     cwd=$(cat "$PROBE_CWD_LOG")
-    refute [ "$cwd" = "$REPO" ]
+    assert [ "$(basename "$cwd")" != "$(basename "$(cd "$REPO" && pwd)")" ]
+    assert_regex "$cwd" '/native-sandbox-smoke\.[A-Za-z0-9]+$'
     assert [ ! -e "$cwd" ]
 }
 
@@ -259,9 +260,10 @@ run_probe() {
     run bash "$DRIVER"
     assert_success
     assert_output --partial 'read-file:~/.netrc	deny	1	PASS'
-    assert_output --partial 'read-dir:~/.ssh	deny	1	PASS'
     assert_output --partial 'read-file:~/.ssh/config	allow	0	PASS'
     assert_output --partial 'read-absent:~/.aws/credentials	deny	-	SKIP'
+    # 拒否側のディレクトリは列挙ではなく直下のファイルの読み取りを項目にする
+    refute_output --partial 'read-dir:~/.ssh	deny'
     # denyRead と allowRead の両方にあるパスは許可側として扱う
     assert_output --partial 'read-dir:~/.config/gh	allow	0	PASS'
     refute_output --partial 'read-dir:~/.config/gh	deny'
@@ -309,6 +311,15 @@ run_probe() {
     assert_failure
     assert_output --partial 'sandbox.enabled'
     assert [ ! -e "$ARGV_LOG" ]
+}
+
+@test "driver: allowRead が無くても途中で止まらず、許可側の coverage を FAIL として報告する" {
+    jq 'del(.sandbox.filesystem.allowRead)' "$STUB_RENDERED" >"$HOME/.claude/settings.json"
+    cp "$HOME/.claude/settings.json" "$STUB_RENDERED"
+    export STUB_SANDBOX=all
+    run bash "$DRIVER"
+    assert_failure
+    assert_output --partial 'coverage:allow	allow	0	FAIL'
 }
 
 @test "driver: source とデプロイ先の sandbox 設定が食い違っていれば警告する" {

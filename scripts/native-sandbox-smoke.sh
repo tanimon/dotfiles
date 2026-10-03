@@ -80,8 +80,9 @@ trap cleanup EXIT
 # targets.tsv を組む。存在と種類はここ(サンドボックスの外)で判定する。内側では拒否された
 # パスの stat も失敗することがあり、「無い」と「読めない」を区別できないため。
 # denyRead と allowRead の両方にあるパスは allowRead が優先されるので許可側に入れる。
-# 拒否側のディレクトリは、列挙に加えて直下のファイル(allowRead にあるものを除く)の
-# 読み取りも項目にする。列挙の拒否だけでは中身の読み取りの拒否を示さないため
+# 拒否側のディレクトリは、ディレクトリ自体ではなく直下のファイル(allowRead にあるものを除く)の
+# 読み取りを項目にする。守りたいのは中身で、列挙はディレクトリ内に allowRead の子がある
+# (~/.ssh/config など)と許されうるため、項目にすると誤った FAIL になりうる
 expand() {
     local path=$1
     # settings の値に書かれたリテラルの ~ と照合するので、展開させないのが意図どおり
@@ -94,7 +95,10 @@ expand() {
 }
 allow_list=$(jq -r '.sandbox.filesystem.allowRead // [] | .[]' "$SETTINGS")
 deny_list=$(jq -r '.sandbox.filesystem as $f | ($f.denyRead // []) - ($f.allowRead // []) | .[]' "$SETTINGS")
-allowed_paths=$(while IFS= read -r entry; do [[ -n "$entry" ]] && expand "$entry"; done <<<"$allow_list")
+allowed_paths=$(while IFS= read -r entry; do
+    [[ -n "$entry" ]] || continue
+    expand "$entry"
+done <<<"$allow_list")
 add_read_target() {
     local expect=$1 target=$2
     if [[ -d "$target" ]]; then
@@ -109,14 +113,17 @@ add_read_target() {
     while IFS= read -r entry; do
         [[ -n "$entry" ]] || continue
         target=$(expand "$entry")
-        add_read_target deny "$target"
-        [[ -d "$target" ]] || continue
+        if [[ ! -d "$target" ]]; then
+            add_read_target deny "$target"
+            continue
+        fi
         while IFS= read -r child; do
             grep -qxF -- "$child" <<<"$allowed_paths" || printf 'read-file\tdeny\t%s\n' "$child"
         done < <(find "$target" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | LC_ALL=C sort || true)
     done <<<"$deny_list"
     while IFS= read -r target; do
-        [[ -n "$target" ]] && add_read_target allow "$target"
+        [[ -n "$target" ]] || continue
+        add_read_target allow "$target"
     done <<<"$allowed_paths"
     printf 'write\tallow\t%s\n' "$TMP_WRITE"
     printf 'write\tdeny\t%s\n' "$HOME_WRITE"
@@ -155,7 +162,7 @@ if [[ ! -f "$results" ]]; then
     die "results.tsv was not written (claude exit ${claude_status}); the probe did not run. Not retrying"
 fi
 
-printf 'item\texpect\texit\tverdict\n'
+printf 'item\texpect\texit(coverage: count)\tverdict\n'
 cat "$results"
 
 # 期待する行がすべて揃っていることを要求する。空のファイルや途中で切れたファイルを、

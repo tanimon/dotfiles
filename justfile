@@ -121,7 +121,7 @@ zizmor:
 # secretlint-guard.bats have Japanese test names)
 # register under a different name than they're looked up by, causing spurious
 # "unknown test name" failures (notify.bats: 23 -> 16 executed). See .claude/rules/shell-scripts.md.
-# Smoke test hook scripts (and the native sandbox smoke test's driver/probe, against a fake claude)
+# Smoke test hook scripts(ネイティブサンドボックス smoke test の driver / probe も偽の claude で検査する)
 @test-scripts:
     LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats
 
@@ -279,7 +279,7 @@ check-templates:
 
 # ネイティブ Bash サンドボックス(command claude 経路)の振る舞いを claude -p のプローブで確かめる。
 # 素のターミナル(サンドボックスの外)で人間が実行する。API 費用がかかり、サンドボックスの内側では
-# 意味を持たないので lint と CI には入れない。検証するのはデプロイ済みの ~/.claude/settings.json
+# 意味を持たないので lint と CI には入れない。検証対象はブランチの source ではなくデプロイ済みの ~/.claude/settings.json
 # Smoke test the native Bash sandbox via claude -p (paid; run from a plain terminal)
 [group('local-only')]
 @smoke-native-sandbox:
