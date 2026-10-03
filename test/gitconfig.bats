@@ -12,18 +12,16 @@
 # commit は署名しない(-c commit.gpgsign=false)。描画した ~/.gitconfig は署名を有効にしており、
 # テスト用の HOME には署名鍵が無い。
 #
-# chezmoi が無い場合は skip せず fail する(skip にすると CI で全検査が空振りする)。
+# 描画は test/helpers/render.bash を通す。chezmoi が無いときに skip せず失敗させるのも seam が担う。
+#
+# push の契約は personal だけで見る。work では SSH 形式の GitHub remote を HTTPS に寄せる契約を見る。
 
 setup_file() {
-    command -v chezmoi >/dev/null || {
-        echo "chezmoi が必要(この suite は skip しない)" >&2
-        return 1
-    }
-    local repo="$BATS_TEST_DIRNAME/.."
-    local config="$repo/test/fixtures/chezmoi-personal.toml"
-    export GITCONFIG_RENDERED="$BATS_FILE_TMPDIR/gitconfig"
-    chezmoi execute-template --config "$config" --source "$repo" \
-        <"$repo/dot_gitconfig.tmpl" >"$GITCONFIG_RENDERED"
+    load 'helpers/render'
+    export GITCONFIG_PERSONAL="$BATS_FILE_TMPDIR/gitconfig-personal"
+    export GITCONFIG_WORK="$BATS_FILE_TMPDIR/gitconfig-work"
+    render_template personal "$RENDER_REPO/dot_gitconfig.tmpl" >"$GITCONFIG_PERSONAL"
+    render_template work "$RENDER_REPO/dot_gitconfig.tmpl" >"$GITCONFIG_WORK"
 }
 
 setup() {
@@ -31,7 +29,7 @@ setup() {
 
     export HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$HOME/.config/git"
-    cp "$GITCONFIG_RENDERED" "$HOME/.gitconfig"
+    cp "$GITCONFIG_PERSONAL" "$HOME/.gitconfig"
     cp "${BATS_TEST_DIRNAME}/../dot_config/git/claude-code.inc" "$HOME/.config/git/claude-code.inc"
     unset XDG_CONFIG_HOME
     export GIT_CONFIG_SYSTEM=/dev/null
@@ -90,4 +88,56 @@ setup() {
 
     run git -C "$REPO" config --get-regexp '^branch\.feature\.'
     assert_output --partial 'branch.feature.remote origin'
+}
+
+# work では SSH 形式の GitHub remote を HTTPS に寄せる(dot_gitconfig.tmpl の work 分岐のコメントに理由)。
+# 書き換えは git remote get-url の出力に現れるので、ネットワークなしで確かめられる
+@test "work: scp 形式と ssh:// 形式の GitHub remote が https に書き換わる" {
+    cp "$GITCONFIG_WORK" "$HOME/.gitconfig"
+    git -C "$REPO" remote add scp git@github.com:o/r.git
+    git -C "$REPO" remote add sshurl ssh://git@github.com/o/r.git
+
+    run git -C "$REPO" remote get-url scp
+    assert_success
+    assert_output 'https://github.com/o/r.git'
+
+    run git -C "$REPO" remote get-url sshurl
+    assert_success
+    assert_output 'https://github.com/o/r.git'
+}
+
+@test "対比: personal では GitHub の SSH remote は書き換わらない" {
+    git -C "$REPO" remote add scp git@github.com:o/r.git
+
+    run git -C "$REPO" remote get-url scp
+    assert_success
+    assert_output 'git@github.com:o/r.git'
+}
+
+# https→ssh の逆向きルールと共存させると ssh→https が効かなくなる(dot_gitconfig.tmpl の work 分岐のコメント)
+@test "work: https から書き換える逆向きの insteadOf が無い" {
+    run git config --file "$GITCONFIG_WORK" --get-regexp '^url\..*\.insteadof$'
+    assert_success
+    refute_line --regexp ' https://'
+}
+
+# profile ごとに描画して契約を見るのは .profile で分岐するテンプレートだけ(test/helpers/render.bash)。
+# 分岐するテンプレートが増えたらこのテストが落ちる。そのテンプレートの profile ごとの
+# 契約テストを書くかを判断してから、一覧を更新すること
+@test ".profile で分岐するテンプレートは既知の一覧と一致する" {
+    run bash -c 'cd "$1" && git ls-files -z -- "*.tmpl" ".chezmoitemplates/*" | xargs -0 grep -lwF ".profile" | LC_ALL=C sort' _ "$RENDER_REPO"
+    assert_success
+    assert_output 'dot_gitconfig.tmpl'
+}
+
+# 未知の profile を空の描画結果で成功させない(空の結果に対する後続の grep が空振りするため)
+@test "render_template は存在しない profile と省略した profile で失敗する" {
+    load 'helpers/render'
+
+    run render_template staging "$RENDER_REPO/dot_gitconfig.tmpl"
+    assert_failure
+    assert_output --partial "profile 'staging'"
+
+    run render_template '' "$RENDER_REPO/dot_gitconfig.tmpl"
+    assert_failure
 }
