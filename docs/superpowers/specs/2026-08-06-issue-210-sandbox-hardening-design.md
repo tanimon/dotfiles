@@ -86,7 +86,7 @@ done
 
 - `nono why`はポリシー解決のみを行う静的診断コマンドで、対象パスの実在に依存しない（`cat`等での検証だと「ファイルが存在しないための失敗」と「サンドボックスによる拒否」が区別できず、issue #210自体が懸念する「無音の境界消失」と同じ穴になる）。
 - 2件目（allow側）は、`docs/solutions/workflow-issues/verification-through-the-wrong-resolution-path.md`が指摘する「対比なしの単独passは何も証明しない」を踏まえた対比ペア。`filesystem.allow`に明記されている`$HOME/ghq`を使う。
-- ネイティブBashサンドボックスの`excludedCommands`行動検証は、`claude -p`ヘッドレス実行が必要でAPI費用・非決定性の問題があるため今回は対応せず、既知の限界としてissue #210側にコメントで記録する。
+- ネイティブBashサンドボックスの`excludedCommands`行動検証は、`claude -p`ヘッドレス実行が必要でAPI費用・非決定性の問題があるため今回は対応せず、既知の限界としてissue #210側にコメントで記録する。追記: filesystem の `denyRead` / `allowRead` と書き込みの境界は、後続の `just smoke-native-sandbox`(`scripts/native-sandbox-smoke.sh`。`claude -p` で決定的なプローブを 1 回実行させ、結果ファイルの終了コードだけで判定するローカル専用レシピ)で検証できるようになった。`excludedCommands` と network 系は引き続き対象外。
 - `just test-nono-profile`（既存レシピ、ローカル専用）でそのまま実行される。CI側の変更は不要 — ただし「不要」は「既にCIでカバーされている」ではなく、`test-nono-profile`（既存の`nono profile validate`を含む）自体が`.github/workflows/lint.yml`に一度も組み込まれておらず、GitHub上のPRチェックでは元々実行されない、という既存の限界の継続である。今回追加した行動検証テストもこの限界をそのまま引き継ぐため、nono未導入の環境でレビューした場合はCIも含めて検知手段がない。
 
 ### 実装時の訂正
@@ -102,4 +102,4 @@ done
 # issue #210 側の扱い
 
 - ②は対応不要（PR #241で実質解消）である旨をissueにコメントし、文言更新の上クローズを提案する。
-- ④のネイティブサンドボックス行動検証（`excludedCommands`等）は既知の限界としてissueに記録し、将来のクローズ候補から切り離す（本設計では対応しない）。
+- ④のネイティブサンドボックス行動検証（`excludedCommands`等）は既知の限界としてissueに記録し、将来のクローズ候補から切り離す（本設計では対応しない）。filesystem 側は後に `just smoke-native-sandbox` で対応した。
