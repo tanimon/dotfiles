@@ -1,0 +1,26 @@
+# ルールと指示のファイルごとのサイズ上限(ADR 0011 の肥大の歯止め)。
+# scripts/check-instruction-size.sh が読み、超えたファイルがあると just lint と CI が落ちる。
+# 1 行 1 件で「<パス> <最大行数> <最大バイト数>」。パスが * の行は既定値。# で始まる行と空行は無視する。
+#
+# 既定値の根拠:
+# - 200 行: Claude Code 公式ドキュメント(https://code.claude.com/docs/en/memory)が CLAUDE.md の目安を
+#   「target under 200 lines per CLAUDE.md file」とし、長いほど遵守が落ちるとしている。
+#   paths の無い .claude/rules/*.md も CLAUDE.md と同じく起動時に読み込まれるので、同じ値を使う。
+# - 32768 バイト: Codex は AGENTS.md を project_doc_max_bytes(既定 32 KiB)で黙って切り捨てる。
+#   行数だけでは 1 行が長いファイル(段落を 1 行で書く CLAUDE.md)を縛れないので、バイト数も見る。
+#
+# 個別の上限は、この一覧を足した時点で既定値を超えていたファイルを、その時点の実測値で登録したもの。
+# 減らすことはできるが、増やす変更は差分として人のレビューに見える。ファイルを削ったら値も下げる。
+# この一覧は scripts/evaluator-paths.txt に載せてあり、自己改善ループの PR からは上限を上げられない。
+# ループがこれらのファイルに書き足すには、同じだけ削る必要がある。
+#
+# AGENTS.md(生成物)の 32 KiB 超えは意図した設計で、Codex の切り捨てが 1 モジュールの内側で起きる
+# 並びを test/harness-instructions.bats が守っている。ここでは増加を止めるためだけに登録する。
+
+* 200 32768
+
+AGENTS.md 219 53266
+CLAUDE.md 237 52243
+.claude/rules/shell-scripts.md 221 32768
+dot_claude/scripts/CLAUDE.md 564 70035
+dot_config/nono/CLAUDE.md 200 39122
