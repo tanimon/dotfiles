@@ -24,6 +24,10 @@ setup() {
     INSTALL_SCRIPT="$REPO/scripts/apm-install-global.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
+    # APM は Claude の設定ファイルを $HOME ではなく CLAUDE_CONFIG_DIR から解決する。
+    # Claude Code のセッション内では実機の ~/.claude が入っているため、残すと偽 HOME の
+    # 外の実設定を読み書きし、偽 HOME に ~/.claude.json ができない。
+    unset CLAUDE_CONFIG_DIR
     mkdir -p "$HOME/.apm" "$HOME/.codex" "$TMPDIR"
 }
 

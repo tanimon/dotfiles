@@ -6,6 +6,11 @@
 # を行う。成功したら heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを
 # 表示する。
 #
+# PR を作るようになったら、ブランチ名は `harness/review-<日付>` にする。CI はこの prefix で
+# 自己改善ループの PR を見分け、Evaluator のパス(scripts/evaluator-paths.txt)に触れた PR を
+# 落とす(scripts/check-evaluator-guard.sh)。名前を指定する手順は harness-review スキルの
+# 「Implement and open ONE PR」節にあり、PR を作るときはその手順を経由させる
+#
 # nono をこのスクリプトの中で掛けないのは、このファイルが nono の内側から書き換えられる
 # (~/.claude は claude-seal で read+write)ため。境界の外で無人実行されるのは、
 # 内側から書けない nono の実体と plist だけにする

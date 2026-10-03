@@ -1,0 +1,31 @@
+# Evaluator のパスの一覧(ADR 0011)。自己改善ループの PR がここに載ったパスに触れると、
+# scripts/check-evaluator-guard.sh が CI で失敗させる。人の PR は判定しない。
+# 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
+# それ以外は完全一致。# で始まる行と空行は無視する。
+#
+# Evaluator(失敗の検出器、Failure Pattern の一覧、判定の基準、Eval Case の目録)は、
+# この一覧を足した時点ではまだリポジトリに無い。それぞれを作る PR(#403 検出器、
+# #404 Failure Pattern、#405 判定の基準と Eval Case の目録)が、その PR でここにも足す。
+# 足し忘れを機械的に検出する仕組みは無く、それらの PR のレビューで確かめる。
+# ガードは base 側の版を読むので、足した行はマージ後に効く。
+
+# ガード自身。一覧・判定・テストを書き換えられると、ガードを外せる
+scripts/evaluator-paths.txt
+scripts/check-evaluator-guard.sh
+test/check-evaluator-guard.bats
+# ガードのテストが依存するもの。assert_failure などや bats の版を差し替えると、テストが空振りで緑になる
+test/helpers/setup.bash
+package.json
+pnpm-lock.yaml
+
+# ガードを CI に配線しているもの。job や recipe を外す・ツールを差し替えるとガードが走らない。
+# CI は head 側の版を使うので、ここに載せても書き換えた PR でガードが走らなくなるのは防げない。
+# 保証は書き換えが差分として人のレビューに見えるところまで(check-evaluator-guard.sh のヘッダ)
+.github/workflows/lint.yml
+.github/actions/setup-lint/
+justfile
+
+# ループの PR の識別規約。ブランチ名を指定する手順を書き換えると、以後のループの PR が
+# prefix に一致せず判定から外れる。週次ジョブの入口は、PR を作るようになればその名前に従う
+dot_claude/skills/harness-review/SKILL.md
+dot_claude/scripts/executable_harness-weekly.sh

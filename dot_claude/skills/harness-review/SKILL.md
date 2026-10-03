@@ -79,6 +79,10 @@ of caution are noise — deprecate aggressively; git history preserves them.
 ## Step 5: Implement and open ONE PR
 
 1. Create a branch `harness/review-YYYY-MM-DD` off `main`.
+   この名前は変えない。CI は prefix `harness/review-` で自己改善ループの PR を
+   見分け、`scripts/evaluator-paths.txt` のパスに触れた PR を落とす
+   (`scripts/check-evaluator-guard.sh`)。そのパスの変更が要るときは採用せず、
+   人が別の PR で行うものとして報告に書く。
 2. Apply all adopted changes (new rules in Japanese per
    `~/.claude/rules/common/documentation-language.md`, structured per
    `~/.claude/rules/common/harness-engineering.md` writing guidelines).
