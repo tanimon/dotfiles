@@ -403,7 +403,7 @@ PRE
     seed_queue
     STUB_REVIEW_MODE=none run weekly
     assert_success
-    assert_output --partial 'review adopted no changes; no PR created'
+    assert_output --partial 'review committed no changes; no PR created'
     assert [ ! -f "$GH_LOG" ]
     assert [ -f "$HDIR/weekly-heartbeat" ]
     assert [ ! -d "$WT" ]
@@ -483,7 +483,7 @@ PRE
     STUB_REVIEW_MODE=body_only run weekly
     assert_failure
     assert_output --partial 'no commits'
-    refute_output --partial 'adopted no changes'
+    refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
 }
 
@@ -500,6 +500,7 @@ PRE
     STUB_GH_FAIL=1 run weekly
     assert_failure
     assert_output --partial "pushed ${BRANCH} but gh pr create failed"
+    assert_output --partial "still say adopted (${BRANCH})"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
@@ -536,4 +537,23 @@ PRE
     STUB_CLAUDE_MODE=denied run weekly
     assert_success
     assert_output --partial 'WARN reflect: 1 permission denial'
+}
+
+@test "当日のループのブランチが origin に既にあれば、選別を起動せずにその旨を残す" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" push -q origin "main:refs/heads/${BRANCH}"
+    run weekly
+    assert_success
+    assert_output --partial "${BRANCH} already exists on origin; skipped review"
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+    assert [ ! -f "$GH_LOG" ]
+}
+
+@test "陳腐化したルールの修正だけでも commit させる(採用 0 件で PR を諦めさせない)" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'If nothing is adopted and nothing is stale'
 }

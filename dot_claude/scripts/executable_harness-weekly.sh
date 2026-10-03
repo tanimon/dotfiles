@@ -24,7 +24,7 @@ set -euo pipefail
 
 HARNESS_DIR="$HOME/.claude/harness"
 HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
-BUDGET_USD="${HARNESS_WEEKLY_BUDGET_USD:-5}"
+REFLECT_BUDGET_USD="${HARNESS_WEEKLY_BUDGET_USD:-5}"
 REVIEW_BUDGET_USD="${HARNESS_WEEKLY_REVIEW_BUDGET_USD:-5}"
 MAX_SESSIONS="${HARNESS_WEEKLY_MAX_SESSIONS:-10}"
 # 選別の工程が worktree を切る元。nono の内側からは作業ツリーに書けず、.git の
@@ -261,7 +261,11 @@ record_pr_url() {
             $0 = substr($0, i + length(from))
         }
         print out $0
-    }' "$ARCHIVE" >"$tmp"
+    }' "$ARCHIVE" >"$tmp" || {
+        rm -f "$tmp"
+        printf 'harness-weekly: WARN failed to rewrite %s; PR URL not recorded\n' "$ARCHIVE" >&2
+        return 0
+    }
     mv "$tmp" "$ARCHIVE"
     printf 'harness-weekly: recorded the PR URL on %s verdict(s)\n' "$count"
 }
@@ -280,7 +284,7 @@ publish_review() {
             printf 'harness-weekly: review wrote %s but made no commits (a commit hook may have failed); no PR created\n' "$PR_BODY" >&2
             return 1
         fi
-        printf 'harness-weekly: review adopted no changes; no PR created\n'
+        printf 'harness-weekly: review committed no changes; no PR created\n'
         remove_worktree
         return 0
     fi
@@ -295,7 +299,8 @@ publish_review() {
     }
     url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
         --title "harness: 週次レビュー $REVIEW_DATE" --body-file "$PR_BODY") || {
-        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand\n' "$BRANCH" >&2
+        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand (verdicts in %s still say adopted (%s))\n' \
+            "$BRANCH" "$ARCHIVE" "$BRANCH" >&2
         return 1
     }
     url=${url##*$'\n'}
@@ -323,7 +328,7 @@ Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl,
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output (such as running /harness-review). Use no skill other than harness-reflect.
 - Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
-    run_claude reflect "$SESSION_ID" "$BUDGET_USD" "$PROMPT" || exit 1
+    run_claude reflect "$SESSION_ID" "$REFLECT_BUDGET_USD" "$PROMPT" || exit 1
 fi
 
 QUEUE_ENTRIES=$(count_queue)
@@ -331,6 +336,20 @@ if [[ "$QUEUE_ENTRIES" -eq 0 ]]; then
     printf 'harness-weekly: queue is empty; skipped review\n'
     write_heartbeat
     exit 0
+fi
+
+# 当日のブランチが origin にあれば、その日のループの PR は作成済みか、push 後に PR の作成が
+# 失敗している(その run のログが手で開くよう促している)。作り直したブランチは
+# non-fast-forward で push できず、選別の費用が無駄になるので起動しない
+REMOTE_STATUS=0
+git -C "$REPO" ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null || REMOTE_STATUS=$?
+if [[ "$REMOTE_STATUS" -eq 0 ]]; then
+    printf 'harness-weekly: %s already exists on origin; skipped review\n' "$BRANCH"
+    write_heartbeat
+    exit 0
+elif [[ "$REMOTE_STATUS" -ne 2 ]]; then
+    printf 'harness-weekly: failed to query origin for %s (git ls-remote exit %s)\n' "$BRANCH" "$REMOTE_STATUS" >&2
+    exit 1
 fi
 
 printf 'harness-weekly: review session=%s queue=%s branch=%s\n' "$REVIEW_SESSION_ID" "$QUEUE_ENTRIES" "$BRANCH"
@@ -354,8 +373,8 @@ REVIEW_PROMPT="This is the unattended weekly harness job (no human is present, a
 Use the harness-review skill, following its rules, with these changes:
 - Your working directory is a git worktree of the chezmoi source repo, on branch ${BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
 - Skip \"Reflect over pending sessions\"; this job already ran it.
-- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit the adopted changes on the current branch and leave the working tree clean. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change and say so in the PR body.
-- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; then the rejected and handoff counts and the staleness findings. Do not write line counts; this job appends the net additions and deletions. If nothing is adopted, make no commits and do not create that file.
+- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit the adopted changes and the staleness fixes on the current branch and leave the working tree clean. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change and say so in the PR body.
+- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts; this job appends the net additions and deletions. If nothing is adopted and nothing is stale, make no commits and do not create that file.
 - In \"Bookkeeping\", record each adopted verdict as \"adopted (${BRANCH})\"; this job replaces it with the PR URL.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
