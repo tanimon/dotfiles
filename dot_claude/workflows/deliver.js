@@ -277,6 +277,9 @@ function newState(config) {
     deferredKeys: new Set(),
     requirementsConcerns: [],
     advisory: [],
+    advisoryClosedKeys: new Set(),
+    advisoryDeclined: [],
+    advisoryUnverified: [],
     knownClusters: [],
     rejectedDeferrals: {},
     unansweredFixes: new Set(),
@@ -446,9 +449,10 @@ function mergePrompt(findings, knownClusters) {
 - summary は日本語の1文で書く。`;
 }
 
-function fixPrompt(items, config) {
+function fixPrompt(items, advisory, config) {
   return `次の修正必須の指摘に対応せよ。要件文書は ${config.requirementsPath}、対象の差分は「${config.baseRef}...HEAD」。
-指摘(JSON): ${JSON.stringify(items)}
+修正必須の指摘(JSON): ${JSON.stringify(items)}
+参考指摘(JSON): ${JSON.stringify(advisory)}
 - 指摘ごとに、修正したら action="fixed"、修正すべきでない(偽陽性、または要件文書の範囲外)と判断したら action="propose-defer" と具体的な理由を返す。直すのが大変だという理由では見送らない。
 - deferralRejectedReason がある指摘は、見送りの提案が検証者に却下されている。その理由を読んだうえで修正する。
 - unansweredBefore が true の指摘は、前回の修正で対応結果が返らなかった。全ての指摘について、必ず fixed か propose-defer のどちらかを返す。
@@ -484,6 +488,7 @@ function ledgerJson(state) {
       unresolvedKeys: [...state.unresolvedKeys],
       deferredKeys: [...state.deferredKeys],
       unansweredFixes: [...state.unansweredFixes],
+      advisoryClosedKeys: [...state.advisoryClosedKeys],
     },
     null,
     2,
@@ -605,13 +610,33 @@ function renderReport(state) {
     state.deferred,
     (d) => `${formatItem(d)} — 見送り理由: ${d.reason} / 検証者: ${d.verifierReason}`,
   );
-  pushSection("参考指摘(修正必須ではない)", uniqueByKey(state.advisory), formatItem);
+  const unverifiedAdvisoryKeys = new Set(state.advisoryUnverified.map((i) => i.key));
+  if (state.advisoryUnverified.length > 0)
+    pushSection(
+      "修正に回した後、再レビューされていない参考指摘",
+      state.advisoryUnverified,
+      formatItem,
+    );
+  pushSection(
+    "参考指摘(修正必須ではない)",
+    uniqueByKey(state.advisory).filter(
+      (i) => !state.advisoryClosedKeys.has(i.key) && !unverifiedAdvisoryKeys.has(i.key),
+    ),
+    formatItem,
+  );
+  pushSection(
+    "見送った参考指摘",
+    state.advisoryDeclined,
+    (d) => `${formatItem(d)} — 見送り理由: ${d.reason}`,
+  );
   // 修正エージェントは人間が書いたブランチにもコミットを足すので、何を直したかを残す。
-  // 直したと申告しても後で Unresolved になった指摘は、直っていないので出さない。
+  // 直したと申告しても後で Unresolved になった指摘や、再レビューされていない参考指摘は、直ったと確かめていないので出さない。
   pushSection(
     "修正した指摘",
-    uniqueByKey(state.fixed).filter((i) => !state.unresolvedKeys.has(i.key)),
-    formatItem,
+    uniqueByKey(state.fixed).filter(
+      (i) => !state.unresolvedKeys.has(i.key) && !unverifiedAdvisoryKeys.has(i.key),
+    ),
+    (i) => (i.advisory ? `[参考] ${formatItem(i)}` : formatItem(i)),
   );
   pushSection("テスト/lint を通すための変更", state.checksChanges, formatChange);
   pushSection("レビュー指摘を直すための変更", state.fixChanges, formatChange);
@@ -622,7 +647,7 @@ function renderReport(state) {
   lines.push(`- レビューラウンド: ${state.rounds.length}`);
   for (const r of state.rounds) {
     lines.push(
-      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}`,
+      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined})`,
     );
   }
   if (state.reviewerFailures.length > 0)
@@ -748,7 +773,7 @@ async function mergeFindings(state, findings) {
   return clusters;
 }
 
-async function runFix(state, roundNo, blocking) {
+async function runFix(state, roundNo, blocking, advisory) {
   const label = `fix:${roundNo}`;
   const items = blocking.map((b) => ({
     ...b,
@@ -757,7 +782,7 @@ async function runFix(state, roundNo, blocking) {
     }),
     ...(state.unansweredFixes.has(b.key) && { unansweredBefore: true }),
   }));
-  const fix = await agent(fixPrompt(items, state.config), {
+  const fix = await agent(fixPrompt(items, advisory, state.config), {
     label,
     phase: "Review",
     schema: FIX_SCHEMA,
@@ -765,12 +790,30 @@ async function runFix(state, roundNo, blocking) {
   if (!fix) {
     markUnresolved(state, blocking);
     state.stopReason = "fixer-failed";
-    return { firstRejections: new Set(), rejected: new Set() };
+    return { firstRejections: new Set(), rejected: new Set(), advisoryFixed: null };
   }
   collectObservations(state, label, fix);
   if (Array.isArray(fix.changes))
     for (const c of fix.changes) state.fixChanges.push({ label, file: c.file, summary: c.summary });
   const byKey = Object.fromEntries(blocking.map((b) => [b.key, b]));
+  // 参考指摘かどうかは、エージェントの申告ではなく、その key を参考指摘として渡したかで決める(ADR 0014)。
+  // 参考指摘の見送りには検証者を付けない。回答した key は閉じ、再出現しても修正に回さない。
+  const advisoryByKey = Object.fromEntries(advisory.map((a) => [a.key, a]));
+  const advisoryFixed = [];
+  const round = state.rounds[state.rounds.length - 1];
+  for (const r of fix.results) {
+    const item = advisoryByKey[r.key];
+    if (!item || state.advisoryClosedKeys.has(r.key)) continue;
+    state.advisoryClosedKeys.add(r.key);
+    if (r.action === "fixed") {
+      state.fixed.push({ ...item, advisory: true });
+      advisoryFixed.push(item);
+      round.advisoryFixed++;
+    } else {
+      state.advisoryDeclined.push({ ...item, reason: r.reason || "" });
+      round.advisoryDeclined++;
+    }
+  }
   for (const r of fix.results)
     if (r.action === "fixed" && byKey[r.key]) state.fixed.push(byKey[r.key]);
   // 対応結果の無い指摘は直したとは言っていないので、見送りを却下された指摘と同じく次のラウンドで確かめる。
@@ -812,12 +855,12 @@ async function runFix(state, roundNo, blocking) {
     });
     state.deferredKeys.add(v.proposal.key);
   }
-  return { firstRejections, rejected };
+  return { firstRejections, rejected, advisoryFixed };
 }
 
 // 修正に回した後、再レビューで確かめる前に止まった(停止・例外)指摘は、直ったと扱わずに Unresolved に残す。
 async function reviewLoop(state) {
-  const tracker = { unverified: [] };
+  const tracker = { unverified: [], unverifiedAdvisory: [] };
   try {
     await reviewRounds(state, tracker);
   } finally {
@@ -828,6 +871,10 @@ async function reviewLoop(state) {
         summary: `${i.summary}(修正に回した後、再レビューされていない)`,
       })),
     );
+    // 参考指摘は Unresolved にしないが、修正のコミットは残っているので人間に見せる。
+    for (const item of tracker.unverifiedAdvisory)
+      if (!state.advisoryUnverified.some((u) => u.key === item.key))
+        state.advisoryUnverified.push(item);
   }
 }
 
@@ -860,7 +907,11 @@ async function reviewRounds(state, tracker) {
       else result.repeated.push(item);
     }
     result.advisory = result.advisory.filter((i) => !carried.has(i.key));
+    const pendingAdvisory = uniqueByKey(result.advisory).filter(
+      (i) => !state.advisoryClosedKeys.has(i.key),
+    );
     tracker.unverified = [];
+    tracker.unverifiedAdvisory = [];
     if (result.dropped.length > 0)
       log(`有効な指摘を含まない cluster を捨てた: ${result.dropped.join(", ")}`);
     state.rounds.push({
@@ -868,6 +919,8 @@ async function reviewRounds(state, tracker) {
       blocking: result.blocking.length,
       repeated: result.repeated.length,
       advisory: result.advisory.length,
+      advisoryFixed: 0,
+      advisoryDeclined: 0,
       missingReviewers: state.lastMissingReviewers,
     });
     if (result.closedRepeats.length > 0)
@@ -883,7 +936,7 @@ async function reviewRounds(state, tracker) {
       state.stopReason = "requirements-breaking";
       return;
     }
-    if (result.blocking.length === 0) return;
+    if (result.blocking.length === 0 && pendingAdvisory.length === 0) return;
     if (fixRound >= state.config.maxReviewRounds) {
       log(
         `修正ラウンドの上限 ${state.config.maxReviewRounds} に達した。残り ${result.blocking.length} 件を Unresolved にする`,
@@ -893,7 +946,15 @@ async function reviewRounds(state, tracker) {
     }
     // runFix の途中で throw しても finally が Unresolved に残せるよう、修正に回す前に記録する。
     tracker.unverified = result.blocking;
-    const { firstRejections, rejected } = await runFix(state, roundNo, result.blocking);
+    tracker.unverifiedAdvisory = pendingAdvisory;
+    const { firstRejections, rejected, advisoryFixed } = await runFix(
+      state,
+      roundNo,
+      result.blocking,
+      pendingAdvisory,
+    );
+    // 結果が返らなかった修正は、どの参考指摘を直したか分からないので、渡した全件を未確認として扱う。
+    tracker.unverifiedAdvisory = advisoryFixed ?? pendingAdvisory;
     if (state.stopReason) return;
     previousRejections = {
       items: result.blocking.filter((b) => rejected.has(b.key)),

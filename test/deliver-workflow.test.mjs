@@ -173,15 +173,201 @@ test("修正必須の指摘を直したら再レビューし、ゼロになれ�
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
 
-test("修正必須でない指摘は修正せず、参考指摘として報告する", async () => {
-  const { result, labels } = await runWorkflow({
+test("修正必須が無くても参考指摘を修正に回し、その後に checks とレビューをもう1回通す", async () => {
+  const { result, labels, calls } = await runWorkflow({
     respond: scenario({
-      reviews: [{ ecc: [finding("MEDIUM")], requesting: [finding("Minor")] }],
+      reviews: [{ ecc: [finding("MEDIUM")], requesting: [finding("Minor")] }, {}],
       merges: [[cluster("a.js::style", ["ecc#0", "requesting#0"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::style", action: "fixed" }],
+          changes: [{ file: "a.js", summary: "命名を直す" }],
+          observations: [],
+        },
+      ],
+    }),
+  });
+  assert.deepEqual(labels.slice(2, 10), [
+    "checks:1",
+    "review:ecc",
+    "review:requesting",
+    "merge",
+    "fix:1",
+    "checks:2",
+    "review:ecc",
+    "review:requesting",
+  ]);
+  assert.match(calls.find((c) => c.label === "fix:1").prompt, /a\.js::style/);
+  assert.equal(result.stopReason, null);
+  assert.match(
+    section(result.report, "修正した指摘"),
+    /\[参考\] `a\.js:1` issue a\.js::style \[ecc:MEDIUM, requesting:Minor\]/,
+  );
+  assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
+  assert.match(result.report, /参考 1\(修正 1 \/ 見送り 0\)/);
+  const ledger = JSON.parse(result.ledger);
+  assert.deepEqual(ledger.advisoryClosedKeys, ["a.js::style"]);
+  assert.deepEqual(ledger.fixChanges, [{ label: "fix:1", file: "a.js", summary: "命名を直す" }]);
+});
+
+test("修正ラウンドの上限に達したら、残った参考指摘は Unresolved にせず参考指摘として報告する", async () => {
+  const { result, labels } = await runWorkflow({
+    args: { maxReviewRounds: 0 },
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }],
+      merges: [[cluster("a.js::style", ["ecc#0"])]],
     }),
   });
   assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 0);
-  assert.match(section(result.report, "参考指摘(修正必須ではない)"), /issue a.js::style/);
+  assert.match(section(result.report, "参考指摘(修正必須ではない)"), /issue a\.js::style/);
+  assert.equal(section(result.report, "Unresolved Finding").trim(), "なし");
+  assert.equal(result.stopReason, null);
+});
+
+for (const action of ["fixed", "propose-defer"]) {
+  test(`${action} を返した参考指摘は閉じ、再出現しても修正に回さない(見送りに検証者を付けない)`, async () => {
+    const { result, labels } = await runWorkflow({
+      respond: scenario({
+        reviews: [{ ecc: [finding("MEDIUM")] }, { ecc: [finding("MEDIUM")] }],
+        merges: [[cluster("a.js::style", ["ecc#0"])], [cluster("a.js::style", ["ecc#0"])]],
+        fixes: [
+          {
+            results: [{ key: "a.js::style", action, reason: "意図的な命名" }],
+            changes: [],
+            observations: [],
+          },
+        ],
+      }),
+    });
+    assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 1);
+    assert.equal(labels.filter((l) => l === "review:ecc").length, 2);
+    assert.equal(labels.filter((l) => l.startsWith("defer-verify:")).length, 0);
+    assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
+    if (action === "propose-defer") {
+      assert.match(
+        section(result.report, "見送った参考指摘"),
+        /issue a\.js::style.*見送り理由: 意図的な命名/,
+      );
+      assert.equal(section(result.report, "修正した指摘").trim(), "なし");
+    } else {
+      assert.equal(section(result.report, "見送った参考指摘").trim(), "なし");
+    }
+  });
+}
+
+test("参考指摘の修正の後に出た新しい修正必須指摘は、通常どおり修正に回す", async () => {
+  const { result, calls } = await runWorkflow({
+    respond: scenario({
+      reviews: [
+        { ecc: [finding("MEDIUM")] },
+        { ecc: [finding("HIGH", { summary: "regression" })] },
+        {},
+      ],
+      merges: [[cluster("a.js::style", ["ecc#0"])], [cluster("a.js::regression", ["ecc#0"])]],
+      fixes: [
+        { results: [{ key: "a.js::style", action: "fixed" }], changes: [], observations: [] },
+        { results: [{ key: "a.js::regression", action: "fixed" }], changes: [], observations: [] },
+      ],
+    }),
+  });
+  const fixCalls = calls.filter((c) => c.label.startsWith("fix:"));
+  assert.equal(fixCalls.length, 2);
+  assert.match(fixCalls[1].prompt, /a\.js::regression/);
+  assert.equal(section(result.report, "Unresolved Finding").trim(), "なし");
+});
+
+test("閉じた参考指摘の key が修正必須の重大度で出直したら、修正必須として扱う", async () => {
+  const { calls } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }, { ecc: [finding("HIGH")] }, {}],
+      merges: [[cluster("a.js::style", ["ecc#0"])], [cluster("a.js::style", ["ecc#0"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::style", action: "propose-defer", reason: "nit" }],
+          changes: [],
+          observations: [],
+        },
+        { results: [{ key: "a.js::style", action: "fixed" }], changes: [], observations: [] },
+      ],
+    }),
+  });
+  const fixCalls = calls.filter((c) => c.label.startsWith("fix:"));
+  assert.equal(fixCalls.length, 2);
+  assert.match(fixCalls[1].prompt, /a\.js::style/);
+});
+
+test("対応結果の無い参考指摘は閉じず、参考指摘として報告に残す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }, {}],
+      merges: [[cluster("a.js::style", ["ecc#0"])]],
+      fixes: [{ results: [], changes: [], observations: [] }],
+    }),
+  });
+  assert.equal(result.stopReason, null);
+  assert.match(section(result.report, "参考指摘(修正必須ではない)"), /issue a\.js::style/);
+  assert.deepEqual(JSON.parse(result.ledger).advisoryClosedKeys, []);
+});
+
+test("参考指摘だけの修正で修正エージェントが結果を返さなければ止め、再レビューされていない参考指摘として出す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }],
+      merges: [[cluster("a.js::style", ["ecc#0"])]],
+      fixes: [null],
+    }),
+  });
+  assert.equal(result.stopReason, "fixer-failed");
+  assert.match(
+    section(result.report, "修正に回した後、再レビューされていない参考指摘"),
+    /issue a\.js::style/,
+  );
+  assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
+});
+
+test("修正必須と参考指摘は1回の修正にまとめ、見送りの検証者は修正必須にだけ付ける", async () => {
+  const { labels } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH"), finding("MEDIUM", { summary: "style" })] }, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"]), cluster("a.js::style", ["ecc#1"])]],
+      fixes: [
+        {
+          results: [
+            { key: "a.js::bug", action: "propose-defer", reason: "偽陽性" },
+            { key: "a.js::style", action: "propose-defer", reason: "nit" },
+          ],
+          changes: [],
+          observations: [],
+        },
+      ],
+      verdicts: { "a.js::bug": { agree: true, reason: "偽陽性" } },
+    }),
+  });
+  assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 1);
+  assert.deepEqual(
+    labels.filter((l) => l.startsWith("defer-verify:")),
+    ["defer-verify:a.js::bug"],
+  );
+});
+
+test("参考指摘を修正に回した後、checks が落ちて止まったら、Unresolved にせず再レビューされていない参考指摘として出す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      checks: (round) => ({ passed: round === 1, details: "lint error" }),
+      reviews: [{ ecc: [finding("MEDIUM")] }],
+      merges: [[cluster("a.js::style", ["ecc#0"])]],
+      fixes: [
+        { results: [{ key: "a.js::style", action: "fixed" }], changes: [], observations: [] },
+      ],
+    }),
+  });
+  assert.equal(result.stopReason, "checks-failing");
+  assert.equal(section(result.report, "Unresolved Finding").trim(), "なし");
+  assert.match(
+    section(result.report, "修正に回した後、再レビューされていない参考指摘"),
+    /issue a\.js::style/,
+  );
+  assert.equal(section(result.report, "修正した指摘").trim(), "なし");
 });
 
 test("同じ key が2ラウンド続けて修正必須なら Unresolved にしてループを終える", async () => {
