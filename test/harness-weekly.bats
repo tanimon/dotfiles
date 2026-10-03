@@ -92,6 +92,14 @@ if [[ "$all_args" == *'harness-review skill'* ]]; then
         git add -A && git commit -qm 'harness: binary and pipe'
         printf 'reason\n' >"$body"
         ;;
+    two_changes)
+        # 採用 2 件が同じファイルに触れる(ファイルごとの表では変更ごとの純増が読めない形)
+        mkdir -p rules && printf 'a\nb\n' >rules/shared.md
+        git add -A && git commit -qm 'harness: first | entry'
+        printf 'a\nb\nc\nd\ne\n' >rules/shared.md && printf 'keep\n' >README.md
+        git add -A && git commit -qm 'harness: second entry'
+        printf 'reason\n' >"$body"
+        ;;
     no_body) adopt ;;
     body_only) printf 'reason\n' >"$body" ;;
     dirty) printf 'x\n' >stray.md ;;
@@ -406,6 +414,18 @@ PRE
     assert_output --partial '| `rules/new.md` | +3 | -0 |'
     assert_output --partial '| `README.md` | +1 | -2 |'
     assert_output --partial '合計: +4 / -2(純増 +2 行)'
+    assert_output --partial '| harness: add rule | +4 | -2 |'
+}
+
+@test "同じファイルに触れる採用が複数あっても、純増を変更(commit)ごとに載せる" {
+    seed_queue
+    STUB_REVIEW_MODE=two_changes run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '| harness: first \| entry | +2 | -0 |'
+    assert_output --partial '| harness: second entry | +4 | -2 |'
+    assert_output --partial '| `rules/shared.md` | +5 | -0 |'
+    assert_output --partial '合計: +6 / -2(純増 +4 行)'
 }
 
 @test "採用した変更が無ければ PR を作らず、その旨をログに残す" {
@@ -593,6 +613,74 @@ PRE
     assert_failure
     assert_output --partial "pushed ${BRANCH} but gh pr create failed"
     assert_output --partial "still say adopted (${BRANCH})"
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+# launchd の plist が渡す PATH を、テストの HOME で展開して返す
+plist_path() {
+    local plist="$BATS_TEST_DIRNAME/../private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl"
+    awk '/<key>PATH<\/key>/ { getline; print; exit }' "$plist" |
+        sed -e 's|.*<string>||' -e 's|</string>.*||' -e "s|{{ .chezmoi.homeDir }}|$HOME|g"
+}
+
+@test "launchd の PATH では pnpm を mise の shims から解決して選別まで進む" {
+    # pnpm を mise の shims の場所にだけ置く(このマシンでは pnpm・node・prek はそこにしか無い)
+    rm "$STUBS/pnpm"
+    mkdir -p "$HOME/.local/share/mise/shims"
+    cat >"$HOME/.local/share/mise/shims/pnpm" <<'EOF'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
+EOF
+    chmod +x "$HOME/.local/share/mise/shims/pnpm"
+    seed_queue
+    PATH="$STUBS:$(plist_path)" run weekly
+    assert_success
+    assert [ -f "$PNPM_LOG" ]
+    run cat "$STAGE_LOG"
+    assert_output $'reflect\nreview'
+}
+
+@test "pnpm が PATH に無ければ、原因を名指しして選別の前に失敗する" {
+    rm "$STUBS/pnpm"
+    launchd_path=$(plist_path)
+    if PATH="$launchd_path" command -v pnpm >/dev/null 2>&1; then
+        skip "pnpm exists on the launchd PATH outside the mise shims on this machine"
+    fi
+    seed_queue
+    PATH="$STUBS:$launchd_path" run weekly
+    assert_failure
+    assert_output --partial 'pnpm not found on PATH'
+    assert_output --partial 'mise/shims'
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "前の run の採用が PR にならないまま判定の記録に残っていれば、heartbeat を書かずに失敗する" {
+    printf -- '- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
+    run weekly
+    assert_failure
+    assert_output --partial 'never became a PR: adopted (harness/review-2026-01-01)'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "判定の記録の採用がすべて PR の URL になっていれば heartbeat を書く" {
+    printf -- '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
+    run weekly
+    assert_success
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "前の run の採用の残りは、その週の選別と PR の作成を済ませてから知らせる" {
+    printf -- '- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
+    seed_queue
+    run weekly
+    assert_failure
+    assert_output --partial 'never became a PR'
+    run cat "$GH_LOG"
+    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
+    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
+    assert_output '1'
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
