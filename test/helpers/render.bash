@@ -22,10 +22,10 @@ export RENDER_REPO RENDER_CHEZMOI
 # render_config PROFILE: その profile の fixture の絶対パスを出す
 render_config() {
     local config="$RENDER_REPO/test/fixtures/chezmoi-$1.toml"
-    [ -n "$1" ] && [ -f "$config" ] || {
+    if [ -z "$1" ] || [ ! -f "$config" ]; then
         echo "render: profile '$1' の fixture がありません: $config" >&2
         return 1
-    }
+    fi
     printf '%s\n' "$config"
 }
 
