@@ -643,7 +643,7 @@ function renderReport(state) {
   );
   pushSection(
     "見送った参考指摘",
-    state.advisoryDeclined,
+    state.advisoryDeclined.filter((d) => !escalated.has(d.key)),
     (d) => `${formatItem(d)} — 見送り理由: ${d.reason}`,
   );
   // 修正エージェントは人間が書いたブランチにもコミットを足すので、何を直したかを残す。
@@ -940,10 +940,10 @@ async function reviewRounds(state, tracker) {
     for (const i of advisory)
       if (state.advisoryClosedKeys.has(i.key) && !declinedKeys.has(i.key))
         state.advisoryReappearedKeys.add(i.key);
-    // 修正必須の重大度で出直した場合も直ったとは報告しない。こちらは修正必須として修正に回る。
+    // 修正必須の重大度で出直したら、直した・見送ったという参考指摘としての回答では報告しない。
+    // こちらは修正必須として修正に回り、その結果で報告する。
     for (const key of blockingKeys)
-      if (state.advisoryClosedKeys.has(key) && !declinedKeys.has(key))
-        state.advisoryEscalatedKeys.add(key);
+      if (state.advisoryClosedKeys.has(key)) state.advisoryEscalatedKeys.add(key);
     const pendingAdvisory = advisory.filter((i) => !state.advisoryClosedKeys.has(i.key));
     tracker.unverified = [];
     tracker.unverifiedAdvisory = [];
@@ -975,7 +975,7 @@ async function reviewRounds(state, tracker) {
     if (result.blocking.length === 0 && pendingAdvisory.length === 0) return;
     if (fixRound >= state.config.maxReviewRounds) {
       log(
-        `修正ラウンドの上限 ${state.config.maxReviewRounds} に達した。残り ${result.blocking.length} 件を Unresolved にする`,
+        `修正ラウンドの上限 ${state.config.maxReviewRounds} に達した。残り ${result.blocking.length} 件を Unresolved にし、修正に回していない参考指摘 ${pendingAdvisory.length} 件を参考指摘として報告する`,
       );
       markUnresolved(state, result.blocking);
       return;

@@ -302,6 +302,26 @@ test("閉じた参考指摘の key が修正必須の重大度で出直したら
   assert.match(fixCalls[1].prompt, /a\.js::style/);
 });
 
+test("見送った参考指摘が修正必須で出直して直されたら、見送った参考指摘には出さず修正必須として修正した指摘に出す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }, { ecc: [finding("HIGH")] }, {}],
+      merges: [[cluster("a.js::style", ["ecc#0"])], [cluster("a.js::style", ["ecc#0"])]],
+      fixes: [
+        {
+          results: [{ key: "a.js::style", action: "propose-defer", reason: "nit" }],
+          changes: [],
+          observations: [],
+        },
+        { results: [{ key: "a.js::style", action: "fixed" }], changes: [], observations: [] },
+      ],
+    }),
+  });
+  assert.equal(section(result.report, "見送った参考指摘").trim(), "なし");
+  assert.match(section(result.report, "修正した指摘"), /issue a\.js::style \[ecc:HIGH\]/);
+  assert.deepEqual(JSON.parse(result.ledger).advisoryEscalatedKeys, ["a.js::style"]);
+});
+
 test("直したと回答した参考指摘が修正必須で出直して見送られたら、修正した指摘には出さず Deferred にだけ出す", async () => {
   const { result } = await runWorkflow({
     respond: scenario({
