@@ -271,6 +271,8 @@ function newState(config) {
     config,
     title: "",
     rounds: [],
+    // reviewLoop の 1 回の呼び出し(初回と、動作確認の失敗による再入)ごとの終わり方。
+    reviewPasses: [],
     unresolved: [],
     unresolvedKeys: new Set(),
     deferred: [],
@@ -554,6 +556,45 @@ function formatItem(item) {
 
 const formatChange = (c) => `${c.label}: \`${c.file}\` ${c.summary}`;
 
+const PASS_OUTCOMES = {
+  converged: "収束した",
+  capped: "修正ラウンドの上限に達した",
+  stopped: "停止した",
+};
+
+// 入口 skill が報告とは別に外部(Issue など)へ投稿する。リポジトリ名・ブランチ名・エージェントの自由記述
+// (stopDetail や指摘の本文)は入れない。仕事のリポジトリでの実行を public な Issue に投稿しうるため。
+function renderStats(state) {
+  const { config } = state;
+  const lines = ["## 統計", ""];
+  lines.push(
+    `- mode: ${config.features.label}(maxReviewRounds ${config.maxReviewRounds} / maxVerifyRetries ${config.maxVerifyRetries})`,
+  );
+  lines.push(`- 停止: ${state.stopReason ? STOP_REASONS[state.stopReason] : "なし"}`);
+  lines.push(
+    `- レビューの実行: ${state.reviewPasses.length}(動作確認の失敗による再入 ${Math.max(state.reviewPasses.length - 1, 0)})`,
+  );
+  state.reviewPasses.forEach((p, i) => {
+    const rounds = state.rounds.filter((r) => r.pass === i + 1).map((r) => r.round);
+    const range =
+      rounds.length === 0 ? "ラウンドなし" : `ラウンド ${rounds[0]}〜${rounds[rounds.length - 1]}`;
+    lines.push(`  - 実行 ${i + 1}: ${PASS_OUTCOMES[p.outcome]}(${range})`);
+  });
+  lines.push(`- レビューラウンド: ${state.rounds.length}`);
+  for (const r of state.rounds) {
+    lines.push(
+      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正に回した ${r.advisorySent}: 修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined})`,
+    );
+  }
+  lines.push(
+    `- 動作確認の試行: ${config.verifySkill === "none" ? "指定なし" : state.verification.length}`,
+  );
+  if (state.reviewerFailures.length > 0)
+    lines.push(`- 結果を返さなかったレビュアー: ${state.reviewerFailures.join(", ")}`);
+  lines.push(`- 出力トークン: ${state.outputTokens}`);
+  return lines.join("\n");
+}
+
 function renderReport(state) {
   const lines = [];
   const pushSection = (title, items, format, empty = "なし") => {
@@ -667,16 +708,7 @@ function renderReport(state) {
   pushSection("動作確認を通すための変更", state.verifyFixChanges, formatChange);
   pushSection("Observations", state.observations, (o) => o);
 
-  lines.push("## 統計", "");
-  lines.push(`- レビューラウンド: ${state.rounds.length}`);
-  for (const r of state.rounds) {
-    lines.push(
-      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正に回した ${r.advisorySent}: 修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined})`,
-    );
-  }
-  if (state.reviewerFailures.length > 0)
-    lines.push(`- 結果を返さなかったレビュアー: ${state.reviewerFailures.join(", ")}`);
-  lines.push(`- 出力トークン: ${state.outputTokens}`, "");
+  lines.push(renderStats(state), "");
   // PR 本文にしない報告には、PR 向けの帰属行を付けない。
   if (features.publish)
     lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
@@ -906,6 +938,10 @@ async function reviewRounds(state, tracker) {
   let previousBlockingKeys = new Set();
   // 見送りを却下された指摘は修正されていないので、次のラウンドで再指摘されなくても直ったとはみなさない。
   let previousRejections = { items: [], first: new Set() };
+  // 収束・上限以外の抜け方(停止・例外)は、すべて stopped のまま残る。
+  const pass = { outcome: "stopped" };
+  state.reviewPasses.push(pass);
+  const passNo = state.reviewPasses.length;
   for (let fixRound = 0; ; fixRound++) {
     const roundNo = state.rounds.length + 1;
     if (budgetExhausted(state, `レビューラウンド ${roundNo}`)) return;
@@ -951,6 +987,7 @@ async function reviewRounds(state, tracker) {
       log(`有効な指摘を含まない cluster を捨てた: ${result.dropped.join(", ")}`);
     state.rounds.push({
       round: roundNo,
+      pass: passNo,
       blocking: result.blocking.length,
       repeated: result.repeated.length,
       advisory: advisory.length,
@@ -972,8 +1009,12 @@ async function reviewRounds(state, tracker) {
       state.stopReason = "requirements-breaking";
       return;
     }
-    if (result.blocking.length === 0 && pendingAdvisory.length === 0) return;
+    if (result.blocking.length === 0 && pendingAdvisory.length === 0) {
+      pass.outcome = "converged";
+      return;
+    }
     if (fixRound >= state.config.maxReviewRounds) {
+      pass.outcome = "capped";
       log(
         `修正ラウンドの上限 ${state.config.maxReviewRounds} に達した。残り ${result.blocking.length} 件を Unresolved にし、修正に回していない参考指摘 ${pendingAdvisory.length} 件を参考指摘として報告する`,
       );
@@ -1086,6 +1127,7 @@ try {
 }
 state.outputTokens = budget.spent();
 const report = renderReport(state);
+const stats = renderStats(state);
 const ledger = ledgerJson(state);
 let published = null;
 try {
@@ -1100,6 +1142,8 @@ return {
   publishError: published && !published.pushed ? published.error || "理由なし" : null,
   stopReason: state.stopReason,
   report,
+  // 入口 skill が、引数で渡された Issue に投稿する(報告の「統計」節と同じ内容)。
+  stats,
   // 公開できなかったとき、入口 skill(agent() の上限の対象外)が pr-body.md / ledger.json を書き出すのに使う。
   ledger,
 };
