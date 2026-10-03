@@ -132,11 +132,15 @@ check-templates:
         echo "Validating chezmoi templates..."
         # .profile で分岐するテンプレートは、描画した側の分岐しか実行時に評価されない。
         # 構文エラーは分岐に関係なく parse で落ちるが、未描画の分岐内の実行時エラー
-        # (存在しないキーの参照など)は落ちないので、全 profile の fixture で描画する
-        profiles="personal work"
+        # (存在しないキーの参照など)は落ちないので、全 profile の fixture で描画する。
+        # profile の一覧は test/fixtures/chezmoi-<profile>.toml の実ファイルが正本
+        profiles=""
         fail=0
-        for profile in $profiles; do
-            config="test/fixtures/chezmoi-$profile.toml"
+        for config in test/fixtures/chezmoi-*.toml; do
+            [ -f "$config" ] || { echo "FAIL: no fixture matches test/fixtures/chezmoi-*.toml"; exit 1; }
+            profile=$(basename "$config" .toml)
+            profile=${profile#chezmoi-}
+            profiles="${profiles:+$profiles }$profile"
             for file in {{tmpl_files}}; do
                 rendered=$(chezmoi execute-template \
                     --config "$config" \
