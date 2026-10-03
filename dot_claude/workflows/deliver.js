@@ -279,6 +279,7 @@ function newState(config) {
     advisory: [],
     advisoryClosedKeys: new Set(),
     advisoryReappearedKeys: new Set(),
+    advisoryEscalatedKeys: new Set(),
     advisoryDeclined: [],
     advisoryUnverified: [],
     knownClusters: [],
@@ -495,6 +496,7 @@ function ledgerJson(state) {
       unansweredFixes: [...state.unansweredFixes],
       advisoryClosedKeys: [...state.advisoryClosedKeys],
       advisoryReappearedKeys: [...state.advisoryReappearedKeys],
+      advisoryEscalatedKeys: [...state.advisoryEscalatedKeys],
     },
     null,
     2,
@@ -624,11 +626,14 @@ function renderReport(state) {
       formatItem,
     );
   const reappeared = state.advisoryReappearedKeys;
+  const escalated = state.advisoryEscalatedKeys;
+  // 修正必須の重大度で出直した key は、修正必須の側(Unresolved / Deferred / 修正した指摘)で報告する。
   pushSection(
     "参考指摘(修正必須ではない)",
     uniqueByKey(state.advisory).filter(
       (i) =>
         (!state.advisoryClosedKeys.has(i.key) || reappeared.has(i.key)) &&
+        !escalated.has(i.key) &&
         !unverifiedAdvisoryKeys.has(i.key),
     ),
     (i) =>
@@ -642,12 +647,18 @@ function renderReport(state) {
     (d) => `${formatItem(d)} — 見送り理由: ${d.reason}`,
   );
   // 修正エージェントは人間が書いたブランチにもコミットを足すので、何を直したかを残す。
-  // 直したと申告しても後で Unresolved になった指摘、再レビューされていない参考指摘、
-  // 再レビューで再指摘された参考指摘は、直ったと確かめていないので出さない。
+  // 直したと申告しても後で Unresolved / Deferred になった指摘、再レビューされていない参考指摘、
+  // 再レビューで(参考・修正必須のどちらの重大度でも)再指摘された参考指摘は、直ったと確かめていないので出さない。
+  // 修正必須として直し直した key は、修正必須としての要素だけが残る。
   pushSection(
     "修正した指摘",
-    uniqueByKey(state.fixed.filter((i) => !(i.advisory && reappeared.has(i.key)))).filter(
-      (i) => !state.unresolvedKeys.has(i.key) && !unverifiedAdvisoryKeys.has(i.key),
+    uniqueByKey(
+      state.fixed.filter((i) => !(i.advisory && (reappeared.has(i.key) || escalated.has(i.key)))),
+    ).filter(
+      (i) =>
+        !state.unresolvedKeys.has(i.key) &&
+        !state.deferredKeys.has(i.key) &&
+        !unverifiedAdvisoryKeys.has(i.key),
     ),
     (i) => (i.advisory ? `[参考] ${formatItem(i)}` : formatItem(i)),
   );
@@ -929,6 +940,10 @@ async function reviewRounds(state, tracker) {
     for (const i of advisory)
       if (state.advisoryClosedKeys.has(i.key) && !declinedKeys.has(i.key))
         state.advisoryReappearedKeys.add(i.key);
+    // 修正必須の重大度で出直した場合も直ったとは報告しない。こちらは修正必須として修正に回る。
+    for (const key of blockingKeys)
+      if (state.advisoryClosedKeys.has(key) && !declinedKeys.has(key))
+        state.advisoryEscalatedKeys.add(key);
     const pendingAdvisory = advisory.filter((i) => !state.advisoryClosedKeys.has(i.key));
     tracker.unverified = [];
     tracker.unverifiedAdvisory = [];

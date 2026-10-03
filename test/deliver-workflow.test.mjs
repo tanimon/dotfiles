@@ -302,6 +302,45 @@ test("閉じた参考指摘の key が修正必須の重大度で出直したら
   assert.match(fixCalls[1].prompt, /a\.js::style/);
 });
 
+test("直したと回答した参考指摘が修正必須で出直して見送られたら、修正した指摘には出さず Deferred にだけ出す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }, { ecc: [finding("HIGH")] }, {}],
+      merges: [[cluster("a.js::style", ["ecc#0"])], [cluster("a.js::style", ["ecc#0"])]],
+      fixes: [
+        { results: [{ key: "a.js::style", action: "fixed" }], changes: [], observations: [] },
+        {
+          results: [{ key: "a.js::style", action: "propose-defer", reason: "範囲外" }],
+          changes: [],
+          observations: [],
+        },
+      ],
+      verdicts: { "a.js::style": { agree: true, reason: "plan のタスク外" } },
+    }),
+  });
+  assert.match(section(result.report, "Deferred Finding"), /issue a\.js::style/);
+  assert.equal(section(result.report, "修正した指摘").trim(), "なし");
+  assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
+  assert.deepEqual(JSON.parse(result.ledger).advisoryEscalatedKeys, ["a.js::style"]);
+});
+
+test("直したと回答した参考指摘が修正必須で出直して直し直されたら、修正必須として修正した指摘に出す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }, { ecc: [finding("HIGH")] }, {}],
+      merges: [[cluster("a.js::style", ["ecc#0"])], [cluster("a.js::style", ["ecc#0"])]],
+      fixes: [
+        { results: [{ key: "a.js::style", action: "fixed" }], changes: [], observations: [] },
+        { results: [{ key: "a.js::style", action: "fixed" }], changes: [], observations: [] },
+      ],
+    }),
+  });
+  const fixed = section(result.report, "修正した指摘");
+  assert.match(fixed, /issue a\.js::style \[ecc:HIGH\]/);
+  assert.doesNotMatch(fixed, /\[参考\]/);
+  assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
+});
+
 test("対応結果の無い参考指摘は閉じず、参考指摘として報告に残す", async () => {
   const { result } = await runWorkflow({
     respond: scenario({
