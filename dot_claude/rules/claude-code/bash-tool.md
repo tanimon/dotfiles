@@ -55,7 +55,7 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 
 - **`git push -u`:** 付けなくてよい。素の `git push` は upstream を書かずに同名のリモートブランチへ push する(`push.default = current`)。
   付けてしまっても push 自体は成功し、upstream だけが付かない。エラーは無害なので調査・報告しなくてよい。
-- **`git branch -m`:** `branch.<旧名>.*` の config があると、リネームは済むが、その書き換えで `fatal: branch is renamed, but update of config-file failed` を出して exit 128 になる。
+- **`git branch -m`:** リネームは済むが、config の書き換えで `fatal: branch is renamed, but update of config-file failed` を出して exit 128 になる(branch config の有無に関係ない)。
   `git branch --show-current` で確かめ、再実行しない。
 - **`git switch -c <b> origin/<x>`:** ブランチは作られるが HEAD は移らない(追跡設定の書き込みで中断する)。
   `git switch --no-track -c <b> origin/<x>` なら config を書かずに切り替わる(実測)。
