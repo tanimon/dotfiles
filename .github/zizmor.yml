@@ -1,0 +1,8 @@
+# zizmor の設定。`just zizmor`(zizmor .github/)と pre-commit の hook が自動で読み込む。
+rules:
+  # zizmor 1.30 の self-repository 監査は、ローカル action の参照を `./...` から `$/...` へ
+  # 書き換えるよう求める。しかし actionlint 1.7.12 は `$/...` を不正な形式として拒否する
+  # (rhysd/actionlint#711)。actionlint が対応するまで、監査ごと 1 箇所で無効にする。
+  # 参照ごとの inline ignore にしないのは、lint.yml の全 job が setup-lint を参照するため。
+  self-repository:
+    disable: true

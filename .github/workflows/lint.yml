@@ -7,6 +7,8 @@ on:
     branches: [main]
   pull_request:
 
+# 各 job のツール導入は .github/actions/setup-lint に集約している。どの job がどの
+# just レシピを呼ぶかは test/ci-parity.bats が justfile の `lint:` と突き合わせる。
 jobs:
   secretlint:
     name: Secretlint
@@ -15,14 +17,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just secretlint
 
   shellcheck:
@@ -32,8 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
       - run: just shellcheck
 
   shfmt:
@@ -43,13 +39,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install shfmt
-        run: |
-          SHFMT_VERSION=3.11.0
-          curl -fsSL "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" -o /usr/local/bin/shfmt
-          chmod +x /usr/local/bin/shfmt
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
+        with:
+          shfmt: 'true'
       - run: just shfmt
 
   oxlint:
@@ -59,14 +51,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just oxlint
 
   oxfmt:
@@ -76,14 +63,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just oxfmt
 
   modify-scripts:
@@ -93,14 +75,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just test-modify
 
   harness-scripts:
@@ -110,14 +87,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just test-scripts
 
   harness-loop-scripts:
@@ -127,14 +99,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just test-harness-scripts
 
   harness-sync:
@@ -144,14 +111,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just test-harness-sync
 
   harness-instructions:
@@ -161,14 +123,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just check-instructions
       - run: just test-harness-instructions
       # CI に apm CLI は無いので配布の実測ケースは skip され、Source の静的検査
@@ -179,20 +136,19 @@ jobs:
       - run: just test-apm-install
 
   actionlint:
-    name: actionlint
+    name: actionlint + CI parity
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install actionlint
-        run: |
-          ACTIONLINT_VERSION=1.7.12
-          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            | tar xz -C /usr/local/bin actionlint
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+          actionlint: 'true'
       - run: just actionlint
+      # yq は runner に入っているもの(mikefarah 版)を使う。版の確認は bats 側で行う。
+      - run: just test-ci-parity
 
   zizmor:
     name: zizmor
@@ -201,11 +157,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install zizmor
-        run: pip install zizmor==1.23.1
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
+        with:
+          zizmor: 'true'
       - run: just zizmor
+
+  # ubuntu-latest には ruby と shellcheck が入っているので導入しない。shellcheck が無いと
+  # 検査は bash -n だけに落ち、テストの一部が skip になるので、無ければここで落とす。
+  composite-actions:
+    name: composite action scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+      - run: shellcheck --version
+      - run: just check-composite-actions
+      - run: just test-composite-actions
 
   scan-sensitive:
     name: Scan sensitive info
@@ -214,8 +185,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
       - run: just scan-sensitive
 
   test-sensitive:
@@ -225,15 +195,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just test-sensitive
+
+  check-comment-noise:
+    name: Check comment noise
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+      - run: just check-comment-noise
+
+  test-comment-noise:
+    name: comment noise smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+      - run: just test-comment-noise
 
   test-pr-context:
     name: pr-context smoke tests
@@ -242,14 +229,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          pnpm: 'true'
       - run: just test-pr-context
 
   test-deliver:
@@ -259,11 +241,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-lint
         with:
-          node-version-file: '.node-version'
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+          node: 'true'
       - run: just test-deliver
 
   chezmoi-templates:
@@ -273,10 +253,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install chezmoi
-        run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
+        with:
+          chezmoi: 'true'
       - run: just check-templates
 
   global-instructions:
@@ -286,18 +265,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       # chezmoi は必須。test/global-instructions.bats は chezmoi が無いと skip せず
       # fail する(skip にすると共有本文の不変条件が CI で空振りする)
-      - name: Install chezmoi
-        run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+          chezmoi: 'true'
       - run: just test-global-instructions
 
   settings-hooks:
@@ -307,16 +280,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: '.node-version'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       # chezmoi は必須。test/settings-hooks.bats は chezmoi が無いと skip せず
       # fail する(skip にすると guard の配線検査が CI で空振りする)
-      - name: Install chezmoi
-        run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
-      - name: Install just
-        run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+          chezmoi: 'true'
       - run: just test-settings-hooks

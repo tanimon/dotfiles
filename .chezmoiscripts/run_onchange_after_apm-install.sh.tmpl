@@ -5,17 +5,13 @@ set -euo pipefail
 # apm.yml hash: {{ include "dot_apm/apm.yml" | sha256sum }}
 # installer hash: {{ include "scripts/apm-install-global.sh" | sha256sum }}
 #
-# dependencies.apm (Skill/plugin管理)はネイティブmarketplace方式
-# (settings.json.tmplのenabledPlugins/extraKnownMarketplaces)に移行済みのため、
-# apm.ymlにはdependencies.mcpのみが残る。MCPサーバーの展開先は~/.claude.jsonの
-# mcpServersキーと~/.codex/config.tomlの[mcp_servers.*]テーブルで、chezmoiは
-# どちらも.tmplとして所有していない(競合する完全所有テンプレートが存在しない)ため、
-# apm.ymlのハッシュ変化時のみ実行すれば十分(run_after_ではなくrun_onchange_で問題ない)。
+# apm.yml か installer のハッシュが変わったときだけ走れば足りる(run_after_ にしない)理由は
+# dot_apm/CLAUDE.md の「`dot_apm/apm.yml` + APM」節。
 #
-# 実体は scripts/apm-install-global.sh にある。--target の二重宣言の根拠、
-# ~/.claude.json の symlink を一時的に外す理由(APM 0.30.0 の prune ガード)、
-# symlink を廃止できない理由(張っているのは nono)は、すべてそのスクリプトの
-# 冒頭コメントに書いてある。ここに写すと二重管理になるので繰り返さない。
+# 実体は scripts/apm-install-global.sh にある。--target の二重宣言の根拠は
+# そのスクリプトのコメント、~/.claude.json の symlink を一時的に外す理由と
+# symlink を廃止できない理由は dot_apm/CLAUDE.md の「`~/.claude.json` symlink と APM」節。
+# ここに写すと二重管理になるので繰り返さない。
 # 配布先の選定根拠と APM の所有範囲:
 # docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md
 #

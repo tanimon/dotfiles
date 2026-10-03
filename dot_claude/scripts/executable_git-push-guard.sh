@@ -17,18 +17,9 @@
 # Fail-closed: anything unreadable becomes `ask`, never silence. `ask` prompts
 # even under defaultMode: auto, so an unparseable payload cannot slip past.
 #
-# Residuals this scan does not cover (documented in the tier-model spec):
-#   - a force refspec reached through an alias or a shell function
-#   - `gh api` calls that perform the equivalent server-side operation
-#   - `git pu""sh … --force`: 下の `*push*` の早期終了が reader の引用符除去より先に走る(ADR 0009)。
-#     `git {pu,}sh …` のように展開で `push` を作る綴りも同じ理由で素通りする
-#   - 永続した設定: 同じコマンドや前の呼び出しの `git config remote.origin.mirror true`
-#     (や `remote.<name>.push=+…`)の後の素の push。読むのはコマンド文字列だけで、リポジトリの
-#     設定は読まない
-#   - `git push origin $(…) --force` は reader が `$(` で segment を切るので、`--force` が push の
-#     segment に入らず deny ではなく ask になる(`$` による ask)
-#   - zsh のグロブの `(…)`(`README.md(e:'reply=(-f)':)`)、git-core の `git-push` と `git send-pack`、
-#     `echo --force | xargs git push …`、`env -S "git push … --force"`(scripts/CLAUDE.md)
+# このフックが見ない残存: alias / シェル関数と `gh api`(tier-model spec)、および
+# dot_claude/scripts/CLAUDE.md の「残存(受容)」の各項(引用符除去より前の早期終了・永続した設定・
+# フラグの前の `$(…)`・zsh のグロブ修飾子・git-core の dashed binary・標準入力の引数・`env -S`)。
 #
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
 # 新しい shellcheck は SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する。
@@ -120,7 +111,7 @@ DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
 # `--ipv4` + `--force`)。英字だけにすると、token の判定が deny する綴りが床では一致しない。
 DANGER_FLAG_RE='(--(f|fo|for|forc|force(-[[:alnum:]-]*)?|d|de|del|dele|delet|delete|m|mi|mir|mirr|mirro|mirror|p|pr|pru|prun|prune)([^[:alnum:]_-]|$)|[[:space:]](-c|--config-env)[[:space:]=]*[^[:space:]]*([Pp][Uu][Ss][Hh]|[Mm][Ii][Rr][Rr][Oo][Rr])|[[:space:]]-[[:alnum:]]*[fd][[:alnum:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
 # 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
-# 組み合わせて ask にしないようにする(以前も改行で分割していたので同じ粒度になる)。
+# 組み合わせて ask にしないようにする。
 # 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_any_line_matches が行う
 # (`'git' push …` や `git push … \⏎--force` も同じ行の `git push … --force` として見る)。
 text_floor() {
@@ -399,7 +390,7 @@ classify_from() {
     for raw in "${tokens[@]}"; do
         case "$raw" in *'$'* | *'`'*) NEEDS_ASK=1 ;; esac
     done
-    # コマンド全体の token の `GIT_CONFIG*`(下の GIT_CONFIG_IN_COMMAND の説明)。
+    # コマンド全体の token の `GIT_CONFIG*`(GIT_CONFIG_IN_COMMAND を設定するループの説明)。
     [[ $GIT_CONFIG_IN_COMMAND -eq 1 ]] && NEEDS_ASK=1
     [[ $expansion -eq 1 ]] && NEEDS_ASK=1
 
@@ -420,13 +411,9 @@ classify_segment() {
     tokens=("$@")
     token_count=$#
 
-    # Skip what can legitimately precede the binary. Shell keywords and command
-    # prefixes are the fourth way a segment stops starting with `git` — after
-    # grouping punctuation, redirect operators and line continuations, all three
-    # normalized above — and the one an agent produces by accident, because a
-    # one-line `for … do git push … ; done` or `if true; then …; fi` is ordinary
-    # phrasing. Walking an index rather than re-slicing the array avoids
-    # expanding an empty array, which bash 3.2 rejects under `set -u`.
+    # binary の前に正当に立つもの(代入・シェルのキーワード・コマンド前置詞)を読み飛ばす。
+    # 1 行の `for … do git push … ; done` や `if true; then …; fi` はエージェントが普通に書く綴り。
+    # 配列をスライスせずインデックスを進める: bash 3.2 は `set -u` の下で空配列の展開を拒否する。
     command_start=0
     while [[ $command_start -lt $token_count ]]; do
         strip_backticks "${tokens[$command_start]}"
@@ -497,9 +484,9 @@ classify_segment() {
 
     # The command position is something else. `git` may still be in here — as a
     # wrapper's argument, inside a substitution, or as a word in a heredoc — so
-    # look for it and classify from there, at `ask` strength only. Quotes are
-    # *not* stripped for this match, so `echo "git push --force"` stays silent
-    # (a quoted `git` is text); a leading backtick is, because that one runs.
+    # look for it and classify from there, at `ask` strength only.
+    # 丸ごと引用された `echo "git push --force"` が無出力なのは、reader がそれを basename が
+    # `git` でない 1 token として返すため。先頭のバッククォートは実行されるので外して見る。
     # token の途中のバッククォートも同じく実行される。引用符の外の `` x=`git push … --force` `` は
     # reader が空白で割るので、代入の token が `` x=`git `` になり、上の前置の読み飛ばしで
     # command_start の手前に置かれる。そこで走査は先頭から始め、最後のバッククォートより後ろを見る

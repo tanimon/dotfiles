@@ -11,7 +11,7 @@ repos:
         # -x: source で読み込むファイルがこの commit で staged になっていなくても
         # ディスク上のファイルを追跡させる。harness/lib/*.bash のように複数ファイルが
         # source し合う構成では、一部だけを変更する commit で他方が staged
-        # されないと SC1091(info)が誤って出るため(#309 Task 2 で発覚)。
+        # されないと SC1091(info)が誤って出るため。
         entry: bash -c 'if command -v shellcheck &>/dev/null; then shellcheck -x "$@"; else echo "shellcheck not found, skipping"; fi' --
         language: system
         files: '(\.sh$|\.bash$|\.chezmoiscripts/|executable_)'
@@ -48,7 +48,14 @@ repos:
         name: zizmor
         entry: bash -c 'if command -v zizmor &>/dev/null; then zizmor "$@"; else echo "zizmor not found, skipping"; fi' --
         language: system
-        files: '\.github/workflows/.*\.yml$'
+        files: '\.github/(workflows/.*\.yml|actions/.*/action\.ya?ml)$'
+        types: [file]
+      # actionlint は composite action の run: を shellcheck にかけない。
+      - id: check-composite-actions
+        name: check-composite-actions
+        entry: bash scripts/check-composite-actions.sh
+        language: system
+        files: '\.github/actions/.*/action\.ya?ml$'
         types: [file]
       # CLAUDE.md / AGENTS.md / .cursor/rules は harness/modules/ からの生成物。
       # 手編集を commit 時点で止める(検出だけ。再生成は `just harness-sync`)。
@@ -94,7 +101,7 @@ repos:
         name: test-settings-hooks
         entry: bash -c 'if command -v just &>/dev/null; then just test-settings-hooks; else echo "just not found, skipping"; fi' --
         language: system
-        files: '^(\.chezmoiignore|dot_claude/settings\.json\.tmpl|dot_claude/scripts/.*|test/settings-hooks\.bats|justfile)$'
+        files: '^(\.chezmoiignore|\.chezmoitemplates/orca-agent-hook|dot_claude/settings\.json\.tmpl|dot_claude/scripts/.*|test/settings-hooks\.bats|justfile)$'
         pass_filenames: false
         types: [file]
       # Not restricted to .md: a literal org path is most likely to land in a
@@ -107,3 +114,11 @@ repos:
         language: system
         exclude: '(^scripts/sensitive-(patterns|patterns\.local|allowlist)\.txt$|^pnpm-lock\.yaml$)'
         types: [text]
+      # リポジトリ全体を走査するのでファイル名は渡さない。参照先を消すだけのコミット
+      # (staged にテキストファイルが無い)でも走らせるため、types で絞らない
+      - id: check-comment-noise
+        name: check-comment-noise
+        entry: bash scripts/check-comment-noise.sh
+        language: system
+        pass_filenames: false
+        always_run: true

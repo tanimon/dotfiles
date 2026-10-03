@@ -280,11 +280,8 @@ decision() {
 }
 
 # --- the segment must be recognized wherever `git` sits in it -----------------
-# `eb8ffc5` closed three ways a segment stops starting with `git` (grouping
-# punctuation, redirect operators, line continuations). Shell keywords and
-# command prefixes are a fourth: they are ordinary tokens that simply precede
-# the binary, and a one-line loop or condition is something an agent writes
-# routinely.
+# シェルのキーワードとコマンド前置詞は binary の前に立つ普通の token で、1 行のループや
+# 条件はエージェントが日常的に書く。
 
 @test "a one-line for loop body is not a hiding place" {
     run hook 'for r in a b; do git push $r main --force; done'
@@ -494,8 +491,7 @@ EOF
 
 # --- shared reader: quotes are read the way bash reads them ------------------
 
-# 2026-09-30 に、この計画を書いている最中のツール呼び出し(heredoc の中の
-# "git push and a +N")が現行の guard に deny された。同じ形の誤判定。
+# 引用符の中の区切り(`;`)は segment を切らない。
 @test "separators inside a quoted commit message are not a force push" {
     run hook 'git commit -m "fix; git push --force"'
     assert_success
@@ -1055,7 +1051,7 @@ EOF"
 }
 
 # 前置詞の一覧に無いコマンド(`nice -n 0` / `timeout` / `sudo -n` / `xargs`)の後ろの git は strict=0 で
-# 読むので、以前は `-c` と GIT_CONFIG_* を見なかった。床は ask 止まりなので deny は増えない。
+# 読むが、push を壊す -c と GIT_CONFIG_* は見る。床は ask 止まりなので deny は増えない。
 @test "a push or mirror config after an unrecognized prefix asks" {
     run hook 'nice -n 0 git -c remote.origin.mirror=true push origin'
     assert_success
@@ -1167,7 +1163,7 @@ EOF"
     assert_output ''
 }
 
-# #8 と #1 の組み合わせ: heredoc 本文の行の -c mirror は ask(deny にはならない)。
+# heredoc の格下げと -c mirror の組み合わせ: heredoc 本文の行の -c mirror は ask(deny にはならない)。
 @test "a heredoc body naming a mirror config push asks" {
     run hook $'git commit -F - <<\'EOF\'\ndocs\n\ngit -c remote.origin.mirror=true push は ask\nEOF'
     assert_success

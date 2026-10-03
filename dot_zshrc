@@ -1,4 +1,4 @@
-# PATH settings
+# Modular config (~/.config/zsh/)
 source ~/.config/zsh/path.zsh
 source ~/.config/zsh/sandbox.zsh
 source ~/.config/zsh/aws.zsh

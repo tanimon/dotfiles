@@ -2,7 +2,7 @@
 # harness の入口。Claude Code / Codex / Cursor / APM の harness 設定を
 # 1 つの Harness Manifest から検証・同期する(spec: docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md)。
 #
-# 使い方: harness.sh <check|sync|init|update> [--manifest PATH] [--root DIR] [--source-dir DIR] [--runtime NAME] [--no-probe]
+# 使い方は usage()(harness.sh --help)を参照。
 # shellcheck source-path=SCRIPTDIR
 set -euo pipefail
 

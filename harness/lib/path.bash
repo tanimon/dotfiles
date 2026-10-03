@@ -4,7 +4,7 @@
 #
 # 正規化はせず拒否する(realpath は macOS 標準に無い): 絶対パス・"."/".." セグメント・空セグメント(//)・
 # 末尾の /・制御文字(改行・タブ等)を含む値は、"./AGENTS.md" のような別表記で重複検出(生パスの文字列一致)を
-# すり抜けて 1 Target に 2 owner を許したり、--root / HARNESS_SOURCE_DIR の外を指したりする(#309 レビュー Critical-1)。
+# すり抜けて 1 Target に 2 owner を許したり、--root / HARNESS_SOURCE_DIR の外を指したりする。
 # 照合は jq(Oniguruma)の test() で行い、manifest.bash と adapter が同じ正規表現・同じエンジンを使う。
 #
 # shellcheck disable=SC2034 # 定数は source 先(manifest.bash / file.sh)で使う

@@ -91,7 +91,7 @@ ln -s .claude/claude.json "${APM_INSTALL_HOME}/.claude.json"'
 
     run bash "${SCRIPT}"
     # 70 は「人間が見るまで apply を止める」専用コード。run_onchange 側はこれだけを
-    # 伝播させ、apm 自身の失敗(上のケースの 3)は警告で流す。
+    # 伝播させ、apm 自身の失敗(「apm failure: …」のケースの exit 3)は警告で流す。
     assert_equal "$status" 70
     assert_output --partial 'refusing to move'
 

@@ -119,7 +119,9 @@ assert_guard_wired() {
 }
 
 # orca の agent-hook ディスパッチャは live の ~/.claude/settings.json から verbatim に
-# 取り込んだもの(#339)。12 箇所の手作業コピーなので、取りこぼしと食い違いをここで捕まえる。
+# 取り込んだもの(#339)。実体は .chezmoitemplates/orca-agent-hook の 1 つで、各 event は
+# それを参照するので、コピー同士の食い違いは構造上起きない。ここで見るのは partial では
+# 守れない契約(どの event が持つか・matcher)と、誰かが inline のコピーに戻したときの食い違い。
 # Notification と SessionEnd に無いのは取り込み時点の live ファイルの状態で、
 # orca 側の意図かどうかは確かめていない。
 @test "orca の agent-hook は Notification と SessionEnd を除く全 event に同一のものが 1 つずつある" {
@@ -134,6 +136,10 @@ assert_guard_wired() {
     # 2 つ以上持つ event と、1 文字でも違うコピーを捕まえる
     run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] | "\(length) \(unique | length)"' "$SETTINGS"
     assert_output "${#expected[@]} 1"
+    # partial の type / timeout が崩れても command の照合は通るので、別に見る(timeout は文字列化を捕まえる)
+    run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks"))
+        | "\(.type) \(.timeout | type)"] | unique | join(",")' "$SETTINGS"
+    assert_output "command number"
     # matcher が絞られると orca はその event の大半を受け取れなくなる。全件一致(省略・"" ・"*")だけを許す
     run jq -r '[.hooks[][] | select(any(.hooks[]; (.command // "") | test("orca/agent-hooks")))
         | (.matcher // "") | if . == "" then "*" else . end] | unique | join(" ")' "$SETTINGS"

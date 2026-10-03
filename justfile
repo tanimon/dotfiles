@@ -1,4 +1,4 @@
-# File discovery — mirrors .github/workflows/lint.yml and .pre-commit-config.yaml
+# File discovery — keep in step with the files:/exclude: filters in .pre-commit-config.yaml (CI calls these recipes through lint.yml)
 # `| tr '\n' ' '` is required: unlike GNU Make's $(shell ...), just's backtick
 # variables do NOT collapse embedded newlines to spaces, so without this a
 # multi-match `find` would put each path on its own line inside the recipe
@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor test-modify test-scripts check-templates scan-sensitive test-sensitive test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -93,12 +93,21 @@ actionlint:
         echo "WARNING: actionlint not found, skipping"
     fi
 
-# Security audit GitHub Actions workflows
+# actionlint does not shellcheck composite actions' run: scripts — see the script header
+@check-composite-actions:
+    bash scripts/check-composite-actions.sh
+
+# Smoke test check-composite-actions.sh. LC_ALL=C for the same bats-core locale
+# bug as test-scripts: this suite's @test names are in Japanese.
+@test-composite-actions:
+    LC_ALL=C pnpm exec bats test/check-composite-actions.bats
+
+# Security audit GitHub Actions workflows and local actions
 zizmor:
     #!/usr/bin/env bash
     if command -v zizmor >/dev/null 2>&1; then
         echo "Running zizmor..."
-        zizmor .github/workflows/
+        zizmor .github/
     else
         echo "WARNING: zizmor not found, skipping"
     fi
@@ -108,9 +117,10 @@ zizmor:
     pnpm exec bats test/modify-karabiner.bats
 
 # LC_ALL=C works around a bats-core locale bug: under some locales, @test names
-# containing non-ASCII characters (this file's test names are in Japanese)
+# containing non-ASCII characters (notify.bats and
+# secretlint-guard.bats have Japanese test names)
 # register under a different name than they're looked up by, causing spurious
-# "unknown test name" failures (23 -> 16 executed). See .claude/rules/shell-scripts.md.
+# "unknown test name" failures (notify.bats: 23 -> 16 executed). See .claude/rules/shell-scripts.md.
 # Smoke test hook scripts
 @test-scripts:
     LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats
@@ -158,6 +168,16 @@ check-templates:
 @test-sensitive:
     pnpm exec bats test/scan-sensitive-info.bats
 
+# ファイル名は渡さない。スクリプトが `git ls-files` を自分で走査する。
+# コードコメントのノイズ(計画の内部番号・経緯の番号・存在しないパス)を検出する
+@check-comment-noise:
+    bash scripts/check-comment-noise.sh
+
+# LC_ALL=C は bats-core のロケールのバグを避けるため(@test 名が日本語)。
+# check-comment-noise.sh のスモークテスト
+@test-comment-noise:
+    LC_ALL=C pnpm exec bats test/check-comment-noise.bats
+
 # Smoke test pr-context.sh. LC_ALL=C for the same bats-core locale bug as
 # test-scripts: this suite's @test names are in Japanese.
 @test-pr-context:
@@ -166,6 +186,11 @@ check-templates:
 # deliver ワークフローの判定ロジックを、agent を stub にして検証する
 @test-deliver:
     node --test test/deliver-workflow.test.mjs
+
+# Needs mikefarah yq v4 — fails (not skips) without it, so CI cannot pass vacuously.
+# Check that lint.yml runs exactly the lint: recipes minus the local-only group
+@test-ci-parity:
+    LC_ALL=C pnpm exec bats test/ci-parity.bats
 
 # LC_ALL=C for the same bats-core locale bug as test-scripts: the weekly-job
 # tests in briefing / doctor / weekly have Japanese @test names.
@@ -218,11 +243,13 @@ check-templates:
     LC_ALL=C pnpm exec bats test/apm-install-global.bats
 
 # Validate the nono sandbox profile (local only — CI does not install nono)
+[group('local-only')]
 @test-nono-profile:
     pnpm exec bats test/nono-profile.bats
 
 # The nono pack sync script drives a fake nono. Local only: the template is
 # darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).
 # Smoke test the nono pack sync script (version hash + pull/update)
+[group('local-only')]
 @test-nono-packs:
     LC_ALL=C pnpm exec bats test/nono-packs-script.bats

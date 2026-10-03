@@ -2,9 +2,9 @@ name: Harness Issue Alert
 description: >
   Create or update a harness-analysis issue so scheduled workflow failures
   surface as a GitHub issue for human triage instead of failing silently
-  (no automation consumes these issues; the label is only the dedup key).
-  Deduplicates by exact title: comments on an existing open issue,
-  creates a new one otherwise.
+  (no automation consumes these issues; the label only scopes the dedup search).
+  Deduplicates by exact title among open harness-analysis issues: comments on
+  an existing one, creates a new one otherwise.
 
 inputs:
   title:
@@ -38,11 +38,12 @@ runs:
             --body "Still occurring. Latest run: ${RUN_URL}"
           echo "Commented on existing issue #${existing}"
         else
+          # 本文の改行をリテラルで書かない。YAML のブロックより左の行でスクリプトが切れ、
+          # bash が unexpected EOF で落ちる(この action が一度も issue を作れなかった原因)
+          body=$(printf '%s\n\nLatest run: %s\n' "$ALERT_BODY" "$RUN_URL")
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --label harness-analysis \
             --title "$ALERT_TITLE" \
-            --body "${ALERT_BODY}
-
-Latest run: ${RUN_URL}"
+            --body "$body"
           echo "Created new alert issue"
         fi

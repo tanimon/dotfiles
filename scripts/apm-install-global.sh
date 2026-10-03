@@ -3,46 +3,12 @@ set -euo pipefail
 
 # `apm install --global` を、~/.claude.json の symlink を一時的に外した状態で実行する。
 #
-# なぜ外すのか
-# ------------
-# APM 0.30.0 は MCP サーバーを prune するとき、対象の設定パスが symlink だと
-# 書き込みを拒否して install 全体を失敗させる
-# (`_reject_symlink_config`、apm_cli/integration/mcp_integrator.py)。
-#
-#   [x] Refusing to clean symlinked MCP config: ~/.claude.json (...).
-#       Replace the symlink with a regular file or directory, then retry.
-#
-# このガードは APM 自身が以前やっていた破壊 — symlink を平のファイルで上書きして
-# ~/.claude/claude.json を取り残す split-brain — の上流修正であって、こちらの構成が
-# 間違っているわけではない。ただし prune が走るのは apm.yml から MCP 依存を消したときだけ
-# なので、普段の install は成功し、依存を1つ消した日だけ落ちる。
-#
-# 追加(configure)側には同じガードが無い。APM の `atomic_write_text` は `os.replace()` で
-# 書くため、**新しいサーバーを足すときは今も symlink を平のファイルに潰す**。
-# 「APM が symlink を壊す」は追加時は真、prune 時は 0.30.0 で拒否に変わった、が現状。
-#
-# なぜ symlink を廃止して恒久解決にしないのか
-# --------------------------------------------
-# symlink を作っているのは nono で、Claude Code でも chezmoi でもない。nono バイナリ
-# (0.72.0) が文字列として持っている:
-#
-#   Failed to move ~/.claude.json to ~/.claude/claude.json:
-#   Failed to create ~/.claude.json symlink:
-#
-# `nono run --profile claude-seal` は、たとえコマンドが /bin/true でも、実行のたびに
-# ~/.claude.json を ~/.claude/claude.json へ移して symlink を張り直す(実測)。
-# サンドボックスが $HOME 直下を許可せず ~/.claude を丸ごと許可しているための再配置:
-#
-#   nono 内 `: > ~/.claude/.deadbeefcafe1234.tmp` -> OK
-#   nono 内 `: > ~/.deadbeefcafe1234.tmp`         -> Operation not permitted
-#
-# ただしこの再配置で Claude Code の設定書き込みが救われるわけではない。その writer は
-# symlink を解決せず $HOME/.claude.json.tmp.<pid>.<hex> を作るので、link の有無に関わらず
-# 拒否される(dot_config/nono/CLAUDE.md の「~/.claude.json は nono 内で永続しない」)。
-# ここで効くのは「手で消しても次の nono 起動で戻ってくる」という一点だけで、
-# だから恒久的に平のファイルへ一本化することはできない。恒久解決は
-# 「APM が、解決先が通常ファイルの symlink なら prune を許す」(upstream)か、
-# nono 側の再配置をやめること。どちらもこのリポジトリの外にある。
+# APM 0.30.0 は MCP サーバーを prune するとき、設定パスが symlink だと
+# `[x] Refusing to clean symlinked MCP config` で install 全体を失敗させる
+# (追加時は逆に symlink を平のファイルに潰す)。symlink を張っているのは nono
+# (0.72.0)で、`nono run --profile claude-seal` のたびに張り直すため、恒久的に
+# 平のファイルへ一本化することはできない。恒久解決は upstream(APM か nono)にある。
+# 一次証拠・実測・事故の経緯は dot_apm/CLAUDE.md の「`~/.claude.json` symlink と APM」節。
 #
 # 使い方
 #   bash scripts/apm-install-global.sh

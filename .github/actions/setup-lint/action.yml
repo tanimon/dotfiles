@@ -1,0 +1,70 @@
+name: Setup lint tools
+description: >
+  lint.yml の各 job が使うツールを導入する。just は常に入れ、それ以外は input で選ぶ。
+  ツールの版と、checkout 以外の action の pin はこのファイルにだけ書く(job ごとに写すと、
+  更新が一部の job にしか届かない drift が起きるため)。
+  checkout はこの action の外で先に行うこと(action 自身を読むために要る)。そのため
+  checkout の pin だけは lint.yml の各 job に残る。
+
+inputs:
+  node:
+    description: node を .node-version の版で導入する(pnpm は入れない)
+    default: 'false'
+  pnpm:
+    description: pnpm と node を導入し、pnpm install --frozen-lockfile まで行う
+    default: 'false'
+  chezmoi:
+    description: chezmoi(最新版)を導入する
+    default: 'false'
+  shfmt:
+    description: shfmt を導入する
+    default: 'false'
+  actionlint:
+    description: actionlint を導入する
+    default: 'false'
+  zizmor:
+    description: zizmor を導入する
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - if: inputs.pnpm == 'true'
+      uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+    - if: inputs.pnpm == 'true'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: '.node-version'
+        cache: pnpm
+    - if: inputs.pnpm == 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile
+    - if: inputs.node == 'true' && inputs.pnpm != 'true'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: '.node-version'
+    - if: inputs.chezmoi == 'true'
+      name: Install chezmoi
+      shell: bash
+      run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+    - if: inputs.shfmt == 'true'
+      name: Install shfmt
+      shell: bash
+      run: |
+        SHFMT_VERSION=3.11.0
+        curl -fsSL "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" -o /usr/local/bin/shfmt
+        chmod +x /usr/local/bin/shfmt
+    - if: inputs.actionlint == 'true'
+      name: Install actionlint
+      shell: bash
+      run: |
+        ACTIONLINT_VERSION=1.7.12
+        curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+          | tar xz -C /usr/local/bin actionlint
+    - if: inputs.zizmor == 'true'
+      name: Install zizmor
+      shell: bash
+      run: pip install zizmor==1.23.1
+    - name: Install just
+      shell: bash
+      run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
