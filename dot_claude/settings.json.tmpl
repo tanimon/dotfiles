@@ -273,6 +273,12 @@
     "sentry-cli@claude-plugins-official": true,
     "show-me@skills": true
   },
+  {{/* /doctor(2026-10-03)で skillUsage の通算 0 回・直近 30 日の transcript でも呼び出し 0 件と判定して無効化した skill。sentry-cli は ~/.claude/skills/sentry-cli(chezmoi 管理外)で、plugin 版 sentry-cli:sentry-cli と説明文が同一の重複。仕事リポジトリから symlink している QA 依頼用の skill も通算 0 回だったが、利用の意思があるため意図的に残している — 再度落とさないこと。戻すときはエントリを消すだけでよい。 */ -}}
+  "skillOverrides": {
+    "node-typescript-mts-esm": "off",
+    "orchestration": "off",
+    "sentry-cli": "off"
+  },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {
       "source": {
