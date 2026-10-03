@@ -50,7 +50,7 @@ Advisory だけの修正ラウンドも `maxReviewRounds` を1つ消費する。
 - 参考指摘は、技術的に正しく、要件文書と衝突しないなら直す側に倒す。直さないのは、偽陽性・この差分の範囲外・要件文書との衝突・上記の非対話の読み替えに当たる場合で、理由を具体的に書く。
 - 修正必須の指摘についての現行の指示(直すのが大変という理由で見送らない、等)は変えない。
 
-実装前に、Workflow のエージェントから Skill ツールで `superpowers:receiving-code-review` の本文を読み込めることを1エージェントで実測する(fork 型の skill は読み込めない。ADR 0007)。frontmatter に `context: fork` は無い。
+実装前に、Workflow のエージェントから Skill ツールで `superpowers:receiving-code-review` の本文を読み込めることを1エージェントで実測する(fork 型の skill は読み込めない。ADR 0007)。frontmatter に `context: fork` は無い。2026-10-03 に実測し、Workflow のエージェントから本文を読み込めた。
 
 ## 報告と ledger
 
