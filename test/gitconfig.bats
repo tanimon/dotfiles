@@ -115,11 +115,12 @@ setup() {
 }
 
 # https→ssh の逆向きルールと共存させると ssh→https が効かなくなる(dot_gitconfig.tmpl の work 分岐のコメント)。
-# pushInsteadOf も見る。https→ssh の pushInsteadOf があると push だけが SSH 経路に戻るため
-@test "work: https から書き換える逆向きの insteadOf と pushInsteadOf が無い" {
+# pushInsteadOf も見る。https→ssh の pushInsteadOf があると push だけが SSH 経路に戻るため。
+# 値は http:// も、スキームの大文字小文字の違いも捕まえる(どれも ssh 以外の経路から SSH に寄せる逆向きのルール)
+@test "work: http(s) から書き換える逆向きの insteadOf と pushInsteadOf が無い" {
     run git config --file "$GITCONFIG_WORK" --get-regexp '^url\..*\.(push)?insteadof$'
     assert_success
-    refute_line --regexp ' https://'
+    refute_line --regexp ' [Hh][Tt][Tt][Pp][Ss]?://'
 }
 
 # profile ごとに描画して契約を見るのは .profile で分岐するテンプレートだけ(test/helpers/render.bash)。
