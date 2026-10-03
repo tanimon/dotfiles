@@ -33,10 +33,19 @@
   conflictstyle = zdiff3
 [pull]
   rebase = false
+# push.autoSetupRemote は使わない。upstream を .git/config に書くが、Claude Code の git は
+# サンドボックスで .git/config に書けず、~/.config/git/claude-code.inc から false で
+# 上書きすることもできない(git は後から読んだ false で true を取り消さない)。代わりに
+# default = current で upstream 無しの素の `git push` を同名のリモートブランチへ送り、
+# status.compareBranches の @{push} で upstream 無しでも長形式の `git status` に ahead/behind を出す。
+# upstream があるブランチは @{upstream} とも比べる(同じ ref なら 1 回だけ出る)。
+# 受容するトレードオフ: upstream の無いブランチでは `git pull`、`@{u}`、`git rebase` の既定
+# upstream が無いものとして振る舞い、`git status -sb` の短形式には ahead/behind が出ない。
 [push]
-  default = simple
-  autoSetupRemote = true
+  default = current
   followTags = true
+[status]
+  compareBranches = @{upstream} @{push}
 [rebase]
   autoSquash = true
   autoStash = true
