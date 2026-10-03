@@ -85,16 +85,21 @@ if [[ -f "$HARNESS_DIR/state.json" ]] && jq empty "$HARNESS_DIR/state.json" 2>/d
     fi
 fi
 
-# 週次ジョブ(ADR 0012)。plist が無いのは未 apply か launchd の無いマシンなので
-# WARN にとどめる。plist があるなら、入口スクリプトと heartbeat の鮮度を見る
+# 週次ジョブ(ADR 0012)。plist が無いのは、macOS なら未 apply なので WARN にとどめる。
+# launchd の無いマシンでは置かれないので何も出さない。plist があるなら、入口スクリプトと
+# heartbeat の鮮度を見る
 if [[ ! -f "$WEEKLY_PLIST" ]]; then
-    printf "WARN: weekly job not installed (%s missing) — run 'chezmoi apply' on macOS\n" "$WEEKLY_PLIST"
+    if [[ "$(uname -s)" == Darwin ]]; then
+        printf "WARN: weekly job not installed (%s missing) — run 'chezmoi apply'\n" "$WEEKLY_PLIST"
+    fi
 else
     ok=0
     [[ -x "$HOME/.claude/scripts/harness-weekly.sh" ]] || ok=1
     check "$ok" "harness-weekly.sh deployed and executable" "run 'chezmoi apply'"
 
-    WEEKLY_REMEDY="check ~/Library/Logs/harness-weekly.log, then run bash ~/.claude/scripts/harness-weekly.sh"
+    # $(id -u) はユーザーが貼り付けて実行するコマンドの一部なので展開しない
+    # shellcheck disable=SC2016
+    WEEKLY_REMEDY='check ~/Library/Logs/harness-weekly.log, then run launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly from a terminal'
     HEARTBEAT_FILE="$HARNESS_DIR/weekly-heartbeat"
     if [[ ! -f "$HEARTBEAT_FILE" ]]; then
         # plist を置いてから 1 周期経っていなければ初回がまだ来ていないだけなので WARN、

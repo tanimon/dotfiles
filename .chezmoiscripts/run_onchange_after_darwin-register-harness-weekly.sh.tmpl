@@ -9,6 +9,9 @@ LABEL=local.dotfiles.harness-weekly
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
 
+# plist の WorkingDirectory。無いと launchd が起動に失敗する
+mkdir -p "$HOME/.claude/harness"
+
 # 登録済みの古い定義を外してから入れ直す。未登録なら bootout は失敗するので無視する
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 # bootout は非同期に完了するので、直後の bootstrap は Input/output error で失敗しうる。数回待って再試行する

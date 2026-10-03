@@ -103,7 +103,7 @@ weekly_installed() {
     assert_success
     assert_output --partial 'ATTENTION'
     assert_output --partial 'weekly job last succeeded 10d ago'
-    assert_output --partial 'bash ~/.claude/scripts/harness-weekly.sh'
+    assert_output --partial 'launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
 }
 
 @test "weekly: heartbeat が無く plist が新しければ never と出して警告しない" {
@@ -121,7 +121,7 @@ weekly_installed() {
     assert_success
     assert_output --partial 'ATTENTION'
     assert_output --partial 'weekly job has never succeeded'
-    assert_output --partial 'bash ~/.claude/scripts/harness-weekly.sh'
+    assert_output --partial 'launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
 }
 
 @test "weekly: heartbeat が数値でなければ警告する" {

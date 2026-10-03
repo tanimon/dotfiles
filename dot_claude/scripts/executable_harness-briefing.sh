@@ -23,7 +23,9 @@ QUEUE_MAX=10
 WEEKLY_STALE_DAYS=8
 WEEKLY_PLIST="$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
 WEEKLY_HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
-WEEKLY_REMEDY="check ~/Library/Logs/harness-weekly.log, then run bash ~/.claude/scripts/harness-weekly.sh"
+# $(id -u) はユーザーが貼り付けて実行するコマンドの一部なので展開しない
+# shellcheck disable=SC2016
+WEEKLY_REMEDY='check ~/Library/Logs/harness-weekly.log, then run launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly from a terminal'
 
 # Bootstrap on first run (new machine / after manual reset).
 mkdir -p "$HARNESS_DIR"

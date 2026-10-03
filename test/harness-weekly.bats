@@ -1,6 +1,9 @@
 # 週次ジョブの入口(harness-weekly.sh)の振る舞い検査。
 #
-# nono / claude / uuidgen は PATH 上のスタブに差し替える。claude のスタブは
+# スクリプトは launchd が nono の内側で起動する前提なので、既定では
+# INSIDE_NONO_SANDBOX=1 で実行する。nono のスタブは呼ばれたら失敗する
+# (スクリプトが nono を自分で掛けないことの検査)。
+# claude / uuidgen は PATH 上のスタブに差し替える。claude のスタブは
 # --session-id で渡された id を pending.jsonl に積み(SessionEnd hook が
 # ジョブ自身のセッションを積む状況の再現)、結果の JSON を出す。
 # 成否は STUB_CLAUDE_MODE(success / is_error / exit1)で切り替える。
@@ -8,6 +11,7 @@ setup() {
     load 'helpers/setup'
     # スクリプトが読む環境変数を、このマシンのシェルから漏らさない
     unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS
+    export INSIDE_NONO_SANDBOX=1
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-weekly.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     HDIR="$HOME/.claude/harness"
@@ -23,9 +27,7 @@ setup() {
 printf 'nono' >>"$ARGV_LOG"
 printf ' %s' "$@" >>"$ARGV_LOG"
 printf '\n' >>"$ARGV_LOG"
-while [[ $# -gt 0 && "$1" != "--" ]]; do shift; done
-shift
-exec "$@"
+exit 99
 EOF
     cat >"$STUBS/claude" <<'EOF'
 #!/usr/bin/env bash
@@ -39,8 +41,9 @@ while [[ $# -gt 0 ]]; do
     [[ "$1" == "--session-id" ]] && sid="$2"
     shift
 done
-printf '{"session_id":"%s","transcript_path":"/tmp/t","cwd":"/tmp","recorded_epoch":1}\n' "$sid" \
-    >>"$HOME/.claude/harness/pending.jsonl"
+[[ -n "${STUB_SKIP_PENDING:-}" ]] ||
+    printf '{"session_id":"%s","transcript_path":"/tmp/t","cwd":"/tmp","recorded_epoch":1}\n' "$sid" \
+        >>"$HOME/.claude/harness/pending.jsonl"
 case "${STUB_CLAUDE_MODE:-success}" in
 success) printf '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.1}\n' ;;
 is_error) printf '{"type":"result","subtype":"error_max_budget_usd","is_error":true}\n' ;;
@@ -72,11 +75,12 @@ weekly() {
     bash "$SCRIPT"
 }
 
-@test "nono の内側で claude -p を予算と sandbox 無効の設定付きで起動する" {
+@test "claude -p を予算と sandbox 無効の設定付きで直接起動し、nono は自分で掛けない" {
     run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_line --index 0 --regexp '^nono run --profile claude-seal --allow-cwd -- claude '
+    assert_line --index 0 --regexp '^claude -p '
+    refute_output --partial 'nono'
     assert_output --partial 'claude -p '
     assert_output --partial '--max-budget-usd '
     assert_output --partial '--settings {"sandbox":{"enabled":false}}'
@@ -141,10 +145,26 @@ PRE
     refute_output --partial 'aaaaaaaa-0000-0000-0000-000000000001'
 }
 
+@test "nono の外で実行されたら claude を起動せずに失敗する" {
+    unset INSIDE_NONO_SANDBOX
+    run weekly
+    assert_failure
+    assert_output --partial 'not inside nono'
+    assert_output --partial 'launchctl kickstart'
+    assert [ ! -f "$ARGV_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    assert [ ! -d "$HDIR/weekly.lock" ]
+}
+
+@test "launchd は nono の内側で入口スクリプトを起動する" {
+    # 境界の外で無人実行されるものを、内側から書けない nono の実体と plist に限る契約
+    plist="$BATS_TEST_DIRNAME/../private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl"
+    run tr -d ' \n' <"$plist"
+    assert_output --partial '<key>ProgramArguments</key><array><string>{{lookPath"nono"|default"/opt/homebrew/bin/nono"}}</string><string>run</string><string>--profile</string><string>claude-seal</string><string>--allow-cwd</string><string>--</string><string>/bin/bash</string><string>{{.chezmoi.homeDir}}/.claude/scripts/harness-weekly.sh</string></array>'
+}
+
 @test "別の実行が生きている間は claude を起動せずに終わる" {
-    # 生存はコマンドラインに harness-weekly を含むかで見るので、その名前のスクリプトで待たせる
-    printf 'sleep 30\n:\n' >"$BATS_TEST_TMPDIR/harness-weekly.sh"
-    bash "$BATS_TEST_TMPDIR/harness-weekly.sh" &
+    sleep 30 &
     live=$!
     mkdir -p "$HDIR/weekly.lock"
     printf '%s\n' "$live" >"$HDIR/weekly.lock/pid"
@@ -168,18 +188,50 @@ PRE
     assert [ ! -d "$HDIR/weekly.lock" ]
 }
 
-@test "lock の PID が無関係のプロセスに再利用されていれば、取り戻して実行する" {
-    # サンドボックスの内側では ps が拒否され、スクリプトは kill -0 の判定に戻る
-    ps -p $$ >/dev/null 2>&1 || skip 'ps is not usable here'
+@test "持ち主の生死を確かめられない(kill -0 が EPERM)lock は生きているとみなす" {
+    # nono の内側からは別インスタンスへの kill -0 が EPERM になる。PID 1 への
+    # kill -0 は root でなければ EPERM になるので、それで再現する
+    [[ "$(id -u)" -ne 0 ]] || skip 'kill -0 1 succeeds as root'
+    mkdir -p "$HDIR/weekly.lock"
+    printf '1\n' >"$HDIR/weekly.lock/pid"
+    run weekly
+    assert_success
+    assert_output --partial 'already running'
+    assert [ ! -f "$ARGV_LOG" ]
+}
+
+@test "PID がまだ書かれていない新しい lock は生きているとみなす" {
+    mkdir -p "$HDIR/weekly.lock"
+    run weekly
+    assert_success
+    assert_output --partial 'already running'
+    assert [ ! -f "$ARGV_LOG" ]
+}
+
+@test "1 日より古い lock は持ち主が生きて見えても取り戻して実行する" {
+    # PID が無関係のプロセスに再利用されて生存に見え続ける場合
     sleep 30 &
     unrelated=$!
     mkdir -p "$HDIR/weekly.lock"
     printf '%s\n' "$unrelated" >"$HDIR/weekly.lock/pid"
+    touch -t 202001010000 "$HDIR/weekly.lock"
     run weekly
     kill "$unrelated"
     assert_success
     refute_output --partial 'already running'
     assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "外す行が無ければ pending を置き換えない" {
+    # HARNESS_DISABLE が効いて SessionEnd がジョブのセッションを積まなかった通常の run。
+    # 置き換え(mv)は SessionEnd の追記と競合しうるので、前後 2 回の除去のどちらも
+    # 書き換えないことを inode で見る
+    printf 'old-session\n' >"$HDIR/weekly-sessions.txt"
+    before=$(ls -i "$HDIR/pending.jsonl" | awk '{print $1}')
+    STUB_SKIP_PENDING=1 run weekly
+    assert_success
+    after=$(ls -i "$HDIR/pending.jsonl" | awk '{print $1}')
+    assert_equal "$after" "$before"
 }
 
 @test "pending が空なら claude を起動せずに heartbeat を書く" {

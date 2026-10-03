@@ -44,10 +44,26 @@ weekly_installed() {
     chmod +x "$HOME/.claude/scripts/harness-weekly.sh"
 }
 
-@test "weekly: plist が無ければ未導入として WARN にとどめる" {
+# ホストの OS に依存しないよう uname をスタブにする
+stub_uname() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' "$1" >"$BATS_TEST_TMPDIR/bin/uname"
+    chmod +x "$BATS_TEST_TMPDIR/bin/uname"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+}
+
+@test "weekly: macOS で plist が無ければ未導入として WARN にとどめる" {
+    stub_uname Darwin
     run doctor
     assert_success
     assert_output --partial 'WARN: weekly job not installed'
+}
+
+@test "weekly: launchd の無い OS では plist が無くても何も出さない" {
+    stub_uname Linux
+    run doctor
+    assert_success
+    refute_output --partial 'weekly job'
 }
 
 @test "weekly: heartbeat が新しければ PASS" {
