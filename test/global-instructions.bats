@@ -166,6 +166,21 @@ EOF
         fail "AGENTS.md が ${bytes} バイトで 32768 を超えています"
 }
 
+@test "合成後の CLAUDE.md はルールと指示の既定のサイズ上限に収まる" {
+    # scripts/check-instruction-size.sh はテンプレートのソースをファイルごとに測るので、
+    # 実際に読み込まれる合成後の出力はここで測る。上限は scripts/instruction-size-limits.txt の既定値
+    local max_lines max_bytes lines bytes
+    read -r _ max_lines max_bytes < <(grep -E '^\* ' "$REPO/scripts/instruction-size-limits.txt")
+    [[ $max_lines =~ ^[0-9]+$ && $max_bytes =~ ^[0-9]+$ ]] ||
+        fail "既定値の行を読めません: ${max_lines:-} ${max_bytes:-}"
+    lines=$(render_claude | awk 'END { print NR }')
+    bytes=$(render_claude | wc -c | tr -d ' ')
+    # 0 行(レンダリング失敗)でも上限内は成り立つので下限も見る
+    [ "$lines" -gt 10 ] || fail "CLAUDE.md が ${lines} 行しかありません"
+    [ "$lines" -le "$max_lines" ] || fail "CLAUDE.md が ${lines} 行で上限 ${max_lines} を超えています"
+    [ "$bytes" -le "$max_bytes" ] || fail "CLAUDE.md が ${bytes} バイトで上限 ${max_bytes} を超えています"
+}
+
 @test "AGENTS.md のテンプレートは common/ 以外の rules を取り込まない" {
     # ~/.claude/rules/ には仕事リポジトリの rules が symlink で差し込まれるが、
     # Source は dot_claude/rules/common/ だけ。取り込まれていないことは出力からは

@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -207,6 +207,14 @@ check-templates:
 # check-evaluator-guard.sh のテスト
 @test-evaluator-guard:
     LC_ALL=C pnpm exec bats test/check-evaluator-guard.bats
+
+# ルールと指示のファイルごとのサイズ上限(上限と根拠は scripts/instruction-size-limits.txt)
+@check-instruction-size:
+    bash scripts/check-instruction-size.sh
+
+# check-instruction-size.sh のテスト。LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合の回避
+@test-instruction-size:
+    LC_ALL=C pnpm exec bats test/check-instruction-size.bats
 
 # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 @test-harness-sync:
