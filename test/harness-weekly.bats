@@ -557,3 +557,12 @@ PRE
     run cat "$ARGV_LOG"
     assert_output --partial 'If nothing is adopted and nothing is stale'
 }
+
+@test "commit フックや lint で落とした変更は adopted と記録させず、本文を必ず書かせる" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'rejected (dropped:'
+    assert_output --partial 'Whenever a change was dropped, always write the PR body'
+}
