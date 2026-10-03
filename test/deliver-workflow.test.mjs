@@ -1513,3 +1513,78 @@ test("修正の prompt は receiving-code-review で判断させ、非対話の�
   assert.match(prompt, /直すのが大変だという理由では見送らない/);
   assert.match(prompt, /修正必須・参考の両方/);
 });
+
+test("統計は報告の「統計」節と同じ内容を stats として返し、収束したレビューの実行を数える", async () => {
+  const { result } = await runWorkflow({
+    args: { mode: "review-verify" },
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH")] }, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed", reason: "" }], observations: [] }],
+    }),
+  });
+  assert.equal(`## 統計\n${section(result.report, "統計")}`.trim(), result.stats);
+  assert.match(result.stats, /- mode: Review-Verify\(maxReviewRounds 3 \/ maxVerifyRetries 2\)/);
+  assert.match(result.stats, /- 停止: なし/);
+  assert.match(result.stats, /- レビューの実行: 1\(動作確認の失敗による再入 0\)/);
+  assert.match(result.stats, /- 実行 1: 収束した\(ラウンド 1〜2\)/);
+  assert.match(result.stats, /- 動作確認の試行: 1/);
+  assert.doesNotMatch(result.stats, /Generated with/);
+});
+
+test("修正ラウンドの上限で抜けたレビューの実行は、統計で上限に達したと数える", async () => {
+  const { result } = await runWorkflow({
+    args: { maxReviewRounds: 0 },
+    respond: scenario({
+      reviews: [{ ecc: [finding("MEDIUM")] }],
+      merges: [[cluster("a.js::style", ["ecc#0"])]],
+    }),
+  });
+  assert.match(result.stats, /- 実行 1: 修正ラウンドの上限に達した\(ラウンド 1〜1\)/);
+});
+
+test("動作確認の失敗で再入したレビューは、統計で実行を分けて数える", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      verifies: [
+        { passed: false, summary: "画面が真っ白" },
+        { passed: true, summary: "ok" },
+      ],
+    }),
+  });
+  assert.match(result.stats, /- レビューの実行: 2\(動作確認の失敗による再入 1\)/);
+  assert.match(result.stats, /- 実行 1: 収束した\(ラウンド 1〜1\)/);
+  assert.match(result.stats, /- 実行 2: 収束した\(ラウンド 2〜2\)/);
+  assert.match(result.stats, /- 動作確認の試行: 2/);
+});
+
+test("予算で止まったレビューの実行は、上限に達したとは数えずに停止として数える", async () => {
+  const { budget, wrap } = budgetLowAfter("fix:1");
+  const { result } = await runWorkflow({
+    budget,
+    respond: wrap(
+      scenario({
+        reviews: [{ ecc: [finding("HIGH")] }],
+        merges: [[cluster("a.js::bug", ["ecc#0"])]],
+        fixes: [{ results: [{ key: "a.js::bug", action: "fixed", reason: "" }], observations: [] }],
+      }),
+    ),
+  });
+  assert.equal(result.stopReason, "budget");
+  assert.match(result.stats, /- 実行 1: 停止した\(ラウンド 1〜1\)/);
+  assert.match(result.stats, /- 停止: トークン予算の残りが下限を割った/);
+});
+
+test("統計にはエージェントの自由記述(停止の詳細)を入れない", async () => {
+  const base = scenario({ verifies: [{ passed: false, summary: "画面が真っ白" }] });
+  const { result } = await runWorkflow({
+    respond: (label, calls) =>
+      label.startsWith("fix-verify:")
+        ? { fixed: false, summary: "原因が分からない" }
+        : base(label, calls),
+  });
+  assert.equal(result.stopReason, "verify-unfixed");
+  assert.match(result.report, /原因が分からない/);
+  assert.doesNotMatch(result.stats, /原因が分からない|画面が真っ白/);
+  assert.match(result.stats, /- 停止: 動作確認の失敗を修正エージェントが直せなかった/);
+});
