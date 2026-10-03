@@ -50,17 +50,18 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 `Operation not permitted` になり、作業ツリーに untracked の残骸を残して止まる。
 `--abort` で戻ったと思わず `git status` で残骸を確認し、サンドボックス外でやり直す。
 
-`.git/config` もサンドボックス内では書けない(nono・ネイティブのどちらの境界でも。nono 側の意図は dotfiles リポジトリの `dot_config/nono/CLAUDE.md`)。upstream を書こうとする操作は
-`could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
+`.git/config` もサンドボックス内では書けない(nono・ネイティブのどちらの境界でも。nono 側の意図は dotfiles リポジトリの `dot_config/nono/CLAUDE.md`)。
+`.git/config` を書き換える操作は `could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
 
-- **`git push -u` / `push.autoSetupRemote`:** push 自体は成功し、upstream だけが付かない。エラーは無害なので調査・報告しなくてよい。
+- **`git push -u`:** 付けなくてよい。素の `git push` は upstream を書かずに同名のリモートブランチへ push する(`push.default = current`)。
+  付けてしまっても push 自体は成功し、upstream だけが付かない。エラーは無害なので調査・報告しなくてよい。
+- **`git branch -m`:** リネームは済むが、config の書き換えで `fatal: branch is renamed, but update of config-file failed` を出して exit 128 になる(branch config の有無に関係ない)。
+  `git branch --show-current` で確かめ、再実行しない。
 - **`git switch -c <b> origin/<x>`:** ブランチは作られるが HEAD は移らない(追跡設定の書き込みで中断する)。
   `git switch --no-track -c <b> origin/<x>` なら config を書かずに切り替わる(実測)。
-- **upstream の無いブランチで素の `git push` を打たない。** ローカルのブランチ名が PR の head と違うと、ローカル名で別のリモートブランチができ、その削除は
+- **ローカルのブランチ名が PR の head と違うときは素の `git push` を打たない。** 素の push はローカル名で push するので別のリモートブランチができ、その削除は
   push guard が止める。既存 PR へ push するときは `gh pr view --json headRefName -q .headRefName` で head を引き、
   `git push origin HEAD:<headRefName>` と明示する。
-
-これは tanimon/dotfiles#382(未解決)が直るまでの暫定の手順。直ったら見直す。
 
 ## 一時ファイルとファイルの置き場所
 

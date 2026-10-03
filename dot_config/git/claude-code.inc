@@ -54,3 +54,12 @@
   signingkey = ~/.config/git/signing/ai-agent
 [gpg "ssh"]
   program = /usr/bin/ssh-keygen
+
+# 背景4 (push と upstream): .git/config はどちらのサンドボックスでも書けない(nono は
+# grant せず、ネイティブでは Claude Code 組み込みの保護パス)ので、push が upstream を
+# 書きにいくと push は成功しても末尾で `error: unable to write upstream branch configuration`
+# が出る。push.autoSetupRemote = true はここで false にしても取り消せない: git は true を
+# 読んだ時点でフラグを立て、後から読んだ false では下ろさない(git 2.56 で実測)。
+# そのため include 元の ~/.gitconfig に push.autoSetupRemote を書かず、upstream 無しで
+# push と ahead/behind 表示を成り立たせる設定(push.default / status.compareBranches)も
+# ~/.gitconfig 側に置く。
