@@ -153,4 +153,5 @@ check() {
     git -C "$REPO" rm -q -f -- scripts/instruction-size-limits.txt
     run check
     assert_failure 2
+    assert_output --partial '上限の一覧が無い'
 }
