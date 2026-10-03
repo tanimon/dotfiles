@@ -28,4 +28,4 @@ AGENTS.md 219 53266
 CLAUDE.md 237 52243
 .claude/rules/shell-scripts.md 221 11866
 dot_claude/scripts/CLAUDE.md 564 70035
-dot_config/nono/CLAUDE.md 42 39122
+dot_config/nono/CLAUDE.md 42 39472
