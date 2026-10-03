@@ -133,8 +133,9 @@ check-templates:
         # .profile で分岐するテンプレートは、描画した側の分岐しか実行時に評価されない。
         # 構文エラーは分岐に関係なく parse で落ちるが、未描画の分岐内の実行時エラー
         # (存在しないキーの参照など)は落ちないので、全 profile の fixture で描画する
+        profiles="personal work"
         fail=0
-        for profile in personal work; do
+        for profile in $profiles; do
             config="test/fixtures/chezmoi-$profile.toml"
             for file in {{tmpl_files}}; do
                 rendered=$(chezmoi execute-template \
@@ -149,7 +150,7 @@ check-templates:
             done
         done
         if [ "$fail" -eq 1 ]; then exit 1; fi
-        echo "PASS: all templates valid (profiles: personal work)"
+        echo "PASS: all templates valid (profiles: $profiles)"
     else
         echo "WARNING: chezmoi not found, skipping template validation"
     fi
