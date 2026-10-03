@@ -204,7 +204,7 @@ test("修正必須が無くても参考指摘を修正に回し、その後に c
     /\[参考\] `a\.js:1` issue a\.js::style \[ecc:MEDIUM, requesting:Minor\]/,
   );
   assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
-  assert.match(result.report, /参考 1\(修正 1 \/ 見送り 0\)/);
+  assert.match(result.report, /参考 1\(修正に回した 1: 修正 1 \/ 見送り 0\)/);
   const ledger = JSON.parse(result.ledger);
   assert.deepEqual(ledger.advisoryClosedKeys, ["a.js::style"]);
   assert.deepEqual(ledger.fixChanges, [{ label: "fix:1", file: "a.js", summary: "命名を直す" }]);
@@ -242,14 +242,20 @@ for (const action of ["fixed", "propose-defer"]) {
     assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 1);
     assert.equal(labels.filter((l) => l === "review:ecc").length, 2);
     assert.equal(labels.filter((l) => l.startsWith("defer-verify:")).length, 0);
-    assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
+    assert.equal(section(result.report, "修正した指摘").trim(), "なし");
+    assert.match(result.report, /ラウンド 2: .*参考 1\(修正に回した 0: 修正 0 \/ 見送り 0\)/);
     if (action === "propose-defer") {
+      assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
       assert.match(
         section(result.report, "見送った参考指摘"),
         /issue a\.js::style.*見送り理由: 意図的な命名/,
       );
-      assert.equal(section(result.report, "修正した指摘").trim(), "なし");
     } else {
+      // 直したと回答した後に再指摘されたので、直ったとは報告せず、参考指摘として残す。
+      assert.match(
+        section(result.report, "参考指摘(修正必須ではない)"),
+        /issue a\.js::style.*直したと回答した後、再レビューで再指摘された/,
+      );
       assert.equal(section(result.report, "見送った参考指摘").trim(), "なし");
     }
   });
@@ -374,7 +380,9 @@ test("同じ key が同じラウンドで修正必須と参考の両方に出た
   const prompt = calls.find((c) => c.label === "fix:1").prompt;
   assert.doesNotMatch(prompt.slice(prompt.indexOf("参考指摘(JSON):")), /a\.js::bug/);
   assert.equal(section(result.report, "見送った参考指摘").trim(), "なし");
+  assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
   assert.match(section(result.report, "Deferred Finding"), /issue a\.js::bug/);
+  assert.match(result.report, /ラウンド 1: 修正必須 1 .* 参考 0\(修正に回した 0:/);
 });
 
 test("参考指摘を修正に回した後、checks が落ちて止まったら、Unresolved にせず再レビューされていない参考指摘として出す", async () => {

@@ -278,6 +278,7 @@ function newState(config) {
     requirementsConcerns: [],
     advisory: [],
     advisoryClosedKeys: new Set(),
+    advisoryReappearedKeys: new Set(),
     advisoryDeclined: [],
     advisoryUnverified: [],
     knownClusters: [],
@@ -493,6 +494,7 @@ function ledgerJson(state) {
       deferredKeys: [...state.deferredKeys],
       unansweredFixes: [...state.unansweredFixes],
       advisoryClosedKeys: [...state.advisoryClosedKeys],
+      advisoryReappearedKeys: [...state.advisoryReappearedKeys],
     },
     null,
     2,
@@ -621,12 +623,18 @@ function renderReport(state) {
       state.advisoryUnverified,
       formatItem,
     );
+  const reappeared = state.advisoryReappearedKeys;
   pushSection(
     "参考指摘(修正必須ではない)",
     uniqueByKey(state.advisory).filter(
-      (i) => !state.advisoryClosedKeys.has(i.key) && !unverifiedAdvisoryKeys.has(i.key),
+      (i) =>
+        (!state.advisoryClosedKeys.has(i.key) || reappeared.has(i.key)) &&
+        !unverifiedAdvisoryKeys.has(i.key),
     ),
-    formatItem,
+    (i) =>
+      reappeared.has(i.key)
+        ? `${formatItem(i)}(直したと回答した後、再レビューで再指摘された)`
+        : formatItem(i),
   );
   pushSection(
     "見送った参考指摘",
@@ -634,10 +642,11 @@ function renderReport(state) {
     (d) => `${formatItem(d)} — 見送り理由: ${d.reason}`,
   );
   // 修正エージェントは人間が書いたブランチにもコミットを足すので、何を直したかを残す。
-  // 直したと申告しても後で Unresolved になった指摘や、再レビューされていない参考指摘は、直ったと確かめていないので出さない。
+  // 直したと申告しても後で Unresolved になった指摘、再レビューされていない参考指摘、
+  // 再レビューで再指摘された参考指摘は、直ったと確かめていないので出さない。
   pushSection(
     "修正した指摘",
-    uniqueByKey(state.fixed).filter(
+    uniqueByKey(state.fixed.filter((i) => !(i.advisory && reappeared.has(i.key)))).filter(
       (i) => !state.unresolvedKeys.has(i.key) && !unverifiedAdvisoryKeys.has(i.key),
     ),
     (i) => (i.advisory ? `[参考] ${formatItem(i)}` : formatItem(i)),
@@ -651,7 +660,7 @@ function renderReport(state) {
   lines.push(`- レビューラウンド: ${state.rounds.length}`);
   for (const r of state.rounds) {
     lines.push(
-      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined})`,
+      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正に回した ${r.advisorySent}: 修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined})`,
     );
   }
   if (state.reviewerFailures.length > 0)
@@ -914,9 +923,13 @@ async function reviewRounds(state, tracker) {
     // merge が同じ key の cluster を複数返すと、同じ key が修正必須と参考の両方に入りうる。
     // 修正必須として渡した key の見送りは検証者を通すので、参考指摘からは外す。
     const blockingKeys = new Set([...result.blocking, ...result.repeated].map((i) => i.key));
-    const pendingAdvisory = uniqueByKey(result.advisory).filter(
-      (i) => !state.advisoryClosedKeys.has(i.key) && !blockingKeys.has(i.key),
-    );
+    const advisory = uniqueByKey(result.advisory).filter((i) => !blockingKeys.has(i.key));
+    // 直したと回答した参考指摘が再指摘されたら、修正には回さないが、直ったとは報告しない。
+    const declinedKeys = new Set(state.advisoryDeclined.map((d) => d.key));
+    for (const i of advisory)
+      if (state.advisoryClosedKeys.has(i.key) && !declinedKeys.has(i.key))
+        state.advisoryReappearedKeys.add(i.key);
+    const pendingAdvisory = advisory.filter((i) => !state.advisoryClosedKeys.has(i.key));
     tracker.unverified = [];
     tracker.unverifiedAdvisory = [];
     if (result.dropped.length > 0)
@@ -925,7 +938,8 @@ async function reviewRounds(state, tracker) {
       round: roundNo,
       blocking: result.blocking.length,
       repeated: result.repeated.length,
-      advisory: result.advisory.length,
+      advisory: advisory.length,
+      advisorySent: pendingAdvisory.length,
       advisoryFixed: 0,
       advisoryDeclined: 0,
       missingReviewers: state.lastMissingReviewers,
@@ -936,7 +950,7 @@ async function reviewRounds(state, tracker) {
       );
     state.closedRepeats.push(...result.closedRepeats);
     markUnresolved(state, result.repeated);
-    state.advisory.push(...result.advisory);
+    state.advisory.push(...advisory);
     state.requirementsConcerns.push(...result.requirementsConcerns);
     if (result.requirementsBreaking.length > 0) {
       markUnresolved(state, result.blocking);
