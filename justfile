@@ -233,7 +233,7 @@ check-templates:
 # Needs chezmoi — fails (not skips) without it, for the same reason as above.
 # Push without writing upstream to .git/config, through the rendered ~/.gitconfig + claude-code.inc
 @test-gitconfig:
-    LC_ALL=C pnpm exec bats test/claude-code-gitconfig.bats
+    LC_ALL=C pnpm exec bats test/gitconfig.bats
 
 # The static Source checks always run; the behaviour checks need the apm CLI and
 # skip without it — bats prints the skip reason, so a green run never claims the

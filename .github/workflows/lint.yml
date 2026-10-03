@@ -295,10 +295,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # chezmoi は必須。test/claude-code-gitconfig.bats は描画した ~/.gitconfig を使うので、
+      # chezmoi は必須。test/gitconfig.bats は描画した ~/.gitconfig を使うので、
       # chezmoi が無いと skip せず fail する
       - uses: ./.github/actions/setup-lint
         with:
           pnpm: 'true'
           chezmoi: 'true'
+      # status.compareBranches を知らない git は黙って無視するので、版を記録して失敗と見分ける
+      - run: git --version
       - run: just test-gitconfig

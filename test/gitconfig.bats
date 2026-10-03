@@ -69,7 +69,7 @@ setup() {
 
     run git -C "$REPO" status
     assert_success
-    assert_output --partial 'ahead'
+    assert_output --partial "Your branch is ahead of 'origin/feature' by 1 commit"
 }
 
 @test "対話ターミナルの git(~/.gitconfig だけ)でも素の git push が upstream を書かずに成功する" {
