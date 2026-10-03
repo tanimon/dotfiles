@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ "$all_args" == *'harness-review skill'* ]]; then
     printf 'review\n' >>"$STAGE_LOG"
-    body="$HOME/.claude/harness/review-pr-body.md"
+    body="$HOME/.claude/harness/review-pr-body-$(date +%Y-%m-%d).md"
     archive="$HOME/.claude/harness/queue-archive.md"
     branch=$(git branch --show-current)
     adopt() {
@@ -85,6 +85,11 @@ if [[ "$all_args" == *'harness-review skill'* ]]; then
         ;;
     no_verdict)
         adopt
+        printf 'reason\n' >"$body"
+        ;;
+    binary_pipe)
+        printf 'a\0b' >blob.bin && printf 'x\n' >'a|b.md'
+        git add -A && git commit -qm 'harness: binary and pipe'
         printf 'reason\n' >"$body"
         ;;
     no_body) adopt ;;
@@ -461,12 +466,73 @@ PRE
     assert_output '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/42)'
 }
 
-@test "判定の記録にブランチ名が無ければ、URL を記録できなかったと警告する" {
+@test "判定の記録にブランチ名が無ければ、URL を記録できなかったことを、陳腐化の修正だけなら正常と添えて残す" {
     seed_queue
     STUB_REVIEW_MODE=no_verdict run weekly
     assert_success
-    assert_output --partial 'WARN'
     assert_output --partial 'PR URL not recorded'
+    assert_output --partial 'normal if the PR only fixes stale rules'
+    refute_output --partial 'WARN'
+}
+
+@test "バイナリファイルは行数の代わりにバイナリと書き、パスの | はエスケープする" {
+    seed_queue
+    STUB_REVIEW_MODE=binary_pipe run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '| `blob.bin` | バイナリ | バイナリ |'
+    assert_output --partial '| `a\|b.md` | +1 | -0 |'
+    assert_output --partial '合計: +1 / -0(純増 +1 行)'
+    assert_output --partial 'バイナリファイル 1 件は行数に含めない'
+}
+
+@test "PR を作れたら本文のファイルを消し、作れなかったら残す" {
+    seed_queue
+    run weekly
+    assert_success
+    assert [ ! -f "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
+    seed_queue
+    rm -f "$GH_LOG"
+    git -C "$ORIGIN" branch -D "$BRANCH" >/dev/null
+    git -C "$HARNESS_WEEKLY_REPO" branch -D "$BRANCH" >/dev/null
+    STUB_GH_FAIL=1 run weekly
+    assert_failure
+    assert [ -s "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
+}
+
+@test "選別の claude が commit の後に失敗したら、残った commit のブランチと手で PR を作る手順を出す" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    STUB_CLAUDE_MODE=is_error run weekly
+    assert_failure
+    assert_output --partial "review failed after 1 commit(s) on local branch ${BRANCH}"
+    assert_output --partial "push origin ${BRANCH}"
+    assert_output --partial "gh pr create --draft --base main --head ${BRANCH}"
+    assert [ ! -f "$GH_LOG" ]
+}
+
+@test "origin/main に無い commit を持つ当日のローカルブランチは作り直さずに失敗する" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" branch "$BRANCH" main
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q "$BATS_TEST_TMPDIR/other" "$BRANCH"
+    git -C "$BATS_TEST_TMPDIR/other" commit -q --allow-empty -m 'unpushed'
+    git -C "$HARNESS_WEEKLY_REPO" worktree remove "$BATS_TEST_TMPDIR/other"
+    run weekly
+    assert_failure
+    assert_output --partial "local branch ${BRANCH}"
+    assert_output --partial 'not on origin/main'
+    run git -C "$HARNESS_WEEKLY_REPO" log --format=%s -1 "$BRANCH"
+    assert_output 'unpushed'
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+}
+
+@test "当日のブランチが別の worktree で checkout されていると、その旨を添えて失敗する" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q -b "$BRANCH" "$BATS_TEST_TMPDIR/other" main
+    run weekly
+    assert_failure
+    assert_output --partial 'checked out in another worktree'
 }
 
 @test "commit されていない変更が残っていたら PR を作らずに失敗する" {
@@ -558,11 +624,20 @@ PRE
     assert_output --partial 'If nothing is adopted and nothing is stale'
 }
 
-@test "commit フックや lint で落とした変更は adopted と記録させず、本文を必ず書かせる" {
+@test "commit フックや lint で落とした変更は queue に残させ、本文を必ず書かせる" {
     seed_queue
     run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_output --partial 'rejected (dropped:'
+    assert_output --partial 'leave its entry in queue.md (do not move it to the archive'
+    refute_output --partial 'rejected (dropped:'
     assert_output --partial 'Whenever a change was dropped, always write the PR body'
+}
+
+@test "コマンドの出力を一時ファイルに書いて mv する Bookkeeping は禁じない" {
+    seed_queue
+    run weekly
+    assert_success
+    run grep -c 'moving it into place' "$ARGV_LOG"
+    assert_output '2'
 }

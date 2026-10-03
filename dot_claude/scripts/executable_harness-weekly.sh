@@ -163,8 +163,10 @@ export HARNESS_DISABLE=1
 QUEUE="$HARNESS_DIR/queue.md"
 ARCHIVE="$HARNESS_DIR/queue-archive.md"
 WORKTREE="$HARNESS_DIR/review-worktree"
-PR_BODY="$HARNESS_DIR/review-pr-body.md"
 REVIEW_DATE=$(date +%Y-%m-%d)
+# 日付を入れるのは、失敗した run の本文(落とした変更の理由)を次の週の run が消さないため。
+# PR を作れたら消す
+PR_BODY="$HARNESS_DIR/review-pr-body-$REVIEW_DATE.md"
 BRANCH="harness/review-$REVIEW_DATE"
 
 # headless の claude を 1 回起動し、結果をログに残してから成否を返す。
@@ -196,8 +198,12 @@ run_claude() {
 }
 
 # headless ではフックの ask が拒否になる。git push guard / curl localhost guard は
-# ヒアドキュメントの本文を読み切れないと ask を返すので、ファイルはシェルで書かせない(#429)
-WRITE_RULE="- Write and edit files only with the Write and Edit tools, never with shell redirection or heredocs: in this headless run a hook that asks for confirmation denies the command."
+# ヒアドキュメントの本文を読み切れないと ask を返すので、エージェントが書く本文はシェルで
+# 書かせない(#429)。コマンドの出力を一時ファイルに書いて mv する形は禁じない。
+# harness-reflect / review の Bookkeeping が pending.jsonl と state.json をその形で更新させており
+# (pending は SessionEnd hook が並行に追記するので、Read した写しを Write で書き戻すと
+# 追記を失う)、push や curl を含まないコマンドにフックは ask を返さないため
+WRITE_RULE="- Write text you compose (queue entries, rule and doc text, the PR body) only with the Write and Edit tools, never with heredocs, echo or printf: in this headless run a hook that asks for confirmation denies the command. Redirecting a command's output to a temp file and moving it into place (the skills' Bookkeeping for pending.jsonl and state.json) is fine; never rewrite those files from a copy you read earlier."
 
 count_queue() {
     if [[ -f "$QUEUE" ]]; then
@@ -212,14 +218,29 @@ count_queue() {
 # fetch を linked worktree の中で行うのは、FETCH_HEAD が worktree ごとの git dir に
 # 書かれるため(元の checkout の .git 直下は nono の内側から書けない)。
 # --no-track は追跡の設定を .git/config に書かせないため(nono の内側から書けない)。
-# 同じ日のブランチが残っていれば -C で作り直す
+# 同じ日のブランチが残っていれば -C で作り直すが、origin/main に無い commit を持つなら
+# 作り直さずに失敗する。push か PR の作成に失敗した run の commit は、そのブランチから
+# 手で push / PR を作るよう案内しているので、同じ日の再実行で消してはいけない
 prepare_worktree() {
+    local ahead
     git -C "$REPO" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
     rm -rf "$WORKTREE"
     git -C "$REPO" worktree prune || return 1
     git -C "$REPO" worktree add --quiet --detach "$WORKTREE" HEAD || return 1
     git -C "$WORKTREE" fetch --quiet origin main || return 1
-    git -C "$WORKTREE" switch --quiet --no-track -C "$BRANCH" FETCH_HEAD || return 1
+    if git -C "$WORKTREE" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
+        ahead=$(git -C "$WORKTREE" rev-list --count "FETCH_HEAD..refs/heads/$BRANCH") || return 1
+        if [[ "$ahead" -gt 0 ]]; then
+            printf 'harness-weekly: local branch %s in %s has %s commit(s) not on origin/main; push / open the PR by hand or delete the branch, then rerun\n' \
+                "$BRANCH" "$REPO" "$ahead" >&2
+            return 1
+        fi
+    fi
+    git -C "$WORKTREE" switch --quiet --no-track -C "$BRANCH" FETCH_HEAD || {
+        printf 'harness-weekly: could not reset branch %s (is it checked out in another worktree of %s?)\n' \
+            "$BRANCH" "$REPO" >&2
+        return 1
+    }
 }
 
 remove_worktree() {
@@ -227,30 +248,48 @@ remove_worktree() {
     git -C "$REPO" worktree prune >/dev/null 2>&1 || true
 }
 
-# PR の本文に付ける純増の節。claude の申告ではなく diff から数える
+# PR の本文に付ける純増の節。claude の申告ではなく diff から数える。
+# numstat はバイナリファイルの行数を `-` で出すので、表には「バイナリ」と書いて合計から外す。
+# パスの `|` は表の区切りにならないよう `\|` にする(gsub の置換文字列の `\` の扱いは
+# awk の実装で違うので、index と substr で置き換える)
 net_change_section() {
     git -C "$WORKTREE" diff --no-ext-diff --numstat "$1" HEAD | awk -F'\t' '
         BEGIN { print ""; print "## 純増"; print ""; print "| ファイル | 追加 | 削除 |"; print "|---|---:|---:|" }
         {
-            printf "| `%s` | +%s | -%s |\n", $3, $1, $2
-            if ($1 != "-") added += $1
-            if ($2 != "-") deleted += $2
+            path = ""
+            rest = $3
+            while ((i = index(rest, "|")) > 0) {
+                path = path substr(rest, 1, i - 1) "\\|"
+                rest = substr(rest, i + 1)
+            }
+            path = path rest
+            if ($1 == "-" || $2 == "-") {
+                printf "| `%s` | バイナリ | バイナリ |\n", path
+                binaries++
+                next
+            }
+            printf "| `%s` | +%s | -%s |\n", path, $1, $2
+            added += $1
+            deleted += $2
         }
         END {
             net = added - deleted
             printf "\n合計: +%d / -%d(純増 %s%d 行)\n", added, deleted, (net > 0 ? "+" : ""), net
+            if (binaries > 0) printf "\nバイナリファイル %d 件は行数に含めない。\n", binaries
         }'
 }
 
 # 判定の記録で、選別が書いた adopted (<ブランチ>) を PR の URL に置き換える。
-# 置き換えが 0 件なら、選別が決めた書式で記録しなかったので警告する
+# 置き換えが 0 件になるのは、陳腐化の修正だけの PR(正常)か、選別が決めた書式で記録
+# しなかったときで、ここでは区別できないので、両方の読み方を添えて知らせる
 record_pr_url() {
     local from="adopted ($BRANCH)" to="adopted (PR $1)" count=0 tmp
     if [[ -f "$ARCHIVE" ]]; then
         count=$(grep -cF -- "$from" "$ARCHIVE" || true)
     fi
     if [[ "$count" -eq 0 ]]; then
-        printf 'harness-weekly: WARN no "%s" verdict in %s; PR URL not recorded\n' "$from" "$ARCHIVE" >&2
+        printf 'harness-weekly: no "%s" verdict in %s; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts in the expected form)\n' \
+            "$from" "$ARCHIVE" >&2
         return 0
     fi
     tmp=$(mktemp "$HARNESS_DIR/.queue-archive.XXXXXX")
@@ -277,9 +316,9 @@ record_pr_url() {
 #     本文を必ず書かせているので、全部落ちた run を「採用なし」と取り違えない)
 #   - commit があるのに本文が無い
 #   - push か PR の作成が失敗した
-# 失敗の経路では worktree を残す(調べられるように。次の実行が作り直す)。queue の項目は
-# 既に archive に移っているので、push 以降で失敗した run の commit は $REPO のローカル
-# ブランチ $BRANCH から手で push / PR を作る
+# 失敗の経路では worktree と本文($PR_BODY)を残す(調べられるように。worktree は次の
+# 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
+# commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
     local base=$1 commits url
     if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
@@ -289,7 +328,7 @@ publish_review() {
     commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD") || return 1
     if [[ "$commits" -eq 0 ]]; then
         if [[ -s "$PR_BODY" ]]; then
-            printf 'harness-weekly: review wrote %s but made no commits (a commit hook may have failed); no PR created\n' "$PR_BODY" >&2
+            printf 'harness-weekly: review wrote %s but made no commits (a commit hook may have failed; dropped changes stay in the queue); no PR created\n' "$PR_BODY" >&2
             return 1
         fi
         printf 'harness-weekly: review committed no changes; no PR created\n'
@@ -313,8 +352,25 @@ publish_review() {
     }
     url=${url##*$'\n'}
     printf 'harness-weekly: opened draft PR %s (%s commit(s))\n' "$url" "$commits"
+    rm -f "$PR_BODY"
     record_pr_url "$url"
     remove_worktree
+}
+
+# 選別の claude が失敗した(予算切れを含む)run の後始末の案内。claude は commit や
+# archive への移動を済ませてから失敗しうるので、残った commit の場所と手で PR を作る手順を
+# ログに出す。worktree は残す(次の実行が作り直すが、prepare_worktree は origin/main に無い
+# commit を持つ当日のブランチを作り直さない)
+report_failed_review() {
+    local base=$1 commits
+    commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD" 2>/dev/null || printf '?')
+    if [[ "$commits" == "0" ]]; then
+        printf 'harness-weekly: review failed before committing; worktree %s kept; verdicts already moved to %s stay there\n' \
+            "$WORKTREE" "$ARCHIVE" >&2
+        return 0
+    fi
+    printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say adopted (%s). To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s\n' \
+        "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" >&2
 }
 
 # 処理対象が無い工程は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
@@ -381,13 +437,16 @@ REVIEW_PROMPT="This is the unattended weekly harness job (no human is present, a
 Use the harness-review skill, following its rules, with these changes:
 - Your working directory is a git worktree of the chezmoi source repo, on branch ${BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
 - Skip \"Reflect over pending sessions\"; this job already ran it.
-- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit the adopted changes and the staleness fixes on the current branch and leave the working tree clean. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, record its verdict as \"rejected (dropped: <the hook or lint check> failed)\", and list it in the PR body. Whenever a change was dropped, always write the PR body, even if nothing was committed.
+- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit the adopted changes and the staleness fixes on the current branch and leave the working tree clean. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the PR body with the failing hook or lint check. Whenever a change was dropped, always write the PR body, even if nothing was committed.
 - Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts; this job appends the net additions and deletions. If nothing is adopted and nothing is stale, make no commits and do not create that file.
 - In \"Bookkeeping\", record each adopted verdict as \"adopted (${BRANCH})\"; this job replaces it with the PR URL.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
 - Finish with a one-line summary: entries adopted, rejected, handed off."
-(cd "$WORKTREE" && run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || exit 1
+(cd "$WORKTREE" && run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || {
+    report_failed_review "$REVIEW_BASE"
+    exit 1
+}
 publish_review "$REVIEW_BASE" || exit 1
 
 write_heartbeat
