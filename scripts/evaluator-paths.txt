@@ -30,3 +30,8 @@ justfile
 # 入口スクリプト自身がその名前でブランチを切って push する
 dot_claude/skills/harness-review/SKILL.md
 dot_claude/scripts/executable_harness-weekly.sh
+
+# 肥大の歯止め(ADR 0011)。ループが上限を上げる・判定の対象を狭めると、ルールが増え続けても CI が通る
+scripts/instruction-size-limits.txt
+scripts/check-instruction-size.sh
+test/check-instruction-size.bats
