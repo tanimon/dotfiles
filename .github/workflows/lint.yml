@@ -106,6 +106,10 @@ jobs:
 
   # pull_request の checkout は merge commit になる。第 1 親(base)と比べるので
   # fetch-depth: 2 が要る。ブランチ名はスクリプトが GITHUB_HEAD_REF から読む。
+  # 最初の step は base 側のガードを just を経由せずに実行する。head 側のスクリプト・
+  # justfile・setup-lint を書き換えたループの PR でも、base の判定で落とすため。
+  # setup-lint(head 側)より前に置くのは、PATH などを書き換えられる前に走らせるため。
+  # base にガードが無い(導入前の base)ときだけ、この step は判定せずに通る。
   evaluator-guard:
     name: Evaluator guard
     runs-on: ubuntu-latest
@@ -114,6 +118,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+      - name: base 側のガードで判定する
+        run: |
+          if ! git show 'HEAD^1:scripts/check-evaluator-guard.sh' >"$RUNNER_TEMP/check-evaluator-guard.sh"; then
+            echo "base にガードが無いので、base 側の判定は行わない"
+            exit 0
+          fi
+          bash "$RUNNER_TEMP/check-evaluator-guard.sh"
       - uses: ./.github/actions/setup-lint
       - run: just check-evaluator-guard
 

@@ -12,12 +12,19 @@
 # 終了コード: 0 = 通過、1 = ループの PR が Evaluator に触れた、2 = 判定できない。
 # ループの PR で判定できないときは通さない(fail-closed)。
 #
-# 残存: pull_request の CI は head 側のこのスクリプトを実行するので、ループの PR が
-# このスクリプト自体を書き換えると、その PR では書き換え後の判定が走る。base 側の版を
-# 実行する仕組みは持たず、このスクリプトを一覧に載せて、書き換えが人のレビューに
-# 差分として見えることまでを保証とする。
+# CI(lint.yml の evaluator-guard job)は、head 側のこのスクリプトに加えて、merge commit の
+# 第 1 親(base)にあるこのスクリプトを just を経由せずに実行する。ループの PR がこの
+# スクリプトや一覧を書き換えても、base 側の版の判定で落ちる。
+# 残存: base 側の版を実行する step も、それを含む lint.yml も head 側の版が使われる
+# (pull_request の CI は head の workflow を実行する)。ループの PR が job や step を消すか
+# 書き換えれば、その PR ではガードが走らず、CI は赤にも黄にもならない。さらに main の
+# ruleset に required status check が無いので、ガードが赤でもマージは止まらない。
+# lint.yml・justfile は一覧に載せてあるが、保証は「書き換えが差分として人のレビューに
+# 見える」ところまで。ガードの結果を必須にするには ruleset に「Evaluator guard」を
+# required status check として登録する(リポジトリ設定。コードの外)。
 # 残存: ループの PR かどうかはブランチ名だけで決まる。ブランチ名はループの手順が
-# 指定するが、エージェントが別の名前で PR を作れば判定されない。
+# 指定するが、エージェントが別の名前で PR を作れば判定されない。名前を指定する手順
+# (harness-review の SKILL.md)は一覧に載せてあり、ループの PR からは書き換えられない。
 set -euo pipefail
 
 # ループの PR の識別規約の正本。ループが PR を作る手順(/harness-review の SKILL.md)が
@@ -60,8 +67,12 @@ if ! paths="$(git show "${base}:${PATHS_FILE}" 2>/dev/null)"; then
 fi
 
 # --no-renames: 移動を「元のパスの削除 + 新しいパスの追加」として出し、Evaluator の外への移動も捕まえる
-# core.quotePath=false: 既定では非 ASCII のパスが引用符付きの 8 進表記で出て、一覧と一致しない
-changed="$(git -c core.quotePath=false diff --no-ext-diff --no-renames --name-only "$base" HEAD)" || {
+# -z: NUL 区切りで、パスを引用符やエスケープ無しにそのまま出させる。改行区切りの出力は、
+# 非 ASCII のパス(core.quotePath=false で抑えられる)に加えて `"`・`\`・制御文字を含むパスを
+# 引用符付きで出すので、一覧と一致しない
+changed_file="$(mktemp)"
+trap 'rm -f "$changed_file"' EXIT
+git diff --no-ext-diff --no-renames --name-only -z "$base" HEAD >"$changed_file" || {
     echo "evaluator-guard: $base と HEAD の差分を取れない" >&2
     exit 2
 }
@@ -82,12 +93,12 @@ touches_evaluator() {
 }
 
 violations=()
-while IFS= read -r file; do
+while IFS= read -r -d '' file; do
     [[ -z $file ]] && continue
     if touches_evaluator "$file"; then
         violations+=("$file")
     fi
-done <<<"$changed"
+done <"$changed_file"
 
 if ((${#violations[@]} > 0)); then
     echo "evaluator-guard: 自己改善ループの PR ($branch) が Evaluator のパスに触れている:"

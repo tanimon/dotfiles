@@ -11,7 +11,14 @@ scripts/evaluator-paths.txt
 scripts/check-evaluator-guard.sh
 test/check-evaluator-guard.bats
 
-# ガードを CI に配線しているもの。job や recipe を外す・ツールを差し替えるとガードが走らない
+# ガードを CI に配線しているもの。job や recipe を外す・ツールを差し替えるとガードが走らない。
+# CI は head 側の版を使うので、ここに載せても書き換えた PR でガードが走らなくなるのは防げない。
+# 保証は書き換えが差分として人のレビューに見えるところまで(check-evaluator-guard.sh のヘッダ)
 .github/workflows/lint.yml
 .github/actions/setup-lint/
 justfile
+
+# ループの PR の識別規約。ブランチ名を指定する手順を書き換えると、以後のループの PR が
+# prefix に一致せず判定から外れる。週次ジョブの入口は、PR を作るようになればその名前に従う
+dot_claude/skills/harness-review/SKILL.md
+dot_claude/scripts/executable_harness-weekly.sh

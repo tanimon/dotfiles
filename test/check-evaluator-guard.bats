@@ -141,3 +141,13 @@ guard() {
     assert_failure 1
     assert_output --partial 'evaluator/失敗の類型.md'
 }
+
+@test "引用符やタブを含む Evaluator のパスも捕まえる" {
+    put 'evaluator/a"b.md' 'changed'
+    put $'evaluator/t\tab.md' 'changed'
+    commit change
+    run guard harness/review-2026-10-04 "$BASE"
+    assert_failure 1
+    assert_output --partial 'evaluator/a"b.md'
+    assert_output --partial $'evaluator/t\tab.md'
+}
