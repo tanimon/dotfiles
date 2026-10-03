@@ -73,7 +73,8 @@
       "$XDG_STATE_HOME/gh/device-id",
       "$HOME/.vimrc",
       "$HOME/.tmux.conf",
-      "$HOME/.cVimrc"
+      "$HOME/.cVimrc",
+      "$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
     ],
     "bypass_protection": [
       "$HOME/.bashrc",
