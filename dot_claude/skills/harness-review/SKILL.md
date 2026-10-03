@@ -12,6 +12,11 @@ description: |
 
 # Harness Review
 
+週次ジョブ(`~/.claude/scripts/harness-weekly.sh`)も、このスキルをプロンプトで一部だけ
+変えて headless で実行する(作業場所はジョブが切った worktree、push と PR の作成はジョブが
+行う)。ここを変えると両方の経路が変わる。節は見出しで参照されているので、見出しを
+変えるときはジョブのプロンプトも直す。
+
 Operate on the chezmoi source repo: `cd "$(chezmoi source-path)"` (fallback:
 `~/.local/share/chezmoi`). All rule/doc changes are made there, never on
 deployed files under `~/`.
