@@ -16,10 +16,12 @@
 # このスクリプト自体を書き換えると、その PR では書き換え後の判定が走る。base 側の版を
 # 実行する仕組みは持たず、このスクリプトを一覧に載せて、書き換えが人のレビューに
 # 差分として見えることまでを保証とする。
+# 残存: ループの PR かどうかはブランチ名だけで決まる。ブランチ名はループの手順が
+# 指定するが、エージェントが別の名前で PR を作れば判定されない。
 set -euo pipefail
 
-# ループの PR の識別規約。ブランチ名は入口(/harness-review と週次ジョブ)が決め、
-# エージェントには選ばせない。人の PR はこの prefix を使わない。
+# ループの PR の識別規約の正本。ループが PR を作る手順(/harness-review の SKILL.md)が
+# このブランチ名を指定する。人の PR はこの prefix を使わない。
 LOOP_BRANCH_PREFIX='harness/review-'
 PATHS_FILE='scripts/evaluator-paths.txt'
 
@@ -58,7 +60,11 @@ if ! paths="$(git show "${base}:${PATHS_FILE}" 2>/dev/null)"; then
 fi
 
 # --no-renames: 移動を「元のパスの削除 + 新しいパスの追加」として出し、Evaluator の外への移動も捕まえる
-changed="$(git diff --no-ext-diff --no-renames --name-only "$base" HEAD)"
+# core.quotePath=false: 既定では非 ASCII のパスが引用符付きの 8 進表記で出て、一覧と一致しない
+changed="$(git -c core.quotePath=false diff --no-ext-diff --no-renames --name-only "$base" HEAD)" || {
+    echo "evaluator-guard: $base と HEAD の差分を取れない" >&2
+    exit 2
+}
 
 # 一覧の行は、末尾が / ならディレクトリ配下すべて、それ以外は完全一致
 touches_evaluator() {

@@ -95,6 +95,24 @@ guard() {
 @test "ループの PR で base を解決できなければ落ちる" {
     run guard harness/review-2026-10-04 no-such-rev
     assert_failure 2
+    assert_output --partial 'no-such-rev'
+}
+
+@test "GITHUB_HEAD_REF が無いループのブランチでは origin/main との merge-base で判定する" {
+    git -C "$REPO" update-ref refs/remotes/origin/main "$BASE"
+    git -C "$REPO" switch -q -c harness/review-2026-10-04
+    put evaluator/detector.sh 'echo changed'
+    commit change
+    run guard
+    assert_failure 1
+    assert_output --partial 'evaluator/detector.sh'
+}
+
+@test "GITHUB_HEAD_REF が無いループのブランチで origin/main が無ければ落ちる" {
+    git -C "$REPO" switch -q -c harness/review-2026-10-04
+    run guard
+    assert_failure 2
+    assert_output --partial 'origin/main'
 }
 
 @test "引数を省くと GITHUB_HEAD_REF と merge commit の第1親で判定する" {
@@ -114,4 +132,12 @@ guard() {
     commit change
     run guard
     assert_success
+}
+
+@test "日本語を含む Evaluator のパスも捕まえる" {
+    put evaluator/失敗の類型.md 'changed'
+    commit change
+    run guard harness/review-2026-10-04 "$BASE"
+    assert_failure 1
+    assert_output --partial 'evaluator/失敗の類型.md'
 }
