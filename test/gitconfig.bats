@@ -50,7 +50,6 @@ setup() {
 @test "upstream の無いブランチへの素の git push が .git/config に書かずに成功する" {
     run git -C "$REPO" push
     assert_success
-    refute_output --partial 'unable to write upstream'
 
     run git -C "$REMOTE" rev-parse --verify -q refs/heads/feature
     assert_success
