@@ -13,14 +13,12 @@ setup() {
     if [ "$(uname -s)" != "Darwin" ]; then
         skip "template is darwin-only"
     fi
-    REPO="${BATS_TEST_DIRNAME}/.."
-    TMPL="${REPO}/.chezmoiscripts/run_onchange_after_pull-nono-packs.sh.tmpl"
-    CONFIG="${REPO}/test/fixtures/chezmoi-personal.toml"
+    load 'helpers/render'
+    TMPL="${RENDER_REPO}/.chezmoiscripts/run_onchange_after_pull-nono-packs.sh.tmpl"
     FAKE_BIN="${BATS_TEST_TMPDIR}/bin"
     mkdir -p "${FAKE_BIN}"
     CALLS="${BATS_TEST_TMPDIR}/calls"
     export CALLS
-    CHEZMOI="$(command -v chezmoi)"
 }
 
 # $1 に書いた本体を持つ偽 nono を FAKE_BIN に作る。呼ばれた引数は $CALLS に追記する
@@ -36,13 +34,7 @@ EOF
 
 # 偽 nono だけが見える PATH でテンプレートを描画する
 render() {
-    PATH="${FAKE_BIN}:/usr/bin:/bin" "${CHEZMOI}" execute-template \
-        --config "${CONFIG}" --source "${REPO}" <"${TMPL}"
-}
-
-@test "chezmoi が使える" {
-    run command -v chezmoi
-    assert_success
+    PATH="${FAKE_BIN}:/usr/bin:/bin" render_template personal "${TMPL}"
 }
 
 @test "nono のバージョンが描画結果に入る" {
