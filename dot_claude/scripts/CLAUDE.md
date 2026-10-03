@@ -550,8 +550,8 @@ Source 上の配線は git-push-guard と同じく `just test-settings-hooks`(`t
 - **自分のセッションの除外は 2 段**: `HARNESS_DISABLE=1` で SessionEnd trigger に積ませず、加えて起動前に `weekly-sessions.txt` へ記録した session id を pending から実行の前後に外す。後者は環境変数が nono や hook まで届かなかった場合と、SIGKILL で後片付けの trap が動かなかった前回の積み残しのため。
 - **再実行の安全性**: `weekly.lock/`(中に PID)で同時実行を防ぎ、持ち主が死んだ lock は取り戻す。プロンプトでセッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進ませるので、途中で止まっても失うのは高々 1 セッション分。
 - ログは `~/Library/Logs/harness-weekly.log`。briefing / doctor は plist が置かれたマシンでだけ heartbeat を見る(古さの閾値 8 日は両スクリプトで揃える)。テストは `test/harness-weekly.bats`(nono / claude / uuidgen をスタブにする)。
-- **実機の Contrast Pair(2026-10-02、nono 0.78.0 / Claude Code 2.1.287)— nono 側は未達。** 一時ラベルで launchd に 2 つ登録し、同じプロンプト(Bash を 1 回呼び、`INSIDE_NONO_SANDBOX` と `HARNESS_DISABLE` を出す)を実行した。
-  - **nono で包まない側**: 成功(`is_error: false`)。Bash が動き、`HARNESS_DISABLE=1` が Bash の子プロセスまで届いた。費用 $0.43。
-  - **nono で包んだ側**: `Not logged in · Please run /login` で失敗。結果は `subtype: success` のまま `is_error: true` だったので、`is_error` を見る判定が偽の heartbeat を防いだ。launchd に固有ではなく、自分のシェルから環境変数を絞らずに `nono run --profile claude-seal --allow-cwd -- claude auth status` を実行しても `loggedIn: false` になる(nono の外では `true`)。nono の内側でも `security find-generic-password -s 'Claude Code-credentials' -w` は鍵を読め、`nono why` は `~/.claude.json` / `~/.claude/.claude.json` を ALLOWED と答える。nono の終了時の報告は `~ (read)` と `/home (read)` の拒否を挙げたが、CLI で `--read ~` を付けると nono 自身が「nono state root と重なる」として拒否するため、この仮説は確かめられていない。
-  - 同時に、`~/.claude.json` の symlink の向きが `.claude/.claude.json`(先頭がドット)に変わっていた(`.chezmoiignore` のコメントが前提にする `~/.claude/claude.json` ではない)。認証の失敗との関係は未確認。
-  - nono 側で未確認のまま残るもの: 環境変数(`HARNESS_DISABLE`)が nono を越えて hook まで届くか、`--session-id` で渡した id を SessionEnd が受け取るか、予算切れの run の結果の形。
+- **実機の Contrast Pair(2026-10-02〜03、nono 0.78.0 / Claude Code 2.1.287)。** 一時ラベルで launchd に登録し、同じプロンプト(Bash を 1 回呼び、`INSIDE_NONO_SANDBOX` と `HARNESS_DISABLE` を出す)を nono で包んだ起動と包まない起動で実行した。
+  - **nono で包まない側**: 成功(`is_error: false`)。`INSIDE_NONO_SANDBOX=unset HARNESS_DISABLE=1`。費用 $0.43。
+  - **nono で包んだ側**: 成功(`is_error: false`)。`INSIDE_NONO_SANDBOX=1 HARNESS_DISABLE=1` で、Bash は入れ子のサンドボックスで落ちず(exit 71 なし)、`HARNESS_DISABLE` は nono を越えて子プロセスまで届いた。結果の `session_id` は `--session-id` で渡した値と一致した。費用 $0.38。
+  - **最初の試行では nono の内側だけ `Not logged in` で失敗した**(#418)。launchd に固有ではなく、対話の wrapper 経由の `claude` も同じく未ログインになっており、ログインし直すと両方とも直った。このとき結果は `subtype: success` のまま `is_error: true` だったので、終了コードではなく `is_error` を見る判定が偽の heartbeat を防いだ。認証が切れると週次ジョブは黙らずに失敗し、heartbeat の古さとして briefing に出る。
+  - 未確認のまま残るもの: 予算切れの run の結果の形(`is_error` が立つか)。
