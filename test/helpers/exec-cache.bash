@@ -11,6 +11,9 @@
 #
 # cache は 555 にしてあるので、install_exec を通さずに stub へ直接書き込むと(`cat >"$STUBS/x"`)
 # cache を書き換えずに Permission denied で失敗する。上書きは install_exec か rm してから行う。
+#
+# 1 つの test でしか exec しない stub は、cache を通しても待ちが 1 回で変わらないので直接書いてよい。
+# install_exec が置いたことの無いパスなら、直接書いても cache には触れない。
 
 # install_exec DEST: stdin の内容を実行ファイルとして DEST に置く
 install_exec() {
