@@ -41,7 +41,7 @@ render_codex() {
 }
 
 @test "共有本文は製品名も製品固有のツール名も含まない" {
-    # Source を直接 grep せず、seam(execute-template)を通した結果を見る。
+    # Source を直接 grep せず、render_template(test/helpers/render.bash)で描画した結果を見る。
     # Source を見ていると、テンプレート側で製品名を注入する変更に気づけない
     local shared word
     shared=$(printf '{{ template "agent-instructions-common" }}' |
