@@ -231,6 +231,14 @@ const PUBLISH_SCHEMA = {
   required: ["pushed"],
 };
 
+const TICKET_SCHEMA = {
+  type: "object",
+  properties: { section: { type: "string" } },
+  required: ["section"],
+};
+// ticket-guard フックが PR 作成時に探すマーカー。~/.claude/skills/ticket/SKILL.md と同じ文字列。
+const TICKET_MARKER = "<!-- ticket-skill -->";
+
 function validateArgs(input) {
   const a = input || {};
   const missing = [];
@@ -256,6 +264,9 @@ function validateArgs(input) {
   }
   if (!Object.keys(MODES).includes(a.mode)) {
     throw new Error(`deliver: mode は ${Object.keys(MODES).join(" / ")} のいずれか: ${a.mode}`);
+  }
+  if (a.ticket !== undefined && typeof a.ticket !== "boolean") {
+    throw new Error(`deliver: ticket は真偽値: ${a.ticket}`);
   }
   // 値が undefined のキーを spread すると既定値を消し、上限が黙って外れるので、先に除く。
   const given = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined));
@@ -530,6 +541,33 @@ function publishPrompt(state, dir) {
 4. PR の URL と ledger の絶対パス(${dir}/ledger.json)を返す。どこかで失敗したら pushed=false と error を返す。
 
 TITLE: ${state.title || "deliver"}`;
+}
+
+function ticketPrompt(config) {
+  return `PR 本文に足す「チケット」節を作れ。issue や PR の作成・編集はしない。
+1. ~/.claude/skills/ticket/SKILL.md を Read ツールで読み、作成モードの手順2(関連 issue のメンション)と手順4(Closes と AC 対応表)に従う。
+2. 対象の変更は「git diff ${config.baseRef}...HEAD」、要件文書は ${config.requirementsPath}。
+3. 節は「## チケット」で始まる Markdown にして section で返す。マーカーは付けない(呼び出し側が付ける)。`;
+}
+
+// 節を作れなくても公開は止めない(止めると PR ごと失う)。作れなかったことは本文に残し、マージ前に人が補う。
+async function withTicketSection(state, report) {
+  let section = null;
+  try {
+    const result = await agent(ticketPrompt(state.config), {
+      label: "ticket",
+      phase: "Publish",
+      schema: TICKET_SCHEMA,
+    });
+    if (result && typeof result.section === "string" && result.section.trim() !== "")
+      section = result.section.trim();
+  } catch (error) {
+    log(`チケット節を作れなかった: ${String(error && error.message ? error.message : error)}`);
+  }
+  const body =
+    section ??
+    "## チケット\n\nチケット節を作れなかった。マージ前に ticket スキルの作成モードで補うこと。";
+  return `${report}\n\n${body}\n\n${TICKET_MARKER}\n`;
 }
 
 // Workflow のスクリプトには TextEncoder が有るとは限らない(JS の組込みではない)ので、UTF-8 のバイト数を自前で数える。
@@ -1130,8 +1168,12 @@ const report = renderReport(state);
 const stats = renderStats(state);
 const ledger = ledgerJson(state);
 let published = null;
+let prBody = report;
 try {
-  if (config.features.publish) published = await publish(state, report, ledger);
+  if (config.features.publish) {
+    if (config.ticket === true) prBody = await withTicketSection(state, report);
+    published = await publish(state, prBody, ledger);
+  }
 } catch (error) {
   published = { pushed: false, error: String(error && error.message ? error.message : error) };
   log(`公開に失敗した: ${published.error}`);
@@ -1142,6 +1184,8 @@ return {
   publishError: published && !published.pushed ? published.error || "理由なし" : null,
   stopReason: state.stopReason,
   report,
+  // 公開に使った PR 本文。公開できなかったとき、入口 skill はこれを pr-body.md に書き出す。
+  prBody,
   // 入口 skill が、引数で渡された Issue に投稿する(報告の「統計」節と同じ内容)。
   stats,
   // 公開できなかったとき、入口 skill(agent() の上限の対象外)が pr-body.md / ledger.json を書き出すのに使う。

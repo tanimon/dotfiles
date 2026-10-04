@@ -1588,3 +1588,54 @@ test("統計にはエージェントの自由記述(停止の詳細)を入れな
   assert.doesNotMatch(result.stats, /原因が分からない|画面が真っ白/);
   assert.match(result.stats, /- 停止: 動作確認の失敗を修正エージェントが直せなかった/);
 });
+
+const TICKET_MARKER = "<!-- ticket-skill -->";
+const withTicket =
+  (ticketResponse, base = scenario()) =>
+  (label, calls) =>
+    label === "ticket" ? ticketResponse : base(label, calls);
+const publishedBody = (calls) =>
+  between(calls.find((c) => c.label === "publish-write:1").prompt, "REPORT");
+
+test("ticket が真なら公開の前にチケット節を作り、本文の末尾にマーカーを付ける", async () => {
+  const { result, labels, calls } = await runWorkflow({
+    args: { ticket: true },
+    respond: withTicket({ section: "## チケット\n\nCloses #5" }),
+  });
+  assert.deepEqual(labels.slice(-3), ["ticket", "publish-write:1", "publish"]);
+  const body = publishedBody(calls);
+  assert.match(body, /## チケット\n\nCloses #5/);
+  assert.ok(body.trimEnd().endsWith(TICKET_MARKER));
+  assert.equal(result.prBody, body);
+  assert.equal(result.published, true);
+});
+
+test("ticket を省略したらチケット節もマーカーも付けない", async () => {
+  const { result, labels, calls } = await runWorkflow();
+  assert.ok(!labels.includes("ticket"));
+  assert.ok(!publishedBody(calls).includes(TICKET_MARKER));
+  assert.equal(result.prBody, result.report);
+});
+
+test("チケット節を作れなくても公開し、作れなかったことを本文に残す", async () => {
+  const { result, calls } = await runWorkflow({
+    args: { ticket: true },
+    respond: withTicket(null),
+  });
+  const body = publishedBody(calls);
+  assert.match(body, /チケット節を作れなかった/);
+  assert.ok(body.trimEnd().endsWith(TICKET_MARKER));
+  assert.equal(result.published, true);
+});
+
+test("review-verify では ticket が真でもチケット節を作らない", async () => {
+  const { labels } = await runWorkflow({
+    args: { mode: "review-verify", ticket: true },
+    respond: withTicket({ section: "## チケット" }),
+  });
+  assert.ok(!labels.includes("ticket"));
+});
+
+test("ticket が真偽値でなければ拒否する", async () => {
+  await assert.rejects(runWorkflow({ args: { ticket: "yes" } }), /ticket は真偽値/);
+});
