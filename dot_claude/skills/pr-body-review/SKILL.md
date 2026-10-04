@@ -16,9 +16,9 @@ gh pr view <引数> --json number,url,title,state,baseRefName,headRefName,commit
 
 引数が無ければ `<引数>` を省き、現在のブランチの PR を対象にする。PR が無い・特定できないときは、理由を伝えて止まる。`state` が `MERGED` / `CLOSED` なら、そのことを伝えて続けるかを聞く(マージ済みの PR の AC 対応表は ticket スキルの照合モードが根拠として読むので、直す意味はある)。
 
-以降のコマンドの `<PR>` には、ここで得た `url` を使う。番号を渡すと `gh` は現在のディレクトリのリポジトリで PR を探すので、別のリポジトリの URL で起動したときに別の PR を読み書きしてしまう。
+以降のコマンドの `<PR>` には、ここで得た `url` を使う。番号を渡すと `gh` は現在のディレクトリのリポジトリで PR を探すので、別のリポジトリの URL で起動したときに別の PR を読み書きしてしまう。以降の `<owner>` / `<repo>` / `<number>` も、この `url`(`https://github.com/<owner>/<repo>/pull/<number>`)から取る。
 
-編集前の本文をファイルに保存する。置き場所は `git rev-parse --absolute-git-dir` を単独で実行した出力に `/pr-body-review` を足したディレクトリ(以降 `<dir>`)。git リポジトリの外で起動して `git rev-parse` が失敗したときは、セッションの scratchpad ディレクトリの下に `pr-body-review` を作って `<dir>` にする。
+編集前の本文をファイルに保存する。置き場所は `git rev-parse --absolute-git-dir` を単独で実行した出力に `/pr-body-review/<owner>-<repo>-<number>` を足したディレクトリ(以降 `<dir>`)。git リポジトリの外で起動して `git rev-parse` が失敗したときは、セッションの scratchpad ディレクトリの下に `pr-body-review/<owner>-<repo>-<number>` を作って `<dir>` にする。PR ごとに分けるのは、同じ worktree の別のセッションが別の PR を見直したときに、互いの `original.md` / `edited.md` を上書きしないため。
 
 ```bash
 mkdir -p <dir>
@@ -53,15 +53,13 @@ gh pr diff <PR>
 gh api repos/<owner>/<repo>/pulls/<number>/files --paginate
 ```
 
-コミットの一覧(手順1の `commits`)で、本文を書いた後に何が積まれたかを掴む。食い違いを生んだコミットを根拠として示すために、怪しいコミットの変更は次のコマンドで読む(`<sha>` は `commits` の `oid`)。
+照らす相手は PR 全体の差分で、本文をいつ書いたかは問わない。食い違いを見つけたら、それを生んだコミットを根拠として示すために、コミットの一覧(手順1の `commits`)から当たりを付け、その変更を次のコマンドで読む(`<sha>` は `commits` の `oid`)。
 
 ```bash
 gh api repos/<owner>/<repo>/commits/<sha> --jq '.files[] | {filename, patch}'
 ```
 
 `Closes #N` / `Refs #N` の issue の AC を読むときは、PR と同じリポジトリを指定する(`gh issue view <N> -R <owner>/<repo> --json body`)。指定しないと、現在のディレクトリのリポジトリにある同じ番号の issue を読んでしまう。
-
-`<owner>/<repo>` と `<number>` は手順1の `url` から取る。
 
 本文の記述を節ごとに差分と照らし、次に当たるものを食い違いとして洗い出す。
 
@@ -87,7 +85,7 @@ gh api repos/<owner>/<repo>/commits/<sha> --jq '.files[] | {filename, patch}'
 git diff --no-index --no-ext-diff <dir>/original.md <dir>/edited.md
 ```
 
-`AskUserQuestion` で「この内容で書き戻す / 直してから書き戻す / やめる」を選んでもらう。承認なしに書き込まない。「直してから書き戻す」が選ばれたら、指示どおりに `<dir>/edited.md` を直し、この手順の一覧と差分の提示からやり直して、もう一度選んでもらう。最終形を見せないまま書き戻さない。
+`AskUserQuestion` で「この内容で書き戻す / 直してから書き戻す / やめる」を選んでもらう。承認なしに書き込まない。「直してから書き戻す」が選ばれたら、指示どおりに `<dir>/edited.md` を直し、この手順の一覧と差分の提示からやり直して、もう一度選んでもらう。最終形を見せないまま書き戻さない。直した結果 `<dir>/edited.md` が `<dir>/original.md` と同じになったら、書き戻さずに手順7へ進む。
 
 ## 6. 書き戻して確かめる
 
