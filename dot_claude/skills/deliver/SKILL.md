@@ -16,11 +16,11 @@ argument-hint: "<plan のパス> [base=] [verify=] [rounds=] [stats-issue=https:
 4. **テスト/lint のコマンドを決める。** プロジェクトの CLAUDE.md が示す検証コマンド(例: `just lint`、`bash scripts/lint/git-diff-lint.sh`、`npm test`)を列挙する。特定できない、または候補が複数あって選べない場合は、`AskUserQuestion` で選んでもらう。1件以上が必要。
 5. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。
 6. **上限回数を決める。** 引数 `rounds=` があれば `maxReviewRounds` に使い、無ければ省略する(既定は 3)。引数 `stats-issue=` があれば、`https://github.com/<owner>/<repo>/issues/<番号>` の形の URL であることを確かめて控える(手順9で使う)。番号だけ(`426` や `#426`)なら中止し、URL で渡し直すよう伝える。番号だけでは、`gh` がカレントのリポジトリの同じ番号の Issue に投稿する。
-7. **起動する。** Workflow ツールを次の形で呼ぶ。`args` は JSON の値として渡し、文字列化しない。
+7. **起動する。** Workflow ツールを次の形で呼ぶ。`args` は JSON の値として渡し、文字列化しない。`~/.claude/workflows/deliver.js` は名前付きワークフローとして `name` で起動する。`scriptPath` で渡すと、作業ディレクトリの外のファイルとして拒否される。
 
    ```
    Workflow({
-     scriptPath: "<ホームディレクトリの絶対パス>/.claude/workflows/deliver.js",
+     name: "deliver",
      args: {
        mode: "deliver",
        requirementsPath: "<手順2の plan の絶対パス>",
