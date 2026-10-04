@@ -15,6 +15,7 @@
 # gh と pnpm はスタブで、gh は呼ばれた引数と --body-file の中身を記録する。
 setup() {
     load 'helpers/setup'
+    load 'helpers/exec-cache'
     # スクリプトが読む環境変数を、このマシンのシェルから漏らさない
     unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS \
         HARNESS_WEEKLY_REVIEW_BUDGET_USD HARNESS_WEEKLY_REPO
@@ -48,14 +49,14 @@ setup() {
     BRANCH="harness/review-$(date +%Y-%m-%d)"
     WT="$HDIR/review-worktree"
 
-    cat >"$STUBS/nono" <<'EOF'
+    install_exec "$STUBS/nono" <<'EOF'
 #!/usr/bin/env bash
 printf 'nono' >>"$ARGV_LOG"
 printf ' %s' "$@" >>"$ARGV_LOG"
 printf '\n' >>"$ARGV_LOG"
 exit 99
 EOF
-    cat >"$STUBS/claude" <<'EOF'
+    install_exec "$STUBS/claude" <<'EOF'
 #!/usr/bin/env bash
 printf 'claude' >>"$ARGV_LOG"
 printf ' %s' "$@" >>"$ARGV_LOG"
@@ -139,11 +140,11 @@ killed)
     ;;
 esac
 EOF
-    cat >"$STUBS/uuidgen" <<'EOF'
+    install_exec "$STUBS/uuidgen" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${STUB_UUID:-AAAAAAAA-0000-0000-0000-000000000001}"
 EOF
-    cat >"$STUBS/gh" <<'EOF'
+    install_exec "$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GH_LOG"
 if [[ "$1 $2" == "pr list" ]]; then
@@ -157,12 +158,11 @@ done
 [[ -z "${STUB_GH_FAIL:-}" ]] || exit 1
 printf 'https://github.com/example/dotfiles/pull/42\n'
 EOF
-    cat >"$STUBS/pnpm" <<'EOF'
+    install_exec "$STUBS/pnpm" <<'EOF'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
 [[ -z "${STUB_PNPM_FAIL:-}" ]]
 EOF
-    chmod +x "$STUBS"/*
     export PATH="$STUBS:$PATH"
     # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く
     printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"

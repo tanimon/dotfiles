@@ -8,6 +8,7 @@
 # 再現に頼るテストは require_chmod_denial で root のとき skip する。
 setup() {
     load 'helpers/setup'
+    load 'helpers/exec-cache'
     # driver が「サンドボックスの内側」の印として読む変数を、このシェルから漏らさない
     unset INSIDE_NONO_SANDBOX CLAUDECODE SANDBOX_RUNTIME NATIVE_SANDBOX_SMOKE_BUDGET_USD STUB_SANDBOX STUB_CLAUDE_MODE STUB_CHEZMOI_FAIL
     REPO="$BATS_TEST_DIRNAME/.."
@@ -30,7 +31,7 @@ setup() {
     #   no-probe        何もせずに終わる(モデルがプローブを実行しなかった状況)
     #   empty-results   空の結果ファイルだけを作る
     #   exit1           エラー終了する(起動引数が不正だった状況)
-    cat >"$STUBS/claude" <<'EOF'
+    install_exec "$STUBS/claude" <<'EOF'
 #!/usr/bin/env bash
 for a in "$@"; do printf '%s\n' "$a"; done >"$ARGV_LOG"
 printf 'HARNESS_DISABLE=%s\n' "${HARNESS_DISABLE:-}" >"$ENV_LOG"
@@ -58,12 +59,11 @@ esac
 printf '{"type":"result","is_error":false,"result":"stub reply"}\n'
 EOF
     # chezmoi のスタブ。source のレンダリング結果として STUB_RENDERED を返す
-    cat >"$STUBS/chezmoi" <<'EOF'
+    install_exec "$STUBS/chezmoi" <<'EOF'
 #!/usr/bin/env bash
 [[ -n "${STUB_CHEZMOI_FAIL:-}" ]] && exit 1
 cat "$STUB_RENDERED"
 EOF
-    chmod +x "$STUBS"/*
     export PATH="$STUBS:$PATH"
 
     # デプロイ済みの settings の fixture。~/.config/gh は denyRead と allowRead の両方にある
