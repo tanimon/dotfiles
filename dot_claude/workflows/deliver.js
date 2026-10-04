@@ -907,8 +907,8 @@ async function reviewRounds(state, tracker) {
     const advisoryToFix = roundNo === 1 ? pendingAdvisory : [];
     const converged = result.blocking.length === 0 && advisoryToFix.length === 0;
     const capped = !converged && fixRound >= state.config.maxReviewRounds;
-    const fixes = result.requirementsBreaking.length === 0 && !converged && !capped;
-    const advisorySent = fixes ? advisoryToFix.length : 0;
+    const runsFix = result.requirementsBreaking.length === 0 && !converged && !capped;
+    const advisorySent = runsFix ? advisoryToFix.length : 0;
     tracker.unverified = [];
     tracker.unverifiedAdvisory = [];
     if (result.dropped.length > 0)
