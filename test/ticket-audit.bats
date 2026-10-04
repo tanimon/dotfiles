@@ -1,4 +1,5 @@
 # ticket スキルの照合スクリプト。gh をスタブにして、検出する場合としない場合を対で確かめる。
+bats_require_minimum_version 1.5.0
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/skills/ticket/scripts/executable_audit.sh"
@@ -49,6 +50,20 @@ open_issue() {
     run bash "$SCRIPT"
     assert_success
     assert_output $'blocked-by-missing\t450\t#401'
+}
+
+@test "Blocked by が別リポジトリの owner/repo#N だけなら何も出さない" {
+    open_issue 450 $'## Blocked by\n\n- tanimon/other#5 (別リポジトリ)\n'
+    run bash "$SCRIPT"
+    assert_success
+    assert_output ''
+}
+
+@test "Blocked by が同じリポジトリの #N なら blocked-by-missing" {
+    open_issue 450 $'## Blocked by\n\n- #5 (同じリポジトリ)\n'
+    run bash "$SCRIPT"
+    assert_success
+    assert_output $'blocked-by-missing\t450\t#5'
 }
 
 @test "本文の Blocked by が API にもあれば何も出さない" {
@@ -155,4 +170,19 @@ open_issue() {
     printf 'not json' >"$GH_FIXTURES/open.json"
     run bash "$SCRIPT"
     assert_failure
+}
+
+@test "件数が上限に達したら stderr に知らせ、stdout は変えない" {
+    open_issue 450 'no relationship'
+    run --separate-stderr env TICKET_AUDIT_LIMIT=1 bash "$SCRIPT"
+    assert_success
+    assert_output ''
+    [[ "$stderr" == *'audit.sh: open の issue が上限 1 件に達した'* ]]
+}
+
+@test "件数が上限に達していなければ stderr は空" {
+    open_issue 450 'no relationship'
+    run --separate-stderr bash "$SCRIPT"
+    assert_success
+    [ -z "$stderr" ]
 }

@@ -4,14 +4,19 @@
 # 呼び出し側は LC_ALL=C で動かす(tolower と日本語の見出しをバイト単位で扱うため)。
 
 # section_refs <pattern>: stdin の本文のうち、見出しが pattern に一致する節の中の #N の N を 1 行 1 番号で出す。
+# 直前が英数字・`/`・`_`・`.`・`-` の #N(`owner/repo#5` など)は別リポジトリの参照なので出さない。
 section_refs() {
     awk -v pattern="$1" '
         /^#+[ \t]/ { in_section = (tolower($0) ~ pattern); next }
         in_section {
             line = $0
+            previous = ""
             while (match(line, /#[0-9]+/)) {
-                print substr(line, RSTART + 1, RLENGTH - 1)
-                line = substr(line, RSTART + RLENGTH)
+                start = RSTART; length_ = RLENGTH
+                before = (start > 1) ? substr(line, start - 1, 1) : previous
+                if (before !~ /[A-Za-z0-9\/_.-]/) print substr(line, start + 1, length_ - 1)
+                previous = substr(line, start + length_ - 1, 1)
+                line = substr(line, start + length_)
             }
         }'
 }

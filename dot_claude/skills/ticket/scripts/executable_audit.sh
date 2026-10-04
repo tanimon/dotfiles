@@ -7,7 +7,7 @@
 #   ac-unchecked        PR で close された issue の AC 節に [ ] が残る(1 項目 1 行)
 #   mentioned-by-merged open の issue に同じリポジトリのマージ済み PR からの言及がある(Closes の書き忘れの候補。
 #                       言及は解決を意味しないので、close するかは人が決める)
-# 件数の上限は TICKET_AUDIT_LIMIT(既定 100)。gh の --jq は使わず jq に渡す(テストで gh をスタブにするため)。
+# 件数の上限は TICKET_AUDIT_LIMIT(既定 100)。取得件数が上限に達した一覧があれば stderr に 1 行知らせる(stdout は変えない)。gh の --jq は使わず jq に渡す(テストで gh をスタブにするため)。
 set -euo pipefail
 export LC_ALL=C
 
@@ -16,8 +16,16 @@ LIMIT=${TICKET_AUDIT_LIMIT:-100}
 # shellcheck source=dot_claude/skills/ticket/scripts/sections.bash
 source "$(dirname "${BASH_SOURCE[0]}")/sections.bash"
 
+# warn_if_limit_reached <対象> <件数>: 件数が上限に等しければ、古いものを見ていない可能性を stderr に出す。
+warn_if_limit_reached() {
+    if [[ "$2" -eq "$LIMIT" ]]; then
+        echo "audit.sh: $1 が上限 $LIMIT 件に達した。TICKET_AUDIT_LIMIT を上げて再実行すると古いものも見る" >&2
+    fi
+}
+
 repo=$(gh repo view --json nameWithOwner | jq -r .nameWithOwner)
 open_json=$(gh issue list --state open --limit "$LIMIT" --json number,body)
+warn_if_limit_reached "open の issue" "$(printf '%s' "$open_json" | jq 'length')"
 open_numbers=$(printf '%s' "$open_json" | jq -r '.[].number')
 
 # relationship
@@ -48,7 +56,9 @@ while IFS= read -r item; do
 done <<<"$items"
 
 # open-after-merge
-references=$(gh pr list --state merged --limit "$LIMIT" --json number,closingIssuesReferences |
+merged_json=$(gh pr list --state merged --limit "$LIMIT" --json number,closingIssuesReferences)
+warn_if_limit_reached "マージ済みの PR" "$(printf '%s' "$merged_json" | jq 'length')"
+references=$(printf '%s' "$merged_json" |
     jq -r --arg repo "$repo" '.[] | .number as $pr | .closingIssuesReferences[]
         | select((.url | split("/")[3:5] | join("/")) == $repo)
         | "\(.number)\t\($pr)"')
@@ -77,7 +87,9 @@ for number in $open_numbers; do
 done
 
 # ac-unchecked
-closed=$(gh issue list --state closed --limit "$LIMIT" --json number,body,closedByPullRequestsReferences |
+closed_json=$(gh issue list --state closed --limit "$LIMIT" --json number,body,closedByPullRequestsReferences)
+warn_if_limit_reached "close 済みの issue" "$(printf '%s' "$closed_json" | jq 'length')"
+closed=$(printf '%s' "$closed_json" |
     jq -c '.[] | select((.closedByPullRequestsReferences | length) > 0)
         | {number, body: (.body // ""), pr: .closedByPullRequestsReferences[0].number}')
 while IFS= read -r item; do
