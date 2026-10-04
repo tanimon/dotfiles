@@ -1,7 +1,7 @@
 ---
 name: review-verify
 description: 既にコミットされたブランチに、要件文書(plan または spec)を基準にしたレビュー修正ループ(上限付き)と動作確認だけをかけ、PR は作らずに人間へ報告する。「このブランチをレビューして直して動作確認まで」「spec を渡すのでレビューループだけ回して」「/review-verify」など、実装は済んでいて仕上げだけを自律で回したいときに使う。実装から始めたい(plan を渡して実装から任せたい)なら /deliver を使う。要件文書が無いブランチ、main などの保護ブランチ上での作業には使わない。
-argument-hint: "<要件文書のパス> [base=] [verify=] [rounds=] [stats-issue=https://github.com/tanimon/dotfiles/issues/426]"
+argument-hint: "<要件文書のパス> [base=] [verify=] [rounds=] [stats-issue=<Issue の URL>]"
 ---
 
 # review-verify

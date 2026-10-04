@@ -1,7 +1,7 @@
 ---
 name: deliver
 description: 実装計画(plan)を受け取り、実装 → レビュー修正ループ(上限付き)→ 動作確認 → 人間への報告までを自律実行する。push と PR の作成はせず、公開は人間に委ねる。「この plan を実装して」「plan を渡すので自律で仕上げて」「/deliver」など、分解済みの plan を人手を挟まずに仕上げたいときに使う。spec や PRD しか無い(タスク分解の無い)入力、main などの保護ブランチ上での作業、一歩ずつ人間がレビューしたい作業には使わない。
-argument-hint: "<plan のパス> [base=] [verify=] [rounds=] [stats-issue=https://github.com/tanimon/dotfiles/issues/426]"
+argument-hint: "<plan のパス> [base=] [verify=] [rounds=] [stats-issue=<Issue の URL>]"
 ---
 
 # deliver
