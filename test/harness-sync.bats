@@ -2,6 +2,7 @@
 # すべて harness.sh を外部コマンドとして呼び、内部関数は直接呼ばない(spec「テスト方針」)。
 setup() {
     load 'helpers/setup'
+    load 'helpers/exec-cache'
     HARNESS="$BATS_TEST_DIRNAME/../harness/bin/harness.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
@@ -20,7 +21,7 @@ setup() {
 # make_stub NAME VERSION [HELP_TEXT]: --version と --help の出力を制御する stub 実行ファイルを作る
 make_stub() {
     local name=$1 version=$2 help=${3:-usage}
-    cat >"$STUB_BIN/$name" <<EOF
+    install_exec "$STUB_BIN/$name" <<EOF
 #!/usr/bin/env bash
 case "\${1:-}" in
     --version) echo "$name version $version" ;;
@@ -28,7 +29,6 @@ case "\${1:-}" in
     *) exit 64 ;;
 esac
 EOF
-    chmod +x "$STUB_BIN/$name"
 }
 
 # stub_all: 4 runtime すべてを write_manifest の範囲内のバージョンで用意する。
@@ -63,13 +63,12 @@ EOF
 # make_flaky_adapter: fixture adapter。HARNESS_FIXTURE_FAIL=1 なら exit 7、
 # それ以外は target の content フィールドを Target 内容として書く
 make_flaky_adapter() {
-    cat >"$HARNESS_ADAPTER_DIR/flaky.sh" <<'EOF'
+    install_exec "$HARNESS_ADAPTER_DIR/flaky.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 [ "${HARNESS_FIXTURE_FAIL:-0}" != 1 ] || { echo "flaky: 強制失敗" >&2; exit 7; }
 jq -r .content <<<"$3" >"$2"
 EOF
-    chmod +x "$HARNESS_ADAPTER_DIR/flaky.sh"
 }
 
 harness() {
@@ -333,11 +332,10 @@ harness() {
 
 @test "versionArgs で --version 以外のサブコマンドも使える" {
     stub_all
-    cat >"$STUB_BIN/fixture-apm" <<'EOF'
+    install_exec "$STUB_BIN/fixture-apm" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" = version ] && echo "apm 0.30.0"
 EOF
-    chmod +x "$STUB_BIN/fixture-apm"
     cat >"$MANIFEST" <<'EOF'
 { "version": 1, "runtimes": { "apm": { "bin": "fixture-apm", "minVersion": "0.30.0", "versionArgs": ["version"] } }, "targets": [] }
 EOF

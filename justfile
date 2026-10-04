@@ -28,7 +28,12 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'pnpm-lock.yaml' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
+# bats の --jobs は GNU parallel を呼ぶ。parallel が無い環境では空にして直列で走らせる
+bats_jobs := `command -v parallel >/dev/null 2>&1 && echo "--jobs $(getconf _NPROCESSORS_ONLN)" || true`
+
+# 依存レシピはどれもリポジトリに書き込まないので並列に走らせる。出力は混ざるが、失敗したレシピ名は just が最後に出す
 # Run all checks (mirrors CI)
+[parallel]
 lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
@@ -123,7 +128,7 @@ zizmor:
 # "unknown test name" failures (notify.bats: 23 -> 16 executed). See .claude/rules/shell-scripts.md.
 # Smoke test hook scripts(ネイティブサンドボックス smoke test の driver / probe も偽の claude で検査する)
 @test-scripts:
-    LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats
+    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats
 
 # Validate chezmoi templates
 check-templates:
@@ -201,7 +206,7 @@ check-templates:
 # tests in briefing / doctor / weekly have Japanese @test names.
 # Smoke test harness loop scripts (reflect-trigger, briefing, doctor, weekly job)
 @test-harness-scripts:
-    LC_ALL=C pnpm exec bats test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats
+    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats
 
 # 人の PR とローカルの通常のブランチでは何も判定せずに通る。CI の base は merge commit の第 1 親。
 # 自己改善ループの PR(ブランチ名 harness/review-*)が Evaluator のパスに触れていたら落とす
@@ -223,7 +228,7 @@ check-templates:
 
 # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 @test-harness-sync:
-    LC_ALL=C pnpm exec bats test/harness-sync.bats
+    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-sync.bats
 
 # Not part of `lint` — `lint` only checks for drift, it never rewrites tracked files.
 # Regenerate CLAUDE.md / AGENTS.md / .cursor/rules from harness/modules/ + project.json
