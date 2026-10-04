@@ -9,7 +9,25 @@ set -euo pipefail
 
 command -v jq >/dev/null 2>&1 || exit 0
 
-HARNESS_DIR="$HOME/.claude/harness"
+# 週次ジョブの健全性の判定・状態ディレクトリの場所・初期化は lib にある(lib/harness-health.bash)。
+# lib が無い・壊れているときも黙らない: 黙るのはこのフック自体が死んだときだけ、という約束を守るため。
+# 素の source では、無いと exit 1、構文エラーだと exit 2、空だと関数が無いまま exit 127 で
+# 黙って終わるので、読めること・構文・関数の有無を先に確かめる
+HEALTH_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/harness-health.bash"
+lib_broken() {
+    printf 'Harness: ATTENTION\n'
+    printf " - %s is missing or broken — run 'chezmoi apply'\n" "$HEALTH_LIB"
+    exit 0
+}
+if [[ ! -r "$HEALTH_LIB" ]] || ! "$BASH" -n "$HEALTH_LIB" 2>/dev/null; then
+    lib_broken
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/harness-health.bash
+source "$HEALTH_LIB" 2>/dev/null || lib_broken
+declare -F harness_health_dir harness_health_bootstrap harness_health_weekly >/dev/null || lib_broken
+
+HARNESS_DIR=$(harness_health_dir) || lib_broken
 STATE="$HARNESS_DIR/state.json"
 PENDING="$HARNESS_DIR/pending.jsonl"
 QUEUE="$HARNESS_DIR/queue.md"
@@ -18,22 +36,9 @@ REVIEW_OVERDUE_DAYS=7
 PENDING_MAX=5
 PENDING_OLDEST_MAX_DAYS=20
 QUEUE_MAX=10
-# 週次ジョブの間隔(7 日)に、スリープ明けの追いつき実行の分の猶予を足す。
-# harness-doctor.sh の WEEKLY_STALE_DAYS と揃えること
-WEEKLY_STALE_DAYS=8
-WEEKLY_PLIST="$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
-WEEKLY_HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
-# $(id -u) はユーザーが貼り付けて実行するコマンドの一部なので展開しない
-# shellcheck disable=SC2016
-WEEKLY_REMEDY='check ~/Library/Logs/harness-weekly.log, then run launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly from a terminal'
 
 # Bootstrap on first run (new machine / after manual reset).
-mkdir -p "$HARNESS_DIR"
-[[ -f "$STATE" ]] || printf '{"version":1}\n' >"$STATE"
-[[ -f "$PENDING" ]] || : >"$PENDING"
-if [[ ! -f "$QUEUE" ]]; then
-    printf '# Harness improvement queue\n\nAppended by /harness-reflect; processed by /harness-review.\n' >"$QUEUE"
-fi
+harness_health_bootstrap || lib_broken
 
 NOW=$(date +%s)
 WARNINGS=()
@@ -90,28 +95,15 @@ if [[ "$QUEUE_COUNT" -gt "$QUEUE_MAX" ]]; then
     WARNINGS+=("improvement queue piling up (${QUEUE_COUNT} unprocessed) — run /harness-review")
 fi
 
-# 週次ジョブの heartbeat。plist が無いマシン(未 apply・Linux)ではジョブが
-# 動く前提が無いので表示しない。heartbeat が無いのは、plist を置いてから
-# 1 周期経っていなければ「まだ初回が来ていない」、経っていれば「動いていない」
+# 週次ジョブの健全性。warn と fail はどちらも ATTENTION にする(level の意味は lib のコメント)
 WEEKLY_TEXT=""
-if [[ -f "$WEEKLY_PLIST" ]]; then
-    WEEKLY_TEXT="never"
-    if [[ -f "$WEEKLY_HEARTBEAT" ]]; then
-        HEARTBEAT=$(tr -d '[:space:]' <"$WEEKLY_HEARTBEAT" 2>/dev/null) || HEARTBEAT=""
-        if [[ "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
-            WEEKLY_DAYS=$(((NOW - HEARTBEAT) / 86400))
-            WEEKLY_TEXT="${WEEKLY_DAYS}d ago"
-            if [[ "$WEEKLY_DAYS" -ge "$WEEKLY_STALE_DAYS" ]]; then
-                WARNINGS+=("weekly job last succeeded ${WEEKLY_DAYS}d ago — $WEEKLY_REMEDY")
-            fi
-        else
-            WARNINGS+=("weekly-heartbeat is not a number — delete $WEEKLY_HEARTBEAT and $WEEKLY_REMEDY")
-        fi
-    # find の -mtime +N は「N+1 日以上前」なので 1 引く(heartbeat 側の -ge と揃える)
-    elif [[ -n "$(find "$WEEKLY_PLIST" -mtime +"$((WEEKLY_STALE_DAYS - 1))" 2>/dev/null)" ]]; then
-        WARNINGS+=("weekly job has never succeeded since it was installed — $WEEKLY_REMEDY")
-    fi
-fi
+WEEKLY_OUT=$(harness_health_weekly) || lib_broken
+while IFS=$'\t' read -r level message; do
+    case $level in
+    summary) WEEKLY_TEXT=$message ;;
+    warn | fail) WARNINGS+=("$message") ;;
+    esac
+done <<<"$WEEKLY_OUT"
 
 # 週次ジョブが残した Deploy-only Fix(harness-weekly.sh の record_deploy_only)。commit では
 # 直らないので、人が適用してファイルを消すまで知らせ続ける
@@ -128,7 +120,7 @@ fi
 if [[ ${#WARNINGS[@]} -eq 0 ]]; then
     printf 'Harness: OK | queue: %s | pending: %s | last review: %s' \
         "$QUEUE_COUNT" "$PENDING_COUNT" "$LAST_REVIEW_TEXT"
-    [[ -n "$WEEKLY_TEXT" ]] && printf ' | weekly: %s' "$WEEKLY_TEXT"
+    [[ -n "$WEEKLY_TEXT" ]] && printf ' | %s' "$WEEKLY_TEXT"
     printf '\n'
 else
     printf 'Harness: ATTENTION\n'

@@ -202,6 +202,23 @@ seed_queue() {
     assert [ "$hb" -ge "$before" ]
 }
 
+# heartbeat のファイル名と中身(epoch)の知識は、このジョブと判定の lib の 2 か所にある。
+# ジョブは lib を読み込まないので、その一致をここで確かめる
+@test "ジョブが書いた heartbeat を、判定の lib が新しい成功として読む" {
+    run weekly
+    assert_success
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.claude/scripts"
+    : >"$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    cp "$SCRIPT" "$HOME/.claude/scripts/harness-weekly.sh"
+    chmod +x "$HOME/.claude/scripts/harness-weekly.sh"
+    # shellcheck source=../dot_claude/scripts/lib/harness-health.bash
+    source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash"
+    run harness_health_weekly
+    assert_success
+    assert_line "$(printf 'ok\tweekly job last succeeded 0d ago')"
+    refute_line --regexp '^(warn|fail)'
+}
+
 @test "claude が非 0 で終わると失敗し、heartbeat を書き換えない" {
     printf '100\n' >"$HDIR/weekly-heartbeat"
     STUB_CLAUDE_MODE=exit1 run weekly

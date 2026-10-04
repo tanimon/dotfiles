@@ -52,64 +52,53 @@ stub_uname() {
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
 
-@test "weekly: macOS で plist が無ければ未導入として WARN にとどめる" {
-    stub_uname Darwin
-    run doctor
-    assert_success
-    assert_output --partial 'WARN: weekly job not installed'
-}
-
-@test "weekly: launchd の無い OS では plist が無くても何も出さない" {
-    stub_uname Linux
-    run doctor
-    assert_success
-    refute_output --partial 'weekly job'
-}
-
-@test "weekly: heartbeat が新しければ PASS" {
+# 週次ジョブの健全性。判定の場合分けは test/harness-health.bats にあり、ここでは level の
+# PASS / WARN / FAIL と exit code への写し方だけを見る
+@test "weekly: ok は PASS" {
     weekly_installed
     printf '%s\n' "$(date +%s)" >"$HOME/.claude/harness/weekly-heartbeat"
     run doctor
     assert_success
-    assert_output --partial 'PASS: weekly job last succeeded 0d ago'
+    assert_line 'PASS: weekly job last succeeded 0d ago'
 }
 
-@test "weekly: heartbeat が古ければ FAIL" {
+@test "weekly: warn は WARN で、exit 0 のまま" {
+    stub_uname Darwin
+    run doctor
+    assert_success
+    assert_line --partial 'WARN: weekly job not installed'
+}
+
+@test "weekly: fail は FAIL で exit 1" {
     weekly_installed
     printf '%s\n' "$(( $(date +%s) - 10*86400 ))" >"$HOME/.claude/harness/weekly-heartbeat"
     run doctor
     assert_failure
-    assert_output --partial 'FAIL: weekly job last succeeded 10d ago'
+    assert_line --partial 'FAIL: weekly job last succeeded 10d ago — check '
 }
 
-@test "weekly: heartbeat が無く plist が新しければ WARN" {
-    weekly_installed
-    run doctor
-    assert_success
-    assert_output --partial 'WARN: weekly job has never succeeded'
+# 判定の lib が無い・空・構文エラーなら FAIL して exit 1 で終わる
+copy_doctor() {
+    local dir="$BATS_TEST_TMPDIR/scripts"
+    mkdir -p "$dir"
+    cp "$SCRIPT" "$dir/harness-doctor.sh"
+    [[ $1 == missing ]] || mkdir -p "$dir/lib"
+    case $1 in
+    missing) ;;
+    empty) : >"$dir/lib/harness-health.bash" ;;
+    syntax) printf '%s\n' 'harness_health_weekly() {' >"$dir/lib/harness-health.bash" ;;
+    esac
+    printf '%s\n' "$dir/harness-doctor.sh"
 }
 
-@test "weekly: heartbeat が無く plist が 1 周期より古ければ FAIL" {
-    weekly_installed
-    touch -t 202001010000 "$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
-    run doctor
-    assert_failure
-    assert_output --partial 'FAIL: weekly job has never succeeded since it was installed'
-}
-
-@test "weekly: heartbeat が数値でなければ FAIL" {
-    weekly_installed
-    printf 'oops\n' >"$HOME/.claude/harness/weekly-heartbeat"
-    run doctor
-    assert_failure
-    assert_output --partial 'weekly-heartbeat'
-}
-
-@test "weekly: plist があるのに入口スクリプトが無ければ FAIL" {
-    weekly_installed
-    rm "$HOME/.claude/scripts/harness-weekly.sh"
-    printf '%s\n' "$(date +%s)" >"$HOME/.claude/harness/weekly-heartbeat"
-    run doctor
-    assert_failure
-    assert_output --partial 'harness-weekly.sh deployed and executable'
+@test "lib が無い・空・構文エラーなら FAIL して exit 1" {
+    local kind script
+    for kind in missing empty syntax; do
+        script=$(copy_doctor "$kind")
+        run bash "$script"
+        assert_failure 1
+        assert_line --partial "FAIL: lib/harness-health.bash deployed and loadable"
+        assert_line --partial "— run 'chezmoi apply'"
+        rm -rf "$BATS_TEST_TMPDIR/scripts"
+    done
 }

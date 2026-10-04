@@ -15,16 +15,29 @@ check() { # <ok flag: 0 ok / nonzero fail> <label> <remedy>
     fi
 }
 
-HARNESS_DIR="$HOME/.claude/harness"
 SETTINGS="$HOME/.claude/settings.json"
-TRIGGER_STALE_WARN_DAYS=7 # keep in sync with REVIEW_OVERDUE_DAYS in harness-briefing.sh
-WEEKLY_STALE_DAYS=8       # keep in sync with WEEKLY_STALE_DAYS in harness-briefing.sh
-WEEKLY_PLIST="$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+TRIGGER_STALE_WARN_DAYS=7
 
 ok=0
 command -v jq >/dev/null 2>&1 || ok=1
 check "$ok" "jq available" "brew install jq"
 [[ "$ok" -ne 0 ]] && exit 1
+
+# 週次ジョブの健全性の判定と状態ディレクトリの場所は lib にある。読めなければ以降の検査ができない。
+# 素の source は無い・構文エラー・空の lib で黙って落ちるので、briefing と同じ順に確かめる
+HEALTH_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/harness-health.bash"
+ok=0
+if [[ -r "$HEALTH_LIB" ]] && "$BASH" -n "$HEALTH_LIB"; then
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=lib/harness-health.bash
+    source "$HEALTH_LIB" || ok=1
+    declare -F harness_health_dir harness_health_weekly >/dev/null || ok=1
+else
+    ok=1
+fi
+check "$ok" "lib/harness-health.bash deployed and loadable ($HEALTH_LIB)" "run 'chezmoi apply'"
+[[ "$ok" -ne 0 ]] && exit 1
+HARNESS_DIR=$(harness_health_dir)
 
 ok=0
 [[ -f "$SETTINGS" ]] && grep -q 'harness-reflect-trigger.sh' "$SETTINGS" || ok=1
@@ -85,42 +98,20 @@ if [[ -f "$HARNESS_DIR/state.json" ]] && jq empty "$HARNESS_DIR/state.json" 2>/d
     fi
 fi
 
-# 週次ジョブ(ADR 0012)。plist が無いのは、macOS なら未 apply なので WARN にとどめる。
-# launchd の無いマシンでは置かれないので何も出さない。plist があるなら、入口スクリプトと
-# heartbeat の鮮度を見る
-if [[ ! -f "$WEEKLY_PLIST" ]]; then
-    if [[ "$(uname -s)" == Darwin ]]; then
-        printf "WARN: weekly job not installed (%s missing) — run 'chezmoi apply'\n" "$WEEKLY_PLIST"
-    fi
-else
-    ok=0
-    [[ -x "$HOME/.claude/scripts/harness-weekly.sh" ]] || ok=1
-    check "$ok" "harness-weekly.sh deployed and executable" "run 'chezmoi apply'"
-
-    # $(id -u) はユーザーが貼り付けて実行するコマンドの一部なので展開しない
-    # shellcheck disable=SC2016
-    WEEKLY_REMEDY='check ~/Library/Logs/harness-weekly.log, then run launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly from a terminal'
-    HEARTBEAT_FILE="$HARNESS_DIR/weekly-heartbeat"
-    if [[ ! -f "$HEARTBEAT_FILE" ]]; then
-        # plist を置いてから 1 周期経っていなければ初回がまだ来ていないだけなので WARN、
-        # 経っていれば一度も成功していないので FAIL(harness-briefing.sh と同じ判定)。
-        # find の -mtime +N は「N+1 日以上前」なので 1 引く
-        if [[ -n "$(find "$WEEKLY_PLIST" -mtime +"$((WEEKLY_STALE_DAYS - 1))" 2>/dev/null)" ]]; then
-            check 1 "weekly job has never succeeded since it was installed" "$WEEKLY_REMEDY"
-        else
-            printf 'WARN: weekly job has never succeeded (fresh install?) — %s\n' "$WEEKLY_REMEDY"
-        fi
-    else
-        HEARTBEAT=$(tr -d '[:space:]' <"$HEARTBEAT_FILE" 2>/dev/null) || HEARTBEAT=""
-        if [[ ! "$HEARTBEAT" =~ ^[0-9]+$ ]]; then
-            check 1 "weekly-heartbeat is a number" "delete $HEARTBEAT_FILE and $WEEKLY_REMEDY"
-        else
-            AGE_DAYS=$((($(date +%s) - HEARTBEAT) / 86400))
-            ok=0
-            [[ "$AGE_DAYS" -lt "$WEEKLY_STALE_DAYS" ]] || ok=1
-            check "$ok" "weekly job last succeeded ${AGE_DAYS}d ago" "$WEEKLY_REMEDY"
-        fi
-    fi
+# 週次ジョブ(ADR 0012)。level をそのまま WARN / FAIL にする(判定は lib)
+WEEKLY_OUT=""
+if ! WEEKLY_OUT=$(harness_health_weekly); then
+    check 1 "weekly job health judged" "run bash -x on $HEALTH_LIB to see where harness_health_weekly fails"
 fi
+while IFS=$'\t' read -r level message; do
+    case $level in
+    ok) printf 'PASS: %s\n' "$message" ;;
+    warn) printf 'WARN: %s\n' "$message" ;;
+    fail)
+        printf 'FAIL: %s\n' "$message"
+        FAILED=1
+        ;;
+    esac
+done <<<"$WEEKLY_OUT"
 
 exit "$FAILED"
