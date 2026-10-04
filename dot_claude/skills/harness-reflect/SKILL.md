@@ -35,6 +35,24 @@ pitfall, docs/solutions entry) from sessions, and append them to the queue.
 Skip an entry silently if its session_id matches the current session (it is
 already covered by input 1).
 
+## Select inputs with the failure detector
+
+失敗の検出器(Evaluator の一部。ADR 0011)で入力を選んでから抽出する。LLM の判断で
+入力を選ばない。
+
+1. pending を読む前に `bash ~/.claude/scripts/harness-select-pending.sh` を 1 回実行する。
+   各エントリの transcript を検出器にかけ、失敗が 1 件も無いエントリを pending.jsonl から外し、
+   セッションごとの信号別の件数を `~/.claude/harness/detections.jsonl` に記録する。
+   失敗したら抽出に進まずに止め、出力をそのまま報告する。
+2. 残ったエントリごとに `bash ~/.claude/scripts/harness-detect-failures.sh <transcript_path>`
+   を実行する。出力は 1 行 1 件の `{"line":<transcript の行番号>,"signal":<信号>}`。
+   抽出はその行の周辺から始め、検出された失敗の根本原因を探す。信号の意味は
+   スクリプトのヘッダにある。
+3. transcript_path の検査(上の Inputs の 2)に通らないエントリは、選別が触れずに残す。
+   ここでも drop して要約に明記する。
+
+input 1(現在のセッション)はこの選別の対象外。
+
 ## What to extract
 
 - A wrong assumption the agent made, and its root cause
@@ -80,6 +98,6 @@ review skill parses them.
    write-back silently drops sessions recorded in between.
 2. Update state: `jq '.last_reflect_epoch = now | .last_reflect_epoch |= floor'`
    on `~/.claude/harness/state.json` (write via temp file + `mv`).
-3. Report a summary: N sessions analyzed, M entries queued, dropped entries
-   (missing transcripts) if any. If nothing was worth queueing, say so —
+3. Report a summary: the selector's summary line, N sessions analyzed, M entries
+   queued, dropped entries (missing transcripts) if any. If nothing was worth queueing, say so —
    an empty result is a valid outcome, not a failure.

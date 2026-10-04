@@ -1,0 +1,19 @@
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"それで違うファイルも見て。No が返ったら止めて"}}
+{"type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"No hooks ran."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /work/skills/x\n\n違う場合は止める"}]}}
+{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"No changes were made by the agent"}}
+{"type":"user","isSidechain":true,"message":{"role":"user","content":"Stop at the first failure and report"}}
+{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"No further work remains"}}
+this line is not json
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"cat report.tsv"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"lint\tfail\t1m\nThe user doesn't want to proceed is quoted here"}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"gh pr checks 12"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":"lint\tpass\t1m\thttps://example.invalid/runs/1\nnote: a failing check is shown as fail"}]}}
+{"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"echo 'PreToolUse:Bash hook error: x'"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","is_error":false,"content":"PreToolUse:Bash hook error: x"}]}}
+{"type":"assistant","message":{"id":"m4","content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"git status"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t4","is_error":false,"content":"clean"}]}}
+{"type":"assistant","message":{"id":"m5","content":[{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"git status"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t5","is_error":false,"content":"clean"}]}}
+{"type":"assistant","message":{"id":"m6","content":[{"type":"text","text":"違う方法も試せます。[Request interrupted by user] と出たら止めます"}]}}

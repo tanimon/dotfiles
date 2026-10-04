@@ -3,7 +3,8 @@
 # (plist の ProgramArguments が `nono run … -- /bin/bash <このスクリプト>`)。
 #
 # 工程は 2 つで、それぞれ headless の `claude -p` を 1 回ずつ起動する。
-#   1. 抽出: pending のセッションに対して harness-reflect スキルを行う(pending が空なら省く)
+#   1. 抽出: 失敗の検出器で pending を選別し(harness-select-pending.sh。失敗の無いセッションを外す)、
+#      残ったセッションに対して harness-reflect スキルを行う(残りが無ければ省く)
 #   2. 選別: queue に項目があれば、chezmoi の source リポジトリの使い捨ての worktree で
 #      harness-review スキルを行い、採用した変更を commit させる(queue が空なら省く)
 # 採用した commit があれば、push と `gh pr create --draft` はこのスクリプトが固定の引数で
@@ -88,6 +89,9 @@ printf '%s\n' "$$" >"$LOCK/pid"
 
 PENDING="$HARNESS_DIR/pending.jsonl"
 JOB_SESSIONS="$HARNESS_DIR/weekly-sessions.txt"
+# 失敗の検出器で抽出の入力を選ぶスクリプトと、それが書くセッションごとの検出件数の記録
+SELECT_PENDING="$HOME/.claude/scripts/harness-select-pending.sh"
+DETECTIONS="$HARNESS_DIR/detections.jsonl"
 
 # ジョブ自身のセッションを処理の対象から外す(ADR 0012 の Consequences)。
 # 2 段構え: HARNESS_DISABLE で SessionEnd hook に積ませず、それでも積まれた
@@ -423,6 +427,26 @@ result_sections() {
     fi
 }
 
+# PR の本文に付ける、失敗の検出件数の節。この run の選別(harness-select-pending.sh に --run で
+# 抽出の session id を渡したもの)が記録した行だけを信号ごとに足す。前の run で記録済みのセッションは
+# 選別が数え直さないので、件数はこの run で初めて検出器にかけたセッションの分になる。抽出を省いた週
+# (pending が空)も 0 件の表を出す。採用 0 件で PR を作らない週の件数は $DETECTIONS にだけ残る
+DETECTION_SIGNALS="user_negation user_interrupt user_rejection hook_deny ci_failure tool_error repeat"
+detection_section() {
+    local rows="[]" signal count
+    if [[ -f "$DETECTIONS" ]]; then
+        rows=$(jq -cs --arg run "$SESSION_ID" 'map(select(.run == $run))' "$DETECTIONS") || return 1
+    fi
+    printf '\n## 失敗の検出\n\nこの run で検出器にかけたセッション: %s 件(失敗あり %s 件)。\n\n| 信号 | 件数 |\n|---|---:|\n' \
+        "$(jq 'length' <<<"$rows")" "$(jq 'map(select(.counts != {})) | length' <<<"$rows")"
+    for signal in $DETECTION_SIGNALS; do
+        count=$(jq --arg signal "$signal" 'map(.counts[$signal] // 0) | add // 0' <<<"$rows") || return 1
+        # shellcheck disable=SC2016 # バッククォートは Markdown のコードスパン
+        printf '| `%s` | %s |\n' "$signal" "$count"
+    done
+    printf '| 合計 | %s |\n' "$(jq 'map(.counts | add // 0) | add // 0' <<<"$rows")"
+}
+
 # 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
 # Dropped Change の判定に使わない(本文には採用 0 件の週にも指標などが載りうるため)。
 #   - commit 0 件・dropped が空 → PR を作らずに成功(deploy-only だけの週を含む)
@@ -473,6 +497,7 @@ publish_review() {
         return 1
     fi
     result_sections >>"$PR_BODY" || return 1
+    detection_section >>"$PR_BODY" || return 1
     net_change_section "$base" >>"$PR_BODY" || return 1
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
@@ -521,6 +546,8 @@ report_failed_review() {
         result_sections >>"$PR_BODY" ||
             printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
     fi
+    detection_section >>"$PR_BODY" ||
+        printf 'harness-weekly: failed to add the detection counts from %s to %s\n' "$DETECTIONS" "$PR_BODY" >&2
     printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
         "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$ADOPTED_MARK" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
 }
@@ -553,7 +580,14 @@ finish_run() {
 # 処理対象が無い工程は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
 # 両方の工程を省いた週も、finish_run の確認を通れば heartbeat は書く(「ジョブが健全に
 # 回った」の意味。その週は claude と認証の経路を通らない)
-if [[ "$PENDING_BEFORE" -eq 0 ]]; then
+# 抽出の入力は失敗の検出器で選ぶ(ADR 0011)。失敗の無いセッションは claude にかけずに pending から外し、
+# セッションごとの件数を $DETECTIONS に残す。選別が失敗したら抽出に進まない(選ばれていない入力で
+# 抽出すると、検出件数の無いセッションが混ざる)
+bash "$SELECT_PENDING" --run "$SESSION_ID" || {
+    printf 'harness-weekly: selecting pending sessions with %s failed; skipped reflect\n' "$SELECT_PENDING" >&2
+    exit 1
+}
+if [[ "$(count_pending)" -eq 0 ]]; then
     printf 'harness-weekly: pending is empty; skipped reflect\n'
 else
     # 1 回で扱うセッション数に上限を置き、予算(--max-budget-usd)は歯止めに回す。
@@ -563,6 +597,7 @@ else
     # 途中で止まっても失うのが高々 1 セッション分で、queue に重複を作らないため
     PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
 Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl, following its rules, with these changes:
+- Skip running harness-select-pending.sh; this job already ran it. Still run the failure detector on each entry you process.
 - Process at most ${MAX_SESSIONS} entries, oldest recorded_epoch first. Leave the rest in pending.jsonl for the next run.
 - Do the Bookkeeping for each entry before starting the next one: append that session's queue entries (if any), then remove that session's line from pending.jsonl.
 - Update last_reflect_epoch in state.json once at the end.
@@ -638,7 +673,7 @@ Use the harness-review skill, following its rules, with these changes:
 - Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). List a deploy-only fix (one that a commit cannot fix and that takes effect only when a human applies it) in the result file instead.
 - In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Fold fixes for a failing commit hook or just lint into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
 - Always write the result file ${REVIEW_RESULT} before you finish, even if nothing happened: a JSON object {\"dropped\": [...], \"deploy_only\": [...]} whose elements are one-line strings (in Japanese). In \"dropped\", put each dropped change with its queue title and the failing hook or lint check; in \"deploy_only\", each deploy-only fix with what to apply and why. Use empty arrays when there are none. This job decides whether the run failed from this file, not from the PR body.
-- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff and the result file. If nothing is adopted and nothing is stale, make no commits.
+- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection records and the result file. If nothing is adopted and nothing is stale, make no commits.
 - In \"Bookkeeping\", record each adopted verdict as \"${ADOPTED_MARK}\" exactly; this job replaces it with the PR URL.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.

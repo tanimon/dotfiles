@@ -1,0 +1,5 @@
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"README を直して"}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"直しました"}]}}
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"違う、そのファイルじゃない"}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"失礼しました"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"  No, revert that change."}]}}
