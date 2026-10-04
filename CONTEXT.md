@@ -124,6 +124,14 @@ _Avoid_: テストケース(bats と紛らわしい)、評価(無限定)
 自己改善ループが採否を判定したルールごとの記録。Failure Pattern、Eval Case、効果、採否の経緯を、仕事の文脈を含まない形で公開リポジトリに残す。生の証拠はローカルにだけ置く。
 _Avoid_: queue-archive(ローカルの作業記録と混同する)、履歴
 
+**Dropped Change**:
+自己改善ループが採用したが、commit フックや lint を通せずに commit しなかった変更。失敗ではなく、queue に戻して次の選別にかけ直す。採用が1件も commit されずにすべてが Dropped Change になった週だけを、ループの失敗として扱う。
+_Avoid_: 却下(採否の判定と混同する)、失敗した採用
+
+**Deploy-only Fix**:
+リポジトリへの commit では直らず、人が適用して初めて効く修正。PR の有無にかかわらず、人が適用し終えるまで知らせ続ける。
+_Avoid_: 手動修正、apply 待ち
+
 ### Profiles
 
 **Machine Profile**:
@@ -137,11 +145,11 @@ _Avoid_: profile（無限定）、プロファイル
 ### Autonomous delivery
 
 **Deliver**:
-plan を受け取り、実装からレビュー修正ループ・動作確認を経て draft PR と人間への報告までを agent が自律で行うプロセス。
+plan を受け取り、実装からレビュー修正ループ・動作確認を経て人間への報告までを agent が自律で行うプロセス。push も PR の作成もせず、コミットはローカルのブランチに残して、公開するかどうかは人間に委ねる。
 _Avoid_: 自律実装(無限定)
 
 **Review-Verify**:
-既にコミットされたブランチに、Requirements Document を基準にしたレビュー修正ループと動作確認だけをかけ、PR は作らずに人間へ報告するプロセス。Deliver とは、実装から始めないことと、公開しないことが違う。
+既にコミットされたブランチに、Requirements Document を基準にしたレビュー修正ループと動作確認だけをかけ、人間へ報告するプロセス。Deliver とは、実装から始めないことだけが違い、どちらも公開しない。
 _Avoid_: レビューだけモード、deliver の後半
 
 **Review Finding**:
