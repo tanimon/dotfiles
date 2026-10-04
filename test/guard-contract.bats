@@ -19,8 +19,7 @@
 # コピーで確かめる(Contrast Pair: 常に ask を返す guard はここで落ちる)。
 #
 # 起動時に失敗したら判定せずに通す(フェイルオープン)と設計で決めた guard は、上の約束ではなく
-# fail_open_guard の一覧に載せる。ticket-guard は目的が起動忘れの防止で、読めないことを理由に止めると
-# 無関係なコマンドを止める損の方が大きい(chezmoi リポジトリの
+# fail_open_guard の一覧に載せる(ticket-guard がそう決めた理由は、その guard のヘッダと
 # docs/superpowers/specs/2026-10-04-ticket-skill-design.md)。こちらは、起動時の失敗では判定を返す入力
 # (DECISION_INPUT)も無出力になり、HOME の問題では判定が変わらないことを確かめる。
 #
@@ -102,7 +101,8 @@ expect() {
 }
 
 # copy_guard NAME LIB_KIND: guard を lib ごと別の場所に写し、写した script の path を出す。
-# LIB_KIND は missing / empty / syntax / intact で、shell-reader.bash の状態を表す(他の lib は正常なまま写す)。
+# LIB_KIND は missing / empty / syntax / intact。missing は lib ディレクトリごと写さない。
+# empty / syntax は shell-reader.bash だけを壊し、他の lib は正常なまま写す。
 copy_guard() {
     local dir="$BATS_TEST_TMPDIR/$1"
     mkdir -p "$dir"
@@ -228,6 +228,7 @@ assert_lib_contract() {
 # --- フェイルオープンの guard ---
 
 @test "フェイルオープンの一覧の guard はすべて script が存在する" {
+    [[ ${#FAIL_OPEN_NAMES[@]} -gt 0 ]] || fail "一覧が空"
     local name
     for name in "${FAIL_OPEN_NAMES[@]}"; do
         [[ -f "$SCRIPTS/executable_$name.sh" ]] || fail "$name の script が無い"
