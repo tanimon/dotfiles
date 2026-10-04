@@ -372,14 +372,23 @@ result_count() {
     jq -r --arg key "$1" '.[$key] | length' "$REVIEW_RESULT"
 }
 
-# Deploy-only Fix を $DEPLOY_ONLY に日付の見出し付きで追記する
+# Deploy-only Fix を $DEPLOY_ONLY に日付の見出し付きで追記する。既に同じ行があるものは
+# 足さない(失敗した run の後に同じ日・次の週に再実行すると、同じ修正がまた報告されるため)
 record_deploy_only() {
-    local items
+    local items item new_items="" count=0
     items=$(result_items deploy_only) || return 1
-    [[ -n "$items" ]] || return 0
-    printf '## %s\n\n%s\n\n' "$REVIEW_DATE" "$items" >>"$DEPLOY_ONLY" || return 1
+    while IFS= read -r item; do
+        [[ -n "$item" ]] || continue
+        if [[ -f "$DEPLOY_ONLY" ]] && grep -qxF -- "$item" "$DEPLOY_ONLY"; then
+            continue
+        fi
+        new_items+="${item}"$'\n'
+        count=$((count + 1))
+    done <<<"$items"
+    [[ "$count" -gt 0 ]] || return 0
+    printf '## %s\n\n%s\n' "$REVIEW_DATE" "$new_items" >>"$DEPLOY_ONLY" || return 1
     printf 'harness-weekly: recorded %s deploy-only fix(es) in %s; apply them by hand, then delete it\n' \
-        "$(result_count deploy_only)" "$DEPLOY_ONLY"
+        "$count" "$DEPLOY_ONLY"
 }
 
 # PR の本文に付ける Dropped Change と Deploy-only Fix の節。claude には本文に書かせず、
@@ -407,16 +416,14 @@ result_sections() {
 #   - 結果ファイルが無い、または決めた形でない
 #   - commit があるのに本文が無い
 #   - push か PR の作成が失敗した
-# Deploy-only Fix は、結果ファイルを読めた時点でどの判定よりも先に $DEPLOY_ONLY へ残す。
+# Deploy-only Fix は、結果ファイルを読めた時点で、未 commit の変更を含むどの失敗の判定よりも
+# 先に $DEPLOY_ONLY へ残す。commit 0 件で成功する週は本文を PR にしないので捨てる(採用も
+# 陳腐化の修正も無い週の本文は件数と残った陳腐化だけで、次の選別がまた数える)。
 # 失敗の経路では worktree・本文・結果ファイルを残す(調べられるように。worktree は次の
 # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
 # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
-    local base=$1 commits url
-    if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
-        printf 'harness-weekly: review left uncommitted changes in %s; no PR created\n' "$WORKTREE" >&2
-        return 1
-    fi
+    local base=$1 commits url dropped_count dropped_items
     if ! review_result_valid; then
         printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
             "$REVIEW_RESULT" >&2
@@ -426,11 +433,17 @@ publish_review() {
         printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
         return 1
     }
+    if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
+        printf 'harness-weekly: review left uncommitted changes in %s; no PR created\n' "$WORKTREE" >&2
+        return 1
+    fi
     commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD") || return 1
+    dropped_count=$(result_count dropped) || return 1
     if [[ "$commits" -eq 0 ]]; then
-        if [[ "$(result_count dropped)" -gt 0 ]]; then
+        if [[ "$dropped_count" -gt 0 ]]; then
+            dropped_items=$(result_items dropped) || return 1
             printf 'harness-weekly: review dropped %s change(s) and committed nothing (a commit hook or lint failed; the entries stay in the queue); no PR created. Dropped (see %s):\n%s\n' \
-                "$(result_count dropped)" "$REVIEW_RESULT" "$(result_items dropped)" >&2
+                "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
             return 1
         fi
         printf 'harness-weekly: review committed no changes; no PR created\n'

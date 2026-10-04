@@ -714,7 +714,28 @@ PRE
     seed_queue
     STUB_REVIEW_MODE=none STUB_RESULT=missing run weekly
     assert_failure
+    assert_output --partial 'did not write a valid result file'
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "commit されていない変更を残した run でも deploy-only の修正は deploy-only.md に残す" {
+    seed_queue
+    STUB_REVIEW_MODE=dirty STUB_RESULT='{"dropped":[],"deploy_only":["z を適用する"]}' run weekly
+    assert_failure
+    assert_output --partial 'uncommitted changes'
+    run cat "$HDIR/deploy-only.md"
+    assert_output --partial '- z を適用する'
+}
+
+@test "同じ deploy-only の修正を再び報告されても deploy-only.md に二重に足さない" {
+    printf '## 2026-01-01\n\n- same fix\n' >"$HDIR/deploy-only.md"
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["same fix","other fix"]}' run weekly
+    assert_success
+    run grep -c '^- same fix$' "$HDIR/deploy-only.md"
+    assert_output '1'
+    run grep -c '^- other fix$' "$HDIR/deploy-only.md"
+    assert_output '1'
 }
 
 @test "結果ファイルが JSON として読めないか、決めた形でなければ失敗する" {
