@@ -39,24 +39,6 @@ const cluster = (key, members, extra = {}) => ({
   ...extra,
 });
 
-// publish-write に渡した本文を、書き写しに成功した場合の行数・バイト数で返す。
-function between(prompt, name) {
-  const start = prompt.indexOf(`<<<${name}\n`) + name.length + 4;
-  return `${prompt}\n`.slice(start, `${prompt}\n`.indexOf(`\n${name}\n`, start));
-}
-function faithfulWrite(prompt) {
-  const count = (text) => ({ lines: text.split("\n").length, bytes: Buffer.byteLength(text) });
-  const body = count(between(prompt, "REPORT"));
-  const ledger = count(between(prompt, "LEDGER"));
-  return {
-    dir: "/repo/.git/deliver",
-    bodyLines: body.lines,
-    bodyBytes: body.bytes,
-    ledgerLines: ledger.lines,
-    ledgerBytes: ledger.bytes + 1,
-  };
-}
-
 // reviews[i] / merges[i] は i 番目のレビューラウンド、fixes[i] は i 番目の修正ラウンドへの応答。
 function scenario({
   tasks = [{ title: "t1", summary: "s1" }],
@@ -73,7 +55,7 @@ function scenario({
   let fixIndex = 0;
   let verifyIndex = 0;
   return (label, calls) => {
-    if (label === "plan") return { title: "T", tasks };
+    if (label === "plan") return { tasks };
     if (label.startsWith("implement:")) return implement(Number(label.split(":")[1]));
     if (label.startsWith("checks:")) return checks(Number(label.split(":")[1]));
     if (label.startsWith("review:")) {
@@ -92,8 +74,6 @@ function scenario({
       return v;
     }
     if (label.startsWith("fix-verify:")) return fixVerify(Number(label.split(":")[1]));
-    if (label.startsWith("publish-write:")) return faithfulWrite(calls[calls.length - 1].prompt);
-    if (label === "publish") return { pushed: true, prUrl: "https://example.invalid/pr/1" };
     throw new Error(`unexpected agent label: ${label}`);
   };
 }
@@ -143,7 +123,7 @@ function section(report, title) {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-test("指摘ゼロなら修正せずに動作確認と公開まで進む", async () => {
+test("指摘ゼロなら修正せずに動作確認まで進み、push も PR の作成もしない(ADR 0015)", async () => {
   const { result, labels } = await runWorkflow();
   assert.deepEqual(labels, [
     "plan",
@@ -152,10 +132,8 @@ test("指摘ゼロなら修正せずに動作確認と公開まで進む", async
     "review:ecc",
     "review:requesting",
     "verify:1",
-    "publish-write:1",
-    "publish",
   ]);
-  assert.equal(result.published, true);
+  assert.ok(!("prUrl" in result) && !("published" in result) && !("publishError" in result));
   assert.equal(result.stopReason, null);
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
@@ -613,7 +591,6 @@ test("Requirements Concern は修正せずに報告し、requirementsBreaking �
   });
   assert.equal(breaking.result.stopReason, "requirements-breaking");
   assert.ok(!breaking.labels.some((l) => l.startsWith("verify:")));
-  assert.ok(breaking.labels.includes("publish"));
 });
 
 test("動作確認の失敗が上限まで続いたら、失敗を報告の先頭に出す", async () => {
@@ -777,9 +754,9 @@ test("修正後に再レビューされずに止まったら、その指摘を U
   );
 });
 
-test("途中で agent が throw しても、報告を組み立てて公開を試みる", async () => {
+test("途中で agent が throw しても、報告を組み立てて返す", async () => {
   const base = scenario();
-  const { result, labels } = await runWorkflow({
+  const { result } = await runWorkflow({
     respond: (label, calls) => {
       if (label === "verify:1") throw new Error("budget exhausted");
       return base(label, calls);
@@ -787,19 +764,6 @@ test("途中で agent が throw しても、報告を組み立てて公開を試
   });
   assert.equal(result.stopReason, "error");
   assert.match(result.report, /budget exhausted/);
-  assert.ok(labels.includes("publish"));
-});
-
-test("公開の agent が throw しても、報告は返す", async () => {
-  const base = scenario();
-  const { result } = await runWorkflow({
-    respond: (label, calls) => {
-      if (label === "publish") throw new Error("push failed");
-      return base(label, calls);
-    },
-  });
-  assert.equal(result.published, false);
-  assert.match(result.report, /## Unresolved Finding/);
 });
 
 test("修正エージェントが throw しても、修正に回した指摘を Unresolved に残す", async () => {
@@ -1037,35 +1001,6 @@ test("動作確認の修正エージェントが直せなかったら、レビ�
   assert.match(result.report, /原因が分からない/);
 });
 
-test("書き出したファイルの行数・バイト数が本文と合わなければ1回だけ書き直させる", async () => {
-  const base = scenario();
-  const { result, labels } = await runWorkflow({
-    respond: (label, calls) =>
-      label === "publish-write:1"
-        ? { dir: "/repo/.git/deliver", bodyLines: 1, bodyBytes: 1, ledgerLines: 1, ledgerBytes: 1 }
-        : base(label, calls),
-  });
-  assert.deepEqual(
-    labels.filter((l) => l.startsWith("publish")),
-    ["publish-write:1", "publish-write:2", "publish"],
-  );
-  assert.equal(result.published, true);
-});
-
-test("書き直しても本文と合わなければ PR を作らずに published=false で返す", async () => {
-  const base = scenario();
-  const { result, labels } = await runWorkflow({
-    respond: (label, calls) =>
-      label.startsWith("publish-write:")
-        ? { dir: "/repo/.git/deliver", bodyLines: 1, bodyBytes: 1, ledgerLines: 1, ledgerBytes: 1 }
-        : base(label, calls),
-  });
-  assert.ok(!labels.includes("publish"));
-  assert.equal(result.published, false);
-  assert.match(result.publishError, /pr-body\.md/);
-  assert.match(result.report, /## Unresolved Finding/);
-});
-
 // 残りが BUDGET_FLOOR を割るのは、指定した label の agent を呼び終えた後から。
 function budgetLowAfter(label) {
   let low = false;
@@ -1130,15 +1065,8 @@ test("budget で止まったとき、どこの前で止まったかを報告に�
   assert.match(result.report, /タスク 2\/2「t2」の前/);
 });
 
-test("公開できなくても、入口 skill が書き出せるよう ledger を返す", async () => {
-  const base = scenario();
-  const { result } = await runWorkflow({
-    respond: (label, calls) => {
-      if (label.startsWith("publish-write:")) throw new Error("budget exhausted");
-      return base(label, calls);
-    },
-  });
-  assert.equal(result.published, false);
+test("入口 skill が書き出せるよう ledger を返す", async () => {
+  const { result } = await runWorkflow();
   assert.equal(JSON.parse(result.ledger).config.requirementsPath, BASE_ARGS.requirementsPath);
 });
 
@@ -1154,27 +1082,7 @@ test("途中のラウンドでレビュアーが欠けていても、報告の�
   assert.match(result.report.split("\n")[0], /ラウンド 1.*ecc/);
 });
 
-test("base との差分コミットが無ければ PR を作らないよう公開エージェントに指示する", async () => {
-  const { calls } = await runWorkflow();
-  const prompt = calls.find((c) => c.label === "publish").prompt;
-  assert.match(prompt, /git rev-list --count origin\/main\.\.HEAD/);
-});
-
-test("PR の base は、指定が無ければ baseRef から origin/ を除いて導き、指定があればそれを使う", async () => {
-  const derived = await runWorkflow();
-  assert.match(
-    derived.calls.find((c) => c.label === "publish").prompt,
-    /gh pr create --draft --base main /,
-  );
-
-  const explicit = await runWorkflow({ args: { prBase: "release" } });
-  assert.match(
-    explicit.calls.find((c) => c.label === "publish").prompt,
-    /gh pr create --draft --base release /,
-  );
-});
-
-test("review-verify では実装も公開もせず、レビュー修正ループと動作確認だけを行う", async () => {
+test("review-verify では実装をせず、レビュー修正ループと動作確認だけを行う", async () => {
   const { result, labels } = await runWorkflow({
     args: { mode: "review-verify" },
     respond: scenario({
@@ -1194,21 +1102,18 @@ test("review-verify では実装も公開もせず、レビュー修正ループ
     "review:requesting",
     "verify:1",
   ]);
-  assert.equal(result.published, false);
-  assert.equal(result.publishError, null);
-  assert.equal(result.prUrl, null);
   assert.equal(result.stopReason, null);
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
 
-test("review-verify の報告は先頭で mode を示し、PR 向けの末尾行を付けない", async () => {
-  const { result } = await runWorkflow({ args: { mode: "review-verify" } });
-  assert.match(result.report.split("\n")[0], /Review-Verify/);
-  assert.doesNotMatch(result.report, /Generated with/);
+test("どの mode の報告も統計の節で mode を示し、PR 向けの末尾行を付けない", async () => {
+  const reviewVerify = await runWorkflow({ args: { mode: "review-verify" } });
+  assert.match(section(reviewVerify.result.report, "統計"), /- mode: Review-Verify/);
+  assert.doesNotMatch(reviewVerify.result.report, /Generated with/);
 
   const deliver = await runWorkflow();
-  assert.doesNotMatch(deliver.result.report.split("\n")[0], /Review-Verify/);
-  assert.match(deliver.result.report, /Generated with/);
+  assert.match(section(deliver.result.report, "統計"), /- mode: Deliver/);
+  assert.doesNotMatch(deliver.result.report, /Generated with/);
 });
 
 test("未知の mode は agent を呼ぶ前に throw する", async () => {
@@ -1241,22 +1146,19 @@ test("値が undefined の引数は既定値を消さない(修正ラウンド�
   });
   assert.equal(labels[0], "plan");
   assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 3);
-  assert.ok(labels.includes("publish"));
 });
 
-test("review-verify でテスト/lint が通らなければ、レビューも動作確認もせずに停止し、公開しない", async () => {
+test("review-verify でテスト/lint が通らなければ、レビューも動作確認もせずに停止する", async () => {
   const { result, labels } = await runWorkflow({
     args: { mode: "review-verify" },
     respond: scenario({ checks: () => ({ passed: false, details: "lint 失敗" }) }),
   });
   assert.deepEqual(labels, ["checks:1"]);
   assert.equal(result.stopReason, "checks-failing");
-  assert.equal(result.published, false);
-  assert.equal(result.publishError, null);
   assert.match(section(result.report, "Unresolved Finding"), /未レビュー/);
 });
 
-test("review-verify で requirementsBreaking により停止しても、動作確認も公開もしない", async () => {
+test("review-verify で requirementsBreaking により停止したら、動作確認をしない", async () => {
   const { result, labels } = await runWorkflow({
     args: { mode: "review-verify" },
     respond: scenario({
@@ -1275,8 +1177,6 @@ test("review-verify で requirementsBreaking により停止しても、動作�
   });
   assert.equal(result.stopReason, "requirements-breaking");
   assert.ok(!labels.some((l) => l.startsWith("verify:")));
-  assert.ok(!labels.includes("publish"));
-  assert.equal(result.published, false);
 });
 
 test("review-verify で動作確認が失敗したら、直した後にレビューし直してから再確認する", async () => {

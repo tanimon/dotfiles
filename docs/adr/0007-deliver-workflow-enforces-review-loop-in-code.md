@@ -5,6 +5,8 @@ date: 2026-09-25
 
 # 自律実装フロー `deliver` は Claude Code Workflows を骨格にし、レビューループの判定をコードで強制する
 
+> **注記**: 最後の draft PR の作成は [ADR 0015](0015-deliver-does-not-publish.md) でやめた。Deliver は push も PR の作成もせず、人間への報告で終わる。
+
 plan を受け取り、実装、レビュー修正ループ、動作確認を経て draft PR と人間への報告までを自律で行うフロー `deliver` を作る。レビューループの上限・終了条件・収束判定・Deferred Finding の承認は、LLM へのプロンプトではなく Claude Code Workflows のスクリプト(`dot_claude/workflows/deliver.js`)のコードで判定する。プロンプトで守らせる方式では、agent が自分で「もう十分」と判断してループを早く抜けたり、直しにくい指摘を見送ったりする経路が残るためである。Workflows は実行中に人間へ質問できないので、入口に skill(`dot_claude/skills/deliver/`)を置き、動作確認 skill などの不足している引数はその skill が起動前に `AskUserQuestion` で集めてから Workflow を起動する。
 
 ## Considered Options

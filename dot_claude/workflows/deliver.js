@@ -1,36 +1,24 @@
 export const meta = {
   name: "deliver",
   description:
-    "plan を実装し、レビュー修正ループと動作確認を経て draft PR と人間への報告を作る(mode=review-verify なら既存のブランチにレビュー修正ループと動作確認だけをかけて報告する)",
+    "plan を実装し、レビュー修正ループと動作確認を経て人間への報告を作る(mode=review-verify なら既存のブランチにレビュー修正ループと動作確認だけをかけて報告する)。どの mode も push と PR の作成はしない",
   whenToUse: "入口 skill /deliver または /review-verify から起動する。直接起動しない",
-  phases: [
-    { title: "Plan" },
-    { title: "Implement" },
-    { title: "Review" },
-    { title: "Verify" },
-    { title: "Publish" },
-  ],
+  phases: [{ title: "Plan" }, { title: "Implement" }, { title: "Review" }, { title: "Verify" }],
 };
 
 // 判定はここに置いたコードで行い、agent にはさせない(ADR 0007)。
-// mode には既定値を置かない。既定を deliver にすると、mode を渡し忘れた Review-Verify が黙って実装・push・PR 作成まで進む。
+// mode には既定値を置かない。既定を deliver にすると、mode を渡し忘れた Review-Verify が黙って人間のブランチの上で実装まで進む。
 const DEFAULTS = { maxReviewRounds: 3, maxVerifyRetries: 2 };
 // mode ごとに持つ機能をここで一覧にし、分岐する箇所は mode 名ではなく機能名で見る。
 // mode を足すときはここに 1 行足せば、どの機能を持つかを全箇所で漏れなく決めたことになる。
 // - label: 報告で mode を示すときの名前
 // - implement: plan のタスクを実装する
-// - publish: push して draft PR を作る(PR 向けの報告の体裁もこれに従う)
 // - branchScope: 要件文書のうちブランチが未着手の項目を範囲外として prompt で限る。plan の
 //   タスク分解で範囲が決まっていない入力の性質(ADR 0010)
+// どの mode も push と PR の作成はしない。公開するかは、報告とローカルのコミットを見た人間が決める(ADR 0015)。
 const MODES = {
-  deliver: { label: "Deliver", implement: true, publish: true, branchScope: false },
-  // review-verify は実装も公開もしない(ADR 0010)。
-  "review-verify": {
-    label: "Review-Verify",
-    implement: false,
-    publish: false,
-    branchScope: true,
-  },
+  deliver: { label: "Deliver", implement: true, branchScope: false },
+  "review-verify": { label: "Review-Verify", implement: false, branchScope: true },
 };
 const BUDGET_FLOOR = 100000;
 
@@ -72,7 +60,6 @@ const STRINGS = { type: "array", items: { type: "string" } };
 const PLAN_SCHEMA = {
   type: "object",
   properties: {
-    title: { type: "string" },
     tasks: {
       type: "array",
       items: {
@@ -82,7 +69,7 @@ const PLAN_SCHEMA = {
       },
     },
   },
-  required: ["title", "tasks"],
+  required: ["tasks"],
 };
 
 const IMPLEMENT_SCHEMA = {
@@ -208,29 +195,6 @@ const FIX_VERIFY_SCHEMA = {
   required: ["fixed", "summary", "changes"],
 };
 
-const WRITE_SCHEMA = {
-  type: "object",
-  properties: {
-    dir: { type: "string" },
-    bodyLines: { type: "integer" },
-    bodyBytes: { type: "integer" },
-    ledgerLines: { type: "integer" },
-    ledgerBytes: { type: "integer" },
-  },
-  required: ["dir", "bodyLines", "bodyBytes", "ledgerLines", "ledgerBytes"],
-};
-
-const PUBLISH_SCHEMA = {
-  type: "object",
-  properties: {
-    pushed: { type: "boolean" },
-    prUrl: { type: "string" },
-    ledgerPath: { type: "string" },
-    error: { type: "string" },
-  },
-  required: ["pushed"],
-};
-
 function validateArgs(input) {
   const a = input || {};
   const missing = [];
@@ -261,15 +225,12 @@ function validateArgs(input) {
   const given = Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined));
   const config = { ...DEFAULTS, ...given };
   config.features = MODES[config.mode];
-  if (config.features.publish && !config.prBase)
-    config.prBase = config.baseRef.replace(/^origin\//, "");
   return config;
 }
 
 function newState(config) {
   return {
     config,
-    title: "",
     rounds: [],
     // reviewLoop の 1 回の呼び出し(初回と、動作確認の失敗による再入)ごとの終わり方。
     reviewPasses: [],
@@ -405,7 +366,6 @@ const unstartedScope = (config, rule) =>
 function planPrompt(config) {
   return `plan ファイル ${config.requirementsPath} を読み、実装タスクの一覧を抽出せよ。
 - plan の順序どおりに、plan の1タスクを1要素とする。独自に分割・統合しない。
-- title は、この plan 全体を表す PR タイトルとして使える短い日本語にする。
 - plan が実装計画でない(タスク分解が無い)なら、tasks を空配列で返す。`;
 }
 
@@ -505,50 +465,6 @@ function ledgerJson(state) {
   );
 }
 
-function writePrompt(report, ledger) {
-  return `次の2つのファイルを書き出せ。push や PR の作成はしない。
-1. 「git rev-parse --absolute-git-dir」の出力を D とし、D/deliver/ を作る。
-2. 下の REPORT を D/deliver/pr-body.md に、下の LEDGER を D/deliver/ledger.json に、1文字も変えずに Write ツールで書き出す。要約・省略・整形はしない。
-3. それぞれのファイルについて「grep -c '' <file>」の行数と「wc -c < <file>」のバイト数を返す。dir には D/deliver の絶対パスを返す。
-
-REPORT:
-<<<REPORT
-${report}
-REPORT
-
-LEDGER:
-<<<LEDGER
-${ledger}
-LEDGER`;
-}
-
-function publishPrompt(state, dir) {
-  return `次の手順で公開せよ。本文のファイルは書き出し済みなので、内容を変えない。
-1. 「git rev-list --count ${state.config.baseRef}..HEAD」が 0 なら、push も PR の作成もせず、pushed=false と error「${state.config.baseRef} との差分コミットが無いため PR を作らなかった」を返す。
-2. 現在のブランチを push する(force push はしない)。
-3. このブランチの PR が無ければ「gh pr create --draft --base ${state.config.prBase} --title <TITLE> --body-file ${dir}/pr-body.md」で作る。既にあれば「gh pr edit --body-file ${dir}/pr-body.md」で本文を更新する。
-4. PR の URL と ledger の絶対パス(${dir}/ledger.json)を返す。どこかで失敗したら pushed=false と error を返す。
-
-TITLE: ${state.title || "deliver"}`;
-}
-
-// Workflow のスクリプトには TextEncoder が有るとは限らない(JS の組込みではない)ので、UTF-8 のバイト数を自前で数える。
-function utf8Length(text) {
-  let n = 0;
-  for (const ch of text) {
-    const c = ch.codePointAt(0);
-    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
-  }
-  return n;
-}
-
-// 書き出しはエージェントに委譲するしかない(スクリプトに fs が無い)ので、行数とバイト数で書き写しを確かめる。
-// 末尾に改行が1つ付くことだけは許す。
-function faithful(text, lines, bytes) {
-  const expected = utf8Length(text);
-  return lines === text.split("\n").length && (bytes === expected || bytes === expected + 1);
-}
-
 function formatItem(item) {
   const location = item.line ? `${item.file}:${item.line}` : item.file;
   return `\`${location}\` ${item.summary} [${item.severities.join(", ")}]`;
@@ -616,15 +532,6 @@ function renderReport(state) {
   const last = state.verification[state.verification.length - 1];
   const verificationFailed = Boolean(last && !last.passed);
 
-  const { features } = state.config;
-  if (!features.publish) {
-    // mode 名や「実装しない」を決め打ちせず、MODES の宣言から導く(mode を足しても嘘にならないように)。
-    const skipped = features.implement ? "PR の作成" : "実装と PR の作成";
-    lines.push(
-      `> **${features.label}**: ${skipped}をしない mode で実行した。Workflow が作ったコミット(作っていれば)はローカルにだけあり、push していない`,
-      "",
-    );
-  }
   // 途中のラウンドで欠けても、その前の修正を片方のレビュアーしか確かめていないので、収束の根拠が欠ける。
   const incomplete = state.rounds.filter((r) => r.missingReviewers.length > 0);
   if (incomplete.length > 0) {
@@ -708,10 +615,7 @@ function renderReport(state) {
   pushSection("動作確認を通すための変更", state.verifyFixChanges, formatChange);
   pushSection("Observations", state.observations, (o) => o);
 
-  lines.push(renderStats(state), "");
-  // PR 本文にしない報告には、PR 向けの帰属行を付けない。
-  if (features.publish)
-    lines.push("🤖 Generated with [Claude Code](https://claude.com/claude-code)");
+  lines.push(renderStats(state));
   return lines.join("\n");
 }
 
@@ -727,7 +631,6 @@ async function implement(state) {
     state.stopReason = "plan-unreadable";
     return;
   }
-  state.title = parsed.title;
   phase("Implement");
   for (let i = 0; i < parsed.tasks.length; i++) {
     const task = parsed.tasks[i];
@@ -1085,35 +988,6 @@ async function verify(state) {
   }
 }
 
-async function publish(state, report, ledger) {
-  phase("Publish");
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const written = await agent(writePrompt(report, ledger), {
-      label: `publish-write:${attempt}`,
-      phase: "Publish",
-      schema: WRITE_SCHEMA,
-    });
-    if (!written) return { pushed: false, error: "書き出しのエージェントが結果を返さなかった" };
-    const body = faithful(report, written.bodyLines, written.bodyBytes);
-    const led = faithful(ledger, written.ledgerLines, written.ledgerBytes);
-    if (body && led) {
-      return agent(publishPrompt(state, written.dir), {
-        label: "publish",
-        phase: "Publish",
-        schema: PUBLISH_SCHEMA,
-      });
-    }
-    const broken = [!body && "pr-body.md", !led && "ledger.json"].filter(Boolean).join(", ");
-    log(`書き出した ${broken} の行数・バイト数が元と一致しない(試行 ${attempt})`);
-    if (attempt === 2) {
-      return {
-        pushed: false,
-        error: `${broken} を元のとおりに書き出せなかったため、PR を作らなかった`,
-      };
-    }
-  }
-}
-
 const config = validateArgs(args);
 const state = newState(config);
 // 例外(budget の上限到達など)で報告ごと失わないよう、ここまでの状態で必ず報告を組み立てる。
@@ -1129,21 +1003,11 @@ state.outputTokens = budget.spent();
 const report = renderReport(state);
 const stats = renderStats(state);
 const ledger = ledgerJson(state);
-let published = null;
-try {
-  if (config.features.publish) published = await publish(state, report, ledger);
-} catch (error) {
-  published = { pushed: false, error: String(error && error.message ? error.message : error) };
-  log(`公開に失敗した: ${published.error}`);
-}
 return {
-  prUrl: published && published.prUrl ? published.prUrl : null,
-  published: Boolean(published && published.pushed),
-  publishError: published && !published.pushed ? published.error || "理由なし" : null,
   stopReason: state.stopReason,
   report,
   // 入口 skill が、引数で渡された Issue に投稿する(報告の「統計」節と同じ内容)。
   stats,
-  // 公開できなかったとき、入口 skill(agent() の上限の対象外)が pr-body.md / ledger.json を書き出すのに使う。
+  // 入口 skill が report と一緒に ledger.json に書き出す(Workflow のスクリプトには fs が無い)。
   ledger,
 };
