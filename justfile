@@ -123,7 +123,7 @@ zizmor:
 # "unknown test name" failures (notify.bats: 23 -> 16 executed). See .claude/rules/shell-scripts.md.
 # Smoke test hook scripts(ネイティブサンドボックス smoke test の driver / probe も偽の claude で検査する)
 @test-scripts:
-    LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats test/ticket-scope.bats
+    LC_ALL=C pnpm exec bats test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats test/ticket-scope.bats test/ticket-guard.bats
 
 # Validate chezmoi templates
 check-templates:
