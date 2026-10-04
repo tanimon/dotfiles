@@ -60,7 +60,7 @@ cd "$HARNESS_DIR"
 # 起動は週 1 回なので、次の起動では必ず上限を過ぎている。上限を過ぎてもハングした
 # 実行が生きていれば並走しうるが、同じ週のうちには起きないので受容する。
 # この lock は週次ジョブ同士しか防がない。対話セッションの /harness-reflect と同時に
-# 走ると pending と queue の書き換えが競合しうる(dot_claude/scripts/CLAUDE.md)。
+# 走ると pending と queue の書き換えが競合しうる(.claude/rules/harness-weekly.md)。
 # 取り戻しは rm → mkdir で原子的ではない。2 つの実行が同時に取り戻しに入ると
 # 両方が走りうるが、週 1 回の起動と手動実行が同じ瞬間に重なる場合に限るので受容する
 LOCK="$HARNESS_DIR/weekly.lock"
