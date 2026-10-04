@@ -32,6 +32,9 @@ setup() {
     cp "$GITCONFIG_PERSONAL" "$HOME/.gitconfig"
     cp "${BATS_TEST_DIRNAME}/../dot_config/git/claude-code.inc" "$HOME/.config/git/claude-code.inc"
     unset XDG_CONFIG_HOME
+    # 実行環境が環境変数で渡す git 設定(Claude Code の Bash は GIT_CONFIG_COUNT 経由で
+    # ssh→https の insteadOf を渡す)は描画した ~/.gitconfig より優先されるので、検査対象から外す
+    unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
     export GIT_CONFIG_SYSTEM=/dev/null
     export GIT_CONFIG_GLOBAL="$HOME/.config/git/claude-code.inc"
 
