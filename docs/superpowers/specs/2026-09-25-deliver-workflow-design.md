@@ -19,7 +19,7 @@ plan を受け取り、実装、レビュー修正ループ、動作確認を経
 | 部品 | 置き場所 | 役割 |
 |---|---|---|
 | 入口 skill | `dot_claude/skills/deliver/SKILL.md` → `~/.claude/skills/deliver/` | ブランチと plan を検査する。動作確認 skill・テスト/lint コマンド・上限回数を集め、未指定のものは `AskUserQuestion` で聞いてから Workflow を起動する |
-| Workflow | `dot_claude/workflows/deliver.js` → `~/.claude/workflows/deliver.js` | ループ・判定・報告の組み立てをコードで行う。入口 skill は `Workflow({scriptPath: "~/.claude/workflows/deliver.js", args})` で呼ぶ |
+| Workflow | `dot_claude/workflows/deliver.js` → `~/.claude/workflows/deliver.js` | ループ・判定・報告の組み立てをコードで行う。入口 skill は `Workflow({name: "deliver", args})` で呼ぶ(`scriptPath` で `~/.claude/workflows/` を渡すと作業ディレクトリ外として拒否される) |
 
 Workflows は実行中に人間へ質問できないので、質問は必ず入口 skill で済ませる。ユーザーが skill を起動し、その skill の指示で Workflow を呼ぶ形が、Workflow ツールの認める明示的な opt-in になる。
 
