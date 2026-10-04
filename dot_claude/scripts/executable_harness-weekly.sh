@@ -363,13 +363,20 @@ review_result_valid() {
         and all(.dropped[], .deploy_only[]; type == "string")' "$REVIEW_RESULT" >/dev/null 2>&1
 }
 
-# 結果ファイルの配列 1 つを Markdown のリストにする。改行は空白に潰す(リストを崩さないため)
+# 結果ファイルの配列 1 つの要素を、1 行の文字列に整えて出す。改行は空白に潰し(リストを
+# 崩さないため)、前後の空白と、claude が付けた箇条書きの印(「- 」「* 」)を外す。空になった
+# 要素は捨てる(中身の無い項目を deploy-only.md に足したり、Dropped Change と数えたりしない)
+# shellcheck disable=SC2016 # $key は jq の変数
+RESULT_ITEMS_FILTER='.[$key][] | gsub("[\r\n]+"; " ") | sub("^\\s+"; "") | sub("\\s+$"; "")
+    | sub("^[-*](\\s+|$)"; "") | select(length > 0)'
+
+# 整えた要素を Markdown のリストにする
 result_items() {
-    jq -r --arg key "$1" '.[$key][] | "- " + gsub("[\r\n]+"; " ")' "$REVIEW_RESULT"
+    jq -r --arg key "$1" "$RESULT_ITEMS_FILTER"' | "- " + .' "$REVIEW_RESULT"
 }
 
 result_count() {
-    jq -r --arg key "$1" '.[$key] | length' "$REVIEW_RESULT"
+    jq -r --arg key "$1" "[$RESULT_ITEMS_FILTER] | length" "$REVIEW_RESULT"
 }
 
 # Deploy-only Fix を $DEPLOY_ONLY に日付の見出し付きで追記する。既に同じ行があるものと、

@@ -746,6 +746,29 @@ PRE
     assert_output '1'
 }
 
+@test "空や空白だけの要素は数えず、箇条書きの印を二重にしない" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["", "  ", "- "],"deploy_only":["", " - bullet fix ", "* star fix"]}' run weekly
+    # dropped が中身の無い要素だけなら、commit 0 件の週を失敗にしない
+    assert_success
+    assert_output --partial 'review committed no changes; no PR created'
+    run cat "$HDIR/deploy-only.md"
+    assert_line '- bullet fix'
+    assert_line '- star fix'
+    refute_line '- '
+    refute_output --partial '- - '
+    # 件数は中身のある要素だけを数える
+    run bash "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-briefing.sh"
+    assert_output --partial '(2)'
+}
+
+@test "中身のある落とした変更が 1 つでもあれば、空の要素と混ざっていても失敗する" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["", "x(prek で失敗)"],"deploy_only":[]}' run weekly
+    assert_failure
+    assert_output --partial 'dropped 1 change(s)'
+}
+
 @test "選別の claude が結果ファイルを書いた後に失敗しても、deploy-only の修正は deploy-only.md に残す" {
     : >"$HDIR/pending.jsonl"
     seed_queue
