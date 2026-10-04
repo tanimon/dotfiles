@@ -43,9 +43,12 @@ already covered by input 1).
 1. pending を読む前に `bash ~/.claude/scripts/harness-select-pending.sh` を 1 回実行する。
    各エントリの transcript を検出器にかけ、失敗が 1 件も無いエントリを pending.jsonl から外し、
    セッションごとの信号別の件数を `~/.claude/harness/detections.jsonl` に記録する。
-   失敗したら抽出に進まずに止め、出力をそのまま報告する。
+   失敗したら抽出に進まずに止め、出力をそのまま報告する。週の検出件数は記録の時刻で
+   集計されるので、ここで記録した分も次の週次の PR の件数に入る。
 2. 残ったエントリごとに `bash ~/.claude/scripts/harness-detect-failures.sh <transcript_path>`
    を実行する。出力は 1 行 1 件の `{"line":<transcript の行番号>,"signal":<信号>}`。
+   検出器が失敗したエントリ(選別の要約の `detector_failed` に数えられたもの)は抽出せず、
+   pending.jsonl に残して要約に明記する。検出器に選ばれていない入力を抽出に混ぜないため。
    抽出はその行の周辺から始め、検出された失敗の根本原因を探す。信号の意味は
    スクリプトのヘッダにある。
 3. transcript_path の検査(Inputs 節の Pending transcripts)に通らないエントリは、選別が触れずに残す。

@@ -4,12 +4,17 @@
 #
 # ~/.claude/harness/pending.jsonl の各エントリの transcript を検出器にかけ、
 #   - 検出が 0 件のエントリを pending から外す(抽出に回さない)
-#   - セッションごとの信号別の件数を ~/.claude/harness/detections.jsonl に 1 行ずつ記録する
-#     ({"session_id","run","date","counts":{<信号>:<件数>}}。0 件のセッションも counts を {} で記録する)
-# 記録は session_id ごとに 1 回だけで、前の run で記録したセッションは数え直さない。抽出の上限で
-# pending に残ったセッションや、途中で止まった run の後に残ったセッションを、次の週に重ねて数えないため。
-# 週次ジョブは --run に自分の session id を渡し、PR の本文にはその run の行だけを集計して載せる。
-# --run を省くと run は manual になる(手動の reflect が記録した件数は PR の本文には載らない)。
+#   - セッションごとの信号別の件数を ~/.claude/harness/detections.jsonl に追記する
+#     ({"session_id","run","date","epoch","counts":{<信号>:<件数>}})
+# 記録は増えた分だけを足す。初めて走査したセッションは全件を 1 行で記録し(0 件のセッションも counts を
+# {} で記録する)、記録済みのセッションは、前の行の合計より増えた信号の差分だけを 1 行足す(増えて
+# いなければ足さない)。抽出の上限で pending に残ったセッションを次の週に重ねて数えず、再開された
+# セッションや実行中のセッションで後から増えた失敗も数えるため。セッションごとの行の合計が、最後に
+# 走査した時点の件数になる。
+# 週次ジョブは epoch で期間を切って PR の本文に載せる(harness-weekly.sh の detection_section)ので、
+# 手動の /harness-reflect が先に記録した分も、その週の件数に入る。run(--run に渡した id。省くと
+# manual)は、どの実行が記録したかを読むためだけに残す。
+# detections.jsonl の JSON として読めない行は飛ばす(1 行の破損で選別を止めない)。
 #
 # transcript を読めないエントリと、パスが ~/.claude/projects/ 配下の .jsonl でないエントリは、
 # 検出器にかけずに pending に残す(harness-reflect スキルが要約に明記して落とす)。判定はスキルと同じで、
@@ -31,6 +36,7 @@ PENDING="$HARNESS_DIR/pending.jsonl"
 LEDGER="$HARNESS_DIR/detections.jsonl"
 DETECTOR="$HOME/.claude/scripts/harness-detect-failures.sh"
 TODAY=$(date +%Y-%m-%d)
+NOW=$(date +%s)
 
 command -v jq >/dev/null 2>&1 || {
     printf 'harness-select-pending: jq not found\n' >&2
@@ -41,7 +47,7 @@ if [[ ! -f "$DETECTOR" ]]; then
     exit 1
 fi
 
-scanned=0 selected=0 not_scanned=0
+scanned=0 selected=0 not_scanned=0 detector_failed=0
 drop_ids=""
 projects_root=""
 if [[ -d "$HOME/.claude/projects" ]]; then
@@ -67,18 +73,27 @@ if [[ -f "$PENDING" ]]; then
             not_scanned=$((not_scanned + 1))
             continue
         fi
+        # 検出器が失敗したエントリは、選ばれたとも外すとも決められないので pending に残し、
+        # detector_failed として要約に分けて出す。抽出の側(harness-reflect スキル)は、検出器が失敗した
+        # エントリを抽出せずに pending に残す。検出器の不具合でセッションを黙って捨てないため
         if ! detections=$(bash "$DETECTOR" "$transcript"); then
             printf 'harness-select-pending: WARN detector failed on session %s; left it in pending\n' "$session_id" >&2
-            not_scanned=$((not_scanned + 1))
+            detector_failed=$((detector_failed + 1))
             continue
         fi
         scanned=$((scanned + 1))
-        if ! { [[ -f "$LEDGER" ]] && grep -qF "\"session_id\":\"$session_id\"" "$LEDGER"; }; then
-            jq -cs --arg sid "$session_id" --arg run "$RUN" --arg date "$TODAY" \
-                '{session_id: $sid, run: $run, date: $date,
-                  counts: (group_by(.signal) | map({key: .[0].signal, value: length}) | from_entries)}' \
-                <<<"$detections" >>"$LEDGER"
-        fi
+        counts=$(jq -cs 'group_by(.signal) | map({key: .[0].signal, value: length}) | from_entries' <<<"$detections")
+        ledger_source=/dev/null
+        [[ -f "$LEDGER" ]] && ledger_source=$LEDGER
+        jq -n -c --rawfile ledger "$ledger_source" --argjson counts "$counts" \
+            --arg sid "$session_id" --arg run "$RUN" --arg date "$TODAY" --argjson epoch "$NOW" '
+            [$ledger | split("\n")[] | (try fromjson catch null)
+                | select(type == "object" and .session_id == $sid)] as $rows
+            | (reduce ($rows[] | .counts // {} | to_entries[]) as $c ({}; .[$c.key] += $c.value)) as $recorded
+            | ($counts | with_entries(.value -= ($recorded[.key] // 0)) | with_entries(select(.value > 0))) as $added
+            | if ($rows | length) == 0 then {session_id: $sid, run: $run, date: $date, epoch: $epoch, counts: $counts}
+              elif $added != {} then {session_id: $sid, run: $run, date: $date, epoch: $epoch, counts: $added}
+              else empty end' >>"$LEDGER"
         if [[ -n "$detections" ]]; then
             selected=$((selected + 1))
         else
@@ -100,5 +115,5 @@ if [[ -n "$drop_ids" ]]; then
 fi
 
 dropped=$((scanned - selected))
-printf 'harness-select-pending: scanned=%s selected=%s dropped=%s not_scanned=%s\n' \
-    "$scanned" "$selected" "$dropped" "$not_scanned"
+printf 'harness-select-pending: scanned=%s selected=%s dropped=%s not_scanned=%s detector_failed=%s\n' \
+    "$scanned" "$selected" "$dropped" "$not_scanned" "$detector_failed"

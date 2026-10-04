@@ -36,7 +36,7 @@ add_session() {
     add_session ci1 ci-failure
     run --separate-stderr bash "$SCRIPT" --run run-1
     assert_success
-    assert_output 'harness-select-pending: scanned=3 selected=2 dropped=1 not_scanned=0'
+    assert_output 'harness-select-pending: scanned=3 selected=2 dropped=1 not_scanned=0 detector_failed=0'
     run jq -r .session_id "$PENDING"
     assert_output "$(printf '%s\n' err1 ci1)"
 }
@@ -54,6 +54,8 @@ add_session() {
         '{"session_id":"ci1","run":"run-1","counts":{"ci_failure":2}}')"
     run jq -e --arg today "$(date +%Y-%m-%d)" 'select(.date != $today)' "$LEDGER"
     assert_failure
+    run jq -e 'select((.epoch | type) != "number")' "$LEDGER"
+    assert_failure
 }
 
 @test "記録済みのセッションは次の run で数え直さない" {
@@ -67,6 +69,46 @@ add_session() {
     assert_output "$(printf '%s\n' '["err1","run-1"]' '["err2","run-2"]')"
 }
 
+@test "記録済みのセッションの transcript が増えたら、増えた信号の差分だけを足す" {
+    add_session s1 tool-error
+    run bash "$SCRIPT" --run run-1
+    assert_success
+    # 再開されたセッションの続き: tool_error が 1 件、hook_deny が 1 件増える
+    sed -n 2,3p "$FIXTURES/tool-error.jsonl" >>"$PROJECTS/s1.jsonl"
+    sed -n 2,3p "$FIXTURES/hook-deny.jsonl" >>"$PROJECTS/s1.jsonl"
+    add_pending s1 "$PROJECTS/s1.jsonl"
+    run bash "$SCRIPT" --run run-2
+    assert_success
+    run jq -c '[.session_id, .run, .counts]' "$LEDGER"
+    assert_output "$(printf '%s\n' \
+        '["s1","run-1",{"tool_error":3}]' \
+        '["s1","run-2",{"hook_deny":1,"tool_error":1}]')"
+}
+
+@test "detections.jsonl の壊れた行は飛ばして選別と記録を続ける" {
+    printf 'not json\n{"session_id":"err1","run":"old","counts":{"tool_error":3}}\n' >"$LEDGER"
+    add_session err1 tool-error
+    add_session err2 repeat
+    run --separate-stderr bash "$SCRIPT" --run run-1
+    assert_success
+    assert_output 'harness-select-pending: scanned=2 selected=2 dropped=0 not_scanned=0 detector_failed=0'
+    run tail -n +3 "$LEDGER"
+    assert_output --partial '"session_id":"err2"'
+    refute_output --partial '"session_id":"err1"'
+}
+
+@test "検出器が失敗したエントリは pending に残し、detector_failed に分けて数える" {
+    add_session err1 tool-error
+    printf '#!/usr/bin/env bash\nexit 2\n' >"$HOME/.claude/scripts/harness-detect-failures.sh"
+    before=$(cat "$PENDING")
+    run --separate-stderr bash "$SCRIPT" --run run-1
+    assert_success
+    assert_output 'harness-select-pending: scanned=0 selected=0 dropped=0 not_scanned=0 detector_failed=1'
+    [[ "$stderr" == *'detector failed on session err1'* ]]
+    assert_equal "$(cat "$PENDING")" "$before"
+    assert [ ! -s "$LEDGER" ]
+}
+
 @test "transcript を読めない・projects の外・.. を含むエントリには触れない(reflect が落とす)" {
     add_pending gone "$PROJECTS/gone.jsonl"
     mkdir -p "$BATS_TEST_TMPDIR/outside"
@@ -78,7 +120,7 @@ add_session() {
     before=$(cat "$PENDING")
     run --separate-stderr bash "$SCRIPT" --run run-1
     assert_success
-    assert_output 'harness-select-pending: scanned=0 selected=0 dropped=0 not_scanned=4'
+    assert_output 'harness-select-pending: scanned=0 selected=0 dropped=0 not_scanned=4 detector_failed=0'
     assert_equal "$(cat "$PENDING")" "$before"
     assert [ ! -s "$LEDGER" ]
 }
@@ -89,7 +131,7 @@ add_session() {
     add_pending c "$BATS_TEST_TMPDIR/link/-work-repo/c.jsonl"
     run --separate-stderr bash "$SCRIPT"
     assert_success
-    assert_output 'harness-select-pending: scanned=1 selected=0 dropped=1 not_scanned=0'
+    assert_output 'harness-select-pending: scanned=1 selected=0 dropped=1 not_scanned=0 detector_failed=0'
 }
 
 @test "--run を省くと run は manual になる" {
@@ -103,7 +145,7 @@ add_session() {
 @test "pending が無ければ何もせずに成功する" {
     run --separate-stderr bash "$SCRIPT" --run run-1
     assert_success
-    assert_output 'harness-select-pending: scanned=0 selected=0 dropped=0 not_scanned=0'
+    assert_output 'harness-select-pending: scanned=0 selected=0 dropped=0 not_scanned=0 detector_failed=0'
     assert [ ! -e "$PENDING" ]
 }
 

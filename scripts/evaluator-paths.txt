@@ -39,6 +39,9 @@ test/check-instruction-size.bats
 # 選別は検出の結果で抽出の入力と週ごとの検出件数を決めるので、検出器と同じ扱いにする
 dot_claude/scripts/executable_harness-detect-failures.sh
 dot_claude/scripts/executable_harness-select-pending.sh
+# 手動の /harness-reflect が検出器で入力を選ぶのは、この SKILL.md の指示だけによる。節を削られると、
+# 手動の経路は黙って検出器を使わなくなる
+dot_claude/skills/harness-reflect/SKILL.md
 test/harness-detect-failures.bats
 test/harness-select-pending.bats
 test/fixtures/harness-detect-failures/

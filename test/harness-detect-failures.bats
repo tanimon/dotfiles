@@ -37,6 +37,23 @@ detect() {
     assert_output '{"line":3,"signal":"user_rejection"}'
 }
 
+@test "ツール実行の拒否: toolDenialKind で決め、headless の確認の拒否と権限の規則の拒否は tool_error にする" {
+    run --separate-stderr detect rejection-kinds
+    assert_success
+    assert_output "$(printf '%s\n' \
+        '{"line":3,"signal":"user_rejection"}' \
+        '{"line":5,"signal":"tool_error"}' \
+        '{"line":7,"signal":"tool_error"}')"
+}
+
+@test "人の否定: 先頭の文脈タグを取り除き、画像を添えた発言も text で判定する" {
+    run --separate-stderr detect negation-tagged
+    assert_success
+    assert_output "$(printf '%s\n' \
+        '{"line":3,"signal":"user_negation"}' \
+        '{"line":5,"signal":"user_negation"}')"
+}
+
 @test "hook の deny を tool_error ではなく hook_deny として検出する" {
     run --separate-stderr detect hook-deny
     assert_success
@@ -66,7 +83,7 @@ detect() {
     assert_output '{"line":7,"signal":"repeat"}'
 }
 
-@test "失敗を含まない transcript では何も検出しない(紛らわしい形と壊れた行を含む)" {
+@test "失敗を含まない transcript では何も検出しない(紛らわしい形・出力の無い exit 1・gh run list・壊れた行を含む)" {
     run --separate-stderr detect clean
     assert_success
     assert_output ''

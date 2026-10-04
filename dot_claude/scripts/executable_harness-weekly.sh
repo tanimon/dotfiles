@@ -142,6 +142,13 @@ count_pending() {
     fi
 }
 
+# PR の本文の検出件数の期間の始まり(detection_section)。この run が heartbeat を書き換える前に読む。
+# heartbeat が無いか壊れていれば直近 7 日にする
+DETECTION_SINCE=$(($(date +%s) - 7 * 24 * 60 * 60))
+if [[ -f "$HEARTBEAT" ]] && read -r heartbeat_epoch <"$HEARTBEAT" && [[ "$heartbeat_epoch" =~ ^[0-9]+$ ]]; then
+    DETECTION_SINCE=$heartbeat_epoch
+fi
+
 SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 REVIEW_SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 # 記録は起動より前に行い、直近の分だけ残す
@@ -427,27 +434,46 @@ result_sections() {
     fi
 }
 
-# PR の本文に付ける、失敗の検出件数の節。この run の選別(harness-select-pending.sh に --run で
-# 抽出の session id を渡したもの)が記録した行だけを信号ごとに足す。前の run で記録済みのセッションは
-# 選別が数え直さないので、件数はこの run で初めて検出器にかけたセッションの分になる。抽出を省いた週
-# (pending が空)も 0 件の表を出す。採用 0 件で PR を作らない週の件数は $DETECTIONS にだけ残る
+# PR の本文に付ける、失敗の検出件数の節。期間は前回の成功した run(heartbeat)より後で、
+# $DETECTIONS の epoch で切る。記録した実行(週次ジョブか手動の /harness-reflect か)は問わない。
+# 手動の reflect が週の途中で先に選別したセッションも、その週の件数に入れるため。選別は
+# 増えた分だけを記録する(harness-select-pending.sh のヘッダ)ので、期間で足せば重ねて数えない。
+# 失敗した run の後は heartbeat が進まないので、次の run の期間はその分も含む。抽出を省いた週
+# (pending が空)も表を出す。採用 0 件で PR を作らない週の件数は $DETECTIONS にだけ残る。
+# JSON として読めない行は飛ばす
 DETECTION_SIGNALS="user_negation user_interrupt user_rejection hook_deny ci_failure tool_error repeat"
 detection_section() {
-    local rows="[]" signal count sessions failing total
+    local rows="[]" signal count sessions failing total since_label
     if [[ -f "$DETECTIONS" ]]; then
-        rows=$(jq -cs --arg run "$SESSION_ID" 'map(select(.run == $run))' "$DETECTIONS") || return 1
+        rows=$(jq -R -s -c --argjson since "$DETECTION_SINCE" \
+            '[split("\n")[] | (try fromjson catch null)
+              | select(type == "object" and ((.epoch // 0) | type) == "number" and (.epoch // 0) > $since)]' \
+            "$DETECTIONS") || return 1
     fi
-    sessions=$(jq 'length' <<<"$rows") || return 1
-    failing=$(jq 'map(select(.counts != {})) | length' <<<"$rows") || return 1
+    sessions=$(jq '[.[].session_id] | unique | length' <<<"$rows") || return 1
+    failing=$(jq 'map(select(.counts != {}) | .session_id) | unique | length' <<<"$rows") || return 1
     total=$(jq 'map(.counts | add // 0) | add // 0' <<<"$rows") || return 1
-    printf '\n## 失敗の検出\n\nこの run で検出器にかけたセッション: %s 件(失敗あり %s 件)。\n\n| 信号 | 件数 |\n|---|---:|\n' \
-        "$sessions" "$failing"
+    since_label=$(date -r "$DETECTION_SINCE" '+%Y-%m-%d %H:%M' 2>/dev/null ||
+        date -d "@$DETECTION_SINCE" '+%Y-%m-%d %H:%M') || return 1
+    printf '\n## 失敗の検出\n\n%s 以降に検出器にかけたセッション: %s 件(失敗あり %s 件)。\n\n| 信号 | 件数 |\n|---|---:|\n' \
+        "$since_label" "$sessions" "$failing"
     for signal in $DETECTION_SIGNALS; do
         count=$(jq --arg signal "$signal" 'map(.counts[$signal] // 0) | add // 0' <<<"$rows") || return 1
         # shellcheck disable=SC2016 # バッククォートは Markdown のコードスパン
         printf '| `%s` | %s |\n' "$signal" "$count"
     done
     printf '| 合計 | %s |\n' "$total"
+}
+
+# 検出件数の節を、組み立てに成功したときだけ本文に足す。指標の節の失敗で PR の公開を止めない
+append_detection_section() {
+    local section
+    if section=$(detection_section); then
+        printf '%s\n' "$section" >>"$PR_BODY"
+    else
+        printf 'harness-weekly: WARN failed to build the detection counts from %s; left them out of %s\n' \
+            "$DETECTIONS" "$PR_BODY" >&2
+    fi
 }
 
 # 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
@@ -500,7 +526,7 @@ publish_review() {
         return 1
     fi
     result_sections >>"$PR_BODY" || return 1
-    detection_section >>"$PR_BODY" || return 1
+    append_detection_section
     net_change_section "$base" >>"$PR_BODY" || return 1
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
@@ -549,8 +575,7 @@ report_failed_review() {
         result_sections >>"$PR_BODY" ||
             printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
     fi
-    detection_section >>"$PR_BODY" ||
-        printf 'harness-weekly: failed to add the detection counts from %s to %s\n' "$DETECTIONS" "$PR_BODY" >&2
+    append_detection_section
     printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
         "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$ADOPTED_MARK" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
 }
