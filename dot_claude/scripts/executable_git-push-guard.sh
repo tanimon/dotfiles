@@ -14,8 +14,9 @@
 #   ask   — the push segment contains something this scan cannot read through
 #   (no output) — plain push; falls through to defaultMode: auto's classifier
 #
-# Fail-closed: anything unreadable becomes `ask`, never silence. `ask` prompts
-# even under defaultMode: auto, so an unparseable payload cannot slip past.
+# Fail-closed: anything unreadable that may contain `push` becomes `ask`, never
+# silence. `ask` prompts even under defaultMode: auto, so an unparseable payload
+# carrying a push cannot slip past.
 #
 # このフックが見ない残存: alias / シェル関数と `gh api`(tier-model spec)、および
 # dot_claude/scripts/CLAUDE.md の「残存(受容)」の各項(引用符除去より前の早期終了・永続した設定・
@@ -60,19 +61,22 @@ STDIN_JSON=$(cat) || {
     exit 0
 }
 
-command -v jq >/dev/null 2>&1 || {
-    emit ask "$ASK_REASON"
+# jq が無い・stdin が JSON でないときは push の有無を確かめられない。生の入力に push があれば ask、
+# 無ければ無出力(無関係なコマンドまで ask にしても守れるものは無く、承認を惰性にするだけ)。
+# 起動時の約束の正本は test/guard-contract.bats。
+if ! command -v jq >/dev/null 2>&1; then
+    case "$STDIN_JSON" in *push*) emit ask "$ASK_REASON" ;; esac
     exit 0
-}
+fi
 
 COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null) || {
-    emit ask "$ASK_REASON"
+    case "$STDIN_JSON" in *push*) emit ask "$ASK_REASON" ;; esac
     exit 0
 }
 
 # An empty command means either a non-Bash tool or a malformed payload. A
-# payload that is not JSON at all fails the jq call above, so reaching here with
-# an empty string is the benign case.
+# payload that is not JSON at all fails the jq extraction of COMMAND, so
+# reaching here with an empty string is the benign case.
 [[ -z "$COMMAND" ]] && exit 0
 
 # Cheap bail-out before any parsing: nothing to guard without the verb.

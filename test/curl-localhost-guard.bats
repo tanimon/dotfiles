@@ -324,12 +324,6 @@ decision() {
     assert_output ''
 }
 
-@test "a malformed payload produces no decision" {
-    run bash -c "printf 'not json' | bash '$SCRIPT'"
-    assert_success
-    assert_output ''
-}
-
 @test "an empty command produces no decision" {
     run hook ''
     assert_success
@@ -671,72 +665,10 @@ decision() {
     assert_equal "$(decision "$output")" ask
 }
 
-@test "a missing jq asks when the input mentions curl" {
-    local stub="$BATS_TEST_TMPDIR/bin"
-    mkdir -p "$stub"
-    ln -s "$(command -v cat)" "$stub/cat"
-    # An absolute bash and a stubbed PATH that still carries `cat`: emptying
-    # PATH outright would hide the interpreter itself and pass for the wrong
-    # reason.
-    run env PATH="$stub" "$BASH" "$SCRIPT" <<<'{"tool_input":{"command":"curl http://localhost:3000/"}}'
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
-@test "a missing jq produces no decision when the input does not mention curl" {
-    local stub="$BATS_TEST_TMPDIR/bin"
-    mkdir -p "$stub"
-    ln -s "$(command -v cat)" "$stub/cat"
-    run env PATH="$stub" "$BASH" "$SCRIPT" <<<'{"tool_input":{"command":"git status"}}'
-    assert_success
-    assert_output ''
-}
-
 @test "the ask payload names the PreToolUse event" {
     run hook 'curl https://example.com/'
     assert_success
     assert_equal "$(printf '%s' "$output" | jq -r '.hookSpecificOutput.hookEventName')" PreToolUse
-}
-
-@test "a missing reader library asks" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'curl http://localhost:3000/' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
-# lib が壊れているとき: 空の lib は関数が無いまま exit 127(フェイルオープン)、構文エラーの lib は
-# source が exit 2(理由なしのブロック)になっていた。どちらも ask にそろえる。
-@test "an empty reader library asks" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    : >"$BATS_TEST_TMPDIR/bin/lib/shell-reader.bash"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'curl http://localhost:3000/' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
-@test "a reader library with a syntax error asks" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    printf '%s\n' 'shell_reader_read() {' >"$BATS_TEST_TMPDIR/bin/lib/shell-reader.bash"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'curl http://localhost:3000/' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
-@test "a copy with an intact reader library stays silent for a loopback curl" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/shell-reader.bash" "$BATS_TEST_TMPDIR/bin/lib/"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'curl http://localhost:3000/' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_output ''
 }
 
 # --- 字面の床: reader が 1 token に飲み込んだ curl --------------------------------
@@ -914,22 +846,8 @@ the guard now reads curl inside substitutions\""
     assert_output ''
 }
 
-@test "unparseable stdin mentioning curl asks" {
-    run bash -c 'printf "curl not json" | bash "$1"' _ "$SCRIPT"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
 @test "ask-returning paths never emit allow" {
     run hook 'curl https://example.com/'
-    assert_success
-    assert_equal "$(decision "$output")" ask
-    refute_output --partial '"allow"'
-
-    local stub="$BATS_TEST_TMPDIR/bin"
-    mkdir -p "$stub"
-    ln -s "$(command -v cat)" "$stub/cat"
-    run env PATH="$stub" "$BASH" "$SCRIPT" <<<'{"tool_input":{"command":"curl http://localhost:3000/"}}'
     assert_success
     assert_equal "$(decision "$output")" ask
     refute_output --partial '"allow"'

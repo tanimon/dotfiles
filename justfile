@@ -29,7 +29,7 @@ json_files := `find . -type f -name '*.json' \
     ! -name 'modify_*' 2>/dev/null | tr '\n' ' '`
 
 # Run all checks (mirrors CI)
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -252,6 +252,11 @@ check-templates:
 # Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca)
 @test-settings-hooks:
     LC_ALL=C pnpm exec bats test/settings-hooks.bats
+
+# Needs chezmoi — fails (not skips) without it, for the same reason as test-settings-hooks.
+# Contract test for the startup promises every PreToolUse guard keeps (lib / jq / stdin / HOME failures), plus the guard list vs. the rendered wiring
+@test-guard-contract:
+    LC_ALL=C pnpm exec bats test/guard-contract.bats
 
 # Needs chezmoi — fails (not skips) without it, for the same reason as above.
 # Push without writing upstream to .git/config, through the rendered ~/.gitconfig + claude-code.inc
