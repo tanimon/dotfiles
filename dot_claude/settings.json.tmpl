@@ -172,8 +172,10 @@
       "Edit(/etc/sudoers)"
     ],
     {{/* Package/module install gate: installing new code is a supply-chain event, so it goes through a human. Precedence is deny > ask > allow, so the broad Bash(npm:*)/Bash(pnpm:*)/Bash(mise:*) entries in allow stay and these narrower ask entries win. Two deliberate holes: (1) Claude Code permissions match the Bash string the agent issues, NOT its subprocesses — `just lint` (Bash(just:*), still in allow) invokes pnpm without prompting; acceptable because just recipes are version-controlled and reviewable. (2) Lockfile restore (bare `pnpm install`, `npm ci`) is gated too, deliberately: splitting "new deps ask, restore allow" is an illusory boundary because an agent can edit package.json then run bare `pnpm install` straight through it. curl / wget はこの gate の対象外: curl は PreToolUse の curl-localhost-guard が返す ask(`curl … | sh` もここで止まる。ADR 0009。フックが死ぬとフェイルオープン)、wget は ask ルール(Bash(wget:*))で毎回 ask。 */ -}}
-    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. git push はここに置かない: 破壊的な綴りは PreToolUse の git-push-guard フックが止める(フックのコメントと、フェイルオープンについては deny 側のコメント参照)。gh: gate state-changing subcommands (create/edit/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh issue view is read, gh issue create is write), so a noun-level gh issue:* wildcard would over-gate reads. Read-only gh (unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). ask に gh pr エントリは無い(allow / deny 側のコメント参照)。gh issue の同名動詞が ask に残っているのは非対称だが意図的で、緩和は PR 操作の頻度に対する措置である。gh pr review は意図的に allow に置いている: `gh pr review --approve` が無確認かつ(sandbox.excludedCommands の `gh *` により)サンドボックス外で走ることを受け入れる — 承認は人間のマージ操作を挟むため、外向きの影響が一段小さいという判断。gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api は allow 側の PR レビュー用エンドポイントを除き未列挙(allow 側のコメント参照)。 */ -}}
+    {{/* ask fires even under bypassPermissions and takes precedence over allow (deny > ask > allow). Gate history-altering git behind explicit approval; locally-reversible writes (commit/merge/revert) and routine writes (add/checkout/fetch/pull/submodule/worktree) stay in allow so unattended runs don't deadlock on the prompt. git push はここに置かない: 破壊的な綴りは PreToolUse の git-push-guard フックが止める(フックのコメントと、フェイルオープンについては deny 側のコメント参照)。gh: gate state-changing subcommands (create/edit/close/delete/run/set) — enumerated at the verb level because gh nests read and write under the same noun (gh issue view is read, gh issue create is write), so a noun-level gh issue:* wildcard would over-gate reads. Read-only gh (unlisted read verbs under defaultMode) stays frictionless, and gh pr/issue comment sit in allow (append-only to an existing PR/issue). ask に gh pr エントリは無い(allow / deny 側のコメント参照)。gh issue の同名動詞が ask に残っているのは非対称だが意図的で、緩和は PR 操作の頻度に対する措置である。gh pr review は意図的に allow に置いている: `gh pr review --approve` が無確認かつ(sandbox.excludedCommands の `gh *` により)サンドボックス外で走ることを受け入れる — 承認は人間のマージ操作を挟むため、外向きの影響が一段小さいという判断。gh secret set / gh variable set are ask-gated only: the PostToolUse secretlint hook matches Write to *.env/*secret* files, not Bash gh command strings, so a secret passed inline (gh secret set NAME --body <value>) is NOT scanned and lands in shell history/transcripts — prefer --body-file/stdin and rely on prompt-time review. gh api は allow 側の PR レビュー用エンドポイントを除き未列挙(allow 側のコメント参照)。ticket スキルの create-issue.sh は内部で gh issue create と gh api の POST を呼び、前方一致の ask に当たらないため、スクリプトの綴り(`bash ~/.claude/skills/ticket/scripts/create-issue.sh`)を ask に置いて issue 作成の承認ゲートを保つ。承認なしの自動作成にするかは #443 で決める。`bash` を付けない直接実行や別の綴りは当たらず classifier の判定に落ちる(残存)。 */ -}}
     "ask": [
+      "Bash(bash ~/.claude/skills/ticket/scripts/create-issue.sh:*)",
+      "Bash(bash {{ .chezmoi.homeDir }}/.claude/skills/ticket/scripts/create-issue.sh:*)",
       "Bash(aws athena start-query-execution:*)",
       "Bash(brew bundle:*)",
       "Bash(brew install:*)",
@@ -422,6 +424,17 @@
           {
             "type": "command",
             "command": "\"$HOME/.claude/scripts/curl-localhost-guard.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {{/* 個人リポジトリ(lib/ticket-scope.bash の owner の許可リスト)での gh pr create を、ticket スキルの作成モードを経た本文(<!-- ticket-skill --> を含む)でなければ deny し、gh issue create は作成と relationship 設定を一度に行う create-issue.sh へ案内して deny するフック。課題は relationship・Closes・AC 対応表・関連 issue のメンションの「やり忘れ」で、スキルはモデルが使うと判断したときにしか起動しないため、作成の瞬間に決定的に止める。目的は起動忘れの防止で迂回の防止ではないので、読み切れない入力は通す(git-push-guard と逆の向き)。allow は返さない。設計は docs/superpowers/specs/2026-10-04-ticket-skill-design.md。 */ -}}
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/scripts/ticket-guard.sh\"",
             "timeout": 5
           }
         ]

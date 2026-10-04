@@ -1,6 +1,6 @@
 # ~/.claude/settings.json の hook 配線の契約テスト。
 #
-# guard hook(git-push-guard / curl-localhost-guard)は ADR 0009 の強制点だが、
+# guard hook(git-push-guard / curl-localhost-guard / ticket-guard)は ADR 0009 の強制点だが、
 # 未配線だと無出力=判定なしでフェイルオープンする。script 単体のテスト
 # (test/git-push-guard.bats / test/curl-localhost-guard.bats)は配線を見ないので、
 # hooks ブロックから登録を消しても他の suite は緑のまま通る。この suite がその穴を塞ぐ。
@@ -77,15 +77,20 @@ assert_guard_wired() {
     assert_guard_wired curl-localhost-guard
 }
 
+@test "ticket-guard が PreToolUse の Bash に直接配線されている" {
+    assert_guard_wired ticket-guard
+}
+
 @test "hook が呼ぶ script はすべて chezmoi が実行可能として配置する" {
     # 拡張子と subdirectory を問わず拾う(lib/ 配下や .sh 以外を呼ぶ hook も検査から漏らさない)
     run jq -r '[.hooks[][].hooks[] | (.command // "")
         | scan("\\.claude/scripts/([A-Za-z0-9._/-]+\\.[A-Za-z0-9]+)") | .[0]] | unique[]' "$SETTINGS"
     assert_success
     local scripts="$output"
-    # 抽出が空なら検査が空振りする。guard 2 本は必ず含まれる
+    # 抽出が空なら検査が空振りする。guard 3 本は必ず含まれる
     assert_line git-push-guard.sh
     assert_line curl-localhost-guard.sh
+    assert_line ticket-guard.sh
     local name source
     while IFS= read -r name; do
         # Source の有無を自前の命名規則で推測せず chezmoi に解決させる。
@@ -109,6 +114,14 @@ assert_guard_wired() {
         jq -e --arg r "$rule" '.permissions.deny | index($r) != null' "$SETTINGS" >/dev/null ||
             fail "permissions.deny に $rule が無い"
     done
+}
+
+# create-issue.sh は内部で gh issue create を呼び、前方一致の ask に当たらない。スクリプトの綴りで承認ゲートを保つ
+@test "create-issue.sh の呼び出しが ~ 形と展開形の両方で permissions.ask にある" {
+    jq -e '.permissions.ask | index("Bash(bash ~/.claude/skills/ticket/scripts/create-issue.sh:*)") != null' "$SETTINGS" >/dev/null ||
+        fail "permissions.ask に ~ 形の create-issue.sh が無い"
+    jq -e '.permissions.ask | map(select(test("^Bash\\(bash /.+/\\.claude/skills/ticket/scripts/create-issue\\.sh:\\*\\)$"))) | length == 1' "$SETTINGS" >/dev/null ||
+        fail "permissions.ask に homeDir 展開形の create-issue.sh が無い"
 }
 
 # orca の agent-hook ディスパッチャは live の ~/.claude/settings.json から verbatim に
