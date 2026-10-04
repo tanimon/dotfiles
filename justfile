@@ -204,9 +204,9 @@ check-templates:
 
 # LC_ALL=C for the same bats-core locale bug as test-scripts: the weekly-job
 # tests in briefing / doctor / weekly have Japanese @test names.
-# Smoke test harness loop scripts (reflect-trigger, briefing, doctor, weekly job)
+# Smoke test harness loop scripts (reflect-trigger, briefing, doctor, weekly job, failure detector, pending selection)
 @test-harness-scripts:
-    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats
+    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats
 
 # 人の PR とローカルの通常のブランチでは何も判定せずに通る。CI の base は merge commit の第 1 親。
 # 自己改善ループの PR(ブランチ名 harness/review-*)が Evaluator のパスに触れていたら落とす

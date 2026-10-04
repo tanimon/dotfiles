@@ -1,0 +1,9 @@
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"テストを全部流して"}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"just lint"}}]}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"just test-scripts"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"[Request interrupted by user for tool use]"}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"[Request interrupted by user for tool use]"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"lint だけでいい"}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"了解です。まず全体の構成を説明すると"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
