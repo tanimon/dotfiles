@@ -87,7 +87,7 @@ assert_guard_wired() {
         | scan("\\.claude/scripts/([A-Za-z0-9._/-]+\\.[A-Za-z0-9]+)") | .[0]] | unique[]' "$SETTINGS"
     assert_success
     local scripts="$output"
-    # 抽出が空なら検査が空振りする。guard 2 本は必ず含まれる
+    # 抽出が空なら検査が空振りする。guard 3 本は必ず含まれる
     assert_line git-push-guard.sh
     assert_line curl-localhost-guard.sh
     assert_line ticket-guard.sh
@@ -114,6 +114,14 @@ assert_guard_wired() {
         jq -e --arg r "$rule" '.permissions.deny | index($r) != null' "$SETTINGS" >/dev/null ||
             fail "permissions.deny に $rule が無い"
     done
+}
+
+# create-issue.sh は内部で gh issue create を呼び、前方一致の ask に当たらない。スクリプトの綴りで承認ゲートを保つ
+@test "create-issue.sh の呼び出しが ~ 形と展開形の両方で permissions.ask にある" {
+    jq -e '.permissions.ask | index("Bash(bash ~/.claude/skills/ticket/scripts/create-issue.sh:*)") != null' "$SETTINGS" >/dev/null ||
+        fail "permissions.ask に ~ 形の create-issue.sh が無い"
+    jq -e '.permissions.ask | map(select(test("^Bash\\(bash /.+/\\.claude/skills/ticket/scripts/create-issue\\.sh:\\*\\)$"))) | length == 1' "$SETTINGS" >/dev/null ||
+        fail "permissions.ask に homeDir 展開形の create-issue.sh が無い"
 }
 
 # orca の agent-hook ディスパッチャは live の ~/.claude/settings.json から verbatim に

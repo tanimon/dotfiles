@@ -48,7 +48,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 ### 検出(`audit.sh`、決定的)
 
 - **relationship の食い違い**: 本文の `## Parent` / `## Blocked by` 節にある番号と、API の `parent_issue_url` / dependencies を比べる。
-- **open のまま残った issue**: マージ済み PR の `closingIssuesReferences` から辿り、まだ open の issue を探す。既定ブランチへのマージなら GitHub が自動で close するので、当たるのは stacked PR などに限られる。
+- **open のまま残った issue**: マージ済み PR の `closingIssuesReferences` から辿り、まだ open の issue を探す。既定ブランチへのマージなら GitHub が自動で close するので、当たるのは stacked PR などに限られる。既定ブランチ以外を base にした PR で `closingIssuesReferences` が埋まるかは未確認。
 - **Closes を書き忘れた PR の候補**: open の issue ごとに timeline を引き、同じリポジトリのマージ済み PR からの言及(`cross-referenced`)を候補として出す。言及は解決を意味しないので、close するかは一括承認で人が決める。
 - **AC の未チェック**: close 済みで、その issue を close した PR がマージ済みのもののうち、AC 節に `[ ]` が残る issue を探す。AC 節の見出しは `Acceptance criteria` と `完了条件` で始まるものとする(`## 完了条件(案)` などの揺れを許す)。
 
@@ -92,6 +92,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 - launchd から起動されるスクリプトが直接 `gh` を呼ぶ経路(`harness-weekly.sh`)と、`gh api` で issue / PR を作る経路には効かない。
 - フックが無い、またはクラッシュしたときは無出力になり、判定なしで通る(フェイルオープン)。
 - マーカーは手で書けるので、手順を飛ばしてマーカーだけ付けることは防げない。ガードの目的は「スキルの起動を忘れる」ことを防ぐことで、意図的な迂回を防ぐことではない。
+- create-issue.sh の承認は `permissions.ask` の綴り(`bash ~/.claude/skills/ticket/scripts/create-issue.sh`)の一致に頼る。`bash` を付けない直接実行や別の綴りは ask に当たらず classifier の判定に落ちる。承認なしの自動作成にするかは #443 で決める。
 
 ## 同じ変更で直す既存経路
 
