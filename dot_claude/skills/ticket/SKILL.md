@@ -16,7 +16,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 1. **置き場所を決める。** `git rev-parse --absolute-git-dir` を単独で実行し、出力に `/ticket` を足したディレクトリを使う(以降 `<dir>`)。本文は Write ツールで `<dir>/issue-body.md` か `<dir>/pr-body.md` に書く。コマンドには `$(…)` や `$TMPDIR` を含めず、展開済みの絶対パスを書く(ticket-guard は展開前の文字列しか読めない)。
 2. **関連 issue を探してメンションする。** タイトルの主要な語を 2〜3 通り変えて `gh issue list --state all --search "<語>" --limit 20 --json number,title,state` を実行する。関連するものを `## 関連` 節に `- #N <なぜ関連するかを 1 行>` で書く。見つからなければ「関連 issue なし(検索語: …)」と書く。
-3. **issue なら relationship を書く。** 親は `## Parent`、先に片付ける必要がある issue は `## Blocked by` の節に `#N` で書く。native の設定は手順6の `create-issue.sh` が作成と同時に行う。既存の issue に後から張るとき(照合モードや `create-issue.sh` が一部失敗したとき)は次のコマンドを使う。
+3. **issue なら relationship を書く。** 親は `## Parent`、先に片付ける必要がある issue は `## Blocked by` の節に `#N` で書く。関係として読むのは行頭(`- ` などの箇条書きの記号の後ろと、見出しと同じ行の見出し語の後ろを含む)に置いた `#N` だけで、「なし。#402 がこの issue に依存する。」のような文中の `#N` は関係にならない。関係が無ければ「なし」と書き、補足は `#N` を行頭に置かずに書く。native の設定は手順6の `create-issue.sh` が作成と同時に行う。既存の issue に後から張るとき(照合モードや `create-issue.sh` が一部失敗したとき)は次のコマンドを使う。
    - database id: `gh api repos/<owner>/<repo>/issues/<n> --jq .id`(`#number` や `node_id` ではない)
    - 親子: `gh api repos/<owner>/<repo>/issues/<親>/sub_issues -X POST -F sub_issue_id=<子の database id>`
    - 依存: `gh api repos/<owner>/<repo>/issues/<n>/dependencies/blocked_by -X POST -F issue_id=<blocker の database id>`

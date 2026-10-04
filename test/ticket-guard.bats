@@ -80,6 +80,47 @@ EOF
     assert_output ''
 }
 
+@test "heredoc の本文に空白を含む二重引用符があってもマーカーがあれば通す" {
+    run hook "gh pr create --title t --body \"\$(cat <<'EOF'
+See \"foo bar\" here
+$MARKER
+EOF
+)\""
+    assert_success
+    assert_output ''
+}
+
+@test "heredoc の本文に空白を含む二重引用符があり、マーカーが無ければ deny し、置換の中を読めないと伝える" {
+    run hook "gh pr create --title t --body \"\$(cat <<'EOF'
+See \"foo bar\" here
+本文
+EOF
+)\""
+    [ "$(decision "$output")" = deny ]
+    [[ "$(reason "$output")" == *コマンド置換* ]]
+    [[ "$(reason "$output")" != *本文にマーカーが無い* ]]
+}
+
+@test "短いオプションに値を続けた -F<path> / -F=<path> / -b<text> も読む" {
+    printf 'body\n\n%s\n' "$MARKER" >"$BODY_DIR/pr.md"
+    run hook "gh pr create -t t -F$BODY_DIR/pr.md"
+    assert_output ''
+    run hook "gh pr create -t t -F=$BODY_DIR/pr.md"
+    assert_output ''
+    run hook "gh pr create -t t '-bx $MARKER'"
+    assert_output ''
+    printf 'body\n' >"$BODY_DIR/plain.md"
+    run hook "gh pr create -t t -F$BODY_DIR/plain.md"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "-R に値を続けた形も範囲の判定に使う" {
+    run hook "gh pr create -t t -Rsomeone-else/sample -b x"
+    assert_output ''
+    run hook "gh pr create -t t -Rtanimon/sample -b x"
+    [ "$(decision "$output")" = deny ]
+}
+
 @test "-b 短縮形と --body= 形も読む" {
     run hook "gh pr create -t t -b 'x $MARKER'"
     assert_output ''

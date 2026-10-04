@@ -15,7 +15,9 @@
 # 範囲は lib/ticket-scope.bash が判定する(-R / --repo があればそれ、無ければフックの cwd の origin)。
 # 残存: 先頭の `VAR=` と制御語・`command` / `time` は読み飛ばすが、引数を取りうる `env …` と `bash -c` の内側は見ない。
 # `cd <dir> && gh …` の cd 先は見ない。heredoc 演算子より後ろの segment は本文の行でありうるので判定しない
-# (heredoc の後ろに実際に書かれた作成コマンドも素通りする)。`bash -c` の内側、`gh api` での作成、
+# (heredoc の後ろに実際に書かれた作成コマンドも素通りする)。--body の値の heredoc は生の COMMAND から本文を読むが、
+# `gh … create` の行より後ろで同じ区切り語を使う最初の heredoc を本文とみなすので、--body 以外の heredoc を
+# 先に書くと取り違える。`bash -c` の内側、`gh api` での作成、
 # launchd から直接 gh を呼ぶスクリプトには効かない。フックが無い・落ちたときは判定なしで通る。
 # check_segment は shell_reader_each_segment が名前で間接的に呼ぶ。
 # shellcheck disable=SC2317,SC2329
@@ -61,6 +63,23 @@ HEREDOC_INDEX=${HEREDOC_INDEX%% *}
 
 DENY_DETAIL=''
 
+# heredoc_body_has_marker <区切り語>: COMMAND の中で `gh … create` の後に始まる最初の、区切り語 <区切り語> の
+# heredoc の本文にマーカーがあれば 0 を返す。--body "$(cat <<'EOF' … EOF)" の本文に空白を含む二重引用符
+# (See "foo bar" here)があると、reader は外側の "…" を内側の " で閉じたと読んで token を分けるので、
+# マーカーが --body の値の token に入らない。そのときは token ではなく生の COMMAND から本文を読む。
+heredoc_body_has_marker() {
+    printf '%s\n' "$COMMAND" | LC_ALL=C awk -v delimiter="$1" -v marker="$MARKER" '
+        state == 0 && /gh[ \t].*(create|new)/ { state = 1 }
+        state == 1 && $0 ~ ("<<-?[ \t]*[\047\"]?" delimiter "[\047\"]?([ \t)]|$)") { state = 2; next }
+        state == 2 {
+            line = $0
+            sub(/^\t*/, "", line)
+            if (line == delimiter) exit
+            if (index($0, marker)) { found = 1; exit }
+        }
+        END { exit !found }'
+}
+
 # segment が範囲内の作成コマンドで、本文にマーカーを確認できなければ DENY_DETAIL を設定して 1 を返す。
 check_segment() {
     local -a tokens=("$@")
@@ -83,7 +102,8 @@ check_segment() {
         return 0
     fi
 
-    local repo='' body_file='' has_body_file=0 body_has_marker=0 argument
+    local repo='' body_file='' has_body_file=0 body_value='' has_body=0 argument delimiter
+    local heredoc_pattern="<<-?[[:space:]]*['\"]?([A-Za-z0-9_]+)"
     local j=$((i + 3))
     while [[ $j -lt $count ]]; do
         argument=${tokens[$j]}
@@ -93,6 +113,11 @@ check_segment() {
             j=$((j + 1))
             ;;
         --repo=*) repo=${argument#--repo=} ;;
+        # gh(pflag)は短いオプションに値を続けた -R<repo> / -F<path> / -b<text> と、その間に = を挟む形も受け付ける。
+        -R?*)
+            repo=${argument#-R}
+            repo=${repo#=}
+            ;;
         -F | --body-file)
             has_body_file=1
             body_file=${tokens[$((j + 1))]:-}
@@ -102,13 +127,18 @@ check_segment() {
             has_body_file=1
             body_file=${argument#--body-file=}
             ;;
-        # heredoc を `--body "$(cat <<'EOF' … EOF)"` で渡したときも、本文は --body の値の token に入る。
-        -b | --body)
-            case "${tokens[$((j + 1))]:-}" in *"$MARKER"*) body_has_marker=1 ;; esac
-            j=$((j + 1))
+        -F?*)
+            has_body_file=1
+            body_file=${argument#-F}
+            body_file=${body_file#=}
             ;;
-        --body=*)
-            case "$argument" in *"$MARKER"*) body_has_marker=1 ;; esac
+        # heredoc を `--body "$(cat <<'EOF' … EOF)"` で渡したときも、本文は --body の値の token に入る。
+        -b | --body) body_value=${tokens[$((j + 1))]:-} has_body=1 j=$((j + 1)) ;;
+        --body=*) body_value=${argument#--body=} has_body=1 ;;
+        -b?*)
+            body_value=${argument#-b}
+            body_value=${body_value#=}
+            has_body=1
             ;;
         esac
         j=$((j + 1))
@@ -121,7 +151,13 @@ check_segment() {
     fi
     # 照合は --body / -b の値に限る。コマンド全体で探すと、--title や連結された別の segment の echo に
     # あるマーカーでも通ってしまう。
-    [[ $body_has_marker -eq 1 ]] && return 0
+    if [[ $has_body -eq 1 ]]; then
+        case "$body_value" in *"$MARKER"*) return 0 ;; esac
+        if [[ "$body_value" =~ $heredoc_pattern ]]; then
+            delimiter=${BASH_REMATCH[1]}
+            heredoc_body_has_marker "$delimiter" && return 0
+        fi
+    fi
 
     if [[ $has_body_file -eq 1 ]]; then
         case "$body_file" in
@@ -137,7 +173,12 @@ check_segment() {
         *) DENY_DETAIL='--body-file は絶対パスで渡す(cd が前に連結されているとフックから解決できない)。' ;;
         esac
     else
-        DENY_DETAIL='本文にマーカーが無い。'
+        case "$body_value" in
+        *\$\(* | *'`'*)
+            DENY_DETAIL='--body の値にコマンド置換があり、フックは置換の中の本文を読めないのでマーカーを確認できない(本文は --body-file で渡す)。'
+            ;;
+        *) DENY_DETAIL='本文にマーカーが無い。' ;;
+        esac
     fi
     return 1
 }

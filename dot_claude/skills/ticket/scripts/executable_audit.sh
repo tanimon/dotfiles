@@ -3,7 +3,7 @@
 # 1 行 1 件のタブ区切り「<kind> <issue 番号> <根拠>」で出す。書き込みはしない。
 #   parent-missing      本文の Parent 節の先頭の親が、API では未設定(親は 1 つしか持てないので先頭だけを見る。
 #                       create-issue.sh も先頭だけを張る)
-#   parent-mismatch     本文の Parent 節の先頭の親と、API に設定済みの別の親が食い違う(根拠は API 側の親)
+#   parent-mismatch     本文の Parent 節の先頭の親と、API に設定済みの別の親が食い違う(根拠は API 側の親。別リポジトリの親なら owner/repo#N)
 #   blocked-by-missing  本文の Blocked by 節にある blocker が、API の dependencies に無い
 #   open-after-merge    マージ済み PR の closingIssuesReferences にある issue が open のまま
 #   ac-unchecked        PR で close された issue の AC 節に [ ] が残る(1 項目 1 行)
@@ -49,19 +49,24 @@ while IFS= read -r item; do
     blockers=$(printf '%s\n' "$body" | section_refs '^#+[ \t]+blocked by')
     parent=$(printf '%s\n' "$parents" | head -n 1)
     if [[ -n "$parent" ]]; then
-        if actual=$(gh api "repos/$repo/issues/$number" | jq -r '.parent_issue_url // ""'); then
-            actual=${actual##*/}
+        # 本文の #N は同じリポジトリの番号なので、API の親は番号だけでなくリポジトリも比べる。
+        # 別リポジトリの親は owner/repo#N で出す(番号だけでは同じリポジトリの #N と区別できない)。
+        if actual=$(gh api "repos/$repo/issues/$number" | jq -r --arg repo "$repo" '.parent_issue_url // ""
+            | if . == "" then "" else (split("/") | (.[-4:-2] | join("/")) as $owner_repo
+                | if $owner_repo == $repo then "#" + .[-1] else $owner_repo + "#" + .[-1] end) end'); then
             if [[ -z "$actual" ]]; then
                 printf 'parent-missing\t%s\t#%s\n' "$number" "$parent"
-            elif [[ "$parent" != "$actual" ]]; then
-                printf 'parent-mismatch\t%s\t#%s(本文) / #%s(API)\n' "$number" "$parent" "$actual"
+            elif [[ "#$parent" != "$actual" ]]; then
+                printf 'parent-mismatch\t%s\t#%s(本文) / %s(API)\n' "$number" "$parent" "$actual"
             fi
         else
             api_failed "$number" parent
         fi
     fi
     if [[ -n "$blockers" ]]; then
-        if ! actual=$(gh api "repos/$repo/issues/$number/dependencies/blocked_by" | jq -r '.[].number'); then
+        # 別リポジトリの blocker は本文の #N と番号が一致しても同じ issue ではないので、同じリポジトリのものだけを比べる。
+        if ! actual=$(gh api "repos/$repo/issues/$number/dependencies/blocked_by" --paginate |
+            jq -r --arg repo "$repo" '.[] | select((.repository_url // "") | endswith("/repos/" + $repo)) | .number'); then
             api_failed "$number" dependencies
             continue
         fi

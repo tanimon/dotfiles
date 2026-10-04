@@ -19,6 +19,11 @@ for argument in "$@"; do
     case "$previous" in -F | --body-file) body_file=$argument ;; esac
     case "$argument" in
     --body-file=*) body_file=${argument#--body-file=} ;;
+    # gh(pflag)は短いオプションに値を続けた -F<path> / -F=<path> も受け付ける。
+    -F?*)
+        body_file=${argument#-F}
+        body_file=${body_file#=}
+        ;;
     # --web は issue を作らずブラウザを開くだけで URL を出さないので、relationship を張れない。
     -w | --web)
         echo 'create-issue.sh: --web は使えない(issue の URL が得られず relationship を張れない)' >&2

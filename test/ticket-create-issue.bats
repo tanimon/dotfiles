@@ -88,7 +88,7 @@ STUB
 }
 
 @test "同じ番号が節に 2 回あっても relationship は 1 回だけ張る" {
-    printf '## Blocked by\n\n#401 と #401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Blocked by\n\n- #401\n- #401\n\n<!-- ticket-skill -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     run grep -c -- 'dependencies/blocked_by -X POST' "$GH_LOG"
@@ -96,7 +96,7 @@ STUB
 }
 
 @test "Parent 節に #N が複数あれば先頭だけを親にし、警告を出して 0 で終わる" {
-    printf '## Parent\n\n#397 の下で #12 も参照\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Parent\n\n#397\n#12\n\n<!-- ticket-skill -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     assert_output --partial '先頭の #397 だけを親にした'
@@ -114,6 +114,32 @@ STUB
     assert_line 'api repos/tanimon/other/issues/397/sub_issues -X POST -F sub_issue_id=4500'
     assert_line 'api repos/tanimon/other/issues/450/dependencies/blocked_by -X POST -F issue_id=4010'
     refute_line --partial 'repos/tanimon/sample/'
+}
+
+@test "Blocked by / Parent 節の文中の #N(「なし。#402 が…」)では relationship を張らない" {
+    printf '## Parent\n\nなし。#397 の子にはしない。\n\n## Blocked by\n\nなし。#402 がこの issue に依存する。\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_success
+    run grep -c -- '-X POST' "$GH_LOG"
+    assert_output '0'
+}
+
+@test "行頭の #N、箇条書きの - #N(…)、見出しと同じ行の #N では relationship を張る" {
+    printf '## Parent #397\n\n## Blocked by\n\n#401\n- #449(週次ジョブの記述の置き場所)\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_success
+    run cat "$GH_LOG"
+    assert_line 'api repos/tanimon/sample/issues/397/sub_issues -X POST -F sub_issue_id=4500'
+    assert_line 'api repos/tanimon/sample/issues/450/dependencies/blocked_by -X POST -F issue_id=4010'
+    assert_line 'api repos/tanimon/sample/issues/450/dependencies/blocked_by -X POST -F issue_id=4490'
+}
+
+@test "-F に値を続けた形(-F/abs、-F=/abs)も本文ファイルとして読む" {
+    printf '<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t "-F$BODY"
+    assert_success
+    run bash "$SCRIPT" --title t "-F=$BODY"
+    assert_success
 }
 
 @test "--web は何も作らずに 2 で終わる" {

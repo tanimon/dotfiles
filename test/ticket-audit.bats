@@ -13,7 +13,7 @@ case "$*" in
 "issue list --state open"*) cat "$GH_FIXTURES/open.json" ;;
 "issue list --state closed"*) cat "$GH_FIXTURES/closed.json" ;;
 "pr list --state merged"*) cat "$GH_FIXTURES/merged.json" ;;
-"api repos/tanimon/sample/issues/"*/dependencies/blocked_by)
+"api repos/tanimon/sample/issues/"*/dependencies/blocked_by*)
     n=${2#repos/tanimon/sample/issues/}
     n=${n%%/*}
     cat "$GH_FIXTURES/blocked_by-$n.json" 2>/dev/null || printf '[]'
@@ -69,7 +69,43 @@ open_issue() {
 @test "本文の Blocked by が API にもあれば何も出さない" {
     open_issue 450 $'## Parent\n\n#397\n\n## Blocked by\n\n#401\n'
     printf '{"parent_issue_url":"https://api.github.com/repos/tanimon/sample/issues/397"}' >"$GH_FIXTURES/issue-450.json"
-    printf '[{"number":401}]' >"$GH_FIXTURES/blocked_by-450.json"
+    printf '[{"number":401,"repository_url":"https://api.github.com/repos/tanimon/sample"}]' >"$GH_FIXTURES/blocked_by-450.json"
+    run bash "$SCRIPT"
+    assert_success
+    assert_output ''
+}
+
+@test "API の blocker が別リポジトリの同じ番号なら blocked-by-missing" {
+    open_issue 450 $'## Blocked by\n\n#401\n'
+    printf '[{"number":401,"repository_url":"https://api.github.com/repos/tanimon/other"}]' >"$GH_FIXTURES/blocked_by-450.json"
+    run bash "$SCRIPT"
+    assert_success
+    assert_output $'blocked-by-missing\t450\t#401'
+}
+
+@test "Blocked by 節の文中の #N(「なし。#402 が…」)は blocker として扱わない" {
+    open_issue 456 $'## Blocked by\n\nなし。#402 がこの issue に依存する。\n'
+    run bash "$SCRIPT"
+    assert_success
+    assert_output ''
+}
+
+@test "Blocked by 節の行頭の #N と箇条書きの - #N(…)は blocker として扱う" {
+    open_issue 402 $'## Blocked by\n\n#401\n- #449(週次ジョブの記述の置き場所)\n'
+    run bash "$SCRIPT"
+    assert_success
+    assert_output $'blocked-by-missing\t402\t#401\nblocked-by-missing\t402\t#449'
+}
+
+@test "見出しと同じ行の ## Blocked by #N も blocker として扱う" {
+    open_issue 450 $'## Blocked by #401\n'
+    run bash "$SCRIPT"
+    assert_success
+    assert_output $'blocked-by-missing\t450\t#401'
+}
+
+@test "見出しと同じ行でも文中の #N は blocker として扱わない" {
+    open_issue 450 $'## Blocked by なし #3\n'
     run bash "$SCRIPT"
     assert_success
     assert_output ''
@@ -84,7 +120,7 @@ open_issue() {
 }
 
 @test "Parent 節の 2 件目以降は比べない" {
-    open_issue 12 $'## Parent\n\n#3 の下で #9 も参照\n'
+    open_issue 12 $'## Parent\n\n#3\n#9\n'
     printf '{"parent_issue_url":"https://api.github.com/repos/tanimon/sample/issues/3"}' >"$GH_FIXTURES/issue-12.json"
     run bash "$SCRIPT"
     assert_success
@@ -96,6 +132,20 @@ open_issue() {
     printf '{"parent_issue_url":"https://api.github.com/repos/tanimon/sample/issues/4"}' >"$GH_FIXTURES/issue-12.json"
     run bash "$SCRIPT"
     assert_output $'parent-mismatch\t12\t#3(本文) / #4(API)'
+}
+
+@test "API の親が別リポジトリの同じ番号なら parent-mismatch に owner/repo#N で出す" {
+    open_issue 12 $'## Parent\n\n#3\n'
+    printf '{"parent_issue_url":"https://api.github.com/repos/tanimon/other/issues/3"}' >"$GH_FIXTURES/issue-12.json"
+    run bash "$SCRIPT"
+    assert_output $'parent-mismatch\t12\t#3(本文) / tanimon/other#3(API)'
+}
+
+@test "Parent 節の文中の #N は親として扱わない" {
+    open_issue 12 $'## Parent\n\nなし。#3 の子にはしない。\n'
+    run bash "$SCRIPT"
+    assert_success
+    assert_output ''
 }
 
 @test "Parent 節の外の #N は relationship として扱わない" {
