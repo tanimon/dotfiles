@@ -263,8 +263,8 @@ function newState(config) {
   };
 }
 
-// budget.total は hard ceiling で、達すると以後の agent() はすべて throw する。公開の分を残すため、
-// agent を呼ぶループの各周回の先頭で下限を割っていないか確かめる。
+// budget.total は hard ceiling で、達すると以後の agent() はすべて throw する。エージェントが編集の途中で
+// 打ち切られて未コミットの変更を残さないよう、agent を呼ぶループの各周回の先頭で下限を割っていないか確かめる。
 function budgetExhausted(state, next) {
   if (!budget.total || budget.remaining() >= BUDGET_FLOOR) return false;
   state.stopReason = "budget";

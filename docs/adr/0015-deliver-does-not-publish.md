@@ -7,7 +7,7 @@ date: 2026-10-04
 
 Deliver は、実装・レビュー修正ループ・動作確認を終えた後に push と draft PR の作成をしていた。今後はそれをやめ、コミットはローカルのブランチに残し、報告(`report.md` / `ledger.json`)を Review-Verify と同じ形で人間に渡す。公開するかどうかは人間が報告とローカルのコミットを確かめてから決める。理由は2つある。PR の作成はレビュワーへの通知や `pull_request` トリガーの bot を起動する外向きの操作で、人間が中身を確かめる前に起こしたくない。また、仕事用のリポジトリでは PR 本文を `.github/pull_request_template.md` の節構成で書く決まりがあり、Workflow が組み立てる報告はその構成に合わない。
 
-これにより Deliver と Review-Verify の違いは「実装から始めるか」だけになる。`dot_claude/workflows/deliver.js` から公開の機能(`publish` 列、Publish フェーズ、引数 `prBase`、返り値の `prUrl` / `published` / `publishError`)を取り除く。
+これにより Deliver と Review-Verify の違いは「実装から始めるか」だけになる。`dot_claude/workflows/deliver.js` から公開の機能(`publish` 列、Publish フェーズ、引数 `prBase`、返り値の `prUrl` / `published` / `publishError`、PR のタイトルにしか使わなかった plan エージェントの `title`)を取り除く。
 
 ## Considered Options
 
@@ -16,6 +16,6 @@ Deliver は、実装・レビュー修正ループ・動作確認を終えた後
 
 ## Consequences
 
-- 入口 skill `/deliver` の結果の後処理を `/review-verify` に揃える。起動前の SHA を控え、`<起動前の SHA>..HEAD` を Workflow が足したコミットとして示す。履歴の書き換え・要件文書の書き換え・ledger に記録の無い変更を確かめる。報告の書き出し先は `deliver/report.md` / `ledger.json`(Review-Verify の `deliver/review-verify/` とは分けたまま)。
+- 入口 skill `/deliver` の結果の後処理を `/review-verify` に揃える。起動前の SHA を控え、`<起動前の SHA>..HEAD` を Workflow が足したコミットとして示す。履歴の書き換えと要件文書の書き換えを確かめる。ledger に記録の無い変更の突き合わせだけは揃えず、`git diff --stat` を示す。実装エージェントは変えたファイルを申告しない(ledger にはコミットしか残らない)ので、突き合わせると実装の差分がすべて記録の無い変更に見えるため。報告の書き出し先は `deliver/report.md` / `ledger.json`(Review-Verify の `deliver/review-verify/` とは分けたまま)。
 - 報告には PR 向けの帰属行も「公開しない mode」の注記も付けない。どの mode で走ったかは統計の節の `mode` 行で分かる。
 - Workflow はファイルを書き出さなくなる。報告と ledger は常に入口 skill が Write ツールで書き出す。

@@ -133,7 +133,6 @@ test("指摘ゼロなら修正せずに動作確認まで進み、push も PR �
     "review:requesting",
     "verify:1",
   ]);
-  assert.ok(!("prUrl" in result) && !("published" in result) && !("publishError" in result));
   assert.equal(result.stopReason, null);
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
@@ -1106,7 +1105,7 @@ test("review-verify では実装をせず、レビュー修正ループと動作
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
 
-test("どの mode の報告も統計の節で mode を示し、PR 向けの末尾行を付けない", async () => {
+test("どの mode の報告も統計の節で mode を示し、帰属行を付けない", async () => {
   const reviewVerify = await runWorkflow({ args: { mode: "review-verify" } });
   assert.match(section(reviewVerify.result.report, "統計"), /- mode: Review-Verify/);
   assert.doesNotMatch(reviewVerify.result.report, /Generated with/);
