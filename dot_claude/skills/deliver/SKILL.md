@@ -28,10 +28,9 @@ argument-hint: "<plan のパス> [base=] [verify=] [rounds=] [stats-issue=https:
        checkCommands: ["<手順4>", ...],
        verifySkill: "<手順5>",
        maxReviewRounds: <手順6。指定があるときだけ>
-       ticket: <bash ~/.claude/scripts/lib/ticket-scope.bash "$(pwd)" の終了コードが 0 なら true、それ以外は false>
      }
    })
    ```
 
-8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを、`publishError` の理由とともに先頭に書き、返り値の `prBody` と `ledger` をそれぞれ `$(git rev-parse --absolute-git-dir)/deliver/pr-body.md` / `ledger.json` に Write ツールでそのまま書き出す(Workflow 内の書き出しが予算の上限などで失敗していても残すため。PR は作らない)。`stopReason` があれば、何が原因で止まったかを1文で添える。`git status --porcelain` が空でなければ、Workflow のエージェントが未コミットの変更を残したこと(テスト/lint や動作確認の修正を途中で諦めた場合に起きる)と変更のあるファイルを、出力の先頭に書く。この変更は push されず PR にも入らないため、黙っていると人間が見落とす。消したりコミットしたりはせず、扱いはユーザーに委ねる。報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。
+8. **結果を伝える。** Workflow の返り値の `report` を、そのままユーザーに示す。`prUrl` があれば添え、`published` が false であれば公開に失敗したことを、`publishError` の理由とともに先頭に書き、返り値の `report` と `ledger` をそれぞれ `$(git rev-parse --absolute-git-dir)/deliver/pr-body.md` / `ledger.json` に Write ツールでそのまま書き出す(Workflow 内の書き出しが予算の上限などで失敗していても残すため。PR は作らない)。`stopReason` があれば、何が原因で止まったかを1文で添える。`git status --porcelain` が空でなければ、Workflow のエージェントが未コミットの変更を残したこと(テスト/lint や動作確認の修正を途中で諦めた場合に起きる)と変更のあるファイルを、出力の先頭に書く。この変更は push されず PR にも入らないため、黙っていると人間が見落とす。消したりコミットしたりはせず、扱いはユーザーに委ねる。報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。
 9. **統計を投稿する。** 手順6で `stats-issue=` を控えたときだけ行う。返り値の `stats` を `$(git rev-parse --absolute-git-dir)/deliver/stats.md` に Write ツールでそのまま書き出し、`gh issue comment <URL> --body-file <そのファイル>` で投稿する。`stats` に何も足さない(リポジトリ名・ブランチ名・SHA・報告の他の節)。仕事のリポジトリでの実行を public な Issue に投稿しうるためで、`stats` はそれらを含まないよう Workflow が組み立てている。Workflow が値を返さずに終わり `stats` が無い場合と、投稿に失敗した場合は、実行の失敗にはせず、投稿できなかったことと理由をユーザーに伝える(伝えないと、集めている統計の件数が黙って欠ける)。
