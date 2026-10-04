@@ -9,7 +9,7 @@
 # 採用した commit があれば、push と `gh pr create --draft` はこのスクリプトが固定の引数で
 # 行う。claude にさせないのは、headless では PreToolUse フックの ask が拒否になり、
 # git push guard が変数を含む push に ask を返すため(#429)。
-# 両方の工程が成功し、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
+# 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
 # heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
 #
 # PR のブランチ名は `harness/review-<日付>`。CI はこの prefix で自己改善ループの PR を
