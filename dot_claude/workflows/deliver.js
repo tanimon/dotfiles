@@ -517,7 +517,7 @@ function renderStats(state) {
   lines.push(`- レビューラウンド: ${state.rounds.length}`);
   for (const r of state.rounds) {
     lines.push(
-      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正に回した ${r.advisorySent}: 修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined})`,
+      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正に回した ${r.advisorySent}: 修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined}、報告のみ ${r.advisoryReportOnly})`,
     );
   }
   lines.push(
@@ -902,6 +902,13 @@ async function reviewRounds(state, tracker) {
     for (const key of blockingKeys)
       if (state.advisoryClosedKeys.has(key)) state.advisoryEscalatedKeys.add(key);
     const pendingAdvisory = advisory.filter((i) => !state.advisoryClosedKeys.has(i.key));
+    // 参考指摘を修正に回すのは実行全体の最初のラウンドだけ(ADR 0016)。以降に出たものは修正で生まれた
+    // nit が多く、回し続けるとループが上限まで回りやすい。再入後のパスでも数え直さない。
+    const advisoryToFix = roundNo === 1 ? pendingAdvisory : [];
+    const converged = result.blocking.length === 0 && advisoryToFix.length === 0;
+    const capped = !converged && fixRound >= state.config.maxReviewRounds;
+    const runsFix = result.requirementsBreaking.length === 0 && !converged && !capped;
+    const advisorySent = runsFix ? advisoryToFix.length : 0;
     tracker.unverified = [];
     tracker.unverifiedAdvisory = [];
     if (result.dropped.length > 0)
@@ -912,7 +919,8 @@ async function reviewRounds(state, tracker) {
       blocking: result.blocking.length,
       repeated: result.repeated.length,
       advisory: advisory.length,
-      advisorySent: pendingAdvisory.length,
+      advisorySent,
+      advisoryReportOnly: pendingAdvisory.length - advisorySent,
       advisoryFixed: 0,
       advisoryDeclined: 0,
       missingReviewers: state.lastMissingReviewers,
@@ -930,11 +938,11 @@ async function reviewRounds(state, tracker) {
       state.stopReason = "requirements-breaking";
       return;
     }
-    if (result.blocking.length === 0 && pendingAdvisory.length === 0) {
+    if (converged) {
       pass.outcome = "converged";
       return;
     }
-    if (fixRound >= state.config.maxReviewRounds) {
+    if (capped) {
       pass.outcome = "capped";
       log(
         `修正ラウンドの上限 ${state.config.maxReviewRounds} に達した。残り ${result.blocking.length} 件を Unresolved にし、修正に回していない参考指摘 ${pendingAdvisory.length} 件を参考指摘として報告する`,
@@ -944,15 +952,15 @@ async function reviewRounds(state, tracker) {
     }
     // runFix の途中で throw しても finally が Unresolved に残せるよう、修正に回す前に記録する。
     tracker.unverified = result.blocking;
-    tracker.unverifiedAdvisory = pendingAdvisory;
+    tracker.unverifiedAdvisory = advisoryToFix;
     const { firstRejections, rejected, advisoryFixed } = await runFix(
       state,
       roundNo,
       result.blocking,
-      pendingAdvisory,
+      advisoryToFix,
     );
     // 結果が返らなかった修正は、どの参考指摘を直したか分からないので、渡した全件を未確認として扱う。
-    tracker.unverifiedAdvisory = advisoryFixed ?? pendingAdvisory;
+    tracker.unverifiedAdvisory = advisoryFixed ?? advisoryToFix;
     if (state.stopReason) return;
     previousRejections = {
       items: result.blocking.filter((b) => rejected.has(b.key)),
