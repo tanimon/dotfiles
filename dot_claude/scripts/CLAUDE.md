@@ -219,7 +219,9 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   lib が無い / 空 / 構文エラーなら `ask`(`[[ -r ]]`・フック自身の `"$BASH" -n`・`declare -F` で確かめてから使う。
   素の `source` ではそれぞれ exit 1 / exit 2 = 理由なしのブロック / exit 127 = フェイルオープンになる)。
   jq が無い・stdin が JSON でないときは、生の入力に `push` があれば `ask`、無ければ無出力(無関係な
-  コマンドまで `ask` にしても承認を惰性にするだけ)。新しい PreToolUse guard はこのテストの一覧に 1 行足す。
+  コマンドまで `ask` にしても承認を惰性にするだけ)。「生の入力」は command だけでなく stdin の JSON 全体
+  (`cwd`・`transcript_path`・`description` を含む)なので、jq が無い間は cwd などに `push` を含む場所では
+  無関係なコマンドも `ask` になる(curl-localhost-guard の `curl` も同じ)。jq が無い状況自体がまれなので受容している。新しい PreToolUse guard はこのテストの一覧に 1 行足す。
 - **上限は 8192 byte。** `LC_ALL=C` で数え、超えたら reader は token を作らず `TOO_LONG` を返す。
   git-push-guard はこのとき上の字面の床を生のコマンドに当て、一致すれば `ask`(`deny` ではない)、
   しなければ何も返さない(classifier に任せる)。長い PR 本文の散文が `ask` になるのは受容している。
