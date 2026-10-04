@@ -209,6 +209,23 @@ seed_queue() {
     assert [ "$hb" -ge "$before" ]
 }
 
+# heartbeat のファイル名と中身(epoch)の知識は、このジョブと判定の lib の 2 か所にある。
+# ジョブは lib を読み込まないので、その一致をここで確かめる
+@test "ジョブが書いた heartbeat を、判定の lib が新しい成功として読む" {
+    run weekly
+    assert_success
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.claude/scripts"
+    : >"$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    cp "$SCRIPT" "$HOME/.claude/scripts/harness-weekly.sh"
+    chmod +x "$HOME/.claude/scripts/harness-weekly.sh"
+    # shellcheck source=../dot_claude/scripts/lib/harness-health.bash
+    source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash"
+    run harness_health_weekly
+    assert_success
+    assert_line "$(printf 'ok\tweekly job last succeeded 0d ago')"
+    refute_line --regexp '^(warn|fail)'
+}
+
 @test "claude が非 0 で終わると失敗し、heartbeat を書き換えない" {
     printf '100\n' >"$HDIR/weekly-heartbeat"
     STUB_CLAUDE_MODE=exit1 run weekly
@@ -1132,6 +1149,24 @@ PRE
     seed_queue
     run weekly
     assert_success
+    run cat "$GH_BODY"
+    assert_line '| `repeat` | 1 |'
+    assert_line '| `tool_error` | 0 |'
+    assert_line '| 合計 | 1 |'
+}
+
+@test "先頭 0 付きの heartbeat も 10 進数の epoch として期間の始まりに使う" {
+    : >"$HDIR/pending.jsonl"
+    now=$(date +%s)
+    printf '0%s\n' "$((now - 3600))" >"$HDIR/weekly-heartbeat"
+    {
+        printf '{"session_id":"old","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
+        printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"repeat":1}}\n' "$((now - 60))"
+    } >"$HDIR/detections.jsonl"
+    seed_queue
+    run weekly
+    assert_success
+    refute_output --partial 'failed to build the detection counts'
     run cat "$GH_BODY"
     assert_line '| `repeat` | 1 |'
     assert_line '| `tool_error` | 0 |'

@@ -146,7 +146,8 @@ count_pending() {
 # heartbeat が無いか壊れていれば直近 7 日にする
 DETECTION_SINCE=$(($(date +%s) - 7 * 24 * 60 * 60))
 if [[ -f "$HEARTBEAT" ]] && read -r heartbeat_epoch <"$HEARTBEAT" && [[ "$heartbeat_epoch" =~ ^[0-9]+$ ]]; then
-    DETECTION_SINCE=$heartbeat_epoch
+    # 10# で先頭 0 を落とす。0 付きのままだと jq の --argjson と date が読めず、節が省かれる
+    DETECTION_SINCE=$((10#$heartbeat_epoch))
 fi
 
 SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')

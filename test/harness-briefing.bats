@@ -1,9 +1,24 @@
+bats_require_minimum_version 1.5.0
+
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-briefing.sh"
     export HOME="$BATS_TEST_TMPDIR"
     HDIR="$HOME/.claude/harness"
     mkdir -p "$HDIR"
+    # 週次ジョブの plist が無いときの判定は OS で変わるので、既定は launchd の無い OS にする
+    stub_uname Linux
+}
+
+# ホストの OS に依存しないよう uname をスタブにする
+stub_uname() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    cat >"$BATS_TEST_TMPDIR/bin/uname" <<EOF
+#!/usr/bin/env bash
+printf '%s\\n' $1
+EOF
+    chmod +x "$BATS_TEST_TMPDIR/bin/uname"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
 
 briefing() {
@@ -73,64 +88,84 @@ briefing() {
     assert_success
 }
 
-# 週次ジョブ(harness-weekly.sh)の heartbeat。表示するのは launchd の plist が
-# 置かれている(= このマシンでジョブを動かす前提の)ときだけ。
+# 週次ジョブの健全性。判定の場合分けは test/harness-health.bats にあり、ここでは level の表示への
+# 写し方(ok は OK の行の値、warn と fail は ATTENTION)だけを見る
 weekly_installed() {
-    mkdir -p "$HOME/Library/LaunchAgents"
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.claude/scripts"
     : >"$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
+    printf '#!/usr/bin/env bash\n' >"$HOME/.claude/scripts/harness-weekly.sh"
+    chmod +x "$HOME/.claude/scripts/harness-weekly.sh"
     printf '{"version":1,"last_review_epoch":%s}' "$(date +%s)" >"$HDIR/state.json"
 }
 
-@test "weekly: plist が無ければ heartbeat を表示しない" {
-    run briefing
-    assert_success
-    refute_output --partial 'weekly'
-}
-
-@test "weekly: heartbeat が新しければ OK 行に経過日数を出す" {
+@test "weekly: ok なら OK の行に lib の値を出す" {
     weekly_installed
     printf '%s\n' "$(( $(date +%s) - 2*86400 ))" >"$HDIR/weekly-heartbeat"
     run briefing
     assert_success
-    assert_output --partial 'Harness: OK'
-    assert_output --partial 'weekly: 2d ago'
+    assert_output 'Harness: OK | queue: 0 | pending: 0 | last review: 0d ago | weekly: 2d ago'
 }
 
-@test "weekly: heartbeat が古ければ対処コマンド付きで警告する" {
+@test "weekly: fail は対処付きの ATTENTION にする" {
     weekly_installed
     printf '%s\n' "$(( $(date +%s) - 10*86400 ))" >"$HDIR/weekly-heartbeat"
     run briefing
     assert_success
-    assert_output --partial 'ATTENTION'
-    assert_output --partial 'weekly job last succeeded 10d ago'
-    assert_output --partial 'launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
+    assert_line --index 0 'Harness: ATTENTION'
+    assert_line --partial ' - weekly job last succeeded 10d ago — check '
 }
 
-@test "weekly: heartbeat が無く plist が新しければ never と出して警告しない" {
-    weekly_installed
+@test "weekly: warn(macOS で plist が無い)も ATTENTION にする" {
+    stub_uname Darwin
+    run briefing
+    assert_success
+    assert_line --index 0 'Harness: ATTENTION'
+    assert_line --partial ' - weekly job not installed'
+}
+
+@test "weekly: launchd の無い OS で plist が無ければ weekly を出さない" {
     run briefing
     assert_success
     assert_output --partial 'Harness: OK'
-    assert_output --partial 'weekly: never'
+    refute_output --partial 'weekly'
 }
 
-@test "weekly: heartbeat が無いまま plist が古ければ警告する" {
-    weekly_installed
-    touch -t 202001010000 "$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
-    run briefing
-    assert_success
-    assert_output --partial 'ATTENTION'
-    assert_output --partial 'weekly job has never succeeded'
-    assert_output --partial 'launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
+# 判定の lib が無い・空・構文エラーでも黙らず、ATTENTION と対処を出して exit 0 で終わる
+copy_briefing() {
+    local dir="$BATS_TEST_TMPDIR/scripts"
+    mkdir -p "$dir"
+    cp "$SCRIPT" "$dir/harness-briefing.sh"
+    [[ $1 == missing ]] || mkdir -p "$dir/lib"
+    case $1 in
+    missing) ;;
+    empty) : >"$dir/lib/harness-health.bash" ;;
+    syntax) printf '%s\n' 'harness_health_weekly() {' >"$dir/lib/harness-health.bash" ;;
+    esac
+    printf '%s\n' "$dir/harness-briefing.sh"
 }
 
-@test "weekly: heartbeat が数値でなければ警告する" {
-    weekly_installed
-    printf 'oops\n' >"$HDIR/weekly-heartbeat"
-    run briefing
+@test "lib が無い・空・構文エラーなら ATTENTION と chezmoi apply を出して exit 0" {
+    local kind script
+    for kind in missing empty syntax; do
+        script=$(copy_briefing "$kind")
+        run bash "$script"
+        assert_success
+        assert_line --index 0 'Harness: ATTENTION'
+        assert_line --index 1 --partial "lib/harness-health.bash is missing or broken — run 'chezmoi apply'"
+        rm -rf "$BATS_TEST_TMPDIR/scripts"
+    done
+}
+
+@test "状態ディレクトリに書けなければ、lib の破損ではなく doctor を案内して exit 0" {
+    [[ "$(id -u)" -ne 0 ]] || skip 'root では chmod による拒否を再現できない'
+    chmod 555 "$HDIR"
+    run --separate-stderr briefing
+    chmod 755 "$HDIR"
     assert_success
-    assert_output --partial 'ATTENTION'
-    assert_output --partial 'weekly-heartbeat is not a number'
+    assert_line --index 0 'Harness: ATTENTION'
+    assert_line --index 1 --partial "could not create the state files in $HDIR"
+    assert_line --index 1 --partial 'harness-doctor.sh'
+    refute_output --partial 'missing or broken'
 }
 
 @test "週次ジョブが残した deploy-only の修正があれば、適用して消すよう警告する" {
