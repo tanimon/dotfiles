@@ -179,3 +179,13 @@ _Avoid_: 仕様書(無限定)、入力
 **Requirements Concern**:
 実装ではなく Requirements Document そのものに向けられた Review Finding で、何を作るかを agent は決めないため修正せずに人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
 _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正
+
+### Pull requests
+
+**PR Body Review**:
+agent が PR 本文を現在の差分と照らし、食い違う記述があれば本文を直す行為。食い違いが無ければ本文を変えずに終わる。
+_Avoid_: 本文更新(食い違いが無い場合を含まない)
+
+**Stale PR Body**:
+現在の差分と食い違う記述(変更点、テスト方法、Acceptance criteria の対応など)を含む PR 本文。新しいコミットが積まれただけでは Stale PR Body にならず、食い違いの有無は PR Body Review が判断する。
+_Avoid_: 古い本文、陳腐化した description
