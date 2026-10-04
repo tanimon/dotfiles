@@ -417,8 +417,9 @@ result_sections() {
         printf '\n## 落とした変更\n\ncommit フックか lint を通せずに commit しなかった変更。queue に残してあり、次の選別にかけ直す。\n\n%s\n' "$dropped"
     fi
     if [[ -n "$deploy_only" ]]; then
+        # 本文は公開リポジトリの PR になるので、ローカルアカウント名を含む $HOME を ~ で書く
         printf '\n## deploy-only の修正\n\nこの PR の commit では直らず、人が適用して初めて効く修正。%s にも記録した(適用したら消す)。\n\n%s\n' \
-            "$DEPLOY_ONLY" "$deploy_only"
+            "~${DEPLOY_ONLY#"$HOME"}" "$deploy_only"
     fi
 }
 

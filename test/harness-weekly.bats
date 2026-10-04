@@ -678,6 +678,9 @@ PRE
     assert_output --partial '## deploy-only の修正'
     assert_output --partial '- 複数行の 説明'
     refute_output --partial '## 落とした変更'
+    # 本文は公開リポジトリの PR になるので、ローカルアカウント名を含む絶対パスを書かない
+    assert_output --partial '~/.claude/harness/deploy-only.md にも記録した'
+    refute_output --partial "$HOME"
     run cat "$HDIR/deploy-only.md"
     assert_output --partial '- 複数行の 説明'
 }
@@ -790,6 +793,8 @@ PRE
     assert_output --partial '- harness: other(prek で失敗)'
     assert_output --partial '## deploy-only の修正'
     assert_output --partial '- v を適用する'
+    assert_output --partial '~/.claude/harness/deploy-only.md にも記録した'
+    refute_output --partial "$HOME"
 }
 
 @test "同じ日に deploy-only の修正が加わっても、日付の見出しを重ねない" {
