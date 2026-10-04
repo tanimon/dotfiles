@@ -125,7 +125,7 @@ _Avoid_: テストケース(bats と紛らわしい)、評価(無限定)
 _Avoid_: queue-archive(ローカルの作業記録と混同する)、履歴
 
 **Dropped Change**:
-自己改善ループが採用したが、commit フックや lint を通せずに commit しなかった変更。失敗ではなく、queue に戻して次の選別にかけ直す。採用が1件も commit されずにすべてが Dropped Change になった週だけを、ループの失敗として扱う。
+自己改善ループが採用したが、commit フックや lint を通せずに commit しなかった変更。失敗ではなく、queue に戻して次の選別にかけ直す。commit が1件も無く Dropped Change がある週だけを、ループの失敗として扱う(陳腐化の修正などの commit があれば PR を作り、Dropped Change はその本文に載せる)。
 _Avoid_: 却下(採否の判定と混同する)、失敗した採用
 
 **Deploy-only Fix**:

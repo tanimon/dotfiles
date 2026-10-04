@@ -113,6 +113,18 @@ if [[ -f "$WEEKLY_PLIST" ]]; then
     fi
 fi
 
+# 週次ジョブが残した Deploy-only Fix(harness-weekly.sh の record_deploy_only)。commit では
+# 直らないので、人が適用してファイルを消すまで知らせ続ける
+DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
+# 件数で判定する(項目だけ消して見出しが残ったファイルで警告し続けないため)
+DEPLOY_ONLY_COUNT=0
+if [[ -f "$DEPLOY_ONLY" ]]; then
+    DEPLOY_ONLY_COUNT=$(grep -c '^- ' "$DEPLOY_ONLY" 2>/dev/null || true)
+fi
+if [[ "${DEPLOY_ONLY_COUNT:-0}" -gt 0 ]]; then
+    WARNINGS+=("weekly job left deploy-only fix(es) to apply by hand (${DEPLOY_ONLY_COUNT}) — read $DEPLOY_ONLY, apply them, then delete it")
+fi
+
 if [[ ${#WARNINGS[@]} -eq 0 ]]; then
     printf 'Harness: OK | queue: %s | pending: %s | last review: %s' \
         "$QUEUE_COUNT" "$PENDING_COUNT" "$LAST_REVIEW_TEXT"
