@@ -23,6 +23,7 @@ GitHub Issues でチケットを管理する個人リポジトリで、issue と
 |---|---|---|
 | スキル `ticket` | `dot_claude/skills/ticket/SKILL.md` → `~/.claude/skills/ticket/` | 手順の正本。作成モードと照合モードを持つ |
 | 作成時ガード | `dot_claude/scripts/executable_ticket-guard.sh` → `~/.claude/scripts/ticket-guard.sh` | PreToolUse(`matcher: "Bash"`)。`gh issue create` / `gh pr create` の本文にマーカーが無ければ deny する |
+| 適用範囲の判定 | `dot_claude/scripts/lib/ticket-scope.bash` → `~/.claude/scripts/lib/ticket-scope.bash` | origin の owner が許可リストにあるかを判定する。ガードが source し、deliver の入口 skill が直接実行する |
 | 照合スクリプト | `dot_claude/skills/ticket/scripts/executable_audit.sh` | 照合モードの検出部分。LLM を使わずに食い違いを列挙する |
 
 手順の正本はこのスキルだけにする。`docs/agents/issue-tracker.md` にある sub-issue と dependency の API 手順は、このスキルを参照する形に書き換える。2か所に写すと食い違うため。
@@ -67,12 +68,15 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 | origin が無い、GitHub 以外、owner が許可リストに無い | 無出力で通す |
 | `--body-file` / `-F` の絶対パスのファイルにマーカーがある | 無出力で通す |
 | `--body` / `-b` の値にマーカーがある | 無出力で通す |
-| マーカーが無い | deny |
-| 変数を含むパス、相対パス、`--body-file -`、`--fill`、`--web`、読めないファイル | 理由付きで deny |
+| マーカーが無い(`--fill` / `--web` もここに入る) | deny |
+| `--body-file` が変数を含むパス、相対パス、`-`、読めないファイル | 理由付きで deny |
+| reader が読み切れない(長すぎる、引用符が閉じない、番兵の byte を含む) | 無出力で通す |
+| heredoc 演算子より後ろの segment(本文の行でありうる) | 判定しない |
 
 - deny の理由文には「`ticket` スキルの作成モードで本文を作り、`$(git rev-parse --absolute-git-dir)/ticket/` の下の本文ファイルを `--body-file` に絶対パスで渡して再実行する」と書く。deliver や他のスキルが、人の手を借りずに立て直せるようにするため。
 - 相対パスは deny する。`cd` が前に連結されていると、フックが受け取る cwd からは解決できないため。
 - `gh pr edit` / `gh issue edit` は対象にしない。作成時に一度ガードを通っていれば足りる。
+- 読み切れない入力を通すのは git-push-guard と逆の向き。このガードの目的は起動忘れの防止で、読めないことを理由に deny すると無関係なコマンドを止める損の方が大きい。
 - owner の許可リストはスクリプト内の定数(既定値は `tanimon`)で、環境変数 `TICKET_GUARD_OWNERS` で上書きできる。書くのは公開済みの個人アカウント名だけなので、identity leak guard に触れない。仕事 org の除外リスト方式は採らない。`.ghOrg` を使うテンプレートになって shellcheck が効かなくなり、OSS リポジトリへの PR まで対象になるため。
 
 ### 配線
@@ -87,7 +91,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 ## 同じ変更で直す既存経路
 
-- **deliver**: `deliver.js` は、サブエージェントの Bash で `gh pr create --draft --body-file …/pr-body.md` を実行する。PreToolUse フックはサブエージェントにも効くので、直さないと自律実行が deny で止まる。PR 本文を作る手順に、作成モードとマーカーを組み込む。
+- **deliver**: `deliver.js` は、サブエージェントの Bash で `gh pr create --draft --body-file …/pr-body.md` を実行する。PreToolUse フックはサブエージェントにも効くので、直さないと自律実行が deny で止まる。引数 `ticket`(真偽値)を足し、入口 skill が `ticket-scope.bash` で範囲内と判定したときだけ `true` にする。`true` のとき、Workflow は公開の前にエージェント(label `ticket`)に作成モードの PR 向けの手順で「## チケット」節を作らせ、報告の後ろに節とマーカーを付けたものを PR 本文にする。節を作れなかったときも公開は止めず、作れなかったことを本文に書く(止めると PR ごと失うため)。返り値に PR 本文 `prBody` を足し、公開に失敗したときに入口 skill が書き出すのはこれにする。
 - **issue-tracker.md**: API 手順の記述を、スキルを参照する形に置き換える。
 - `ce-commit-push-pr` などの外部プラグインのスキルは直せない。これらは deny の理由文に従って立て直す。
 
@@ -103,7 +107,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 ## ドキュメント
 
-- `dot_claude/scripts/CLAUDE.md` にガードの節を追加する。
+- ガードの判定と残存は、スクリプト冒頭のコメントに書く。`dot_claude/scripts/CLAUDE.md` には書かない(サイズ上限 70035 バイトに対し 70032 バイトで余白が無い。#449)。
 - SKILL.md は短く保ち、詳細は同梱のファイルに分ける(#440 で議論しているサイズ上限に合わせる)。
 
 ## 関連
