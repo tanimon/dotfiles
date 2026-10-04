@@ -34,7 +34,7 @@ bats_jobs := `command -v parallel >/dev/null 2>&1 && echo "--jobs $(getconf _NPR
 # 依存レシピはどれもリポジトリに書き込まないので並列に走らせる。出力は混ざるが、失敗したレシピ名は just が最後に出す
 # Run all checks (mirrors CI)
 [parallel]
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -257,6 +257,11 @@ check-templates:
 # Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca)
 @test-settings-hooks:
     LC_ALL=C pnpm exec bats test/settings-hooks.bats
+
+# Needs chezmoi — fails (not skips) without it, for the same reason as test-settings-hooks.
+# Contract test for the startup promises every PreToolUse guard keeps (lib / jq / stdin / HOME failures), plus the guard list vs. the rendered wiring
+@test-guard-contract:
+    LC_ALL=C pnpm exec bats test/guard-contract.bats
 
 # Needs chezmoi — fails (not skips) without it, for the same reason as above.
 # Push without writing upstream to .git/config, through the rendered ~/.gitconfig + claude-code.inc

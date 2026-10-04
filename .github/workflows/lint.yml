@@ -352,6 +352,21 @@ jobs:
           chezmoi: 'true'
       - run: just test-settings-hooks
 
+  guard-contract:
+    name: guard hook startup contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # chezmoi は必須。test/guard-contract.bats は描画した settings.json の配線を一覧と照合するので、
+      # chezmoi が無いと skip せず fail する
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+          chezmoi: 'true'
+      - run: just test-guard-contract
+
   gitconfig:
     name: git push without upstream config
     runs-on: ubuntu-latest

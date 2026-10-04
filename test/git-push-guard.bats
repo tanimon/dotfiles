@@ -253,12 +253,6 @@ decision() {
     assert_output ''
 }
 
-@test "unparseable stdin falls back to ask" {
-    run bash -c 'printf "not json" | bash "$1"' _ "$SCRIPT"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
 @test "deny wins over ask when both are present" {
     run hook 'git push origin $BRANCH --force'
     assert_success
@@ -403,18 +397,6 @@ EOF
 
 @test "the short -d delete form is denied" {
     run hook 'git push -d origin feature'
-    assert_success
-    assert_equal "$(decision "$output")" deny
-}
-
-# --- logging must never be able to suppress the decision ----------------------
-
-@test "an unwritable HOME does not suppress the decision" {
-    [[ $EUID -eq 0 ]] && skip "root ignores the directory mode"
-    export HOME="$BATS_TEST_TMPDIR/readonly-home"
-    mkdir -p "$HOME"
-    chmod 500 "$HOME"
-    run hook 'git push origin main --force'
     assert_success
     assert_equal "$(decision "$output")" deny
 }
@@ -598,47 +580,6 @@ EOF
 )"'
     assert_success
     assert_equal "$(decision "$output")" ask
-}
-
-@test "a missing reader library asks" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
-# lib が壊れているとき: 空の lib は関数が無いまま exit 127(フェイルオープン)、構文エラーの lib は
-# source が exit 2(理由なしのブロック)になっていた。どちらも ask にそろえる。
-@test "an empty reader library asks" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    : >"$BATS_TEST_TMPDIR/bin/lib/shell-reader.bash"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
-@test "a reader library with a syntax error asks" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    printf '%s\n' 'shell_reader_read() {' >"$BATS_TEST_TMPDIR/bin/lib/shell-reader.bash"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_equal "$(decision "$output")" ask
-}
-
-@test "a copy with an intact reader library stays silent for a plain push" {
-    mkdir -p "$BATS_TEST_TMPDIR/bin/lib"
-    cp "$SCRIPT" "$BATS_TEST_TMPDIR/bin/guard.sh"
-    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/shell-reader.bash" "$BATS_TEST_TMPDIR/bin/lib/"
-    run bash -c 'jq -n --arg c "$1" "{tool_name:\"Bash\",tool_input:{command:\$c}}" | bash "$2"' \
-        _ 'git push origin feature' "$BATS_TEST_TMPDIR/bin/guard.sh"
-    assert_success
-    assert_output ''
 }
 
 # 長さ超過(8192 byte 超)では reader が token を作らない。字面の床だけを生のコマンドに当てる。

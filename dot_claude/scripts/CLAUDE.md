@@ -215,14 +215,13 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   (`set -f` の下)で行う。here-string は一時ファイルを使うので `$TMPDIR` に書けないと黙って
   「一致なし」になり、`${s%%$'\n'*}` / `${s#*$'\n'}` の行ループは毎行残りをコピーして二乗になる
   (179 KB で 2.3 秒。単語分割は 0.02 秒)。
-- **lib が読めない・壊れているときは `ask`。** フックは `[[ -r "$reader_library" ]]` と
-  `"$BASH" -n`(PATH 上の bash ではなくフック自身の interpreter)を確かめてから `source` し、
-  その後 `declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches` で
-  関数がそろったことを確かめる。
-  存在しないファイルへの素の `source … || …` は bash 3.2 で `||` に届く前に exit 1 し、
-  構文エラーの lib では `source` 自体が exit 2(PreToolUse では理由なしのブロック)で終わり、
-  空や途中で切れた lib では関数が無いまま進んで exit 127(ブロックしないエラー = フェイルオープン)になる。
-  どの経路でも判定不能のまま素通りさせず `ask` を返す。
+- **起動時の約束(lib・jq・stdin・`HOME`)の正本は `test/guard-contract.bats`(`just test-guard-contract`)。**
+  lib が無い / 空 / 構文エラーなら `ask`(`[[ -r ]]`・フック自身の `"$BASH" -n`・`declare -F` で確かめてから使う。
+  素の `source` ではそれぞれ exit 1 / exit 2 = 理由なしのブロック / exit 127 = フェイルオープンになる)。
+  jq が無い・stdin が JSON でないときは、生の入力に `push` があれば `ask`、無ければ無出力(無関係な
+  コマンドまで `ask` にしても承認を惰性にするだけ)。「生の入力」は command だけでなく stdin の JSON 全体
+  (`cwd`・`transcript_path`・`description` を含む)なので、jq が無い間は cwd などに `push` を含む場所では
+  無関係なコマンドも `ask` になる(curl-localhost-guard の `curl` も同じ)。jq が無い状況自体がまれなので受容している。新しい PreToolUse guard はこのテストの一覧に 1 行足す。
 - **上限は 8192 byte。** `LC_ALL=C` で数え、超えたら reader は token を作らず `TOO_LONG` を返す。
   git-push-guard はこのとき上の字面の床を生のコマンドに当て、一致すれば `ask`(`deny` ではない)、
   しなければ何も返さない(classifier に任せる)。長い PR 本文の散文が `ask` になるのは受容している。
@@ -280,7 +279,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `command` はスクリプトのパスそのものにして、ログは開けたときだけ `exec 2>>` で繋ぐ。
   開けるかの判定は `-w` ではなく `(: >>"$LOG_FILE")` の実書き込みで行う — `exec` は
   special builtin なので、開けなかった場合に**無出力でシェルごと落ちる**(= 塞ごうとしている
-  フェイルオープンそのもの)。書き込めない `$HOME` でも deny が出ることをテストで固定してある。
+  フェイルオープンそのもの)。書き込めない `$HOME` でも deny が出ることを `test/guard-contract.bats` で固定してある。
 
 フックが未配置・クラッシュした場合は無出力=判定なしで**フェイルオープン**する。そのため
 `settings.json.tmpl` の `deny` にある先頭フラグ形3行(`--force` / `--force-with-lease` / `-f`)は
@@ -303,8 +302,8 @@ default / auto の両 mode で効く。
 含むコマンドのうち、宛先がすべてループバックと読み切れないものに `ask` を返し、ループバック宛だけを
 無出力(= `defaultMode: auto` のクラシファイア判定)に落とす。未配置・クラッシュでは
 無出力になり、curl の確認が**外れる**(フェイルオープン)ことに注意 — 旧構成の「フェイルクローズ」は
-ask ルールが土台だったから成り立っていた。`jq` が無いときは生の入力に `curl` があれば `ask`、
-lib が読めない・壊れているときも `ask` を返す(下の「shell command reader」節)。
+ask ルールが土台だったから成り立っていた。`jq` が無いとき・stdin が JSON でないときは生の入力に `curl` があれば `ask`、
+lib が読めない・壊れているときも `ask` を返す(正本は `test/guard-contract.bats`)。
 
 存在理由は `permissions` のプレフィックス照合の限界で、これも git push と同じ形: URL はフラグの
 後ろ(`curl -sS -H … URL`)に来るので `Bash(curl http://localhost:*)` という allow エントリでは
@@ -537,11 +536,7 @@ Source 上の配線は git-push-guard と同じく `just test-settings-hooks`(`t
   含む token で拾う。reader に heredoc を教えるのは変更が大きすぎるため見送った)。
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
-- **読み込みに失敗したとき。** 各フックは `[[ -r … ]]` と `"$BASH" -n` で確かめてから `source` し、その後
-  `declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches` で関数がそろったことを確かめる。どの失敗経路
-  (無い・構文エラー・空や途中で切れた lib・source の失敗)でも `ask` を返す(git-push は判定不能を
-  素通りさせない、curl も curl の有無を確かめられないため)。テストは各フックの bats にある
-  (lib の無いコピー・空の lib・構文エラーの lib)。
+- **読み込みに失敗したとき**の扱いは各フックの起動部が持つ(どの経路でも `ask`。`test/guard-contract.bats`)。
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在せず、それを読んでいた旧インライン版は 2026-03-06 の導入以来一度も発火していなかった(2026-09-25 の prompt-audit で判明。同時に旧 format フックは削除。変数だけ直して戻すと全プロジェクトの .ts 編集ごとに `pnpm lint:fix` が走り、script の無いリポジトリでは失敗するので、戻すなら外部スクリプト + `pnpm run --if-present` ガード + bats テストにする)。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
 
