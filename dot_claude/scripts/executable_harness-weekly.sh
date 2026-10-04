@@ -164,9 +164,16 @@ QUEUE="$HARNESS_DIR/queue.md"
 ARCHIVE="$HARNESS_DIR/queue-archive.md"
 WORKTREE="$HARNESS_DIR/review-worktree"
 REVIEW_DATE=$(date +%Y-%m-%d)
-# 日付を入れるのは、失敗した run の本文(落とした変更の理由)を次の週の run が消さないため。
-# PR を作れたら消す
+# 日付を入れるのは、失敗した run の本文と結果ファイルを次の週の run が消さないため。
+# 成功した run は消す
 PR_BODY="$HARNESS_DIR/review-pr-body-$REVIEW_DATE.md"
+# 選別に毎回書かせる結果ファイル。Dropped Change と Deploy-only Fix を人が読める 1 行の
+# 文字列の配列で持つ({"dropped": [...], "deploy_only": [...]})。選別の成否の判定は本文の
+# 有無ではなくこのファイルで行い、本文の 2 つの節もこのファイルからこのスクリプトが作る
+REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
+# Deploy-only Fix の報告先。PR の有無にかかわらず日付付きで追記し、空でない間は
+# briefing が警告する(人が適用したら消す)
+DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
 BRANCH="harness/review-$REVIEW_DATE"
 # 選別に書かせる採用の記録。run ごとの印(選別の session id)を入れるのは、同じ日の前の run が
 # 失敗して残した adopted (<ブランチ> …) を、今回の PR の URL で上書きしないため(record_pr_url)。
@@ -207,7 +214,7 @@ run_claude() {
 # harness-reflect / review の Bookkeeping が pending.jsonl と state.json をその形で更新させており
 # (pending は SessionEnd hook が並行に追記するので、Read した写しを Write で書き戻すと
 # 追記を失う)、push や curl を含まないコマンドにフックは ask を返さないため
-WRITE_RULE="- Write text you compose (queue entries, rule and doc text, the PR body) only with the Write and Edit tools, never with heredocs, echo or printf: in this headless run a hook that asks for confirmation denies the command. Redirecting a command's output to a temp file and moving it into place (the skills' Bookkeeping for pending.jsonl and state.json) is fine; never rewrite those files from a copy you read earlier."
+WRITE_RULE="- Write text you compose (queue entries, rule and doc text, the PR body, the result file) only with the Write and Edit tools, never with heredocs, echo or printf: in this headless run a hook that asks for confirmation denies the command. Redirecting a command's output to a temp file and moving it into place (the skills' Bookkeeping for pending.jsonl and state.json) is fine; never rewrite those files from a copy you read earlier."
 
 count_queue() {
     if [[ -f "$QUEUE" ]]; then
@@ -348,15 +355,60 @@ record_pr_url() {
     printf 'harness-weekly: recorded the PR URL on %s verdict(s)\n' "$count"
 }
 
-# 選別の結果から PR を作る。commit も本文も無ければ(採用も陳腐化の修正も無い週)PR を
-# 作らずに成功する。次はどれも失敗として扱い、heartbeat を書かせない:
+# 結果ファイルが決めた形(object で、dropped と deploy_only が文字列の配列)かを確かめる。
+# キーの欠落を空配列として読まない(jq の .dropped | length は null に 0 を返す)
+review_result_valid() {
+    jq -e 'type == "object"
+        and (.dropped | type == "array") and (.deploy_only | type == "array")
+        and all(.dropped[], .deploy_only[]; type == "string")' "$REVIEW_RESULT" >/dev/null 2>&1
+}
+
+# 結果ファイルの配列 1 つを Markdown のリストにする。改行は空白に潰す(リストを崩さないため)
+result_items() {
+    jq -r --arg key "$1" '.[$key][] | "- " + gsub("[\r\n]+"; " ")' "$REVIEW_RESULT"
+}
+
+result_count() {
+    jq -r --arg key "$1" '.[$key] | length' "$REVIEW_RESULT"
+}
+
+# Deploy-only Fix を $DEPLOY_ONLY に日付の見出し付きで追記する
+record_deploy_only() {
+    local items
+    items=$(result_items deploy_only) || return 1
+    [[ -n "$items" ]] || return 0
+    printf '## %s\n\n%s\n\n' "$REVIEW_DATE" "$items" >>"$DEPLOY_ONLY" || return 1
+    printf 'harness-weekly: recorded %s deploy-only fix(es) in %s; apply them by hand, then delete it\n' \
+        "$(result_count deploy_only)" "$DEPLOY_ONLY"
+}
+
+# PR の本文に付ける Dropped Change と Deploy-only Fix の節。claude には本文に書かせず、
+# 結果ファイルから作る(純増の節と同じ扱い)
+result_sections() {
+    local dropped deploy_only
+    dropped=$(result_items dropped) || return 1
+    deploy_only=$(result_items deploy_only) || return 1
+    if [[ -n "$dropped" ]]; then
+        printf '\n## 落とした変更\n\ncommit フックか lint を通せずに commit しなかった変更。queue に残してあり、次の選別にかけ直す。\n\n%s\n' "$dropped"
+    fi
+    if [[ -n "$deploy_only" ]]; then
+        printf '\n## deploy-only の修正\n\nこの PR の commit では直らず、人が適用して初めて効く修正。%s にも記録した(適用したら消す)。\n\n%s\n' \
+            "$DEPLOY_ONLY" "$deploy_only"
+    fi
+}
+
+# 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
+# Dropped Change の判定に使わない(本文には採用 0 件の週にも指標などが載りうるため)。
+#   - commit 0 件・dropped が空 → PR を作らずに成功(deploy-only だけの週を含む)
+#   - commit 0 件・dropped が空でない → 失敗(すべてが Dropped Change)
+#   - commit 1 件以上 → PR を作る。dropped は queue に残っており、次の選別にかけ直される
+# 次はどれも失敗として扱い、heartbeat を書かせない:
 #   - commit されていない変更が残った
-#   - 本文があるのに commit が無い(commit フックの失敗を疑う。落とした変更があれば
-#     本文を必ず書かせているので、全部落ちた run を「採用なし」と取り違えない。deploy-only の
-#     修正だけの週は、本文ではなく claude の最終の要約に書かせて、この判定と区別する)
+#   - 結果ファイルが無い、または決めた形でない
 #   - commit があるのに本文が無い
 #   - push か PR の作成が失敗した
-# 失敗の経路では worktree と本文($PR_BODY)を残す(調べられるように。worktree は次の
+# Deploy-only Fix は、結果ファイルを読めた時点でどの判定よりも先に $DEPLOY_ONLY へ残す。
+# 失敗の経路では worktree・本文・結果ファイルを残す(調べられるように。worktree は次の
 # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
 # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
@@ -365,13 +417,24 @@ publish_review() {
         printf 'harness-weekly: review left uncommitted changes in %s; no PR created\n' "$WORKTREE" >&2
         return 1
     fi
+    if ! review_result_valid; then
+        printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
+            "$REVIEW_RESULT" >&2
+        return 1
+    fi
+    record_deploy_only || {
+        printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
+        return 1
+    }
     commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD") || return 1
     if [[ "$commits" -eq 0 ]]; then
-        if [[ -s "$PR_BODY" ]]; then
-            printf 'harness-weekly: review wrote %s but made no commits (a commit hook may have failed; dropped changes stay in the queue. If it only reports deploy-only fixes, apply them by hand and delete it); no PR created\n' "$PR_BODY" >&2
+        if [[ "$(result_count dropped)" -gt 0 ]]; then
+            printf 'harness-weekly: review dropped %s change(s) and committed nothing (a commit hook or lint failed; the entries stay in the queue); no PR created. Dropped (see %s):\n%s\n' \
+                "$(result_count dropped)" "$REVIEW_RESULT" "$(result_items dropped)" >&2
             return 1
         fi
         printf 'harness-weekly: review committed no changes; no PR created\n'
+        rm -f "$PR_BODY" "$REVIEW_RESULT"
         remove_worktree
         return 0
     fi
@@ -379,6 +442,7 @@ publish_review() {
         printf 'harness-weekly: review made %s commit(s) but wrote no PR body; no PR created\n' "$commits" >&2
         return 1
     fi
+    result_sections >>"$PR_BODY" || return 1
     net_change_section "$base" >>"$PR_BODY" || return 1
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
@@ -393,7 +457,7 @@ publish_review() {
     }
     url=${url##*$'\n'}
     printf 'harness-weekly: opened draft PR %s (%s commit(s))\n' "$url" "$commits"
-    rm -f "$PR_BODY"
+    rm -f "$PR_BODY" "$REVIEW_RESULT"
     record_pr_url "$url"
     remove_worktree
     # ブランチは origin にあるので、ローカルの分は消す(残すと週ごとに溜まる)
@@ -508,9 +572,10 @@ prepare_worktree || {
     printf 'harness-weekly: failed to prepare the review worktree %s\n' "$WORKTREE" >&2
     exit 1
 }
-# 前回の本文を消すのは prepare_worktree の判定を通った後。手で publish すべき commit が
-# 残っている間は、その PR に使う本文を残す
-rm -f "$PR_BODY"
+# 前回の本文と結果ファイルを消すのは prepare_worktree の判定を通った後。手で publish すべき
+# commit が残っている間は、その PR に使う本文を残す。結果ファイルを消すのは、同じ日の前の
+# run が残したものを今回の結果として読まないため
+rm -f "$PR_BODY" "$REVIEW_RESULT"
 REVIEW_BASE=$(git -C "$WORKTREE" rev-parse HEAD)
 # commit フック(prek)と just lint が node_modules を要るので、claude の前に入れる。
 # claude に入れさせないのは、失敗したときに予算を使って直そうとさせないため
@@ -526,9 +591,10 @@ REVIEW_PROMPT="This is the unattended weekly harness job (no human is present, a
 Use the harness-review skill, following its rules, with these changes:
 - Your working directory is a git worktree of the chezmoi source repo, on branch ${BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
 - Skip \"Reflect over pending sessions\"; this job already ran it.
-- Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). Report a deploy-only fix in the PR body instead. If you commit nothing, put deploy-only fixes in your final summary instead and do not write the PR body for them (this job reads a PR body without commits as dropped changes).
-- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Fold fixes for a failing commit hook or just lint into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the PR body with the failing hook or lint check. Whenever a change was dropped, always write the PR body, even if nothing was committed.
-- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts; this job appends the net additions and deletions. If nothing is adopted and nothing is stale, make no commits and do not create that file.
+- Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). List a deploy-only fix (one that a commit cannot fix and that takes effect only when a human applies it) in the result file instead.
+- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Fold fixes for a failing commit hook or just lint into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
+- Always write the result file ${REVIEW_RESULT} before you finish, even if nothing happened: a JSON object {\"dropped\": [...], \"deploy_only\": [...]} whose elements are one-line strings (in Japanese). In \"dropped\", put each dropped change with its queue title and the failing hook or lint check; in \"deploy_only\", each deploy-only fix with what to apply and why. Use empty arrays when there are none. This job decides whether the run failed from this file, not from the PR body.
+- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff and the result file. If nothing is adopted and nothing is stale, make no commits.
 - In \"Bookkeeping\", record each adopted verdict as \"${ADOPTED_MARK}\" exactly; this job replaces it with the PR URL.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.

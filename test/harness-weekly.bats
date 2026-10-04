@@ -71,6 +71,14 @@ done
 if [[ "$all_args" == *'harness-review skill'* ]]; then
     printf 'review\n' >>"$STAGE_LOG"
     body="$HOME/.claude/harness/review-pr-body-$(date +%Y-%m-%d).md"
+    # 結果ファイル(落とした変更と deploy-only の修正)。既定は空配列で書く。
+    # STUB_RESULT=missing なら書かず、それ以外の値はそのまま書く(壊れた内容の再現)
+    result="$HOME/.claude/harness/review-result-$(date +%Y-%m-%d).json"
+    case "${STUB_RESULT-default}" in
+    default) printf '{"dropped":[],"deploy_only":[]}\n' >"$result" ;;
+    missing) ;;
+    *) printf '%s\n' "$STUB_RESULT" >"$result" ;;
+    esac
     archive="$HOME/.claude/harness/queue-archive.md"
     branch=$(git branch --show-current)
     adopt() {
@@ -609,13 +617,121 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
-@test "本文があるのに commit が無ければ、採用なしと扱わずに失敗する" {
+@test "commit が無く落とした変更があれば、採用なしと扱わずに失敗し heartbeat を書かない" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["harness: add rule(shellcheck で失敗)"],"deploy_only":[]}' run weekly
+    assert_failure
+    assert_output --partial 'dropped 1 change(s)'
+    assert_output --partial 'harness: add rule(shellcheck で失敗)'
+    refute_output --partial 'committed no changes'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    # 調べられるように結果ファイルを残す
+    assert [ -s "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
+}
+
+@test "commit が無く落とした変更も無ければ、本文があっても PR を作らずに成功する" {
     seed_queue
     STUB_REVIEW_MODE=body_only run weekly
+    assert_success
+    assert_output --partial 'review committed no changes; no PR created'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+    # 日付付きのファイルが週ごとに溜まらない
+    assert [ ! -f "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
+    assert [ ! -f "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
+}
+
+@test "commit が無く deploy-only の修正だけなら成功し、deploy-only.md に残してブリーフィングが警告する" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["~/.claude/settings.json が古い: chezmoi apply で適用する"]}' run weekly
+    assert_success
+    assert [ ! -f "$GH_LOG" ]
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+    run cat "$HDIR/deploy-only.md"
+    assert_output --partial "## $(date +%Y-%m-%d)"
+    assert_output --partial '- ~/.claude/settings.json が古い: chezmoi apply で適用する'
+    run bash "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-briefing.sh"
+    assert_output --partial 'ATTENTION'
+    assert_output --partial 'deploy-only fix'
+    assert_output --partial "$HDIR/deploy-only.md"
+}
+
+@test "commit があり落とした変更もあれば PR を作り、本文にジョブが作った落とした変更の節が入る" {
+    seed_queue
+    STUB_RESULT='{"dropped":["harness: other entry(just lint の oxfmt で失敗)"],"deploy_only":[]}' run weekly
+    assert_success
+    run cat "$GH_LOG"
+    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
+    run cat "$GH_BODY"
+    assert_output --partial '## 落とした変更'
+    assert_output --partial '- harness: other entry(just lint の oxfmt で失敗)'
+    refute_output --partial '## deploy-only の修正'
+    assert [ ! -f "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
+}
+
+@test "commit があり deploy-only の修正もあれば、本文に節が入り deploy-only.md にも残る" {
+    seed_queue
+    STUB_RESULT='{"dropped":[],"deploy_only":["複数行の\n説明"]}' run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '## deploy-only の修正'
+    assert_output --partial '- 複数行の 説明'
+    refute_output --partial '## 落とした変更'
+    run cat "$HDIR/deploy-only.md"
+    assert_output --partial '- 複数行の 説明'
+}
+
+@test "失敗する run でも deploy-only の修正は deploy-only.md に残す" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["x(prek で失敗)"],"deploy_only":["y を適用する"]}' run weekly
     assert_failure
-    assert_output --partial 'no commits'
-    assert_output --partial 'deploy-only'
+    run cat "$HDIR/deploy-only.md"
+    assert_output --partial '- y を適用する'
+}
+
+@test "deploy-only.md には週ごとに追記し、前の記録を消さない" {
+    printf '## 2026-01-01\n\n- old fix\n' >"$HDIR/deploy-only.md"
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["new fix"]}' run weekly
+    assert_success
+    run cat "$HDIR/deploy-only.md"
+    assert_output --partial '- old fix'
+    assert_output --partial '- new fix'
+}
+
+@test "結果ファイルが無ければ、commit が無くても採用なしと扱わずに失敗する" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT=missing run weekly
+    assert_failure
+    assert_output --partial 'review-result-'
     refute_output --partial 'committed no changes'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "同じ日の前の run が残した結果ファイルを今回の結果として読まない" {
+    printf '{"dropped":[],"deploy_only":[]}\n' >"$HDIR/review-result-$(date +%Y-%m-%d).json"
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT=missing run weekly
+    assert_failure
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "結果ファイルが JSON として読めないか、決めた形でなければ失敗する" {
+    for broken in 'not json' '' '{}' '{"dropped":[]}' '{"dropped":"x","deploy_only":[]}' '{"dropped":[1],"deploy_only":[]}' '[]'; do
+        rm -f "$HDIR/weekly-heartbeat"
+        seed_queue
+        STUB_REVIEW_MODE=none STUB_RESULT="$broken" run weekly
+        assert_failure
+        assert_output --partial 'review-result-'
+        assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    done
+}
+
+@test "commit があっても結果ファイルが無ければ PR を作らずに失敗する" {
+    seed_queue
+    STUB_RESULT=missing run weekly
+    assert_failure
     assert [ ! -f "$GH_LOG" ]
 }
 
@@ -795,14 +911,16 @@ EOF
     assert_output --partial 'If nothing is adopted and nothing is stale'
 }
 
-@test "commit フックや lint で落とした変更は queue に残させ、本文を必ず書かせる" {
+@test "commit フックや lint で落とした変更は queue に残させ、結果ファイルに書かせる" {
     seed_queue
     run weekly
     assert_success
     run cat "$ARGV_LOG"
     assert_output --partial 'leave its entry in queue.md (do not move it to the archive'
     refute_output --partial 'rejected (dropped:'
-    assert_output --partial 'Whenever a change was dropped, always write the PR body'
+    assert_output --partial "Always write the result file $HDIR/review-result-$(date +%Y-%m-%d).json"
+    assert_output --partial '{"dropped": [...], "deploy_only": [...]}'
+    refute_output --partial 'always write the PR body'
 }
 
 @test "コマンドの出力を一時ファイルに書いて mv する Bookkeeping は禁じない" {
@@ -813,10 +931,13 @@ EOF
     assert_output '2'
 }
 
-@test "commit が無い週は deploy-only の修正だけで本文を書かせない(commit の無い本文は落とした変更の印)" {
+@test "落とした変更と deploy-only の修正は本文に書かせず、本文を書かないことで区別させない" {
     seed_queue
     run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_output --partial 'If you commit nothing, put deploy-only fixes in your final summary instead'
+    assert_output --partial 'Do not write line counts, dropped changes or deploy-only fixes in the PR body'
+    refute_output --partial 'final summary instead'
+    refute_output --partial 'Report a deploy-only fix in the PR body'
+    refute_output --partial 'reads a PR body without commits'
 }

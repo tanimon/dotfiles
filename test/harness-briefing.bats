@@ -132,3 +132,23 @@ weekly_installed() {
     assert_output --partial 'ATTENTION'
     assert_output --partial 'weekly-heartbeat is not a number'
 }
+
+@test "週次ジョブが残した deploy-only の修正があれば、適用して消すよう警告する" {
+    printf '## 2026-10-04\n\n- a を適用する\n- b を適用する\n' >"$HDIR/deploy-only.md"
+    run briefing
+    assert_success
+    assert_output --partial 'ATTENTION'
+    assert_output --partial 'deploy-only fix(es) to apply by hand (2)'
+    assert_output --partial "$HDIR/deploy-only.md"
+    assert_output --partial 'then delete it'
+}
+
+@test "deploy-only.md が空か無ければ警告しない" {
+    run briefing
+    assert_success
+    refute_output --partial 'deploy-only'
+    : >"$HDIR/deploy-only.md"
+    run briefing
+    assert_success
+    assert_output --partial 'Harness: OK'
+}
