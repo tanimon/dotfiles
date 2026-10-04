@@ -77,7 +77,8 @@ harness_health_weekly() {
             printf 'fail\tweekly-heartbeat is not a number — delete %s and %s\n' "$heartbeat_file" "$remedy"
             return 0
         fi
-        days=$((($(date +%s) - heartbeat) / 86400))
+        # 10# を付けないと、先頭 0 付きの値(0899 など)が 8 進数として解釈されて算術展開が落ちる
+        days=$((($(date +%s) - 10#$heartbeat) / 86400))
         if [[ "$days" -ge "$HARNESS_HEALTH_WEEKLY_STALE_DAYS" ]]; then
             printf 'fail\tweekly job last succeeded %sd ago — %s\n' "$days" "$remedy"
         else

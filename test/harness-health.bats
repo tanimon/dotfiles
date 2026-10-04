@@ -99,6 +99,14 @@ weekly() {
     refute_line --regexp '^ok	weekly'
 }
 
+@test "heartbeat が先頭 0 付きでも 10 進数として判定する(8 進数として落ちない)" {
+    weekly_installed
+    printf '0899\n' >"$HDIR/weekly-heartbeat"
+    run weekly
+    assert_success
+    assert_line --regexp '^fail	weekly job last succeeded [0-9]+d ago — '
+}
+
 @test "heartbeat が無く、plist を置いてから 1 周期経っていなければ ok(初回がまだ)で never と出す" {
     weekly_installed
     run weekly

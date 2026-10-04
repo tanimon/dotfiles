@@ -19,6 +19,13 @@ lib_broken() {
     printf " - %s is missing or broken — run 'chezmoi apply'\n" "$HEALTH_LIB"
     exit 0
 }
+# lib は読み込めたが、関数の実行が失敗したとき。原因は lib ではないことが多い(状態ディレクトリに
+# 書けない等)ので、lib_broken の chezmoi apply ではなく doctor に回して原因を見させる
+health_failed() { # <何が失敗したか>
+    printf 'Harness: ATTENTION\n'
+    printf ' - %s — run bash ~/.claude/scripts/harness-doctor.sh to see why\n' "$1"
+    exit 0
+}
 if [[ ! -r "$HEALTH_LIB" ]] || ! "$BASH" -n "$HEALTH_LIB" 2>/dev/null; then
     lib_broken
 fi
@@ -38,7 +45,7 @@ PENDING_OLDEST_MAX_DAYS=20
 QUEUE_MAX=10
 
 # Bootstrap on first run (new machine / after manual reset).
-harness_health_bootstrap || lib_broken
+harness_health_bootstrap || health_failed "could not create the state files in $HARNESS_DIR"
 
 NOW=$(date +%s)
 WARNINGS=()
@@ -97,7 +104,7 @@ fi
 
 # 週次ジョブの健全性。warn と fail はどちらも ATTENTION にする(level の意味は lib のコメント)
 WEEKLY_TEXT=""
-WEEKLY_OUT=$(harness_health_weekly) || lib_broken
+WEEKLY_OUT=$(harness_health_weekly) || health_failed "could not judge the weekly job health"
 while IFS=$'\t' read -r level message; do
     case $level in
     summary) WEEKLY_TEXT=$message ;;

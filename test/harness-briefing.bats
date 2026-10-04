@@ -1,3 +1,5 @@
+bats_require_minimum_version 1.5.0
+
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-briefing.sh"
@@ -152,6 +154,17 @@ copy_briefing() {
         assert_line --index 1 --partial "lib/harness-health.bash is missing or broken — run 'chezmoi apply'"
         rm -rf "$BATS_TEST_TMPDIR/scripts"
     done
+}
+
+@test "状態ディレクトリに書けなければ、lib の破損ではなく doctor を案内して exit 0" {
+    chmod 555 "$HDIR"
+    run --separate-stderr briefing
+    chmod 755 "$HDIR"
+    assert_success
+    assert_line --index 0 'Harness: ATTENTION'
+    assert_line --index 1 --partial "could not create the state files in $HDIR"
+    assert_line --index 1 --partial 'harness-doctor.sh'
+    refute_output --partial 'missing or broken'
 }
 
 @test "週次ジョブが残した deploy-only の修正があれば、適用して消すよう警告する" {
