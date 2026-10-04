@@ -157,6 +157,7 @@ copy_briefing() {
 }
 
 @test "状態ディレクトリに書けなければ、lib の破損ではなく doctor を案内して exit 0" {
+    [[ "$(id -u)" -ne 0 ]] || skip 'root では chmod による拒否を再現できない'
     chmod 555 "$HDIR"
     run --separate-stderr briefing
     chmod 755 "$HDIR"

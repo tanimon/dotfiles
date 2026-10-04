@@ -101,7 +101,10 @@ fi
 # 週次ジョブ(ADR 0012)。level をそのまま WARN / FAIL にする(判定は lib)
 WEEKLY_OUT=""
 if ! WEEKLY_OUT=$(harness_health_weekly); then
-    check 1 "weekly job health judged" "run bash -x on $HEALTH_LIB to see where harness_health_weekly fails"
+    # lib を bash -x で実行しても関数を定義するだけなので、source して関数を呼ぶ形を案内する。
+    # 失敗した判定の途中の行は信用できないので表示しない
+    check 1 "weekly job health judged" "run bash -xc 'source $HEALTH_LIB; harness_health_weekly' to see where it fails"
+    WEEKLY_OUT=""
 fi
 while IFS=$'\t' read -r level message; do
     case $level in

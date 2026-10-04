@@ -90,6 +90,16 @@ copy_doctor() {
     missing) ;;
     empty) : >"$dir/lib/harness-health.bash" ;;
     syntax) printf '%s\n' 'harness_health_weekly() {' >"$dir/lib/harness-health.bash" ;;
+    # 読み込めるが、判定が途中まで出力してから失敗する lib
+    fails)
+        cat >"$dir/lib/harness-health.bash" <<'EOF'
+harness_health_dir() { printf '%s\n' "$HOME/.claude/harness"; }
+harness_health_weekly() {
+    printf 'ok\tpartial line before the failure\n'
+    return 1
+}
+EOF
+        ;;
     esac
     printf '%s\n' "$dir/harness-doctor.sh"
 }
@@ -104,4 +114,15 @@ copy_doctor() {
         assert_line --partial "— run 'chezmoi apply'"
         rm -rf "$BATS_TEST_TMPDIR/scripts"
     done
+}
+
+@test "判定が失敗したら、関数を呼ぶ形の対処を出して exit 1 で終わり、途中の出力を PASS にしない" {
+    local script
+    script=$(copy_doctor fails)
+    run bash "$script"
+    assert_failure 1
+    assert_line --partial 'FAIL: weekly job health judged'
+    assert_line --partial "harness_health_weekly"
+    assert_output --partial "source $BATS_TEST_TMPDIR/scripts/lib/harness-health.bash; harness_health_weekly"
+    refute_output --partial 'partial line before the failure'
 }
