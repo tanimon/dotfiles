@@ -9,8 +9,9 @@
 #   lib が無い / 空 / 構文エラー、jq が無い、stdin が JSON でない
 #     → 動詞を含む入力(VERB_INPUT)は ask、含まない入力(SILENT_INPUT)は無出力
 #   HOME に書き込めない / 未設定
-#     → 判定を返す入力(DECISION_INPUT)の判定が変わらない、SILENT_INPUT は無出力
-#     (ログを開けないだけで guard は読めるので、VERB_INPUT を ask にするのは誤り)
+#     → 判定を返す入力(DECISION_INPUT)の判定が変わらない、VERB_INPUT と SILENT_INPUT は無出力
+#     (ログを開けないだけで guard は読めるので、VERB_INPUT を ask にするのは誤り。DECISION_INPUT の
+#     期待値が ask の guard では、常に ask を返す退行を VERB_INPUT の無出力で見分ける)
 # lib が必要な関数の一部だけを欠く場合は guard ごとに必要な関数が違うので、空の lib で代表させる。
 #
 # VERB_INPUT は lib が正常なら無出力になる入力にする。正常でも ask になる入力だと、失敗の扱いが
@@ -167,7 +168,7 @@ assert_lib_contract() {
 }
 
 # ログを開けないことが判定を消さない(`exec 2>>` が開けずにシェルごと無出力で終わる経路を塞いでいるか)。
-@test "HOME に書き込めないとき、判定は変わらず、動詞を含まない入力は無出力" {
+@test "HOME に書き込めないとき、判定は変わらず、動詞を含む入力も含まない入力も無出力" {
     [[ $EUID -eq 0 ]] && skip "root はディレクトリの mode を無視する"
     export HOME="$BATS_TEST_TMPDIR/readonly-home"
     mkdir -p "$HOME"
@@ -177,26 +178,31 @@ assert_lib_contract() {
         name=${GUARD_NAMES[$index]}
         run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${GUARD_DECISION_INPUTS[$index]}")"
         expect "$name" "readonly HOME" "${GUARD_DECISION_INPUTS[$index]}" "${GUARD_EXPECTED_DECISIONS[$index]}"
+        run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${GUARD_VERB_INPUTS[$index]}")"
+        expect "$name" "readonly HOME" "${GUARD_VERB_INPUTS[$index]}" ''
         run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${GUARD_SILENT_INPUTS[$index]}")"
         expect "$name" "readonly HOME" "${GUARD_SILENT_INPUTS[$index]}" ''
     done
 }
 
-@test "HOME が未設定のとき、判定は変わらず、動詞を含まない入力は無出力" {
+@test "HOME が未設定のとき、判定は変わらず、動詞を含む入力も含まない入力も無出力" {
     local index name
     for index in "${!GUARD_NAMES[@]}"; do
         name=${GUARD_NAMES[$index]}
         run --separate-stderr env -u HOME bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${GUARD_DECISION_INPUTS[$index]}")"
         expect "$name" "no HOME" "${GUARD_DECISION_INPUTS[$index]}" "${GUARD_EXPECTED_DECISIONS[$index]}"
+        run --separate-stderr env -u HOME bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${GUARD_VERB_INPUTS[$index]}")"
+        expect "$name" "no HOME" "${GUARD_VERB_INPUTS[$index]}" ''
         run --separate-stderr env -u HOME bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${GUARD_SILENT_INPUTS[$index]}")"
         expect "$name" "no HOME" "${GUARD_SILENT_INPUTS[$index]}" ''
     done
 }
 
 # ファイル名で拾わないのは、PostToolUse の secretlint-guard.sh(失敗を通す側に倒す別の契約)が混ざるため。
+# command の置き場所は問わず、basename が *-guard.sh なら拾う(scripts 以外に置いた guard も一覧の検査に乗る)。
 @test "PreToolUse に配線された *-guard.sh はすべて一覧にある" {
     run jq -r '[.hooks.PreToolUse[].hooks[] | (.command // "")
-        | scan("\\.claude/scripts/([A-Za-z0-9._-]+-guard)\\.sh") | .[0]] | unique[]' "$SETTINGS"
+        | scan("([A-Za-z0-9._-]+-guard)\\.sh") | .[0]] | unique[]' "$SETTINGS"
     assert_success
     # 抽出が空なら検査が空振りする。今ある 2 本は必ず含まれる
     assert_line git-push-guard
