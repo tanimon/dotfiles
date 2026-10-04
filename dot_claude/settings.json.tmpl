@@ -426,6 +426,17 @@
           }
         ]
       },
+      {{/* 個人リポジトリ(lib/ticket-scope.bash の owner の許可リスト)での gh pr create を、ticket スキルの作成モードを経た本文(<!-- ticket-skill --> を含む)でなければ deny し、gh issue create は作成と relationship 設定を一度に行う create-issue.sh へ案内して deny するフック。課題は relationship・Closes・AC 対応表・関連 issue のメンションの「やり忘れ」で、スキルはモデルが使うと判断したときにしか起動しないため、作成の瞬間に決定的に止める。目的は起動忘れの防止で迂回の防止ではないので、読み切れない入力は通す(git-push-guard と逆の向き)。allow は返さない。設計は docs/superpowers/specs/2026-10-04-ticket-skill-design.md。 */ -}}
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/scripts/ticket-guard.sh\"",
+            "timeout": 5
+          }
+        ]
+      },
       {
         "matcher": "*",
         "hooks": [

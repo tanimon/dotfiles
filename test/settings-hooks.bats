@@ -1,6 +1,6 @@
 # ~/.claude/settings.json の hook 配線の契約テスト。
 #
-# guard hook(git-push-guard / curl-localhost-guard)は ADR 0009 の強制点だが、
+# guard hook(git-push-guard / curl-localhost-guard / ticket-guard)は ADR 0009 の強制点だが、
 # 未配線だと無出力=判定なしでフェイルオープンする。script 単体のテスト
 # (test/git-push-guard.bats / test/curl-localhost-guard.bats)は配線を見ないので、
 # hooks ブロックから登録を消しても他の suite は緑のまま通る。この suite がその穴を塞ぐ。
@@ -77,6 +77,10 @@ assert_guard_wired() {
     assert_guard_wired curl-localhost-guard
 }
 
+@test "ticket-guard が PreToolUse の Bash に直接配線されている" {
+    assert_guard_wired ticket-guard
+}
+
 @test "hook が呼ぶ script はすべて chezmoi が実行可能として配置する" {
     # 拡張子と subdirectory を問わず拾う(lib/ 配下や .sh 以外を呼ぶ hook も検査から漏らさない)
     run jq -r '[.hooks[][].hooks[] | (.command // "")
@@ -86,6 +90,7 @@ assert_guard_wired() {
     # 抽出が空なら検査が空振りする。guard 2 本は必ず含まれる
     assert_line git-push-guard.sh
     assert_line curl-localhost-guard.sh
+    assert_line ticket-guard.sh
     local name source
     while IFS= read -r name; do
         # Source の有無を自前の命名規則で推測せず chezmoi に解決させる。
