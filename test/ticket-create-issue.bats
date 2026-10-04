@@ -92,3 +92,14 @@ STUB
     run grep -c -- 'dependencies/blocked_by -X POST' "$GH_LOG"
     assert_output '1'
 }
+
+@test "Parent 節に #N が複数あれば先頭だけを親にし、警告を出して 0 で終わる" {
+    printf '## Parent\n\n#397 の下で #12 も参照\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_success
+    assert_output --partial '先頭の #397 だけを親にした'
+    run grep -c 'sub_issues -X POST' "$GH_LOG"
+    assert_output '1'
+    run grep 'issues/397/sub_issues' "$GH_LOG"
+    assert_success
+}

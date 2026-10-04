@@ -42,7 +42,12 @@ url=$(printf '%s\n' "$url" | tail -n 1)
 number=${url##*/}
 printf '%s\n' "$url"
 
-parents=$(section_refs '^#+[ \t]+parent' <"$body_file" | sort -un)
+# 親は 1 つしか持てない(2 件目の POST は API が拒否する)ので、書かれた順の先頭 1 件だけを張る。
+all_parents=$(section_refs '^#+[ \t]+parent' <"$body_file" | awk '!seen[$0]++')
+parents=$(printf '%s\n' "$all_parents" | head -n 1)
+if [[ $(printf '%s\n' "$all_parents" | grep -c .) -gt 1 ]]; then
+    echo "create-issue.sh: Parent 節の #N は先頭の #$parents だけを親にした(親は 1 つしか持てない)" >&2
+fi
 blockers=$(section_refs '^#+[ \t]+blocked by' <"$body_file" | sort -un)
 [[ -n "$parents$blockers" ]] || exit 0
 
