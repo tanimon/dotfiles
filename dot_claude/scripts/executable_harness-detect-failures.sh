@@ -67,14 +67,14 @@ def interrupt($line):
 | to_entries
 | map({line: (.key + 1), entry: (.value | try fromjson catch null)})
 | map(select(.entry | type == "object"))
-| reduce .[] as $item ({tools: {}, key: null, run: 0, last: null, out: []};
+| reduce .[] as $item ({tools: {}, key: null, streak: 0, last: null, out: []};
     $item.line as $line | $item.entry as $e
     | if $e.type == "assistant" and ($e.message.content | type) == "array" then
         reduce ($e.message.content[] | select(type == "object" and .type == "tool_use")) as $use (.;
             .tools[$use.id // ""] = {name: $use.name, input: $use.input}
             | (($use.name // "") + "\u0000" + ($use.input | tojson)) as $key
-            | (if .key == $key then .run += 1 else .key = $key | .run = 1 end)
-            | if .run == 3 then .out += [{line: $line, signal: "repeat"}] else . end)
+            | (if .key == $key then .streak += 1 else .key = $key | .streak = 1 end)
+            | if .streak == 3 then .out += [{line: $line, signal: "repeat"}] else . end)
     elif $e.type == "user" and ($e.message.content | type) == "array"
         and any($e.message.content[]; type == "object" and .type == "tool_result") then
         reduce ($e.message.content[] | select(type == "object" and .type == "tool_result")) as $result (.;

@@ -1090,7 +1090,7 @@ PRE
     rm "$HOME/.claude/scripts/harness-detect-failures.sh"
     run weekly
     assert_failure
-    assert_output --partial 'skipped reflect'
+    assert_output --partial 'selecting pending sessions with'
     assert [ ! -f "$ARGV_LOG" ]
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }

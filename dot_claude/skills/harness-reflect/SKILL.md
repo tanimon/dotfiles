@@ -48,7 +48,7 @@ already covered by input 1).
    を実行する。出力は 1 行 1 件の `{"line":<transcript の行番号>,"signal":<信号>}`。
    抽出はその行の周辺から始め、検出された失敗の根本原因を探す。信号の意味は
    スクリプトのヘッダにある。
-3. transcript_path の検査(上の Inputs の 2)に通らないエントリは、選別が触れずに残す。
+3. transcript_path の検査(Inputs 節の Pending transcripts)に通らないエントリは、選別が触れずに残す。
    ここでも drop して要約に明記する。
 
 input 1(現在のセッション)はこの選別の対象外。

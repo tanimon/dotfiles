@@ -433,18 +433,21 @@ result_sections() {
 # (pending が空)も 0 件の表を出す。採用 0 件で PR を作らない週の件数は $DETECTIONS にだけ残る
 DETECTION_SIGNALS="user_negation user_interrupt user_rejection hook_deny ci_failure tool_error repeat"
 detection_section() {
-    local rows="[]" signal count
+    local rows="[]" signal count sessions failing total
     if [[ -f "$DETECTIONS" ]]; then
         rows=$(jq -cs --arg run "$SESSION_ID" 'map(select(.run == $run))' "$DETECTIONS") || return 1
     fi
+    sessions=$(jq 'length' <<<"$rows") || return 1
+    failing=$(jq 'map(select(.counts != {})) | length' <<<"$rows") || return 1
+    total=$(jq 'map(.counts | add // 0) | add // 0' <<<"$rows") || return 1
     printf '\n## 失敗の検出\n\nこの run で検出器にかけたセッション: %s 件(失敗あり %s 件)。\n\n| 信号 | 件数 |\n|---|---:|\n' \
-        "$(jq 'length' <<<"$rows")" "$(jq 'map(select(.counts != {})) | length' <<<"$rows")"
+        "$sessions" "$failing"
     for signal in $DETECTION_SIGNALS; do
         count=$(jq --arg signal "$signal" 'map(.counts[$signal] // 0) | add // 0' <<<"$rows") || return 1
         # shellcheck disable=SC2016 # バッククォートは Markdown のコードスパン
         printf '| `%s` | %s |\n' "$signal" "$count"
     done
-    printf '| 合計 | %s |\n' "$(jq 'map(.counts | add // 0) | add // 0' <<<"$rows")"
+    printf '| 合計 | %s |\n' "$total"
 }
 
 # 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
