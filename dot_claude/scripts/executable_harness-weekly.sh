@@ -397,7 +397,12 @@ record_deploy_only() {
         count=$((count + 1))
     done <<<"$items"
     [[ "$count" -gt 0 ]] || return 0
-    printf '## %s\n\n%s\n' "$REVIEW_DATE" "$new_items" >>"$DEPLOY_ONLY" || return 1
+    # 同じ日の再実行では、最後の見出しが今日のものならその下に足し、見出しを重ねない
+    if [[ -f "$DEPLOY_ONLY" ]] && [[ "$(grep '^## ' "$DEPLOY_ONLY" | tail -n 1)" == "## $REVIEW_DATE" ]]; then
+        printf '%s\n' "$new_items" >>"$DEPLOY_ONLY" || return 1
+    else
+        printf '## %s\n\n%s\n' "$REVIEW_DATE" "$new_items" >>"$DEPLOY_ONLY" || return 1
+    fi
     printf 'harness-weekly: recorded %s deploy-only fix(es) in %s; apply them by hand, then delete it\n' \
         "$count" "$DEPLOY_ONLY"
 }
@@ -495,10 +500,13 @@ publish_review() {
 # commit を持つ当日のブランチを作り直さない)。claude は結果ファイルを書いてから失敗しうる
 # ので、結果ファイルが決めた形なら Deploy-only Fix はここでも $DEPLOY_ONLY に残す(結果
 # ファイルは日付付きで、次の週の run は読まない)。結果ファイルは run の前に消してあるので、
-# ここで読むのはこの run の claude が書いたものだけ
+# ここで読むのはこの run の claude が書いたものだけ。commit が残っていれば、手で作る PR の
+# 本文にも Dropped Change と Deploy-only Fix の節を足す(claude には本文に書かせないため、
+# 足さないと落とした変更の一覧が結果ファイルにしか残らない)
 report_failed_review() {
-    local base=$1 commits
+    local base=$1 commits result_ok=0
     if [[ -f "$REVIEW_RESULT" ]] && review_result_valid; then
+        result_ok=1
         record_deploy_only ||
             printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
     fi
@@ -507,6 +515,10 @@ report_failed_review() {
         printf 'harness-weekly: review failed before committing; worktree %s kept; verdicts already moved to %s stay there\n' \
             "$WORKTREE" "$ARCHIVE" >&2
         return 0
+    fi
+    if [[ "$result_ok" -eq 1 ]]; then
+        result_sections >>"$PR_BODY" ||
+            printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
     fi
     printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
         "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$ADOPTED_MARK" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2

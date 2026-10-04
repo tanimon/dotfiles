@@ -779,6 +779,30 @@ PRE
     assert_output --partial '- w を適用する'
 }
 
+@test "選別の claude が commit と結果ファイルを書いた後に失敗したら、手で作る PR の本文に結果の節を足す" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    STUB_CLAUDE_MODE=is_error STUB_RESULT='{"dropped":["harness: other(prek で失敗)"],"deploy_only":["v を適用する"]}' run weekly
+    assert_failure
+    assert_output --partial 'review failed after 1 commit(s)'
+    run cat "$HDIR/review-pr-body-$(date +%Y-%m-%d).md"
+    assert_output --partial '## 落とした変更'
+    assert_output --partial '- harness: other(prek で失敗)'
+    assert_output --partial '## deploy-only の修正'
+    assert_output --partial '- v を適用する'
+}
+
+@test "同じ日に deploy-only の修正が加わっても、日付の見出しを重ねない" {
+    printf '## %s\n\n- first fix\n\n' "$(date +%Y-%m-%d)" >"$HDIR/deploy-only.md"
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["second fix"]}' run weekly
+    assert_success
+    run grep -c "^## $(date +%Y-%m-%d)\$" "$HDIR/deploy-only.md"
+    assert_output '1'
+    run grep -c '^- second fix$' "$HDIR/deploy-only.md"
+    assert_output '1'
+}
+
 @test "選別の claude が結果ファイルを書かずに失敗したら、deploy-only.md を作らない" {
     : >"$HDIR/pending.jsonl"
     seed_queue
