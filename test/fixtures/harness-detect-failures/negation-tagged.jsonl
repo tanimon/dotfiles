@@ -1,0 +1,5 @@
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"README を直して"}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"直しました"}]}}
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"<ide_selection>The user selected lines 1-3 of README.md</ide_selection>\n違う、ここじゃない"}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"失礼しました"}]}}
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}},{"type":"text","text":"Stop, this screen is broken."}]}}

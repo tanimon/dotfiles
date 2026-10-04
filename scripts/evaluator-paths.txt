@@ -3,9 +3,8 @@
 # 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
 # それ以外は完全一致。# で始まる行と空行は無視する。
 #
-# Evaluator(失敗の検出器、Failure Pattern の一覧、判定の基準、Eval Case の目録)は、
-# この一覧を足した時点ではまだリポジトリに無い。それぞれを作る PR(#403 検出器、
-# #404 Failure Pattern、#405 判定の基準と Eval Case の目録)が、その PR でここにも足す。
+# Evaluator のうち、Failure Pattern の一覧、判定の基準、Eval Case の目録はまだリポジトリに無い。
+# それぞれを作る PR(#404 Failure Pattern、#405 判定の基準と Eval Case の目録)が、その PR でここにも足す。
 # 足し忘れを機械的に検出する仕組みは無く、それらの PR のレビューで確かめる。
 # ガードは base 側の版を読むので、足した行はマージ後に効く。
 
@@ -35,3 +34,14 @@ dot_claude/scripts/executable_harness-weekly.sh
 scripts/instruction-size-limits.txt
 scripts/check-instruction-size.sh
 test/check-instruction-size.bats
+
+# 失敗の検出器(ADR 0011)。検出の規則・fixture・テストを書き換えると、失敗が見えなくなる。
+# 選別は検出の結果で抽出の入力と週ごとの検出件数を決めるので、検出器と同じ扱いにする
+dot_claude/scripts/executable_harness-detect-failures.sh
+dot_claude/scripts/executable_harness-select-pending.sh
+# 手動の /harness-reflect が検出器で入力を選ぶのは、この SKILL.md の指示だけによる。節を削られると、
+# 手動の経路は黙って検出器を使わなくなる
+dot_claude/skills/harness-reflect/SKILL.md
+test/harness-detect-failures.bats
+test/harness-select-pending.bats
+test/fixtures/harness-detect-failures/

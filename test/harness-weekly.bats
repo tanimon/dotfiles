@@ -164,7 +164,14 @@ printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
 [[ -z "${STUB_PNPM_FAIL:-}" ]]
 EOF
     export PATH="$STUBS:$PATH"
-    # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く
+    # 失敗の検出器と選別のスクリプトは本物を本来の配置先に置く(週次ジョブが ~/.claude/scripts から呼ぶ)
+    mkdir -p "$HOME/.claude/scripts"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-detect-failures.sh" \
+        "$HOME/.claude/scripts/harness-detect-failures.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-select-pending.sh" \
+        "$HOME/.claude/scripts/harness-select-pending.sh"
+    # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く。transcript が無いので
+    # 選別は検出器にかけずに残す
     printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
 }
 
@@ -1053,8 +1060,138 @@ EOF
     run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_output --partial 'Do not write line counts, dropped changes or deploy-only fixes in the PR body'
+    assert_output --partial 'Do not write line counts, failure detection counts, dropped changes or deploy-only fixes in the PR body'
     refute_output --partial 'final summary instead'
     refute_output --partial 'Report a deploy-only fix in the PR body'
     refute_output --partial 'reads a PR body without commits'
+}
+
+# add_session <session_id> <fixture>: 検出器の fixture を transcript として置き、pending に積む
+add_session() {
+    mkdir -p "$HOME/.claude/projects/-work-repo"
+    cp "$BATS_TEST_DIRNAME/fixtures/harness-detect-failures/$2.jsonl" "$HOME/.claude/projects/-work-repo/$1.jsonl"
+    printf '{"session_id":"%s","transcript_path":"%s","cwd":"/work/repo","recorded_epoch":1}\n' \
+        "$1" "$HOME/.claude/projects/-work-repo/$1.jsonl" >>"$HDIR/pending.jsonl"
+}
+
+@test "抽出の前に検出器で選別し、失敗の無いセッションは claude に渡さない" {
+    : >"$HDIR/pending.jsonl"
+    add_session clean1 clean
+    add_session err1 tool-error
+    cat >"$STUBS/claude-pre" <<'PRE'
+cp "$HOME/.claude/harness/pending.jsonl" "$BATS_TEST_TMPDIR/pending-at-launch"
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_success
+    assert_output --partial 'harness-select-pending: scanned=2 selected=1 dropped=1 not_scanned=0 detector_failed=0'
+    run jq -r .session_id "$BATS_TEST_TMPDIR/pending-at-launch"
+    assert_output err1
+    run jq -c '[.session_id, .run, .counts]' "$HDIR/detections.jsonl"
+    assert_output "$(printf '%s\n' \
+        '["clean1","aaaaaaaa-0000-0000-0000-000000000001",{}]' \
+        '["err1","aaaaaaaa-0000-0000-0000-000000000001",{"tool_error":3}]')"
+}
+
+@test "失敗のあるセッションが無ければ抽出の claude を起動しない" {
+    : >"$HDIR/pending.jsonl"
+    add_session clean1 clean
+    run weekly
+    assert_success
+    assert_output --partial 'pending is empty; skipped reflect'
+    assert [ ! -f "$ARGV_LOG" ]
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "選別が失敗したら抽出に進まずに失敗する" {
+    rm "$HOME/.claude/scripts/harness-detect-failures.sh"
+    run weekly
+    assert_failure
+    assert_output --partial 'selecting pending sessions with'
+    assert [ ! -f "$ARGV_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "PR の本文に前回の heartbeat より後の信号別の検出件数を載せ、手動の reflect の記録も含める" {
+    : >"$HDIR/pending.jsonl"
+    now=$(date +%s)
+    printf '%s\n' "$((now - 3600))" >"$HDIR/weekly-heartbeat"
+    {
+        # 前回の run より前の記録は数えない
+        printf '{"session_id":"old","run":"earlier-run","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
+        # 週の途中で手動の reflect が先に選別したセッションは数える
+        printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"user_negation":2}}\n' "$((now - 60))"
+        printf 'broken line\n'
+    } >"$HDIR/detections.jsonl"
+    add_session clean1 clean
+    add_session err1 tool-error
+    add_session ci1 ci-failure
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '## 失敗の検出'
+    assert_output --partial '以降に検出器にかけたセッション: 4 件(失敗あり 3 件)。'
+    assert_line '| `tool_error` | 3 |'
+    assert_line '| `ci_failure` | 2 |'
+    assert_line '| `user_negation` | 2 |'
+    assert_line '| `repeat` | 0 |'
+    assert_line '| 合計 | 7 |'
+}
+
+@test "heartbeat が無ければ直近 7 日の記録を数える" {
+    : >"$HDIR/pending.jsonl"
+    now=$(date +%s)
+    {
+        printf '{"session_id":"old","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 8 * 86400))"
+        printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"repeat":1}}\n' "$((now - 86400))"
+    } >"$HDIR/detections.jsonl"
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_line '| `repeat` | 1 |'
+    assert_line '| `tool_error` | 0 |'
+    assert_line '| 合計 | 1 |'
+}
+
+@test "検出件数の節を組み立てられなくても PR は作り、節を省く" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    # pending が空なので選別は記録を読まず、節の組み立てだけが読み取りに失敗する
+    printf '{}\n' >"$HDIR/detections.jsonl"
+    chmod 000 "$HDIR/detections.jsonl"
+    run weekly
+    chmod 644 "$HDIR/detections.jsonl"
+    assert_success
+    assert_output --partial 'failed to build the detection counts'
+    run cat "$GH_BODY"
+    refute_output --partial '## 失敗の検出'
+}
+
+@test "抽出を省いた週の PR の本文にも 0 件の検出の節を載せる" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '以降に検出器にかけたセッション: 0 件(失敗あり 0 件)。'
+    assert_line '| 合計 | 0 |'
+}
+
+@test "選別の claude が commit の後に失敗したら、手で作る PR の本文に検出の節を足す" {
+    : >"$HDIR/pending.jsonl"
+    add_session err1 tool-error
+    seed_queue
+    # 抽出は成功させ、選別だけを失敗させる
+    cat >"$STUBS/claude-pre" <<'PRE'
+[[ "$*" == *'harness-review skill'* ]] && export STUB_CLAUDE_MODE=is_error
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'review failed after 1 commit(s)'
+    run cat "$HDIR/review-pr-body-$(date +%Y-%m-%d).md"
+    assert_output --partial '## 失敗の検出'
+    assert_line '| `tool_error` | 3 |'
 }

@@ -1,0 +1,5 @@
+{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"CI を確認して"}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"gh pr checks 12"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"Exit code 1\nlint\tfail\t1m2s\thttps://example.invalid/runs/1\ntest\tpass\t40s\thttps://example.invalid/runs/2"}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"gh run view 3 --json conclusion"}}]}}
+{"type":"user","toolUseResult":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":[{"type":"text","text":"{\"conclusion\":\"failure\"}"}]}]}}
