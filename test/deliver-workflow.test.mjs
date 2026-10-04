@@ -665,6 +665,13 @@ test("必須の引数が欠けていれば agent を呼ぶ前に throw する", 
   await assert.rejects(runWorkflow({ args: { maxVerifyRetries: -1 } }), /maxVerifyRetries/);
 });
 
+test("知らない引数は agent を呼ぶ前に拒否する(取り除いた prBase を渡されても黙って受け取らない)", async () => {
+  const labels = [];
+  const respond = (label, calls) => (labels.push(label), scenario()(label, calls));
+  await assert.rejects(runWorkflow({ args: { prBase: "main" }, respond }), /知らない引数.*prBase/);
+  assert.deepEqual(labels, []);
+});
+
 test("observations を報告にまとめる", async () => {
   const { result } = await runWorkflow({
     respond: scenario({

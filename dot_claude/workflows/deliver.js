@@ -20,6 +20,16 @@ const MODES = {
   deliver: { label: "Deliver", implement: true, branchScope: false },
   "review-verify": { label: "Review-Verify", implement: false, branchScope: true },
 };
+// validateArgs が受け付ける引数のすべて。
+const ARG_KEYS = [
+  "mode",
+  "requirementsPath",
+  "baseRef",
+  "checkCommands",
+  "verifySkill",
+  "maxReviewRounds",
+  "maxVerifyRetries",
+];
 const BUDGET_FLOOR = 100000;
 
 // built-in の code-review は fork 型の skill で、Workflow のエージェントから Skill で呼ぶと
@@ -218,6 +228,12 @@ function validateArgs(input) {
   if (invalid.length > 0) {
     throw new Error(`deliver: 0 以上の整数が必要です: ${invalid.join(", ")}`);
   }
+  // 知らないキーは黙って受け取らずに拒否する。取り除いた引数(ADR 0015 の prBase など)を渡す古い呼び出し元が、
+  // その機能がまだ効くと思ったまま走るのを防ぐ。
+  const unknown = Object.keys(a).filter((k) => !ARG_KEYS.includes(k));
+  if (unknown.length > 0) {
+    throw new Error(`deliver: 知らない引数があります: ${unknown.join(", ")}`);
+  }
   if (!Object.keys(MODES).includes(a.mode)) {
     throw new Error(`deliver: mode は ${Object.keys(MODES).join(" / ")} のいずれか: ${a.mode}`);
   }
@@ -264,7 +280,9 @@ function newState(config) {
 }
 
 // budget.total は hard ceiling で、達すると以後の agent() はすべて throw する。エージェントが編集の途中で
-// 打ち切られて未コミットの変更を残さないよう、agent を呼ぶループの各周回の先頭で下限を割っていないか確かめる。
+// 打ち切られて未コミットの変更を残すことを減らすため、agent を呼ぶループの各周回の先頭で下限を割っていないか確かめる。
+// BUDGET_FLOOR は次の周回の agent() 呼び出しに足りるだろうという目安で、1 回の呼び出しの使用量に上限は無いので、
+// 下限を割っていなくても周回の途中で打ち切られることはある。
 function budgetExhausted(state, next) {
   if (!budget.total || budget.remaining() >= BUDGET_FLOOR) return false;
   state.stopReason = "budget";
