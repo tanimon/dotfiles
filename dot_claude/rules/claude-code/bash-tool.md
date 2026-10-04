@@ -54,7 +54,9 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 `.git/config` を書き換える操作は `could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
 
 - **`git push -u`:** 付けなくてよい。素の `git push` は upstream を書かずに同名のリモートブランチへ push する(`push.default = current`)。
-  付けてしまっても push 自体は成功し、upstream だけが付かない。エラーは無害なので調査・報告しなくてよい。
+  付けてしまっても push 自体は成功し、upstream だけが付かない。このエラーは調査せず、ユーザーへの報告にも書かない
+  (`git branch --set-upstream-to=…` などの再設定も案内しない)。push できたことは、リモートの head と `HEAD` の一致で示す。
+  任意の許可(「報告しなくてよい」)の書き方では、「注意として一言添える」判断で 3 セッション続けて報告された。
 - **`git branch -m`:** リネームは済むが、config の書き換えで `fatal: branch is renamed, but update of config-file failed` を出して exit 128 になる(branch config の有無に関係ない)。
   `git branch --show-current` で確かめ、再実行しない。
 - **`git switch -c <b> origin/<x>`:** ブランチは作られるが HEAD は移らない(追跡設定の書き込みで中断する)。
