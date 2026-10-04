@@ -1,39 +1,28 @@
 # グローバル指示(~/.claude/CLAUDE.md と ~/.codex/AGENTS.md)の合成テスト(#311)。
 # 設計: docs/adr/0005-*.md
 #
-# seam は 1 つだけ: `chezmoi execute-template --config <test toml> --source <repo>`。
+# 描画は test/helpers/render.bash を通す。
 # harness/ は一切通らない(グローバル指示は chezmoi テンプレートだけで合成する)。
 #
-# chezmoi が無い場合は skip せず fail する。skip にすると「共有本文が両方に入っている」
-# という不変条件が CI で緑のまま何も検証しない(fail-open)ため。CI は
-# .github/workflows/lint.yml の global-instructions job で chezmoi を入れている。
+# chezmoi が無いときに skip せず失敗させるのは seam(test/helpers/render.bash)が担う。
+# CI は .github/workflows/lint.yml の global-instructions job で chezmoi を入れている。
 setup() {
     load 'helpers/setup'
-    REPO="$BATS_TEST_DIRNAME/.."
+    load 'helpers/render'
+    REPO="$RENDER_REPO"
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
-    CONFIG="$REPO/test/fixtures/chezmoi-personal.toml"
+    CONFIG=$(render_config personal)
     SHARED="$REPO/.chezmoitemplates/agent-instructions-common"
     RULES_DIR="$REPO/dot_claude/rules/common"
 }
 
-# render SOURCE_TMPL: テンプレートをレンダリングして stdout に出す
-render() {
-    chezmoi execute-template --config "$CONFIG" --source "$REPO" <"$1"
-}
-
 render_claude() {
-    render "$REPO/dot_claude/CLAUDE.md.tmpl"
+    render_template personal "$REPO/dot_claude/CLAUDE.md.tmpl"
 }
 
 render_codex() {
-    render "$REPO/dot_codex/AGENTS.md.tmpl"
-}
-
-@test "chezmoi が使える(この suite は skip しない)" {
-    # skip にすると下の検査が CI で全部素通りして緑になる
-    run command -v chezmoi
-    assert_success
+    render_template personal "$REPO/dot_codex/AGENTS.md.tmpl"
 }
 
 @test "共有本文が両方の出力に入っている" {
@@ -52,11 +41,11 @@ render_codex() {
 }
 
 @test "共有本文は製品名も製品固有のツール名も含まない" {
-    # Source を直接 grep せず、seam(execute-template)を通した結果を見る。
+    # Source を直接 grep せず、render_template(test/helpers/render.bash)で描画した結果を見る。
     # Source を見ていると、テンプレート側で製品名を注入する変更に気づけない
     local shared word
     shared=$(printf '{{ template "agent-instructions-common" }}' |
-        chezmoi execute-template --config "$CONFIG" --source "$REPO")
+        render_template personal /dev/stdin)
     [ -n "$shared" ] || fail "共有本文が空です(grep が必ず失敗して空振りする)"
     for word in Claude claude Codex codex Cursor cursor AskUserQuestion; do
         printf '%s\n' "$shared" | grep -q -- "$word" &&
@@ -86,10 +75,13 @@ render_codex() {
 }
 
 @test "AskUserQuestion は CLAUDE.md の出力にだけ現れる(Contrast Pair)" {
-    run bash -c 'set -o pipefail; chezmoi execute-template --config "$1" --source "$2" <"$2/dot_claude/CLAUDE.md.tmpl" | grep -c AskUserQuestion' _ "$CONFIG" "$REPO"
+    local claude codex
+    claude=$(render_claude)
+    codex=$(render_codex)
+    run grep -c AskUserQuestion <<<"$claude"
     assert_success
     assert_output '1'
-    run bash -c 'chezmoi execute-template --config "$1" --source "$2" <"$2/dot_codex/AGENTS.md.tmpl" | grep -n AskUserQuestion' _ "$CONFIG" "$REPO"
+    run grep -n AskUserQuestion <<<"$codex"
     assert_failure
 }
 
@@ -204,14 +196,14 @@ EOF
 # openai/skills など .chezmoiexternal.toml にあるもの)になり、グローバル指示とは無関係に見えるので、
 # この注記を頼りに切り分けること。
 @test "chezmoi managed に .codex/AGENTS.md が出る" {
-    run chezmoi managed --config "$CONFIG" --source "$REPO"
+    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$REPO"
     assert_success
     assert_line '.codex/AGENTS.md'
 }
 
 @test "chezmoi managed に .claude/CLAUDE.md が残っている" {
     # .tmpl 化で Target のパスが変わっていないこと
-    run chezmoi managed --config "$CONFIG" --source "$REPO"
+    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$REPO"
     assert_success
     assert_line '.claude/CLAUDE.md'
 }
@@ -221,7 +213,7 @@ EOF
     # upstream のファイルが改名・削除されると黙って配置されなくなる(古いファイルは
     # ~/ に残って読み込まれ続ける)。hooks.md を外した理由は
     # docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md
-    run chezmoi managed --config "$CONFIG" --source "$REPO" --include=files
+    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$REPO" --include=files
     assert_success
     local ecc_rules
     ecc_rules=$(printf '%s\n' "$output" | grep -E '^\.claude/rules/(typescript|web)/')

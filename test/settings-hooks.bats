@@ -5,30 +5,24 @@
 # (test/git-push-guard.bats / test/curl-localhost-guard.bats)は配線を見ないので、
 # hooks ブロックから登録を消しても他の suite は緑のまま通る。この suite がその穴を塞ぐ。
 #
-# seam は 1 つだけ: `chezmoi execute-template --config <test toml> --source <repo>`
-# で描画した結果を jq で見る(test/global-instructions.bats と同じ)。Source の
+# 描画は test/helpers/render.bash を通し、その結果を jq で見る。Source の
 # 文字列を直接 grep しないのは、テンプレートのコメントや分岐を通った後の実体が
-# Claude Code の読むものだから。hook が呼ぶ script の配置だけは同じ config で
+# Claude Code の読むものだから。hook が呼ぶ script の配置だけは同じ fixture で
 # `chezmoi source-path` に解決させる(.chezmoiignore と属性 prefix の解釈を chezmoi に任せるため)。
 #
-# chezmoi が無い場合は skip せず fail する(skip にすると CI で全検査が空振りする)。
+# chezmoi が無いときに skip せず失敗させるのは seam(test/helpers/render.bash)が担う。
 # 描画は suite 全体で 1 回だけ行う(どの test も同じ描画結果を読むだけなので)。
-# chezmoi の有無は個別の test ではなくここで見る — setup_file が失敗すると
-# どの test も実行されないので、test として書いても到達しない
 setup_file() {
-    command -v chezmoi >/dev/null || {
-        echo "chezmoi が必要(この suite は skip しない)" >&2
-        return 1
-    }
-    export REPO="$BATS_TEST_DIRNAME/.."
+    load 'helpers/render'
+    export REPO="$RENDER_REPO"
     export TMPDIR="$BATS_FILE_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
-    export CONFIG="$REPO/test/fixtures/chezmoi-personal.toml"
+    CONFIG=$(render_config personal)
+    export CONFIG
     export DEST="$BATS_FILE_TMPDIR/home"
     mkdir -p "$DEST"
     export SETTINGS="$BATS_FILE_TMPDIR/settings.json"
-    chezmoi execute-template --config "$CONFIG" --source "$REPO" \
-        <"$REPO/dot_claude/settings.json.tmpl" >"$SETTINGS"
+    render_template personal "$REPO/dot_claude/settings.json.tmpl" >"$SETTINGS"
 }
 
 setup() {
@@ -97,7 +91,7 @@ assert_guard_wired() {
         # Source の有無を自前の命名規則で推測せず chezmoi に解決させる。
         # .chezmoiignore で除外された target も "not managed" で失敗するので、
         # 「Source はあるがデプロイされない」も捕まえる
-        source=$(chezmoi source-path --config "$CONFIG" --source "$REPO" \
+        source=$("$RENDER_CHEZMOI" source-path --config "$CONFIG" --source "$REPO" \
             --destination "$DEST" "$DEST/.claude/scripts/$name") ||
             fail "hook が呼ぶ $name を chezmoi が配置しない(Source が無いか .chezmoiignore で除外されている)"
         # executable_ 属性が無いと chezmoi は実行権限なしで配置し、hook は起動できない
