@@ -47,7 +47,10 @@ weekly_installed() {
 # ホストの OS に依存しないよう uname をスタブにする
 stub_uname() {
     mkdir -p "$BATS_TEST_TMPDIR/bin"
-    printf '#!/usr/bin/env bash\nprintf "%%s\\n" %s\n' "$1" >"$BATS_TEST_TMPDIR/bin/uname"
+    cat >"$BATS_TEST_TMPDIR/bin/uname" <<EOF
+#!/usr/bin/env bash
+printf '%s\\n' $1
+EOF
     chmod +x "$BATS_TEST_TMPDIR/bin/uname"
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
