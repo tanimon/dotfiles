@@ -23,7 +23,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
    - 確認: `gh api repos/<owner>/<repo>/issues/<n> --jq '{parent: .parent_issue_url, deps: .issue_dependencies_summary}'`
 4. **PR なら Closes と AC 対応表を書く。** 解決する issue ごとに `Closes #N` を 1 行ずつ書く(`Closes #1, #2` は 2 件目が効かない)。部分的にしか解決しない issue は `Refs #N` にする。各 issue の AC(`gh issue view <N> --json body`)について、`## Acceptance criteria の対応` 節に表 `| issue | 項目 | 対応 |` を書く。「対応」には満たした変更(ファイルやテスト)を書き、満たさない項目にはその理由を書く。`Closes` による自動 close は既定ブランチへのマージでしか効かない。
 5. **末尾にマーカーを付ける。** 本文の最後の行を `<!-- ticket-skill -->` にする。
-6. **作る。** issue は `bash ~/.claude/skills/ticket/scripts/create-issue.sh --title "<title>" --body-file <dir>/issue-body.md`(`--label` などは後ろに足せば `gh issue create` に渡る)。終了コード 1 は「issue は作ったが relationship の一部を張れなかった」なので、stderr に出た関係を手順3のコマンドで張り直す。PR は `gh pr create --head <branch> --title "<title>" --body-file <dir>/pr-body.md`。範囲内のリポジトリで `gh issue create` を直接使うと ticket-guard が deny する。
+6. **作る。** issue は `bash ~/.claude/skills/ticket/scripts/create-issue.sh --title "<title>" --body-file <dir>/issue-body.md`(`--label` などは後ろに足せば `gh issue create` に渡る)。終了コード 1 は「issue は作ったが relationship の一部を張れなかった」なので、stderr に出た関係を手順3のコマンドで張り直す。終了コード 2 は何も作っていない。stderr の理由を直して再実行する。PR は `gh pr create --head <branch> --title "<title>" --body-file <dir>/pr-body.md`。範囲内のリポジトリで `gh issue create` を直接使うと ticket-guard が deny する。
 
 ## 照合モード
 
@@ -34,5 +34,5 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
    - `mentioned-by-merged`: Closes を書き忘れた PR の候補にすぎない。PR の本文と差分(`gh pr view <n> --json body,files`)と issue の AC を読み、解決したと言える場合だけ close の候補にする。言えなければ「言及のみ」として報告に載せ、操作は提案しない。
    - `ac-unchecked`: 根拠の PR の本文(`gh pr view <n> --json body`)の AC 対応表で、その項目を満たしたと書いてあるものだけを `[x]` にする候補にする。対応表に無い項目や、理由を書いて意図的に `[ ]` のまま残した項目は触らず、報告に載せる。
 3. 修正案を表(kind・issue・操作・根拠)で示し、`AskUserQuestion` で「全部適用 / 種類ごとに選ぶ / やめる」を選んでもらう。承認なしに書き込まない。
-4. 適用する。AC は `gh issue view <issue> --json body --jq .body` を `<dir>/issue-<issue>.md` に保存し、該当行の `- [ ]` だけを `- [x]` に直して `gh issue edit <issue> --body-file <dir>/issue-<issue>.md` で戻す。
+4. 適用する。AC は `gh issue view <issue> --json body --jq .body > "$TMPDIR/issue-<issue>.md"` で本文を保存し、Edit ツールで該当行の `- [ ]` だけを `- [x]` に直してから `gh issue edit <issue> --body-file "$TMPDIR/issue-<issue>.md"` で戻す(`gh issue edit` は ticket-guard の対象外なので、`.git` の下に置かなくてよい。`.git` の下は sandbox で書けないことがある)。
 5. もう一度 `audit.sh` を実行し、適用した分が出なくなったことを確かめてから、残った件数と理由を報告する。
