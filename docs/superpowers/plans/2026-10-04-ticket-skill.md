@@ -4,7 +4,7 @@
 
 **Goal:** 個人リポジトリで issue / PR を作るときに、関連 issue のメンション、native relationship、`Closes #N`、AC 対応表を漏らさないようにする。マージ後に残った漏れは手動で洗い出して直せるようにする。
 
-**Architecture:** 手順の正本はグローバルスキル `ticket` に置き、作成モードと照合モードを持たせる。PreToolUse フック `ticket-guard.sh` は、範囲内のリポジトリでの `gh issue create` / `gh pr create` のうち、本文にマーカー `<!-- ticket-skill -->` が無いものを deny する。範囲(origin の owner の許可リスト)は `lib/ticket-scope.bash` で判定し、ガードと deliver が共有する。照合モードの検出は `audit.sh` が決定的に行う。
+**Architecture:** 手順の正本はグローバルスキル `ticket` に置き、作成モードと照合モードを持たせる。PreToolUse フック `ticket-guard.sh` は、範囲内のリポジトリでの `gh pr create` のうち本文にマーカー `<!-- ticket-skill -->` が無いものと、すべての `gh issue create` を deny する。issue は `create-issue.sh` が作成と native relationship の設定を一度に行う。範囲(origin の owner の許可リスト)は `lib/ticket-scope.bash` で判定し、ガードと deliver が共有する。照合モードの検出は `audit.sh` が決定的に行う。
 
 **Tech Stack:** bash(3.2 互換)、jq、gh CLI、bats(bats-assert)、Node の `node:test`(deliver.js)、chezmoi テンプレート
 
@@ -263,23 +263,29 @@ reason() {
     [[ "$(reason "$output")" == ticket-guard:* ]]
 }
 
-@test "--body にマーカーがある issue create は通す" {
-    run hook "gh issue create --title t --body 'x $MARKER'"
+@test "--body にマーカーがある pr create は通す" {
+    run hook "gh pr create --title t --body 'x $MARKER'"
     assert_success
     assert_output ''
 }
 
-@test "--body にマーカーが無い issue create は deny" {
-    run hook "gh issue create --title t --body 'x'"
+@test "--body にマーカーが無い pr create は deny" {
+    run hook "gh pr create --title t --body 'x'"
     assert_success
     [ "$(decision "$output")" = deny ]
 }
 
+@test "範囲内の issue create はマーカーがあっても create-issue.sh へ案内して deny" {
+    run hook "gh issue create --title t --body 'x $MARKER'"
+    [ "$(decision "$output")" = deny ]
+    [[ "$(reason "$output")" == *create-issue.sh* ]]
+}
+
 @test "-F 短縮形と --body-file= 形も読む" {
-    printf '%s\n' "$MARKER" >"$BODY_DIR/i.md"
-    run hook "gh issue create -t t -F $BODY_DIR/i.md"
+    printf '%s\n' "$MARKER" >"$BODY_DIR/p.md"
+    run hook "gh pr create -t t -F $BODY_DIR/p.md"
     assert_output ''
-    run hook "gh issue create -t t --body-file=$BODY_DIR/i.md"
+    run hook "gh pr create -t t --body-file=$BODY_DIR/p.md"
     assert_output ''
 }
 
@@ -304,6 +310,12 @@ EOF
     git -C "$REPO_DIR" remote set-url origin https://github.com/someone-else/sample.git
     run hook "gh pr create --title t --body x"
     assert_success
+    assert_output ''
+}
+
+@test "許可リスト外では issue create も何もしない" {
+    git -C "$REPO_DIR" remote set-url origin https://github.com/someone-else/sample.git
+    run hook "gh issue create --title t --body x"
     assert_output ''
 }
 
@@ -359,6 +371,11 @@ EOF
     [ "$(decision "$output")" = deny ]
 }
 
+@test "alias の gh pr new も判定する" {
+    run hook "gh pr new --title t --body x"
+    [ "$(decision "$output")" = deny ]
+}
+
 @test "gh pr edit は対象外" {
     run hook "gh pr edit 1 --body x"
     assert_output ''
@@ -400,8 +417,9 @@ Expected: FAIL(スクリプトが無い)。無出力を期待するテストも�
 
 ```bash
 #!/usr/bin/env bash
-# PreToolUse hook: 個人リポジトリでの `gh issue create` / `gh pr create` を、ticket スキルの作成モードを
-# 経た本文(マーカー `<!-- ticket-skill -->` を含む)でなければ deny する。
+# PreToolUse hook: 個人リポジトリでの `gh pr create` を、ticket スキルの作成モードを経た本文(マーカー
+# `<!-- ticket-skill -->` を含む)でなければ deny する。`gh issue create` は常に deny し、作成と native relationship の
+# 設定を一度に行う create-issue.sh へ案内する(作成後の設定を別の手順にすると、それだけが漏れるため)。
 # 設計: chezmoi リポジトリの docs/superpowers/specs/2026-10-04-ticket-skill-design.md
 #
 # 目的はスキルの起動忘れを防ぐことで、迂回を防ぐことではない(マーカーは手で書ける)。
@@ -409,7 +427,7 @@ Expected: FAIL(スクリプトが無い)。無出力を期待するテストも�
 # git-push-guard とは逆の向きで、読めないことを理由に deny すると無関係なコマンドを止める損の方が大きい。
 #
 # Decision contract:
-#   deny        — 範囲内のリポジトリの作成コマンドで、本文にマーカーを確認できないとき
+#   deny        — 範囲内のリポジトリの gh issue create、または本文にマーカーを確認できない gh pr create
 #   (no output) — それ以外。allow / ask は返さない
 #
 # 範囲は lib/ticket-scope.bash が判定する(-R / --repo があればそれ、無ければフックの cwd の origin)。
@@ -434,7 +452,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 CWD=$(printf '%s' "$STDIN_JSON" | jq -r '.cwd // empty' 2>/dev/null) || exit 0
 case "$COMMAND" in
-*gh*create*) ;;
+*gh*create* | *gh*new*) ;;
 *) exit 0 ;;
 esac
 
@@ -470,7 +488,8 @@ check_segment() {
     [[ $i -lt $count ]] || return 0
     [[ "${tokens[$i]}" == gh || "${tokens[$i]}" == */gh ]] || return 0
     [[ "${tokens[$((i + 1))]:-}" == issue || "${tokens[$((i + 1))]:-}" == pr ]] || return 0
-    [[ "${tokens[$((i + 2))]:-}" == create ]] || return 0
+    # new は create の alias
+    [[ "${tokens[$((i + 2))]:-}" == create || "${tokens[$((i + 2))]:-}" == new ]] || return 0
     if [[ $HEREDOC_INDEX -ge 0 && $SHELL_READER_SEGMENT_START -gt $HEREDOC_INDEX ]]; then
         return 0
     fi
@@ -499,6 +518,10 @@ check_segment() {
     done
 
     ticket_scope_in_scope "${CWD:-.}" "$repo" || return 0
+    if [[ "${tokens[$((i + 1))]}" == issue ]]; then
+        DENY_DETAIL='issue は create-issue.sh で作る(作成と relationship の native 設定を一度に行うため)。'
+        return 1
+    fi
     case "$COMMAND" in *"$MARKER"*) return 0 ;; esac
 
     if [[ $has_body_file -eq 1 ]]; then
@@ -526,13 +549,14 @@ jq -n --arg detail "$DENY_DETAIL" '{hookSpecificOutput: {hookEventName: "PreTool
     permissionDecisionReason: ("ticket-guard: " + $detail
         + " ticket スキル(~/.claude/skills/ticket/SKILL.md)の作成モードで本文を作り"
         + "(関連 issue のメンション、relationship、PR なら Closes と AC 対応表)、末尾に <!-- ticket-skill --> を付ける。"
-        + "本文ファイルは git rev-parse --absolute-git-dir の出力の下の ticket/ に置き、--body-file <絶対パス> で再実行する。")}}'
+        + "本文ファイルは git rev-parse --absolute-git-dir の出力の下の ticket/ に置き、PR は gh pr create --body-file <絶対パス>、"
+        + "issue は bash ~/.claude/skills/ticket/scripts/create-issue.sh --title <title> --body-file <絶対パス> で作る。")}}'
 ```
 
 - [ ] **Step 4: テストが通ることを確かめる**
 
 Run: `LC_ALL=C pnpm exec bats test/ticket-guard.bats`
-Expected: 22 tests, 0 failures
+Expected: 25 tests, 0 failures
 
 テストが落ちたら、まず reader が token をどう作ったかを確かめる。`bash -c 'source dot_claude/scripts/lib/shell-reader.bash; shell_reader_read "$1"; printf "[%s]\n" "${SHELL_READER_TOKENS[@]}"' _ '<コマンド>'` で token 列が見られる。特に、変数を含むパスの token が `$TMPDIR/pr.md` のまま残っているか(残っていなければ、`SHELL_READER_EXPANSION` の flag と、`*'$'*` の判定の組み合わせを見直す)を確かめる。
 
@@ -567,6 +591,8 @@ git commit -m "feat(ticket): マーカーの無い gh issue/pr create を deny �
 }
 ```
 
+冒頭コメントの guard の一覧「guard hook(git-push-guard / curl-localhost-guard)」を「guard hook(git-push-guard / curl-localhost-guard / ticket-guard)」にする。
+
 同じファイルの `hook が呼ぶ script はすべて chezmoi が実行可能として配置する` のテストで、`assert_line curl-localhost-guard.sh` の次の行に `assert_line ticket-guard.sh` を足す。
 
 - [ ] **Step 2: 失敗を確かめる**
@@ -579,7 +605,7 @@ Expected: 足した 2 か所が FAIL
 `dot_claude/settings.json.tmpl` で、`"command": "\"$HOME/.claude/scripts/curl-localhost-guard.sh\""` を含むエントリの閉じ `},` の直後(`"matcher": "*"` のエントリの前)に、次を挿入する。
 
 ```
-      {{/* 個人リポジトリ(lib/ticket-scope.bash の owner の許可リスト)での gh issue create / gh pr create を、ticket スキルの作成モードを経た本文(<!-- ticket-skill --> を含む)でなければ deny するフック。課題は relationship・Closes・AC 対応表・関連 issue のメンションの「やり忘れ」で、スキルはモデルが使うと判断したときにしか起動しないため、作成の瞬間に決定的に止める。目的は起動忘れの防止で迂回の防止ではないので、読み切れない入力は通す(git-push-guard と逆の向き)。allow は返さない。設計は docs/superpowers/specs/2026-10-04-ticket-skill-design.md。 */ -}}
+      {{/* 個人リポジトリ(lib/ticket-scope.bash の owner の許可リスト)での gh pr create を、ticket スキルの作成モードを経た本文(<!-- ticket-skill --> を含む)でなければ deny し、gh issue create は作成と relationship 設定を一度に行う create-issue.sh へ案内して deny するフック。課題は relationship・Closes・AC 対応表・関連 issue のメンションの「やり忘れ」で、スキルはモデルが使うと判断したときにしか起動しないため、作成の瞬間に決定的に止める。目的は起動忘れの防止で迂回の防止ではないので、読み切れない入力は通す(git-push-guard と逆の向き)。allow は返さない。設計は docs/superpowers/specs/2026-10-04-ticket-skill-design.md。 */ -}}
       {
         "matcher": "Bash",
         "hooks": [
@@ -609,16 +635,21 @@ git commit -m "feat(ticket): ticket-guard を PreToolUse に配線する"
 ### Task 4: 照合スクリプト `audit.sh`
 
 **Files:**
+- Create: `dot_claude/skills/ticket/scripts/sections.bash`
 - Create: `dot_claude/skills/ticket/scripts/executable_audit.sh`
 - Test: `test/ticket-audit.bats`
 - Modify: `justfile`(`test-scripts` に `test/ticket-audit.bats` を足す)
 
 **Interfaces:**
+- Produces: `sections.bash` の 2 関数。どちらも本文を stdin で受け、見出し(`#` で始まり空白が続く行)を小文字にした行が正規表現 `$1` に一致する節の中だけを見る。
+  - `section_refs <pattern>`: 節の中の `#N` の N を 1 行 1 番号で出す
+  - `unchecked_items <pattern>`: 節の中の `- [ ] ` / `* [ ] ` 項目の文を 1 行 1 項目で出す
 - Produces: `audit.sh` を引数なしで実行すると、カレントのリポジトリを調べ、1 行 1 件のタブ区切り `<kind>\t<issue 番号>\t<根拠>` を stdout に出す。`kind` は次の 4 つ。件数の上限は `TICKET_AUDIT_LIMIT`(既定 100)で変えられる。
   - `parent-missing` 根拠 `#<親>`
   - `blocked-by-missing` 根拠 `#<blocker>`
   - `open-after-merge` 根拠 `PR #<n>`
   - `ac-unchecked` 根拠 `PR #<n>: <項目の文>`
+  - `mentioned-by-merged` 根拠 `PR #<n>`(open の issue に、同じリポジトリのマージ済み PR からの言及がある。`open-after-merge` で出した issue には出さない)
 - 呼ぶ gh コマンド(テストのスタブが受けるもの。`--jq` は使わず、jq に渡す):
   - `gh repo view --json nameWithOwner`
   - `gh issue list --state open --limit <N> --json number,body`
@@ -626,6 +657,7 @@ git commit -m "feat(ticket): ticket-guard を PreToolUse に配線する"
   - `gh pr list --state merged --limit <N> --json number,closingIssuesReferences`
   - `gh api repos/<o>/<r>/issues/<n>`
   - `gh api repos/<o>/<r>/issues/<n>/dependencies/blocked_by`
+  - `gh api repos/<o>/<r>/issues/<n>/timeline --paginate`
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -650,6 +682,11 @@ case "$*" in
     n=${2#repos/tanimon/sample/issues/}
     n=${n%%/*}
     cat "$GH_FIXTURES/blocked_by-$n.json" 2>/dev/null || printf '[]'
+    ;;
+"api repos/tanimon/sample/issues/"*/timeline*)
+    n=${2#repos/tanimon/sample/issues/}
+    n=${n%%/*}
+    cat "$GH_FIXTURES/timeline-$n.json" 2>/dev/null || printf '[]'
     ;;
 "api repos/tanimon/sample/issues/"*)
     n=${2##*/}
@@ -751,6 +788,35 @@ open_issue() {
     assert_output $'ac-unchecked\t8\tPR #21: c'
 }
 
+# --- mentioned-by-merged ---
+
+@test "マージ済み PR からの言及がある open issue は mentioned-by-merged" {
+    open_issue 5 'body'
+    printf '[{"event":"cross-referenced","source":{"issue":{"number":30,"pull_request":{"merged_at":"2026-10-01T00:00:00Z"},"repository":{"full_name":"tanimon/sample"}}}}]' >"$GH_FIXTURES/timeline-5.json"
+    run bash "$SCRIPT"
+    assert_output $'mentioned-by-merged\t5\tPR #30'
+}
+
+@test "未マージの PR・issue・別リポジトリからの言及は候補にしない" {
+    open_issue 5 'body'
+    printf '%s' '[
+      {"event":"cross-referenced","source":{"issue":{"number":30,"pull_request":{"merged_at":null},"repository":{"full_name":"tanimon/sample"}}}},
+      {"event":"cross-referenced","source":{"issue":{"number":31,"repository":{"full_name":"tanimon/sample"}}}},
+      {"event":"cross-referenced","source":{"issue":{"number":32,"pull_request":{"merged_at":"2026-10-01T00:00:00Z"},"repository":{"full_name":"other/repo"}}}},
+      {"event":"labeled"}
+    ]' >"$GH_FIXTURES/timeline-5.json"
+    run bash "$SCRIPT"
+    assert_output ''
+}
+
+@test "open-after-merge で出した issue には mentioned-by-merged を重ねない" {
+    open_issue 5 'body'
+    printf '[{"number":10,"closingIssuesReferences":[{"number":5,"url":"https://github.com/tanimon/sample/issues/5"}]}]' >"$GH_FIXTURES/merged.json"
+    printf '[{"event":"cross-referenced","source":{"issue":{"number":10,"pull_request":{"merged_at":"2026-10-01T00:00:00Z"},"repository":{"full_name":"tanimon/sample"}}}}]' >"$GH_FIXTURES/timeline-5.json"
+    run bash "$SCRIPT"
+    assert_output $'open-after-merge\t5\tPR #10'
+}
+
 @test "gh が失敗したら非 0 で終わる" {
     printf 'not json' >"$GH_FIXTURES/open.json"
     run bash "$SCRIPT"
@@ -767,23 +833,15 @@ Expected: FAIL(スクリプトが無い)
 
 - [ ] **Step 3: 実装する**
 
-`dot_claude/skills/ticket/scripts/executable_audit.sh`:
+`dot_claude/skills/ticket/scripts/sections.bash`:
 
 ```bash
 #!/usr/bin/env bash
-# ticket スキルの照合モードの検出部分。カレントのリポジトリの issue と PR の食い違いを、
-# 1 行 1 件のタブ区切り「<kind> <issue 番号> <根拠>」で出す。書き込みはしない。
-#   parent-missing      本文の Parent 節にある親が、API の parent と違う
-#   blocked-by-missing  本文の Blocked by 節にある blocker が、API の dependencies に無い
-#   open-after-merge    マージ済み PR の closingIssuesReferences にある issue が open のまま
-#   ac-unchecked        PR で close された issue の AC 節に [ ] が残る(1 項目 1 行)
-# 件数の上限は TICKET_AUDIT_LIMIT(既定 100)。gh の --jq は使わず jq に渡す(テストで gh をスタブにするため)。
-set -euo pipefail
-export LC_ALL=C
+# issue 本文の節を読む関数。audit.sh と create-issue.sh が source する。
+# 見出しは `#` で始まり空白が続く行で、小文字にした行を pattern(awk の正規表現)と比べる。
+# 呼び出し側は LC_ALL=C で動かす(tolower と日本語の見出しをバイト単位で扱うため)。
 
-LIMIT=${TICKET_AUDIT_LIMIT:-100}
-
-# 見出しが正規表現 $1(小文字にした行と比べる)に一致する節の中の #N を、1 行 1 番号で出す。
+# section_refs <pattern>: stdin の本文のうち、見出しが pattern に一致する節の中の #N の N を 1 行 1 番号で出す。
 section_refs() {
     awk -v pattern="$1" '
         /^#+[ \t]/ { in_section = (tolower($0) ~ pattern); next }
@@ -796,12 +854,34 @@ section_refs() {
         }'
 }
 
-# 見出しが正規表現 $1 に一致する節の中の未チェック項目の文を、1 行 1 項目で出す。
+# unchecked_items <pattern>: 見出しが pattern に一致する節の中の未チェック項目の文を 1 行 1 項目で出す。
 unchecked_items() {
     awk -v pattern="$1" '
         /^#+[ \t]/ { in_section = (tolower($0) ~ pattern); next }
         in_section && /^[ \t]*[-*] \[ \] / { sub(/^[ \t]*[-*] \[ \] /, ""); print }'
 }
+```
+
+`dot_claude/skills/ticket/scripts/executable_audit.sh`:
+
+```bash
+#!/usr/bin/env bash
+# ticket スキルの照合モードの検出部分。カレントのリポジトリの issue と PR の食い違いを、
+# 1 行 1 件のタブ区切り「<kind> <issue 番号> <根拠>」で出す。書き込みはしない。
+#   parent-missing      本文の Parent 節にある親が、API の parent と違う
+#   blocked-by-missing  本文の Blocked by 節にある blocker が、API の dependencies に無い
+#   open-after-merge    マージ済み PR の closingIssuesReferences にある issue が open のまま
+#   ac-unchecked        PR で close された issue の AC 節に [ ] が残る(1 項目 1 行)
+#   mentioned-by-merged open の issue に同じリポジトリのマージ済み PR からの言及がある(Closes の書き忘れの候補。
+#                       言及は解決を意味しないので、close するかは人が決める)
+# 件数の上限は TICKET_AUDIT_LIMIT(既定 100)。gh の --jq は使わず jq に渡す(テストで gh をスタブにするため)。
+set -euo pipefail
+export LC_ALL=C
+
+LIMIT=${TICKET_AUDIT_LIMIT:-100}
+
+# shellcheck source=sections.bash
+source "$(dirname "${BASH_SOURCE[0]}")/sections.bash"
 
 repo=$(gh repo view --json nameWithOwner | jq -r .nameWithOwner)
 open_json=$(gh issue list --state open --limit "$LIMIT" --json number,body)
@@ -839,12 +919,29 @@ references=$(gh pr list --state merged --limit "$LIMIT" --json number,closingIss
     jq -r --arg repo "$repo" '.[] | .number as $pr | .closingIssuesReferences[]
         | select((.url | split("/")[3:5] | join("/")) == $repo)
         | "\(.number)\t\($pr)"')
+after_merge=''
 while IFS=$'\t' read -r issue pr; do
     [[ -n "$issue" ]] || continue
     if printf '%s\n' "$open_numbers" | grep -qx "$issue"; then
         printf 'open-after-merge\t%s\tPR #%s\n' "$issue" "$pr"
+        after_merge+="$issue"$'\n'
     fi
 done <<<"$references"
+
+# mentioned-by-merged
+for number in $open_numbers; do
+    if printf '%s' "$after_merge" | grep -qx "$number"; then
+        continue
+    fi
+    mentions=$(gh api "repos/$repo/issues/$number/timeline" --paginate |
+        jq -r --arg repo "$repo" '.[] | select(.event == "cross-referenced") | .source.issue // empty
+            | select(.pull_request.merged_at != null)
+            | select((.repository.full_name // "") == $repo)
+            | .number' | sort -un)
+    for pr in $mentions; do
+        printf 'mentioned-by-merged\t%s\tPR #%s\n' "$number" "$pr"
+    done
+done
 
 # ac-unchecked
 closed=$(gh issue list --state closed --limit "$LIMIT" --json number,body,closedByPullRequestsReferences |
@@ -865,12 +962,12 @@ done <<<"$closed"
 - [ ] **Step 4: テストが通ることを確かめる**
 
 Run: `LC_ALL=C pnpm exec bats test/ticket-audit.bats`
-Expected: 12 tests, 0 failures
+Expected: 15 tests, 0 failures
 
 - [ ] **Step 5: 実リポジトリで 1 度実行して、#450 が出ることを確かめる**
 
 Run: `bash dot_claude/skills/ticket/scripts/executable_audit.sh | grep -F blocked-by-missing`
-Expected: `blocked-by-missing	450	#401` の行が出る(#401 の native 依存関係が未設定のままなら)。出なければ、`gh api repos/tanimon/dotfiles/issues/450/dependencies/blocked_by` の実際の応答の形を確かめ、jq の式を合わせる
+Expected: `blocked-by-missing	450	#401` の行が出る(#401 の native 依存関係が未設定のままなら)。出なければ、`gh api repos/tanimon/dotfiles/issues/450/dependencies/blocked_by` の実際の応答の形を確かめ、jq の式を合わせる。同じ実行が全体としてエラーなく終わること(`echo $?` が 0)も確かめる。timeline の `source.issue` に `repository.full_name` と `pull_request.merged_at` があることは実データで未確認なので、`gh api repos/tanimon/dotfiles/issues/450/timeline --paginate | jq '[.[] | select(.event == "cross-referenced")][0].source.issue | {repository: .repository.full_name, merged: .pull_request.merged_at}'` で形を確かめ、違えば jq の式とテストのフィクスチャを合わせる
 
 - [ ] **Step 6: lint を通してコミットする**
 
@@ -878,20 +975,221 @@ Run: `just shellcheck && just shfmt`
 Expected: どちらも成功
 
 ```bash
-git add dot_claude/skills/ticket/scripts/executable_audit.sh test/ticket-audit.bats justfile
+git add dot_claude/skills/ticket/scripts/sections.bash dot_claude/skills/ticket/scripts/executable_audit.sh test/ticket-audit.bats justfile
 git commit -m "feat(ticket): 照合モードの食い違いを決定的に列挙する audit.sh を追加する"
 ```
 
 ---
 
-### Task 5: スキル本体と issue-tracker.md
+### Task 5: issue 作成スクリプト `create-issue.sh`
+
+**Files:**
+- Create: `dot_claude/skills/ticket/scripts/executable_create-issue.sh`
+- Test: `test/ticket-create-issue.bats`
+- Modify: `justfile`(`test-scripts` に `test/ticket-create-issue.bats` を足す)
+
+**Interfaces:**
+- Consumes: `section_refs <pattern>`(Task 4 の `sections.bash`)
+- Produces: `create-issue.sh --title <title> --body-file <絶対パス> [gh issue create に渡すその他の引数...]`。本文ファイルが絶対パスで読めてマーカーを含むことを確かめ、`gh issue create` に引数をそのまま渡す。作成後、本文の `## Parent` の各 `#P` について `gh api repos/<o>/<r>/issues/<P>/sub_issues -X POST -F sub_issue_id=<新 issue の database id>` を、`## Blocked by` の各 `#B` について `gh api repos/<o>/<r>/issues/<新番号>/dependencies/blocked_by -X POST -F issue_id=<B の database id>` を呼ぶ。stdout には作成した issue の URL を 1 行出す。終了コードは、成功 0、relationship の設定の一部が失敗 1(issue は作成済み。stderr に URL と失敗した関係を出す)、引数や本文の不備 2(何も作らない)。
+
+- [ ] **Step 1: 失敗するテストを書く**
+
+`test/ticket-create-issue.bats`:
+
+```bash
+# create-issue.sh: issue の作成と native relationship の設定を一度に行う。gh はスタブにして呼び出しを記録する。
+setup() {
+    load 'helpers/setup'
+    SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/skills/ticket/scripts/executable_create-issue.sh"
+    export GH_LOG="$BATS_TEST_TMPDIR/gh.log"
+    : >"$GH_LOG"
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    # 新しい issue は #450。database id は番号の 10 倍を返す。
+    cat >"$BATS_TEST_TMPDIR/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_LOG"
+case "$*" in
+"issue create"*) printf 'https://github.com/tanimon/sample/issues/450\n' ;;
+"repo view --json nameWithOwner") printf '{"nameWithOwner":"tanimon/sample"}' ;;
+*"-X POST"*)
+    [[ -n "${GH_FAIL_POST:-}" ]] && exit 1
+    printf '{}'
+    ;;
+"api repos/tanimon/sample/issues/"*)
+    n=${2##*/}
+    printf '{"id":%s0}' "$n"
+    ;;
+*)
+    echo "unexpected gh $*" >&2
+    exit 1
+    ;;
+esac
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/gh"
+    export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+    BODY="$BATS_TEST_TMPDIR/issue-body.md"
+}
+
+@test "Parent と Blocked by があれば作成の後に native に張る" {
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_success
+    assert_output 'https://github.com/tanimon/sample/issues/450'
+    run cat "$GH_LOG"
+    assert_line --index 0 "issue create --title t --body-file $BODY"
+    assert_line 'api repos/tanimon/sample/issues/397/sub_issues -X POST -F sub_issue_id=4500'
+    assert_line 'api repos/tanimon/sample/issues/450/dependencies/blocked_by -X POST -F issue_id=4010'
+}
+
+@test "節が無ければ relationship の API を呼ばない" {
+    printf '本文\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_success
+    run grep -c -- '-X POST' "$GH_LOG"
+    assert_output '0'
+}
+
+@test "その他の引数は gh issue create にそのまま渡す" {
+    printf '<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY" --label 'wayfinder:map'
+    assert_success
+    run head -n 1 "$GH_LOG"
+    assert_output "issue create --title t --body-file $BODY --label wayfinder:map"
+}
+
+@test "本文にマーカーが無ければ何も作らずに 2 で終わる" {
+    printf '## Parent\n\n#397\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "body-file が相対パスなら何も作らずに 2 で終わる" {
+    run bash "$SCRIPT" --title t --body-file issue-body.md
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "body-file が無ければ何も作らずに 2 で終わる" {
+    run bash "$SCRIPT" --title t
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "relationship の設定に失敗したら URL と失敗した関係を出して 1 で終わる" {
+    printf '## Blocked by\n\n#401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    GH_FAIL_POST=1 run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 1
+    assert_output --partial 'https://github.com/tanimon/sample/issues/450'
+    assert_output --partial 'blocked-by #401'
+}
+```
+
+`justfile` の `test-scripts` レシピの bats の引数の末尾に `test/ticket-create-issue.bats` を足す。
+
+- [ ] **Step 2: 失敗を確かめる**
+
+Run: `LC_ALL=C pnpm exec bats test/ticket-create-issue.bats`
+Expected: FAIL(スクリプトが無い)
+
+- [ ] **Step 3: 実装する**
+
+`dot_claude/skills/ticket/scripts/executable_create-issue.sh`:
+
+```bash
+#!/usr/bin/env bash
+# issue を作り、本文の `## Parent` / `## Blocked by` に書いた関係を native の sub-issue と依存関係にも張る。
+# 作成と設定を 1 つにしているのは、作成後の設定を別の手順にするとそれだけが漏れるため(本文は正しいのに
+# native が未設定、という形)。このスクリプト内の gh は ticket-guard の対象にならない。
+#
+# 使い方: create-issue.sh --title <title> --body-file <絶対パス> [gh issue create に渡すその他の引数...]
+# 終了コード: 0 成功 / 1 issue は作ったが relationship の一部を張れなかった / 2 引数か本文の不備(何も作らない)
+set -uo pipefail
+export LC_ALL=C
+
+MARKER='<!-- ticket-skill -->'
+
+# shellcheck source=sections.bash
+source "$(dirname "${BASH_SOURCE[0]}")/sections.bash"
+
+body_file=''
+previous=''
+for argument in "$@"; do
+    case "$previous" in -F | --body-file) body_file=$argument ;; esac
+    case "$argument" in --body-file=*) body_file=${argument#--body-file=} ;; esac
+    previous=$argument
+done
+
+case "$body_file" in
+/*) ;;
+'')
+    echo 'create-issue.sh: --body-file <絶対パス> が必要' >&2
+    exit 2
+    ;;
+*)
+    echo "create-issue.sh: --body-file は絶対パスで渡す: $body_file" >&2
+    exit 2
+    ;;
+esac
+if [[ ! -r "$body_file" ]] || ! grep -qF -- "$MARKER" "$body_file"; then
+    echo "create-issue.sh: 本文ファイルが読めないか、マーカー $MARKER が無い(ticket スキルの作成モードで本文を作る): $body_file" >&2
+    exit 2
+fi
+
+url=$(gh issue create "$@") || exit 2
+url=$(printf '%s\n' "$url" | tail -n 1)
+number=${url##*/}
+printf '%s\n' "$url"
+
+parents=$(section_refs '^#+[ \t]+parent' <"$body_file")
+blockers=$(section_refs '^#+[ \t]+blocked by' <"$body_file")
+[[ -n "$parents$blockers" ]] || exit 0
+
+failed=''
+repo=$(gh repo view --json nameWithOwner | jq -r .nameWithOwner) || failed+=' repo'
+id=$(gh api "repos/$repo/issues/$number" | jq -r .id) || failed+=' id'
+if [[ -z "$failed" ]]; then
+    for parent in $parents; do
+        gh api "repos/$repo/issues/$parent/sub_issues" -X POST -F "sub_issue_id=$id" >/dev/null ||
+            failed+=" parent #$parent"
+    done
+    for blocker in $blockers; do
+        blocker_id=$(gh api "repos/$repo/issues/$blocker" | jq -r .id) &&
+            gh api "repos/$repo/issues/$number/dependencies/blocked_by" -X POST -F "issue_id=$blocker_id" >/dev/null ||
+            failed+=" blocked-by #$blocker"
+    done
+fi
+if [[ -n "$failed" ]]; then
+    echo "create-issue.sh: $url は作成済み。次の relationship を張れなかった(ticket スキルの作成モード手順3のコマンドで張り直す):$failed" >&2
+    exit 1
+fi
+```
+
+- [ ] **Step 4: テストが通ることを確かめる**
+
+Run: `LC_ALL=C pnpm exec bats test/ticket-create-issue.bats`
+Expected: 7 tests, 0 failures
+
+- [ ] **Step 5: lint を通してコミットする**
+
+Run: `just shellcheck && just shfmt`
+Expected: どちらも成功
+
+```bash
+git add dot_claude/skills/ticket/scripts/executable_create-issue.sh test/ticket-create-issue.bats justfile
+git commit -m "feat(ticket): issue の作成と native relationship の設定を一度に行う create-issue.sh を追加する"
+```
+
+---
+
+### Task 6: スキル本体と issue-tracker.md
 
 **Files:**
 - Create: `dot_claude/skills/ticket/SKILL.md`
 - Modify: `docs/agents/issue-tracker.md`(Wayfinding operations の Child ticket と Blocking の項、末尾に節を追加)
 
 **Interfaces:**
-- Consumes: `~/.claude/scripts/lib/ticket-scope.bash`(Task 1)、`~/.claude/skills/ticket/scripts/audit.sh` の出力形式(Task 4)、ガードの理由文が指す手順(Task 2)
+- Consumes: `~/.claude/scripts/lib/ticket-scope.bash`(Task 1)、`~/.claude/skills/ticket/scripts/audit.sh` の出力形式(Task 4)、`create-issue.sh` の引数(Task 5)、ガードの理由文が指す手順(Task 2)
 
 - [ ] **Step 1: SKILL.md を書く**
 
@@ -916,14 +1214,14 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 1. **置き場所を決める。** `git rev-parse --absolute-git-dir` を単独で実行し、出力に `/ticket` を足したディレクトリを使う(以降 `<dir>`)。本文は Write ツールで `<dir>/issue-body.md` か `<dir>/pr-body.md` に書く。コマンドには `$(…)` や `$TMPDIR` を含めず、展開済みの絶対パスを書く(ticket-guard は展開前の文字列しか読めない)。
 2. **関連 issue を探してメンションする。** タイトルの主要な語を 2〜3 通り変えて `gh issue list --state all --search "<語>" --limit 20 --json number,title,state` を実行する。関連するものを `## 関連` 節に `- #N <なぜ関連するかを 1 行>` で書く。見つからなければ「関連 issue なし(検索語: …)」と書く。
-3. **issue なら relationship を書いて張る。** 親は `## Parent`、先に片付ける必要がある issue は `## Blocked by` の節に `#N` で書く。作成後に native にも設定する。
+3. **issue なら relationship を書く。** 親は `## Parent`、先に片付ける必要がある issue は `## Blocked by` の節に `#N` で書く。native の設定は手順6の `create-issue.sh` が作成と同時に行う。既存の issue に後から張るとき(照合モードや `create-issue.sh` が一部失敗したとき)は次のコマンドを使う。
    - database id: `gh api repos/<owner>/<repo>/issues/<n> --jq .id`(`#number` や `node_id` ではない)
    - 親子: `gh api repos/<owner>/<repo>/issues/<親>/sub_issues -X POST -F sub_issue_id=<子の database id>`
    - 依存: `gh api repos/<owner>/<repo>/issues/<n>/dependencies/blocked_by -X POST -F issue_id=<blocker の database id>`
    - 確認: `gh api repos/<owner>/<repo>/issues/<n> --jq '{parent: .parent_issue_url, deps: .issue_dependencies_summary}'`
 4. **PR なら Closes と AC 対応表を書く。** 解決する issue ごとに `Closes #N` を 1 行ずつ書く(`Closes #1, #2` は 2 件目が効かない)。部分的にしか解決しない issue は `Refs #N` にする。各 issue の AC(`gh issue view <N> --json body`)について、`## Acceptance criteria の対応` 節に表 `| issue | 項目 | 対応 |` を書く。「対応」には満たした変更(ファイルやテスト)を書き、満たさない項目にはその理由を書く。`Closes` による自動 close は既定ブランチへのマージでしか効かない。
 5. **末尾にマーカーを付ける。** 本文の最後の行を `<!-- ticket-skill -->` にする。
-6. **作る。** `gh issue create --title "<title>" --body-file <dir>/issue-body.md`、または `gh pr create --head <branch> --title "<title>" --body-file <dir>/pr-body.md`。issue の場合はその後に手順3の native 設定を行う。
+6. **作る。** issue は `bash ~/.claude/skills/ticket/scripts/create-issue.sh --title "<title>" --body-file <dir>/issue-body.md`(`--label` などは後ろに足せば `gh issue create` に渡る)。終了コード 1 は「issue は作ったが relationship の一部を張れなかった」なので、stderr に出た関係を手順3のコマンドで張り直す。PR は `gh pr create --head <branch> --title "<title>" --body-file <dir>/pr-body.md`。範囲内のリポジトリで `gh issue create` を直接使うと ticket-guard が deny する。
 
 ## 照合モード
 
@@ -931,6 +1229,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 2. kind ごとに修正案を作る。
    - `parent-missing` / `blocked-by-missing`: 作成モードの手順3のコマンドで native に張る。
    - `open-after-merge`: `gh issue close <issue> --reason completed --comment "PR #<n> のマージで解決済み(Closes による自動 close が効かなかった)"`。
+   - `mentioned-by-merged`: Closes を書き忘れた PR の候補にすぎない。PR の本文と差分(`gh pr view <n> --json body,files`)と issue の AC を読み、解決したと言える場合だけ close の候補にする。言えなければ「言及のみ」として報告に載せ、操作は提案しない。
    - `ac-unchecked`: 根拠の PR の本文(`gh pr view <n> --json body`)の AC 対応表で、その項目を満たしたと書いてあるものだけを `[x]` にする候補にする。対応表に無い項目や、理由を書いて意図的に `[ ]` のまま残した項目は触らず、報告に載せる。
 3. 修正案を表(kind・issue・操作・根拠)で示し、`AskUserQuestion` で「全部適用 / 種類ごとに選ぶ / やめる」を選んでもらう。承認なしに書き込まない。
 4. 適用する。AC は `gh issue view <issue> --json body --jq .body` を `<dir>/issue-<issue>.md` に保存し、該当行の `- [ ]` だけを `- [x]` に直して `gh issue edit <issue> --body-file <dir>/issue-<issue>.md` で戻す。
@@ -944,12 +1243,14 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 - Child ticket の項の「map の GitHub sub-issue としてリンクした issue（sub-issues エンドポイントを `gh api` で叩く）。」を「map の GitHub sub-issue としてリンクした issue（API の手順は `ticket` スキルの作成モードの手順3）。」にする。
 - Blocking の項の「`gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`。`<blocker-db-id>` は blocker の数値 **database id**（`gh api repos/<owner>/<repo>/issues/<n> --jq .id` で取得。`#number` や `node_id` ではない）。」を「API の手順は `ticket` スキルの作成モードの手順3（blocker の database id を使う）。」にする。
 
+Conventions 節の「**Create an issue**: `gh issue create --title "..." --body "..."`。複数行の body は heredoc を使う。」を「**Create an issue**: `ticket` スキルの作成モードに従い、`bash ~/.claude/skills/ticket/scripts/create-issue.sh --title "..." --body-file <絶対パス>` で作る。」にする。Wayfinding operations 節の Map の項の「`gh issue create --label wayfinder:map`」を「`create-issue.sh … --label wayfinder:map`」にする。
+
 ファイルの末尾に次の節を足す。
 
 ```markdown
 ## issue / PR を作るとき
 
-`ticket` スキル(`~/.claude/skills/ticket/SKILL.md`)の作成モードに従う。関連 issue のメンション、parent / blocked-by の native 設定、PR の `Closes #N` と AC 対応表の手順の正本はそちらにある。本文にマーカー `<!-- ticket-skill -->` が無い `gh issue create` / `gh pr create` は、ticket-guard フックが deny する。マージ後に残った漏れは `/ticket audit` で洗い出す。
+`ticket` スキル(`~/.claude/skills/ticket/SKILL.md`)の作成モードに従う。関連 issue のメンション、parent / blocked-by の native 設定、PR の `Closes #N` と AC 対応表の手順の正本はそちらにある。ticket-guard フックは、`gh issue create` を `create-issue.sh` へ案内して deny し、本文にマーカー `<!-- ticket-skill -->` が無い `gh pr create` を deny する。マージ後に残った漏れは `/ticket audit` で洗い出す。
 ```
 
 - [ ] **Step 3: lint を通す**
@@ -966,7 +1267,7 @@ git commit -m "feat(ticket): 作成モードと照合モードを持つ ticket �
 
 ---
 
-### Task 6: deliver に組み込む
+### Task 7: deliver に組み込む
 
 **Files:**
 - Modify: `dot_claude/workflows/deliver.js`(定数、`validateArgs`、公開処理、返り値)
@@ -974,7 +1275,7 @@ git commit -m "feat(ticket): 作成モードと照合モードを持つ ticket �
 - Modify: `dot_claude/skills/deliver/SKILL.md`(手順7・8)
 
 **Interfaces:**
-- Consumes: `~/.claude/scripts/lib/ticket-scope.bash`(Task 1)、`~/.claude/skills/ticket/SKILL.md` の作成モード手順2・4(Task 5)
+- Consumes: `~/.claude/scripts/lib/ticket-scope.bash`(Task 1)、`~/.claude/skills/ticket/SKILL.md` の作成モード手順2・4(Task 6)
 - Produces: Workflow の引数 `ticket`(省略可、真偽値)。返り値の `prBody`(公開に使った、または使うはずだった本文。`ticket` が偽なら `report` と同じ)
 
 - [ ] **Step 1: 失敗するテストを書く**
@@ -1143,7 +1444,7 @@ git commit -m "feat(deliver): 範囲内のリポジトリでは PR 本文にチ�
 
 ---
 
-### Task 7: 全体の検証
+### Task 8: 全体の検証
 
 **Files:** なし(検証のみ。失敗したら、該当する Task のファイルを直す)
 
@@ -1155,7 +1456,7 @@ Expected: 成功。CI の対応は `just test-ci-parity` が検査する(新し�
 - [ ] **Step 2: chezmoi が配置するファイルを確かめる**
 
 Run: `chezmoi managed --source "$(pwd)" | grep -E 'ticket'`
-Expected: `.claude/scripts/ticket-guard.sh`、`.claude/scripts/lib/ticket-scope.bash`、`.claude/skills/ticket/SKILL.md`、`.claude/skills/ticket/scripts/audit.sh` の 4 件が出る
+Expected: `.claude/scripts/ticket-guard.sh`、`.claude/scripts/lib/ticket-scope.bash`、`.claude/skills/ticket/SKILL.md`、`.claude/skills/ticket/scripts/audit.sh`、`.claude/skills/ticket/scripts/create-issue.sh`、`.claude/skills/ticket/scripts/sections.bash` の 6 件が出る
 
 - [ ] **Step 3: 統合の方法を決める**
 

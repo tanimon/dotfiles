@@ -25,6 +25,8 @@ GitHub Issues でチケットを管理する個人リポジトリで、issue と
 | 作成時ガード | `dot_claude/scripts/executable_ticket-guard.sh` → `~/.claude/scripts/ticket-guard.sh` | PreToolUse(`matcher: "Bash"`)。`gh issue create` / `gh pr create` の本文にマーカーが無ければ deny する |
 | 適用範囲の判定 | `dot_claude/scripts/lib/ticket-scope.bash` → `~/.claude/scripts/lib/ticket-scope.bash` | origin の owner が許可リストにあるかを判定する。ガードが source し、deliver の入口 skill が直接実行する |
 | 照合スクリプト | `dot_claude/skills/ticket/scripts/executable_audit.sh` | 照合モードの検出部分。LLM を使わずに食い違いを列挙する |
+| issue 作成スクリプト | `dot_claude/skills/ticket/scripts/executable_create-issue.sh` | issue の作成と、本文の `## Parent` / `## Blocked by` に基づく native relationship の設定を一度に行う |
+| 節の読み取り | `dot_claude/skills/ticket/scripts/sections.bash` | 本文の節から `#N` と未チェック項目を取り出す関数。audit.sh と create-issue.sh が source する |
 
 手順の正本はこのスキルだけにする。`docs/agents/issue-tracker.md` にある sub-issue と dependency の API 手順は、このスキルを参照する形に書き換える。2か所に写すと食い違うため。
 
@@ -33,7 +35,7 @@ GitHub Issues でチケットを管理する個人リポジトリで、issue と
 issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 1. **関連 issue を探してメンションする**(課題4)。タイトルと本文の語で `gh issue list --search` を実行し、関連する open / closed の issue を本文中で `#N` として参照する。参照する理由も1行添える。
-2. **relationship を本文に書き、native にも設定する**(課題1)。parent は `## Parent`、blocker は `## Blocked by` の節に書く。作成後に `gh api` で sub-issue と `dependencies/blocked_by` を設定する。依存関係の API が受け取るのは blocker の database id(`gh api repos/<o>/<r>/issues/<n> --jq .id`)で、`#number` や `node_id` ではない。
+2. **relationship を本文に書き、native にも設定する**(課題1)。parent は `## Parent`、blocker は `## Blocked by` の節に書く。issue は `create-issue.sh` で作り、作成と同時に sub-issue と `dependencies/blocked_by` を設定する。#450 は本文が正しく native の設定だけが漏れた事例で、作成後の手順に頼ると同じ漏れが起きるため、2つを1つのスクリプトにまとめる。スクリプト内の `gh` はフックの対象にならない。依存関係の API が受け取るのは blocker の database id(`gh api repos/<o>/<r>/issues/<n> --jq .id`)で、`#number` や `node_id` ではない。
 3. **PR 本文に `Closes #N` と AC 対応表を書く**(課題2・3の前準備)。対応表は、issue の AC の各項目について、それを満たす変更(ファイルやテスト)を示す。満たさない項目は、満たさない理由と一緒に載せる。
 4. **本文の末尾にマーカー `<!-- ticket-skill -->` を付ける。** 本文ファイルは `$(git rev-parse --absolute-git-dir)/ticket/` の下に置き、`--body-file <絶対パス>` で渡す。
 
@@ -46,7 +48,8 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 ### 検出(`audit.sh`、決定的)
 
 - **relationship の食い違い**: 本文の `## Parent` / `## Blocked by` 節にある番号と、API の `parent_issue_url` / dependencies を比べる。
-- **open のまま残った issue**: マージ済み PR の `closingIssuesReferences` から辿り、まだ open の issue を探す。
+- **open のまま残った issue**: マージ済み PR の `closingIssuesReferences` から辿り、まだ open の issue を探す。既定ブランチへのマージなら GitHub が自動で close するので、当たるのは stacked PR などに限られる。
+- **Closes を書き忘れた PR の候補**: open の issue ごとに timeline を引き、同じリポジトリのマージ済み PR からの言及(`cross-referenced`)を候補として出す。言及は解決を意味しないので、close するかは一括承認で人が決める。
 - **AC の未チェック**: close 済みで、その issue を close した PR がマージ済みのもののうち、AC 節に `[ ]` が残る issue を探す。AC 節の見出しは `Acceptance criteria` と `完了条件` で始まるものとする(`## 完了条件(案)` などの揺れを許す)。
 
 出力は1行1件の機械可読な形式(種類・issue 番号・根拠)にする。
@@ -64,10 +67,11 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 | 入力 | 結果 |
 |---|---|
-| `gh issue create` / `gh pr create` を含まない | 無出力で通す |
+| `gh issue create` / `gh pr create`(alias の `new` を含む)を含まない | 無出力で通す |
 | origin が無い、GitHub 以外、owner が許可リストに無い | 無出力で通す |
-| `--body-file` / `-F` の絶対パスのファイルにマーカーがある | 無出力で通す |
-| `--body` / `-b` の値にマーカーがある | 無出力で通す |
+| `gh issue create`(範囲内) | マーカーの有無にかかわらず deny し、`create-issue.sh` へ案内する |
+| `gh pr create` の `--body-file` / `-F` の絶対パスのファイルにマーカーがある | 無出力で通す |
+| `gh pr create` の `--body` / `-b` の値にマーカーがある | 無出力で通す |
 | マーカーが無い(`--fill` / `--web` もここに入る) | deny |
 | `--body-file` が変数を含むパス、相対パス、`-`、読めないファイル | 理由付きで deny |
 | reader が読み切れない(長すぎる、引用符が閉じない、番兵の byte を含む) | 無出力で通す |
@@ -103,6 +107,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
   - 許可リスト外 → 素通し / 許可リスト内 → deny
   - `cd … &&` で連結 → 判定される
   - 変数を含むパス・`--fill` → deny
+- `create-issue.sh` の bats は `gh` をスタブにして呼び出しを記録し、本文の Parent / Blocked by に応じた API 呼び出しが作成の後に行われること、節が無ければ relationship の API を呼ばないこと、本文にマーカーが無ければ何も作らずに失敗することを確かめる。
 - `audit.sh` の bats は `gh` をスタブにする。#450 と同じ形(本文に Blocked by があり、API 側は未設定)を検出し、両方揃っているときは検出しないことを、対にして確かめる。
 
 ## ドキュメント
