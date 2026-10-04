@@ -17,7 +17,7 @@ git push の判定フック(`executable_git-push-guard.sh`)を、curl のフッ�
 
 ## Consequences
 
-- **素の `git push` と `git push -u origin HEAD` は毎回プロンプトになる。** 送り先の branch がコマンドの字面から分からないため。外部の plugin skill(commit-commands、compound-engineering)の手順は `git push -u origin HEAD` と書いているので、それに従った push もプロンプトになる。プロンプトに答えられない Workflow(`deliver` の publish)には、branch 名を明示した形で push させる。摩擦が目立つようなら、hook 入力の `cwd` から現在の branch を引く案を別の変更で検討する。
+- **素の `git push` と `git push -u origin HEAD` は毎回プロンプトになる。** 送り先の branch がコマンドの字面から分からないため。外部の plugin skill(commit-commands、compound-engineering)の手順は `git push -u origin HEAD` と書いているので、それに従った push もプロンプトになる。プロンプトに答えられない Workflow(`deliver` の publish)には、branch 名を明示した形で push させる(注記: Publish は [ADR 0015](0015-deliver-does-not-publish.md) で取り除かれ、`deliver` は push しなくなった)。摩擦が目立つようなら、hook 入力の `cwd` から現在の branch を引く案を別の変更で検討する。
 - **保護 branch の一覧(`main` / `master` / `develop` / `development`)は固定で持つ。** このフックはグローバルに効き、仕事用リポジトリにも当たる。リポジトリごとの既定 branch は引かない(cwd のずれ、git の呼び出しによる遅延と失敗経路を避けるため)。
 - **ask の土台は包まれた形も捕まえるとみられる**(2026-09-30、`claude -p --setting-sources project` で、ask なしの control と `Bash(git push:*)` を ask に置いた treatment を比較。push 先はローカルの bare repo)。`echo "$(git push …)"`・`` echo `git push …` ``・`for … do git push …; done`・`if …; then git push …; fi` の 4 形は、control では実行され、treatment ではブロックされた。捕まえないのは `bash -c "git push …"` だけで、これは現行のフックでも対応していない既知の残存リスク。ただしこの測定では、モデルが実際に打ったコマンドを記録していない。実装計画の Task 0 で、打ったコマンドが指示どおりであることを確かめてから「実測済み」とする。
 - **素の `git push` をプロンプトにしても摩擦は小さい。** 過去のセッション記録にある `git push` 123 件のうち、素の push は 21 件(17%)、送り先が `HEAD` だけのものは 1 件だった。一方 115 件が `2>&1` 付き、107 件がパイプ付き(`tail` 101・`grep` 6・`head` 4)だったので、fd の複製と読み取り専用のパイプ先は `allow` の対象に含める。
