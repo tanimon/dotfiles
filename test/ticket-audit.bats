@@ -83,6 +83,21 @@ open_issue() {
     assert_output $'parent-missing\t12\t#3'
 }
 
+@test "Parent 節の 2 件目以降は比べない" {
+    open_issue 12 $'## Parent\n\n#3 の下で #9 も参照\n'
+    printf '{"parent_issue_url":"https://api.github.com/repos/tanimon/sample/issues/3"}' >"$GH_FIXTURES/issue-12.json"
+    run bash "$SCRIPT"
+    assert_success
+    assert_output ''
+}
+
+@test "API に別の親があれば parent-missing ではなく parent-mismatch" {
+    open_issue 12 $'## Parent\n\n#3\n'
+    printf '{"parent_issue_url":"https://api.github.com/repos/tanimon/sample/issues/4"}' >"$GH_FIXTURES/issue-12.json"
+    run bash "$SCRIPT"
+    assert_output $'parent-mismatch\t12\t#3(本文) / #4(API)'
+}
+
 @test "Parent 節の外の #N は relationship として扱わない" {
     open_issue 12 $'## 関連\n\n#3 を参照\n'
     run bash "$SCRIPT"
@@ -117,6 +132,12 @@ open_issue() {
     jq -n '[{number:7, body:"## Acceptance criteria\n\n- [x] a\n- [ ] b を満たす\n", closedByPullRequestsReferences:[{number:20}]}]' >"$GH_FIXTURES/closed.json"
     run bash "$SCRIPT"
     assert_output $'ac-unchecked\t7\tPR #20: b を満たす'
+}
+
+@test "close した PR が複数あれば全件を根拠に出す" {
+    jq -n '[{number:7, body:"## Acceptance criteria\n\n- [ ] b\n", closedByPullRequestsReferences:[{number:20},{number:22}]}]' >"$GH_FIXTURES/closed.json"
+    run bash "$SCRIPT"
+    assert_output $'ac-unchecked\t7\tPR #20, PR #22: b'
 }
 
 @test "AC がすべて [x] なら何も出さない" {
@@ -170,6 +191,15 @@ open_issue() {
     printf 'not json' >"$GH_FIXTURES/open.json"
     run bash "$SCRIPT"
     assert_failure
+}
+
+@test "issue 単位の API が失敗しても残りを検査し、最後に 1 で終わる" {
+    jq -n '[{number:450, body:"## Blocked by\n\n#401\n"}, {number:451, body:"## Blocked by\n\n#402\n"}]' >"$GH_FIXTURES/open.json"
+    printf 'not json' >"$GH_FIXTURES/blocked_by-450.json"
+    run --separate-stderr bash "$SCRIPT"
+    assert_failure 1
+    assert_output $'blocked-by-missing\t451\t#402'
+    [[ "$stderr" == *'#450 の dependencies'* ]]
 }
 
 @test "件数が上限に達したら stderr に知らせ、stdout は変えない" {

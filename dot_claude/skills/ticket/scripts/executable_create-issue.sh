@@ -17,7 +17,14 @@ body_file=''
 previous=''
 for argument in "$@"; do
     case "$previous" in -F | --body-file) body_file=$argument ;; esac
-    case "$argument" in --body-file=*) body_file=${argument#--body-file=} ;; esac
+    case "$argument" in
+    --body-file=*) body_file=${argument#--body-file=} ;;
+    # --web は issue を作らずブラウザを開くだけで URL を出さないので、relationship を張れない。
+    -w | --web)
+        echo 'create-issue.sh: --web は使えない(issue の URL が得られず relationship を張れない)' >&2
+        exit 2
+        ;;
+    esac
     previous=$argument
 done
 
@@ -39,7 +46,6 @@ fi
 
 url=$(gh issue create "$@") || exit 2
 url=$(printf '%s\n' "$url" | tail -n 1)
-number=${url##*/}
 printf '%s\n' "$url"
 
 # 親は 1 つしか持てない(2 件目の POST は API が拒否する)ので、書かれた順の先頭 1 件だけを張る。
@@ -51,8 +57,15 @@ fi
 blockers=$(section_refs '^#+[ \t]+blocked by' <"$body_file" | sort -un)
 [[ -n "$parents$blockers" ]] || exit 0
 
+# relationship は作成した issue と同じリポジトリに張る。-R / --repo で cwd 以外に作ることがあるので、
+# repo は cwd からではなく gh issue create が返した URL から取る。
+if [[ ! "$url" =~ ^https://[^/]+/([^/]+/[^/]+)/issues/([0-9]+)$ ]]; then
+    echo "create-issue.sh: gh issue create の出力が issue の URL ではないので relationship を張れなかった: $url" >&2
+    exit 1
+fi
+repo=${BASH_REMATCH[1]}
+number=${BASH_REMATCH[2]}
 failed=''
-repo=$(gh repo view --json nameWithOwner | jq -r .nameWithOwner) || failed+=' repo'
 id=$(gh api "repos/$repo/issues/$number" | jq -r .id) || failed+=' id'
 if [[ -z "$failed" ]]; then
     for parent in $parents; do

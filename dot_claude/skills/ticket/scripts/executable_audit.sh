@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
 # ticket スキルの照合モードの検出部分。カレントのリポジトリの issue と PR の食い違いを、
 # 1 行 1 件のタブ区切り「<kind> <issue 番号> <根拠>」で出す。書き込みはしない。
-#   parent-missing      本文の Parent 節にある親が、API の parent と違う
+#   parent-missing      本文の Parent 節の先頭の親が、API では未設定(親は 1 つしか持てないので先頭だけを見る。
+#                       create-issue.sh も先頭だけを張る)
+#   parent-mismatch     本文の Parent 節の先頭の親と、API に設定済みの別の親が食い違う(根拠は API 側の親)
 #   blocked-by-missing  本文の Blocked by 節にある blocker が、API の dependencies に無い
 #   open-after-merge    マージ済み PR の closingIssuesReferences にある issue が open のまま
 #   ac-unchecked        PR で close された issue の AC 節に [ ] が残る(1 項目 1 行)
 #   mentioned-by-merged open の issue に同じリポジトリのマージ済み PR からの言及がある(Closes の書き忘れの候補。
 #                       言及は解決を意味しないので、close するかは人が決める)
 # 件数の上限は TICKET_AUDIT_LIMIT(既定 100)。取得件数が上限に達した一覧があれば stderr に 1 行知らせる(stdout は変えない)。gh の --jq は使わず jq に渡す(テストで gh をスタブにするため)。
+# issue 単位の API 呼び出しが失敗しても、stderr に出して残りを続け、最後に 1 で終わる(途中で止めると、
+# 部分的な出力が全件に見えるため)。一覧の取得の失敗はその場で終わる。
 set -euo pipefail
 export LC_ALL=C
 
 LIMIT=${TICKET_AUDIT_LIMIT:-100}
+FAILED=0
+
+# api_failed <issue 番号> <何を>: issue 単位の失敗を stderr に出し、終了コードを 1 にする印を付ける。
+api_failed() {
+    echo "audit.sh: #$1 の $2 を取得できなかったので、この issue のその検査を飛ばした" >&2
+    FAILED=1
+}
 
 # shellcheck source=dot_claude/skills/ticket/scripts/sections.bash
 source "$(dirname "${BASH_SOURCE[0]}")/sections.bash"
@@ -36,17 +47,24 @@ while IFS= read -r item; do
     body=$(printf '%s' "$item" | jq -r '.body // ""')
     parents=$(printf '%s\n' "$body" | section_refs '^#+[ \t]+parent')
     blockers=$(printf '%s\n' "$body" | section_refs '^#+[ \t]+blocked by')
-    if [[ -n "$parents" ]]; then
-        actual=$(gh api "repos/$repo/issues/$number" | jq -r '.parent_issue_url // ""')
-        actual=${actual##*/}
-        for parent in $parents; do
-            if [[ "$parent" != "$actual" ]]; then
+    parent=$(printf '%s\n' "$parents" | head -n 1)
+    if [[ -n "$parent" ]]; then
+        if actual=$(gh api "repos/$repo/issues/$number" | jq -r '.parent_issue_url // ""'); then
+            actual=${actual##*/}
+            if [[ -z "$actual" ]]; then
                 printf 'parent-missing\t%s\t#%s\n' "$number" "$parent"
+            elif [[ "$parent" != "$actual" ]]; then
+                printf 'parent-mismatch\t%s\t#%s(本文) / #%s(API)\n' "$number" "$parent" "$actual"
             fi
-        done
+        else
+            api_failed "$number" parent
+        fi
     fi
     if [[ -n "$blockers" ]]; then
-        actual=$(gh api "repos/$repo/issues/$number/dependencies/blocked_by" | jq -r '.[].number')
+        if ! actual=$(gh api "repos/$repo/issues/$number/dependencies/blocked_by" | jq -r '.[].number'); then
+            api_failed "$number" dependencies
+            continue
+        fi
         for blocker in $blockers; do
             if ! printf '%s\n' "$actual" | grep -qx "$blocker"; then
                 printf 'blocked-by-missing\t%s\t#%s\n' "$number" "$blocker"
@@ -76,11 +94,14 @@ for number in $open_numbers; do
     if printf '%s' "$after_merge" | grep -qx "$number"; then
         continue
     fi
-    mentions=$(gh api "repos/$repo/issues/$number/timeline" --paginate |
+    if ! mentions=$(gh api "repos/$repo/issues/$number/timeline" --paginate |
         jq -r --arg repo "$repo" '.[] | select(.event == "cross-referenced") | .source.issue // empty
             | select(.pull_request.merged_at != null)
             | select((.repository.full_name // "") == $repo)
-            | .number' | sort -un)
+            | .number' | sort -un); then
+        api_failed "$number" timeline
+        continue
+    fi
     for pr in $mentions; do
         printf 'mentioned-by-merged\t%s\tPR #%s\n' "$number" "$pr"
     done
@@ -91,14 +112,18 @@ closed_json=$(gh issue list --state closed --limit "$LIMIT" --json number,body,c
 warn_if_limit_reached "close 済みの issue" "$(printf '%s' "$closed_json" | jq 'length')"
 closed=$(printf '%s' "$closed_json" |
     jq -c '.[] | select((.closedByPullRequestsReferences | length) > 0)
-        | {number, body: (.body // ""), pr: .closedByPullRequestsReferences[0].number}')
+        | {number, body: (.body // ""),
+           prs: ([.closedByPullRequestsReferences[].number | "PR #\(.)"] | join(", "))}')
 while IFS= read -r item; do
     [[ -n "$item" ]] || continue
     number=$(printf '%s' "$item" | jq -r .number)
-    pr=$(printf '%s' "$item" | jq -r .pr)
+    # close した PR が複数あれば、AC の対応表がどれにあってもよいように全件を根拠に出す。
+    prs=$(printf '%s' "$item" | jq -r .prs)
     printf '%s' "$item" | jq -r .body |
         unchecked_items '^#+[ \t]+(acceptance criteria|完了条件)' |
         while IFS= read -r text; do
-            printf 'ac-unchecked\t%s\tPR #%s: %s\n' "$number" "$pr" "$text"
+            printf 'ac-unchecked\t%s\t%s: %s\n' "$number" "$prs" "$text"
         done
 done <<<"$closed"
+
+exit "$FAILED"

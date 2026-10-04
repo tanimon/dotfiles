@@ -27,12 +27,13 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 ## 照合モード
 
-1. `bash ~/.claude/skills/ticket/scripts/audit.sh` を実行する。出力は 1 行 1 件のタブ区切り `<kind> <issue> <根拠>`。
+1. `bash ~/.claude/skills/ticket/scripts/audit.sh` を実行する。出力は 1 行 1 件のタブ区切り `<kind> <issue> <根拠>`。終了コード 1 は一部の issue の検査を API の失敗で飛ばしたことを示す(stderr に issue が出る)。出力は全件ではないので、飛ばした issue を報告に含める。
 2. kind ごとに修正案を作る。
    - `parent-missing` / `blocked-by-missing`: 作成モードの手順3のコマンドで native に張る。
+   - `parent-mismatch`: 本文と API で親が違う。どちらが正しいかは人が決める。本文が正しければ手順3の親子のコマンドに `-F replace_parent=true` を足して付け替え(足さないと API が拒否する)、API が正しければ本文の Parent 節を直す。
    - `open-after-merge`: `gh issue close <issue> --reason completed --comment "PR #<n> のマージで解決済み(Closes による自動 close が効かなかった)"`。
    - `mentioned-by-merged`: Closes を書き忘れた PR の候補にすぎない。PR の本文と差分(`gh pr view <n> --json body,files`)と issue の AC を読み、解決したと言える場合だけ close の候補にする。言えなければ「言及のみ」として報告に載せ、操作は提案しない。
-   - `ac-unchecked`: 根拠の PR の本文(`gh pr view <n> --json body`)の AC 対応表で、その項目を満たしたと書いてあるものだけを `[x]` にする候補にする。対応表に無い項目や、理由を書いて意図的に `[ ]` のまま残した項目は触らず、報告に載せる。
+   - `ac-unchecked`: 根拠の PR(複数あればすべて)の本文(`gh pr view <n> --json body`)の AC 対応表で、その項目を満たしたと書いてあるものだけを `[x]` にする候補にする。対応表に無い項目や、理由を書いて意図的に `[ ]` のまま残した項目は触らず、報告に載せる。
 3. 修正案を表(kind・issue・操作・根拠)で示し、`AskUserQuestion` で「全部適用 / 種類ごとに選ぶ / やめる」を選んでもらう。承認なしに書き込まない。
-4. 適用する。AC は `gh issue view <issue> --json body --jq .body > "$TMPDIR/issue-<issue>.md"` で本文を保存し、Edit ツールで該当行の `- [ ]` だけを `- [x]` に直してから `gh issue edit <issue> --body-file "$TMPDIR/issue-<issue>.md"` で戻す(`gh issue edit` は ticket-guard の対象外なので、`.git` の下に置かなくてよい。`.git` の下は sandbox で書けないことがある)。
+4. 適用する。AC は `gh issue view <issue> --json body --jq .body > <scratchpad>/issue-<issue>.md` で本文を保存し、Edit ツールで該当行の `- [ ]` だけを `- [x]` に直してから `gh issue edit <issue> --body-file <scratchpad>/issue-<issue>.md` で戻す。`<scratchpad>` はセッションの scratchpad ディレクトリの展開済みの絶対パス。`$TMPDIR` は使わない(sandbox の外で動く gh と内側とで指す場所が変わりうるうえ、Edit ツールは展開できない)。`gh issue edit` は ticket-guard の対象外なので、`.git` の下に置かなくてよい(`.git` の下は sandbox で書けないことがある)。
 5. もう一度 `audit.sh` を実行し、適用した分が出なくなったことを確かめてから、残った件数と理由を報告する。

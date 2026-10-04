@@ -10,13 +10,15 @@ setup() {
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GH_LOG"
 case "$*" in
+"issue create"*"--repo tanimon/other"*) printf 'https://github.com/tanimon/other/issues/450\n' ;;
+"issue create --title nourl"*) printf 'Creating issue in tanimon/sample\n' ;;
 "issue create"*) printf 'https://github.com/tanimon/sample/issues/450\n' ;;
 "repo view --json nameWithOwner") printf '{"nameWithOwner":"tanimon/sample"}' ;;
 *"-X POST"*)
     [[ -n "${GH_FAIL_POST:-}" ]] && exit 1
     printf '{}'
     ;;
-"api repos/tanimon/sample/issues/"*)
+"api repos/tanimon/"*/issues/*)
     n=${2##*/}
     printf '{"id":%s0}' "$n"
     ;;
@@ -102,4 +104,29 @@ STUB
     assert_output '1'
     run grep 'issues/397/sub_issues' "$GH_LOG"
     assert_success
+}
+
+@test "--repo で別のリポジトリに作ったら relationship もそのリポジトリに張る" {
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY" --repo tanimon/other
+    assert_success
+    run cat "$GH_LOG"
+    assert_line 'api repos/tanimon/other/issues/397/sub_issues -X POST -F sub_issue_id=4500'
+    assert_line 'api repos/tanimon/other/issues/450/dependencies/blocked_by -X POST -F issue_id=4010'
+    refute_line --partial 'repos/tanimon/sample/'
+}
+
+@test "--web は何も作らずに 2 で終わる" {
+    printf '## Parent\n\n#397\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY" --web
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "gh issue create の出力が issue の URL でなければ relationship を張らずに 1 で終わる" {
+    printf '## Parent\n\n#397\n\n<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --title nourl --body-file "$BODY"
+    assert_failure 1
+    run grep -c -- '-X POST' "$GH_LOG"
+    assert_output '0'
 }

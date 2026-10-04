@@ -67,7 +67,7 @@ check_segment() {
     local i=0 count=$#
     while [[ $i -lt $count ]]; do
         case "${tokens[$i]}" in
-        then | else | do | '!' | '{' | command | time) ;;
+        if | then | elif | else | while | until | do | '!' | '{' | command | time) ;;
         *)
             [[ "${tokens[$i]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || break
             ;;
@@ -83,7 +83,7 @@ check_segment() {
         return 0
     fi
 
-    local repo='' body_file='' has_body_file=0 argument
+    local repo='' body_file='' has_body_file=0 body_has_marker=0 argument
     local j=$((i + 3))
     while [[ $j -lt $count ]]; do
         argument=${tokens[$j]}
@@ -102,6 +102,14 @@ check_segment() {
             has_body_file=1
             body_file=${argument#--body-file=}
             ;;
+        # heredoc を `--body "$(cat <<'EOF' … EOF)"` で渡したときも、本文は --body の値の token に入る。
+        -b | --body)
+            case "${tokens[$((j + 1))]:-}" in *"$MARKER"*) body_has_marker=1 ;; esac
+            j=$((j + 1))
+            ;;
+        --body=*)
+            case "$argument" in *"$MARKER"*) body_has_marker=1 ;; esac
+            ;;
         esac
         j=$((j + 1))
     done
@@ -111,12 +119,15 @@ check_segment() {
         DENY_DETAIL='issue は create-issue.sh で作る(作成と relationship の native 設定を一度に行うため)。'
         return 1
     fi
-    case "$COMMAND" in *"$MARKER"*) return 0 ;; esac
+    # 照合は --body / -b の値に限る。コマンド全体で探すと、--title や連結された別の segment の echo に
+    # あるマーカーでも通ってしまう。
+    [[ $body_has_marker -eq 1 ]] && return 0
 
     if [[ $has_body_file -eq 1 ]]; then
         case "$body_file" in
         '' | -) DENY_DETAIL='--body-file に標準入力は使えない(フックが本文を読めない)。' ;;
         *'$'* | *'`'*) DENY_DETAIL='--body-file のパスに変数やコマンド置換がある(フックは展開前の文字列しか受け取れない)。' ;;
+        '~'*) DENY_DETAIL='--body-file のパスがチルダで始まる(フックはチルダを展開できないので、展開済みの絶対パスを渡す)。' ;;
         /*)
             if [[ -r "$body_file" ]] && grep -qF -- "$MARKER" "$body_file"; then
                 return 0

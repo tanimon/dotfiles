@@ -80,6 +80,23 @@ EOF
     assert_output ''
 }
 
+@test "-b 短縮形と --body= 形も読む" {
+    run hook "gh pr create -t t -b 'x $MARKER'"
+    assert_output ''
+    run hook "gh pr create -t t '--body=x $MARKER'"
+    assert_output ''
+}
+
+@test "マーカーが --title にあっても --body に無ければ deny" {
+    run hook "gh pr create --title '$MARKER' --body x"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "連結された別の segment にマーカーがあっても deny" {
+    run hook "gh pr create --fill; echo '$MARKER'"
+    [ "$(decision "$output")" = deny ]
+}
+
 @test "--fill はマーカーが無いので deny" {
     run hook "gh pr create --fill"
     [ "$(decision "$output")" = deny ]
@@ -130,6 +147,12 @@ EOF
     [[ "$(reason "$output")" == *変数* ]]
 }
 
+@test "body-file がチルダで始まるならチルダの理由で deny" {
+    run hook "gh pr create --title t --body-file ~/pr.md"
+    [ "$(decision "$output")" = deny ]
+    [[ "$(reason "$output")" == *チルダ* ]]
+}
+
 @test "body-file が標準入力なら deny" {
     run hook "gh pr create --title t --body-file -"
     [ "$(decision "$output")" = deny ]
@@ -154,6 +177,15 @@ EOF
 
 @test "if の then の後ろの作成コマンドも判定する" {
     run hook "if true; then gh pr create --title t --body x; fi"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "if / while の条件にある作成コマンドも判定する" {
+    run hook "if gh pr create --fill; then echo ok; fi"
+    [ "$(decision "$output")" = deny ]
+    run hook "while gh pr create --fill; do break; done"
+    [ "$(decision "$output")" = deny ]
+    run hook "if false; then :; elif gh pr create --fill; then :; fi"
     [ "$(decision "$output")" = deny ]
 }
 
