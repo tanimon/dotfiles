@@ -18,8 +18,13 @@
 # 壊れていても ask が出てテストが通ってしまう。SAFE_INPUT が無出力であることを lib が正常な
 # コピーで確かめる(Contrast Pair: 常に ask を返す guard はここで落ちる)。
 #
-# 一覧(guard 関数の呼び出し)は配線の正本ではない。描画した settings.json の PreToolUse に
-# 配線された *-guard.sh が一覧にすべてあることを、最後の test が確かめる。
+# 起動時に失敗したら判定せずに通す(フェイルオープン)と設計で決めた guard は、上の約束ではなく
+# fail_open_guard の一覧に載せる(ticket-guard がそう決めた理由は、その guard のヘッダと
+# docs/superpowers/specs/2026-10-04-ticket-skill-design.md)。こちらは、起動時の失敗では判定を返す入力
+# (DECISION_INPUT)も無出力になり、HOME の問題では判定が変わらないことを確かめる。
+#
+# 一覧(guard / fail_open_guard の呼び出し)は配線の正本ではない。描画した settings.json の PreToolUse に
+# 配線された *-guard.sh が、どちらかの一覧にすべてあることを、最後の test が確かめる。
 
 bats_require_minimum_version 1.5.0
 
@@ -44,6 +49,21 @@ guard() {
 guard git-push-guard 'git push origin feature' 'git status' 'git push -u origin feature' 'git push origin main --force' deny
 guard curl-localhost-guard 'curl http://localhost:3000/' 'git status' 'curl -sS http://127.0.0.1:8080/api' 'curl https://evil.example/' ask
 
+FAIL_OPEN_NAMES=()
+FAIL_OPEN_DECISION_INPUTS=()
+FAIL_OPEN_EXPECTED_DECISIONS=()
+
+# fail_open_guard NAME DECISION_INPUT EXPECTED_DECISION: フェイルオープンの一覧に 1 行足す。
+# DECISION_INPUT は lib が正常なら EXPECTED_DECISION を返す入力にする(Contrast Pair: 常に無出力の guard を見分ける)。
+fail_open_guard() {
+    FAIL_OPEN_NAMES+=("$1")
+    FAIL_OPEN_DECISION_INPUTS+=("$2")
+    FAIL_OPEN_EXPECTED_DECISIONS+=("$3")
+}
+
+# -R で作成先を渡すので、テストの cwd の remote に依存せずに範囲内になる。
+fail_open_guard ticket-guard "gh pr create -R tanimon/sample --title t --body 'x'" deny
+
 setup_file() {
     load 'helpers/render'
     export SETTINGS="$BATS_FILE_TMPDIR/settings.json"
@@ -58,6 +78,8 @@ setup() {
     export CURL_HOME="$BATS_TEST_TMPDIR"
     export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR"
     mkdir -p "$HOME"
+    # ticket-guard の範囲は許可リストと GH_REPO で変わるので、既定値に戻す。
+    unset TICKET_GUARD_OWNERS GH_REPO
 }
 
 payload() {
@@ -79,17 +101,22 @@ expect() {
 }
 
 # copy_guard NAME LIB_KIND: guard を lib ごと別の場所に写し、写した script の path を出す。
-# LIB_KIND は missing / empty / syntax / intact。
+# LIB_KIND は missing / empty / syntax / intact。missing は lib ディレクトリごと写さない。
+# empty / syntax は shell-reader.bash だけを壊し、他の lib は正常なまま写す。
 copy_guard() {
     local dir="$BATS_TEST_TMPDIR/$1"
     mkdir -p "$dir"
     cp "$SCRIPTS/executable_$1.sh" "$dir/guard.sh"
-    [[ $2 == missing ]] || mkdir -p "$dir/lib"
+    [[ $2 == missing ]] && {
+        printf '%s\n' "$dir/guard.sh"
+        return
+    }
+    mkdir -p "$dir/lib"
+    cp "$SCRIPTS"/lib/*.bash "$dir/lib/"
     case $2 in
-    missing) ;;
     empty) : >"$dir/lib/shell-reader.bash" ;;
     syntax) printf '%s\n' 'shell_reader_read() {' >"$dir/lib/shell-reader.bash" ;;
-    intact) cp "$SCRIPTS/lib/shell-reader.bash" "$dir/lib/" ;;
+    intact) ;;
     esac
     printf '%s\n' "$dir/guard.sh"
 }
@@ -198,9 +225,68 @@ assert_lib_contract() {
     done
 }
 
+# --- フェイルオープンの guard ---
+
+@test "フェイルオープンの一覧の guard はすべて script が存在する" {
+    [[ ${#FAIL_OPEN_NAMES[@]} -gt 0 ]] || fail "一覧が空"
+    local name
+    for name in "${FAIL_OPEN_NAMES[@]}"; do
+        [[ -f "$SCRIPTS/executable_$name.sh" ]] || fail "$name の script が無い"
+    done
+}
+
+# Contrast Pair: 下の「無出力」が、常に無出力の guard でも通らないことの裏付け。
+@test "フェイルオープンの guard は、lib が正常なコピーでは判定を返す" {
+    local index script
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        script=$(copy_guard "${FAIL_OPEN_NAMES[$index]}" intact)
+        run --separate-stderr bash "$script" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
+        expect "${FAIL_OPEN_NAMES[$index]}" "lib intact" "${FAIL_OPEN_DECISION_INPUTS[$index]}" "${FAIL_OPEN_EXPECTED_DECISIONS[$index]}"
+    done
+}
+
+@test "フェイルオープンの guard は、lib が無い・空・構文エラーのとき無出力" {
+    local index script kind
+    for kind in missing empty syntax; do
+        for index in "${!FAIL_OPEN_NAMES[@]}"; do
+            script=$(copy_guard "${FAIL_OPEN_NAMES[$index]}" "$kind")
+            run --separate-stderr bash "$script" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
+            expect "${FAIL_OPEN_NAMES[$index]}" "lib $kind" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
+        done
+    done
+}
+
+@test "フェイルオープンの guard は、jq が無いとき・stdin が JSON でないとき無出力" {
+    local stub="$BATS_TEST_TMPDIR/bin" index name input
+    mkdir -p "$stub"
+    ln -s "$(command -v cat)" "$stub/cat"
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        name=${FAIL_OPEN_NAMES[$index]}
+        input=$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")
+        run --separate-stderr env PATH="$stub" "$BASH" "$SCRIPTS/executable_$name.sh" <<<"$input"
+        expect "$name" "no jq" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
+        run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <<<"not json: ${FAIL_OPEN_DECISION_INPUTS[$index]}"
+        expect "$name" "not json" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
+    done
+}
+
+@test "フェイルオープンの guard は、HOME に書き込めない・未設定でも判定が変わらない" {
+    [[ $EUID -eq 0 ]] && skip "root はディレクトリの mode を無視する"
+    local index name readonly_home="$BATS_TEST_TMPDIR/readonly-home"
+    mkdir -p "$readonly_home"
+    chmod 500 "$readonly_home"
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        name=${FAIL_OPEN_NAMES[$index]}
+        run --separate-stderr env HOME="$readonly_home" bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
+        expect "$name" "readonly HOME" "${FAIL_OPEN_DECISION_INPUTS[$index]}" "${FAIL_OPEN_EXPECTED_DECISIONS[$index]}"
+        run --separate-stderr env -u HOME bash "$SCRIPTS/executable_$name.sh" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
+        expect "$name" "no HOME" "${FAIL_OPEN_DECISION_INPUTS[$index]}" "${FAIL_OPEN_EXPECTED_DECISIONS[$index]}"
+    done
+}
+
 # ファイル名で拾わないのは、PostToolUse の secretlint-guard.sh(失敗を通す側に倒す別の契約)が混ざるため。
 # command の置き場所は問わず、basename が *-guard.sh なら拾う(scripts 以外に置いた guard も一覧の検査に乗る)。
-@test "PreToolUse に配線された *-guard.sh はすべて一覧にある" {
+@test "PreToolUse に配線された *-guard.sh はすべていずれかの一覧にある" {
     run jq -r '[.hooks.PreToolUse[].hooks[] | (.command // "")
         | scan("([A-Za-z0-9._-]+-guard)\\.sh") | .[0]] | unique[]' "$SETTINGS"
     assert_success
@@ -210,7 +296,7 @@ assert_lib_contract() {
     local wired listed found
     while IFS= read -r wired; do
         found=0
-        for listed in "${GUARD_NAMES[@]}"; do
+        for listed in "${GUARD_NAMES[@]}" "${FAIL_OPEN_NAMES[@]}"; do
             [[ "$listed" == "$wired" ]] && found=1
         done
         [[ $found -eq 1 ]] || fail "$wired は PreToolUse に配線されているが契約テストの一覧に無い"

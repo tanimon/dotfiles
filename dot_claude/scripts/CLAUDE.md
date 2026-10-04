@@ -536,7 +536,7 @@ Source 上の配線は git-push-guard と同じく `just test-settings-hooks`(`t
   含む token で拾う。reader に heredoc を教えるのは変更が大きすぎるため見送った)。
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
-- **読み込みに失敗したとき**の扱いは各フックの起動部が持つ(どの経路でも `ask`。`test/guard-contract.bats`)。
+- **読み込みに失敗したとき**の扱いは各フックの起動部が持つ(git-push-guard と curl-localhost-guard はどの経路でも `ask`、ticket-guard は設計上フェイルオープンで無出力。どちらも `test/guard-contract.bats`)。
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在せず、それを読んでいた旧インライン版は 2026-03-06 の導入以来一度も発火していなかった(2026-09-25 の prompt-audit で判明。同時に旧 format フックは削除。変数だけ直して戻すと全プロジェクトの .ts 編集ごとに `pnpm lint:fix` が走り、script の無いリポジトリでは失敗するので、戻すなら外部スクリプト + `pnpm run --if-present` ガード + bats テストにする)。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
 
