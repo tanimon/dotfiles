@@ -13,7 +13,8 @@
 #   (no output) — それ以外。allow / ask は返さない
 #
 # 範囲は lib/ticket-scope.bash が判定する(-R / --repo があればそれ、無ければフックの cwd の origin)。
-# 残存: `cd <dir> && gh …` の cd 先は見ない。heredoc 演算子より後ろの segment は本文の行でありうるので判定しない
+# 残存: 先頭の `VAR=` と制御語・`command` / `time` は読み飛ばすが、引数を取りうる `env …` と `bash -c` の内側は見ない。
+# `cd <dir> && gh …` の cd 先は見ない。heredoc 演算子より後ろの segment は本文の行でありうるので判定しない
 # (heredoc の後ろに実際に書かれた作成コマンドも素通りする)。`bash -c` の内側、`gh api` での作成、
 # launchd から直接 gh を呼ぶスクリプトには効かない。フックが無い・落ちたときは判定なしで通る。
 # check_segment は shell_reader_each_segment が名前で間接的に呼ぶ。
@@ -64,7 +65,13 @@ DENY_DETAIL=''
 check_segment() {
     local -a tokens=("$@")
     local i=0 count=$#
-    while [[ $i -lt $count && "${tokens[$i]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+    while [[ $i -lt $count ]]; do
+        case "${tokens[$i]}" in
+        then | else | do | '!' | '{' | command | time) ;;
+        *)
+            [[ "${tokens[$i]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || break
+            ;;
+        esac
         i=$((i + 1))
     done
     [[ $i -lt $count ]] || return 0

@@ -152,6 +152,22 @@ EOF
     [ "$(decision "$output")" = deny ]
 }
 
+@test "if の then の後ろの作成コマンドも判定する" {
+    run hook "if true; then gh pr create --title t --body x; fi"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "command 前置の作成コマンドも判定する" {
+    run hook "command gh issue create --title t --body x"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "! と then の後ろでもマーカーがあれば通す" {
+    run hook "if ! gh pr view; then gh pr create --title t --body 'x $MARKER'; fi"
+    assert_success
+    assert_output ''
+}
+
 @test "alias の gh pr new も判定する" {
     run hook "gh pr new --title t --body x"
     [ "$(decision "$output")" = deny ]
