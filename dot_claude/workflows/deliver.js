@@ -228,8 +228,8 @@ function validateArgs(input) {
   if (invalid.length > 0) {
     throw new Error(`deliver: 0 以上の整数が必要です: ${invalid.join(", ")}`);
   }
-  // 知らないキーは黙って受け取らずに拒否する。取り除いた引数(ADR 0015 の prBase など)を渡す古い呼び出し元が、
-  // その機能がまだ効くと思ったまま走るのを防ぐ。
+  // 知らないキーは黙って受け取らずに拒否する。綴りを誤った上限や、どの機能にも使われない引数(ADR 0015 の prBase など)を、
+  // 効くと思ったまま走らせないため。
   const unknown = Object.keys(a).filter((k) => !ARG_KEYS.includes(k));
   if (unknown.length > 0) {
     throw new Error(`deliver: 知らない引数があります: ${unknown.join(", ")}`);

@@ -134,7 +134,7 @@ test("指摘ゼロなら修正せずに動作確認まで進み、push も PR �
     "verify:1",
   ]);
   assert.equal(result.stopReason, null);
-  // 公開の結果(prUrl / published / publishError)を返り値に戻さない。
+  // 返り値は ledger / report / stats / stopReason だけで、公開の結果を含まない(ADR 0015)。
   assert.deepEqual(Object.keys(result).sort(), ["ledger", "report", "stats", "stopReason"]);
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
