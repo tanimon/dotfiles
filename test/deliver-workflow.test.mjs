@@ -134,6 +134,8 @@ test("指摘ゼロなら修正せずに動作確認まで進み、push も PR �
     "verify:1",
   ]);
   assert.equal(result.stopReason, null);
+  // 公開の結果(prUrl / published / publishError)を返り値に戻さない。
+  assert.deepEqual(Object.keys(result).sort(), ["ledger", "report", "stats", "stopReason"]);
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
 
