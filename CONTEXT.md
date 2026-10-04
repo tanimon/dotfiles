@@ -165,7 +165,7 @@ _Avoid_: 見送り(無限定)、スキップした指摘、却下
 _Avoid_: 見送り、残課題(無限定)
 
 **Advisory Finding**:
-修正必須の重大度を含まない Review Finding。修正エージェントに渡すが、ループの収束条件には数えず、上限に達しても Unresolved Finding にしない。
+修正必須の重大度を含まない Review Finding。最初のレビューラウンドで出たものだけを修正エージェントに渡し、以降のラウンドで出たものは報告に載せるだけにする。ループの収束条件には数えず、上限に達しても Unresolved Finding にしない。
 _Avoid_: nit(重大度を問わず使われる)、参考指摘(報告の節名としては使う)
 
 **Declined Advisory Finding**:
