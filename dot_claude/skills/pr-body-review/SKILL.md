@@ -18,7 +18,7 @@ gh pr view <引数> --json number,url,title,state,baseRefName,headRefName,commit
 
 以降のコマンドの `<PR>` には、ここで得た `url` を使う。番号を渡すと `gh` は現在のディレクトリのリポジトリで PR を探すので、別のリポジトリの URL で起動したときに別の PR を読み書きしてしまう。
 
-編集前の本文をファイルに保存する。置き場所は `git rev-parse --absolute-git-dir` を単独で実行した出力に `/pr-body-review` を足したディレクトリ(以降 `<dir>`)。
+編集前の本文をファイルに保存する。置き場所は `git rev-parse --absolute-git-dir` を単独で実行した出力に `/pr-body-review` を足したディレクトリ(以降 `<dir>`)。git リポジトリの外で起動して `git rev-parse` が失敗したときは、セッションの scratchpad ディレクトリの下に `pr-body-review` を作って `<dir>` にする。
 
 ```bash
 mkdir -p <dir>
@@ -47,7 +47,21 @@ gh pr diff <PR> --name-only
 gh pr diff <PR>
 ```
 
-差分が大きいときは `--name-only` で全体を掴み、本文の記述に関係するファイルの差分を読む。コミットの一覧(手順1の `commits`)で、本文を書いた後に何が積まれたかを掴む。
+差分が大きいときは `--name-only` で全体を掴み、本文の記述に関係するファイルの差分を読む。`gh pr diff` はパスで絞れないので、ファイルごとの差分は次のコマンドの `filename` と `patch` から読む。GitHub の上限(300 ファイル・20000 行程度)を超える PR では `gh pr diff` が HTTP 406 で失敗するので、そのときも次のコマンドで読む。
+
+```bash
+gh api repos/<owner>/<repo>/pulls/<number>/files --paginate
+```
+
+コミットの一覧(手順1の `commits`)で、本文を書いた後に何が積まれたかを掴む。食い違いを生んだコミットを根拠として示すために、怪しいコミットの変更は次のコマンドで読む(`<sha>` は `commits` の `oid`)。
+
+```bash
+gh api repos/<owner>/<repo>/commits/<sha> --jq '.files[] | {filename, patch}'
+```
+
+`Closes #N` / `Refs #N` の issue の AC を読むときは、PR と同じリポジトリを指定する(`gh issue view <N> -R <owner>/<repo> --json body`)。指定しないと、現在のディレクトリのリポジトリにある同じ番号の issue を読んでしまう。
+
+`<owner>/<repo>` と `<number>` は手順1の `url` から取る。
 
 本文の記述を節ごとに差分と照らし、次に当たるものを食い違いとして洗い出す。
 
@@ -73,7 +87,7 @@ gh pr diff <PR>
 git diff --no-index --no-ext-diff <dir>/original.md <dir>/edited.md
 ```
 
-`AskUserQuestion` で「この内容で書き戻す / 直してから書き戻す / やめる」を選んでもらう。承認なしに書き込まない。
+`AskUserQuestion` で「この内容で書き戻す / 直してから書き戻す / やめる」を選んでもらう。承認なしに書き込まない。「直してから書き戻す」が選ばれたら、指示どおりに `<dir>/edited.md` を直し、この手順の一覧と差分の提示からやり直して、もう一度選んでもらう。最終形を見せないまま書き戻さない。
 
 ## 6. 書き戻して確かめる
 
