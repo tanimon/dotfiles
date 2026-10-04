@@ -738,6 +738,33 @@ PRE
     assert_output '1'
 }
 
+@test "同じ結果ファイルの中で重なった deploy-only の修正も deploy-only.md に二重に足さない" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["dup fix","dup fix"]}' run weekly
+    assert_success
+    run grep -c '^- dup fix$' "$HDIR/deploy-only.md"
+    assert_output '1'
+}
+
+@test "選別の claude が結果ファイルを書いた後に失敗しても、deploy-only の修正は deploy-only.md に残す" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    STUB_CLAUDE_MODE=is_error STUB_RESULT='{"dropped":[],"deploy_only":["w を適用する"]}' run weekly
+    assert_failure
+    assert_output --partial 'review failed after'
+    run cat "$HDIR/deploy-only.md"
+    assert_output --partial '- w を適用する'
+}
+
+@test "選別の claude が結果ファイルを書かずに失敗したら、deploy-only.md を作らない" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    STUB_CLAUDE_MODE=is_error STUB_RESULT=missing run weekly
+    assert_failure
+    assert [ ! -f "$HDIR/deploy-only.md" ]
+    refute_output --partial 'failed to record deploy-only'
+}
+
 @test "結果ファイルが JSON として読めないか、決めた形でなければ失敗する" {
     for broken in 'not json' '' '{}' '{"dropped":[]}' '{"dropped":"x","deploy_only":[]}' '{"dropped":[1],"deploy_only":[]}' '[]'; do
         rm -f "$HDIR/weekly-heartbeat"

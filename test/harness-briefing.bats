@@ -152,3 +152,11 @@ weekly_installed() {
     assert_success
     assert_output --partial 'Harness: OK'
 }
+
+@test "deploy-only.md に項目が無く見出しだけなら警告しない" {
+    printf '## 2026-10-04\n\n' >"$HDIR/deploy-only.md"
+    run briefing
+    assert_success
+    assert_output --partial 'Harness: OK'
+    refute_output --partial 'deploy-only'
+}

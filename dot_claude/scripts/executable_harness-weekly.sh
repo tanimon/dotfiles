@@ -372,14 +372,18 @@ result_count() {
     jq -r --arg key "$1" '.[$key] | length' "$REVIEW_RESULT"
 }
 
-# Deploy-only Fix を $DEPLOY_ONLY に日付の見出し付きで追記する。既に同じ行があるものは
-# 足さない(失敗した run の後に同じ日・次の週に再実行すると、同じ修正がまた報告されるため)
+# Deploy-only Fix を $DEPLOY_ONLY に日付の見出し付きで追記する。既に同じ行があるものと、
+# 同じ結果ファイルの中で重なったものは足さない(失敗した run の後に同じ日・次の週に
+# 再実行すると、同じ修正がまた報告されるため)
 record_deploy_only() {
     local items item new_items="" count=0
     items=$(result_items deploy_only) || return 1
     while IFS= read -r item; do
         [[ -n "$item" ]] || continue
         if [[ -f "$DEPLOY_ONLY" ]] && grep -qxF -- "$item" "$DEPLOY_ONLY"; then
+            continue
+        fi
+        if [[ -n "$new_items" ]] && grep -qxF -- "$item" <<<"$new_items"; then
             continue
         fi
         new_items+="${item}"$'\n'
@@ -481,9 +485,16 @@ publish_review() {
 # 選別の claude が失敗した(予算切れを含む)run の後始末の案内。claude は commit や
 # archive への移動を済ませてから失敗しうるので、残った commit の場所と手で PR を作る手順を
 # ログに出す。worktree は残す(次の実行が作り直すが、prepare_worktree は origin/main に無い
-# commit を持つ当日のブランチを作り直さない)
+# commit を持つ当日のブランチを作り直さない)。claude は結果ファイルを書いてから失敗しうる
+# ので、結果ファイルが決めた形なら Deploy-only Fix はここでも $DEPLOY_ONLY に残す(結果
+# ファイルは日付付きで、次の週の run は読まない)。結果ファイルは run の前に消してあるので、
+# ここで読むのはこの run の claude が書いたものだけ
 report_failed_review() {
     local base=$1 commits
+    if [[ -f "$REVIEW_RESULT" ]] && review_result_valid; then
+        record_deploy_only ||
+            printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
+    fi
     commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD" 2>/dev/null || printf '?')
     if [[ "$commits" == "0" ]]; then
         printf 'harness-weekly: review failed before committing; worktree %s kept; verdicts already moved to %s stay there\n' \
