@@ -6,7 +6,7 @@
 #   parent-mismatch     本文の Parent 節の先頭の親と、API に設定済みの別の親が食い違う(根拠は API 側の親。別リポジトリの親なら owner/repo#N)
 #   blocked-by-missing  本文の Blocked by 節にある blocker が、API の dependencies に無い
 #   open-after-merge    マージ済み PR の closingIssuesReferences にある issue が open のまま
-#   ac-unchecked        PR で close された issue の AC 節に [ ] が残る(1 項目 1 行)
+#   ac-unchecked        マージ済みの PR で close された issue の AC 節に [ ] が残る(1 項目 1 行。根拠はマージ済みの PR だけ)
 #   mentioned-by-merged open の issue に同じリポジトリのマージ済み PR からの言及がある(Closes の書き忘れの候補。
 #                       言及は解決を意味しないので、close するかは人が決める)
 # 件数の上限は TICKET_AUDIT_LIMIT(既定 100)。取得件数が上限に達した一覧があれば stderr に 1 行知らせる(stdout は変えない)。gh の --jq は使わず jq に渡す(テストで gh をスタブにするため)。
@@ -118,17 +118,34 @@ warn_if_limit_reached "close 済みの issue" "$(printf '%s' "$closed_json" | jq
 closed=$(printf '%s' "$closed_json" |
     jq -c '.[] | select((.closedByPullRequestsReferences | length) > 0)
         | {number, body: (.body // ""),
-           prs: ([.closedByPullRequestsReferences[].number | "PR #\(.)"] | join(", "))}')
+           prs: [.closedByPullRequestsReferences[] | {number, ref: (.url // (.number | tostring))}]}')
 while IFS= read -r item; do
     [[ -n "$item" ]] || continue
     number=$(printf '%s' "$item" | jq -r .number)
-    # close した PR が複数あれば、AC の対応表がどれにあってもよいように全件を根拠に出す。
-    prs=$(printf '%s' "$item" | jq -r .prs)
-    printf '%s' "$item" | jq -r .body |
-        unchecked_items '^#+[ \t]+(acceptance criteria|完了条件)' |
-        while IFS= read -r text; do
-            printf 'ac-unchecked\t%s\t%s: %s\n' "$number" "$prs" "$text"
-        done
+    unchecked=$(printf '%s' "$item" | jq -r .body | unchecked_items '^#+[ \t]+(acceptance criteria|完了条件)')
+    [[ -n "$unchecked" ]] || continue
+    # closedByPullRequestsReferences は PR の state を持たず、未マージ(open)の PR も含みうるので、
+    # 根拠にするのはマージ済みの PR だけにする。state は [ ] が残る issue の PR についてだけ引く。
+    # close した PR が複数あれば、AC の対応表がどれにあってもよいように、マージ済みの全件を根拠に出す。
+    prs=''
+    pr_failed=0
+    while IFS=$'\t' read -r pr ref; do
+        if ! state=$(gh pr view "$ref" --json state </dev/null | jq -r .state); then
+            pr_failed=1
+            continue
+        fi
+        if [[ "$state" == MERGED ]]; then
+            prs+="${prs:+, }PR #$pr"
+        fi
+    done < <(printf '%s' "$item" | jq -r '.prs[] | "\(.number)\t\(.ref)"')
+    if [[ $pr_failed -eq 1 ]]; then
+        api_failed "$number" "close した PR の state"
+        continue
+    fi
+    [[ -n "$prs" ]] || continue
+    while IFS= read -r text; do
+        printf 'ac-unchecked\t%s\t%s: %s\n' "$number" "$prs" "$text"
+    done <<<"$unchecked"
 done <<<"$closed"
 
 exit "$FAILED"

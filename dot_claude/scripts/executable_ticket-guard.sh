@@ -12,8 +12,10 @@
 #   deny        — 範囲内のリポジトリの gh issue create、または本文にマーカーを確認できない gh pr create
 #   (no output) — それ以外。allow / ask は返さない
 #
-# 範囲は lib/ticket-scope.bash が判定する(-R / --repo があればそれ、無ければフックの cwd の origin)。
-# 残存: 先頭の `VAR=` と制御語・`command` / `time` は読み飛ばすが、引数を取りうる `env …` と `bash -c` の内側は見ない。
+# 範囲は lib/ticket-scope.bash が判定する(gh と同じ優先順で、-R / --repo、前置の GH_REPO=、フック自身の環境の GH_REPO、
+# 無ければフックの cwd の remote から gh が既定にする作成先)。
+# 残存: 先頭の `VAR=` と制御語・`command` / `time` は読み飛ばすが、`sudo` / `env` / `nice` などの前置詞、
+# オプション付きの `time`(`time -p`)、`bash -c` の内側は見ない(`sudo gh pr create --fill` は判定せずに通る)。
 # `cd <dir> && gh …` の cd 先は見ない。heredoc 演算子より後ろの segment は本文の行でありうるので判定しない
 # (heredoc の後ろに実際に書かれた作成コマンドも素通りする)。--body の値の heredoc は生の COMMAND から本文を読むが、
 # `gh … create` の行より後ろで同じ区切り語を使う最初の heredoc を本文とみなすので、--body 以外の heredoc を
@@ -64,7 +66,7 @@ HEREDOC_INDEX=${HEREDOC_INDEX%% *}
 DENY_DETAIL=''
 
 # heredoc_body_has_marker <区切り語>: COMMAND の中で `gh … create` の後に始まる最初の、区切り語 <区切り語> の
-# heredoc の本文にマーカーがあれば 0 を返す。--body "$(cat <<'EOF' … EOF)" の本文に空白を含む二重引用符
+# heredoc の本文にマーカーがあれば 0、本文を読めてマーカーが無ければ 1、その heredoc が見つからなければ 2 を返す。--body "$(cat <<'EOF' … EOF)" の本文に空白を含む二重引用符
 # (See "foo bar" here)があると、reader は外側の "…" を内側の " で閉じたと読んで token を分けるので、
 # マーカーが --body の値の token に入らない。そのときは token ではなく生の COMMAND から本文を読む。
 heredoc_body_has_marker() {
@@ -77,16 +79,17 @@ heredoc_body_has_marker() {
             if (line == delimiter) exit
             if (index($0, marker)) { found = 1; exit }
         }
-        END { exit !found }'
+        END { exit found ? 0 : (state == 2 ? 1 : 2) }'
 }
 
 # segment が範囲内の作成コマンドで、本文にマーカーを確認できなければ DENY_DETAIL を設定して 1 を返す。
 check_segment() {
     local -a tokens=("$@")
-    local i=0 count=$#
+    local i=0 count=$# env_repo=''
     while [[ $i -lt $count ]]; do
         case "${tokens[$i]}" in
         if | then | elif | else | while | until | do | '!' | '{' | command | time) ;;
+        GH_REPO=*) env_repo=${tokens[$i]#GH_REPO=} ;;
         *)
             [[ "${tokens[$i]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || break
             ;;
@@ -103,6 +106,7 @@ check_segment() {
     fi
 
     local repo='' body_file='' has_body_file=0 body_value='' has_body=0 argument delimiter
+    local heredoc_read=0 heredoc_status
     local heredoc_pattern="<<-?[[:space:]]*['\"]?([A-Za-z0-9_]+)"
     local j=$((i + 3))
     while [[ $j -lt $count ]]; do
@@ -144,6 +148,8 @@ check_segment() {
         j=$((j + 1))
     done
 
+    # gh は -R を GH_REPO より優先する。前置の GH_REPO= が無ければ、Bash ツールが引き継ぐフック自身の環境の値を見る。
+    [[ -n "$repo" ]] || repo=${env_repo:-${GH_REPO:-}}
     ticket_scope_in_scope "${CWD:-.}" "$repo" || return 0
     if [[ "${tokens[$((i + 1))]}" == issue ]]; then
         DENY_DETAIL='issue は create-issue.sh で作る(作成と relationship の native 設定を一度に行うため)。'
@@ -155,7 +161,10 @@ check_segment() {
         case "$body_value" in *"$MARKER"*) return 0 ;; esac
         if [[ "$body_value" =~ $heredoc_pattern ]]; then
             delimiter=${BASH_REMATCH[1]}
-            heredoc_body_has_marker "$delimiter" && return 0
+            heredoc_body_has_marker "$delimiter"
+            heredoc_status=$?
+            [[ $heredoc_status -eq 0 ]] && return 0
+            [[ $heredoc_status -eq 1 ]] && heredoc_read=1
         fi
     fi
 
@@ -172,6 +181,8 @@ check_segment() {
             ;;
         *) DENY_DETAIL='--body-file は絶対パスで渡す(cd が前に連結されているとフックから解決できない)。' ;;
         esac
+    elif [[ $heredoc_read -eq 1 ]]; then
+        DENY_DETAIL='本文にマーカーが無い(--body の heredoc の本文を読んだ)。'
     else
         case "$body_value" in
         *\$\(* | *'`'*)

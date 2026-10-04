@@ -4,7 +4,7 @@ setup() {
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_ticket-guard.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$HOME"
-    unset TICKET_GUARD_OWNERS
+    unset TICKET_GUARD_OWNERS GH_REPO
     REPO_DIR="$BATS_TEST_TMPDIR/repo"
     git init -q "$REPO_DIR"
     git -C "$REPO_DIR" remote add origin https://github.com/tanimon/sample.git
@@ -90,15 +90,46 @@ EOF
     assert_output ''
 }
 
-@test "heredoc の本文に空白を含む二重引用符があり、マーカーが無ければ deny し、置換の中を読めないと伝える" {
+@test "heredoc の本文に空白を含む二重引用符があり、マーカーが無ければ deny し、本文にマーカーが無いと伝える" {
     run hook "gh pr create --title t --body \"\$(cat <<'EOF'
 See \"foo bar\" here
 本文
 EOF
 )\""
     [ "$(decision "$output")" = deny ]
+    [[ "$(reason "$output")" == *本文にマーカーが無い* ]]
+    [[ "$(reason "$output")" != *コマンド置換* ]]
+}
+
+@test "--body の置換の中に heredoc が見つからなければ、置換の中を読めないと伝える" {
+    run hook "gh pr create --title t --body \"\$(cat body.md)\""
+    [ "$(decision "$output")" = deny ]
     [[ "$(reason "$output")" == *コマンド置換* ]]
-    [[ "$(reason "$output")" != *本文にマーカーが無い* ]]
+}
+
+@test "前置の GH_REPO= で範囲外を指せば何もしない" {
+    run hook "GH_REPO=someone-else/sample gh pr create --title t --body x"
+    assert_success
+    assert_output ''
+}
+
+@test "前置の GH_REPO= で範囲内を指せば cwd が範囲外でも判定する" {
+    git -C "$REPO_DIR" remote set-url origin https://github.com/someone-else/sample.git
+    run hook "GH_REPO=tanimon/sample gh pr create --title t --body x"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "-R は前置の GH_REPO= より優先する" {
+    run hook "GH_REPO=tanimon/sample gh pr create -R someone-else/sample --title t --body x"
+    assert_success
+    assert_output ''
+}
+
+@test "upstream remote が範囲外の fork の clone では何もしない" {
+    git -C "$REPO_DIR" remote add upstream https://github.com/someone-else/sample.git
+    run hook "gh pr create --title t --body x"
+    assert_success
+    assert_output ''
 }
 
 @test "短いオプションに値を続けた -F<path> / -F=<path> / -b<text> も読む" {

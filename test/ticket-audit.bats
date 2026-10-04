@@ -13,6 +13,10 @@ case "$*" in
 "issue list --state open"*) cat "$GH_FIXTURES/open.json" ;;
 "issue list --state closed"*) cat "$GH_FIXTURES/closed.json" ;;
 "pr list --state merged"*) cat "$GH_FIXTURES/merged.json" ;;
+"pr view "*)
+    n=${3##*/}
+    cat "$GH_FIXTURES/pr-$n.json" 2>/dev/null || printf '{"state":"MERGED"}'
+    ;;
 "api repos/tanimon/sample/issues/"*/dependencies/blocked_by*)
     n=${2#repos/tanimon/sample/issues/}
     n=${n%%/*}
@@ -200,6 +204,31 @@ open_issue() {
     jq -n '[{number:7, body:"## Acceptance criteria\n\n- [ ] b\n", closedByPullRequestsReferences:[]}]' >"$GH_FIXTURES/closed.json"
     run bash "$SCRIPT"
     assert_output ''
+}
+
+@test "close した PR が未マージなら ac-unchecked にしない" {
+    jq -n '[{number:7, body:"## Acceptance criteria\n\n- [ ] b\n", closedByPullRequestsReferences:[{number:20}]}]' >"$GH_FIXTURES/closed.json"
+    printf '{"state":"OPEN"}' >"$GH_FIXTURES/pr-20.json"
+    run bash "$SCRIPT"
+    assert_success
+    assert_output ''
+}
+
+@test "close した PR のうちマージ済みのものだけを根拠に出す" {
+    jq -n '[{number:7, body:"## Acceptance criteria\n\n- [ ] b\n", closedByPullRequestsReferences:[{number:20, url:"https://github.com/tanimon/sample/pull/20"},{number:22, url:"https://github.com/tanimon/sample/pull/22"}]}]' >"$GH_FIXTURES/closed.json"
+    printf '{"state":"CLOSED"}' >"$GH_FIXTURES/pr-20.json"
+    run bash "$SCRIPT"
+    assert_success
+    assert_output $'ac-unchecked\t7\tPR #22: b'
+}
+
+@test "close した PR の state を取れなければ stderr に出して 1 で終わる" {
+    jq -n '[{number:7, body:"## Acceptance criteria\n\n- [ ] b\n", closedByPullRequestsReferences:[{number:20}]}]' >"$GH_FIXTURES/closed.json"
+    printf 'not json' >"$GH_FIXTURES/pr-20.json"
+    run --separate-stderr bash "$SCRIPT"
+    assert_failure 1
+    assert_output ''
+    [[ "$stderr" == *'#7'* ]]
 }
 
 @test "完了条件(案) の見出しも AC として扱う" {

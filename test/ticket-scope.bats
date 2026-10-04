@@ -1,4 +1,4 @@
-# ticket スキルとガードの適用範囲(origin の owner の許可リスト)の判定。
+# ticket スキルとガードの適用範囲(gh の既定の作成先の owner の許可リスト)の判定。
 setup() {
     load 'helpers/setup'
     LIB="$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/ticket-scope.bash"
@@ -78,5 +78,56 @@ set_origin() {
 @test "source して関数として呼べる" {
     set_origin https://github.com/tanimon/sample.git
     run bash -c 'source "$1" && ticket_scope_in_scope "$2"' _ "$LIB" "$REPO_DIR"
+    assert_success
+}
+
+# --- fork の clone(gh の既定の作成先に合わせる) ---
+
+@test "upstream remote があれば origin より優先する(範囲外の upstream)" {
+    set_origin https://github.com/tanimon/fork.git
+    git -C "$REPO_DIR" remote add upstream https://github.com/someone-else/fork.git
+    run bash "$LIB" "$REPO_DIR"
+    assert_failure
+}
+
+@test "upstream が GitHub 以外なら origin を使う" {
+    set_origin https://github.com/tanimon/fork.git
+    git -C "$REPO_DIR" remote add upstream https://gitlab.com/someone-else/fork.git
+    run bash "$LIB" "$REPO_DIR"
+    assert_success
+}
+
+@test "gh-resolved=base の remote を優先する" {
+    set_origin https://github.com/tanimon/fork.git
+    git -C "$REPO_DIR" remote add parent https://github.com/someone-else/fork.git
+    git -C "$REPO_DIR" config remote.parent.gh-resolved base
+    run bash "$LIB" "$REPO_DIR"
+    assert_failure
+}
+
+@test "gh-resolved に owner/repo があればそれを使う" {
+    set_origin https://github.com/someone-else/sample.git
+    git -C "$REPO_DIR" config remote.origin.gh-resolved tanimon/sample
+    run bash "$LIB" "$REPO_DIR"
+    assert_success
+}
+
+@test "origin が無ければ、許可リストの owner の別名 remote があっても範囲外" {
+    git -C "$REPO_DIR" remote add mine https://github.com/tanimon/sample.git
+    run bash "$LIB" "$REPO_DIR"
+    assert_failure
+}
+
+@test "origin が GitHub 以外なら、許可リストの owner の upstream があっても範囲外" {
+    set_origin https://gitlab.com/tanimon/sample.git
+    git -C "$REPO_DIR" remote add upstream https://github.com/tanimon/sample.git
+    run bash "$LIB" "$REPO_DIR"
+    assert_failure
+}
+
+@test "gh-resolved の HOST/OWNER/REPO 形も読む" {
+    set_origin https://github.com/someone-else/sample.git
+    git -C "$REPO_DIR" config remote.origin.gh-resolved github.com/tanimon/sample
+    run bash "$LIB" "$REPO_DIR"
     assert_success
 }
