@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-04-ticket-skill-design.md`
 
+> **注記**: Task 7(deliver への組み込み)は実装後に revert した。実装中に main へ入った ADR 0015(#452)で deliver が push も PR の作成もしなくなり、組み込む対象が無くなったため。
+
 ## Global Constraints
 
 - マーカーの文字列は `<!-- ticket-skill -->` で固定する(ガード・スキル・deliver.js で同じ文字列を使う)
