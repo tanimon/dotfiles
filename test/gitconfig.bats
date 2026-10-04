@@ -32,6 +32,9 @@ setup() {
     cp "$GITCONFIG_PERSONAL" "$HOME/.gitconfig"
     cp "${BATS_TEST_DIRNAME}/../dot_config/git/claude-code.inc" "$HOME/.config/git/claude-code.inc"
     unset XDG_CONFIG_HOME
+    # 呼び出し元の環境変数で渡る設定(サンドボックスが GIT_CONFIG_COUNT で注入する
+    # url.<base>.insteadOf など)は描画した ~/.gitconfig より優先されるので、検査から外す
+    unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
     export GIT_CONFIG_SYSTEM=/dev/null
     export GIT_CONFIG_GLOBAL="$HOME/.config/git/claude-code.inc"
 
