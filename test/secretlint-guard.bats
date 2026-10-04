@@ -1,16 +1,16 @@
 setup() {
     load 'helpers/setup'
+    load 'helpers/exec-cache'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_secretlint-guard.sh"
     # secretlint 本体には依存しない。$PATH の先頭に偽の secretlint を置き、
     # 引数に "leak" を含むパスなら失敗、それ以外は成功させる。
     FAKE_BIN="$BATS_TEST_TMPDIR/bin"
     mkdir -p "$FAKE_BIN"
-    cat >"$FAKE_BIN/secretlint" <<'FAKE'
+    install_exec "$FAKE_BIN/secretlint" <<'FAKE'
 #!/usr/bin/env bash
 printf 'called:%s\n' "$1" >>"${FAKE_LOG:?}"
 case "$1" in *leak*) echo "fake finding"; exit 1 ;; *) exit 0 ;; esac
 FAKE
-    chmod +x "$FAKE_BIN/secretlint"
     export PATH="$FAKE_BIN:$PATH"
     export FAKE_LOG="$BATS_TEST_TMPDIR/calls.log"
     : >"$FAKE_LOG"
