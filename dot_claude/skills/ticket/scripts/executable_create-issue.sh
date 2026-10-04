@@ -16,7 +16,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/sections.bash"
 body_file=''
 previous=''
 for argument in "$@"; do
-    case "$previous" in -F | --body-file) body_file=$argument ;; esac
+    # 値を取るオプションの値は、オプションとして読まない(タイトルは自由記述で `-F…` のように始まりうる)。
+    case "$previous" in
+    -F | --body-file | -t | --title)
+        [[ "$previous" == -F || "$previous" == --body-file ]] && body_file=$argument
+        previous=''
+        continue
+        ;;
+    esac
     case "$argument" in
     --body-file=*) body_file=${argument#--body-file=} ;;
     # gh(pflag)は短いオプションに値を続けた -F<path> / -F=<path> も受け付ける。

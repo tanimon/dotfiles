@@ -39,7 +39,8 @@ open_json=$(gh issue list --state open --limit "$LIMIT" --json number,body)
 warn_if_limit_reached "open の issue" "$(printf '%s' "$open_json" | jq 'length')"
 open_numbers=$(printf '%s' "$open_json" | jq -r '.[].number')
 
-# relationship
+# relationship。open の issue だけを見る(close 済みの relationship は作業の順序に効かず、issue ごとに API を呼ぶので
+# 対象を広げると件数に比例して遅くなる)。
 items=$(printf '%s' "$open_json" | jq -c '.[]')
 while IFS= read -r item; do
     [[ -n "$item" ]] || continue

@@ -156,3 +156,10 @@ STUB
     run grep -c -- '-X POST' "$GH_LOG"
     assert_output '0'
 }
+
+@test "--title の値が -F で始まっても本文ファイルとして読まない" {
+    printf '<!-- ticket-skill -->\n' >"$BODY"
+    run bash "$SCRIPT" --body-file "$BODY" --title '-Fix typo'
+    assert_success
+    assert_output 'https://github.com/tanimon/sample/issues/450'
+}

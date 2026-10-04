@@ -169,6 +169,27 @@ EOF
     [ "$(decision "$output")" = deny ]
 }
 
+@test "--title の値が -F で始まっても本文ファイルとして読まない" {
+    printf 'body\n\n%s\n' "$MARKER" >"$BODY_DIR/pr.md"
+    run hook "gh pr create --body-file $BODY_DIR/pr.md --title '-Fix typo'"
+    assert_success
+    assert_output ''
+}
+
+@test "--title の値が -b で始まりマーカーを含んでも本文として読まない" {
+    run hook "gh pr create -t '-b$MARKER' --fill"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "--help / -h / --dry-run は作成しないので判定しない" {
+    run hook "gh pr create --help"
+    assert_output ''
+    run hook "gh issue create -h"
+    assert_output ''
+    run hook "gh pr create --fill --dry-run"
+    assert_output ''
+}
+
 @test "--fill はマーカーが無いので deny" {
     run hook "gh pr create --fill"
     [ "$(decision "$output")" = deny ]

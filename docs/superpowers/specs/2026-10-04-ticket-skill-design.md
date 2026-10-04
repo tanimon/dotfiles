@@ -4,7 +4,7 @@ GitHub Issues でチケットを管理する個人リポジトリで、issue と
 
 ## 解決する課題
 
-1. issue の relationship(sub-issue / blocked-by)の設定が漏れる。例: #450 は本文に `## Blocked by #401` と書いてあるが、native の依存関係は未設定(`issue_dependencies_summary.total_blocked_by` が 0)。parent は native に設定済み。
+1. issue の relationship(sub-issue / blocked-by)の設定が漏れる。例: #450 は本文の `## Blocked by` 節に `#401` と書いてあるが、native の依存関係は未設定(`issue_dependencies_summary.total_blocked_by` が 0)。parent は native に設定済み。
 2. PR で解決した issue が open のまま残る。#433・#429・#418 は close 済みだが `closedByPullRequestsReferences` が空で、PR 本文の `Closes #N` による紐付けを経ていない。
 3. PR で解決した issue の Acceptance criteria が `[ ]` のまま残る。
 4. 関連する issue へのメンション(`#N`)を自律的に書かない。
@@ -23,7 +23,7 @@ GitHub Issues でチケットを管理する個人リポジトリで、issue と
 |---|---|---|
 | スキル `ticket` | `dot_claude/skills/ticket/SKILL.md` → `~/.claude/skills/ticket/` | 手順の正本。作成モードと照合モードを持つ |
 | 作成時ガード | `dot_claude/scripts/executable_ticket-guard.sh` → `~/.claude/scripts/ticket-guard.sh` | PreToolUse(`matcher: "Bash"`)。`gh issue create` / `gh pr create` の本文にマーカーが無ければ deny する |
-| 適用範囲の判定 | `dot_claude/scripts/lib/ticket-scope.bash` → `~/.claude/scripts/lib/ticket-scope.bash` | origin の owner が許可リストにあるかを判定する。ガードが source し、スキルが直接実行する |
+| 適用範囲の判定 | `dot_claude/scripts/lib/ticket-scope.bash` → `~/.claude/scripts/lib/ticket-scope.bash` | gh が作成先にするリポジトリの owner が許可リストにあるかを判定する(origin が GitHub であることを前提条件に、`-R` / `GH_REPO` / `gh-resolved` / upstream > github > origin の順で gh と同じ作成先を求める)。ガードが source し、スキルが直接実行する |
 | 照合スクリプト | `dot_claude/skills/ticket/scripts/executable_audit.sh` | 照合モードの検出部分。LLM を使わずに食い違いを列挙する |
 | issue 作成スクリプト | `dot_claude/skills/ticket/scripts/executable_create-issue.sh` | issue の作成と、本文の `## Parent` / `## Blocked by` に基づく native relationship の設定を一度に行う |
 | 節の読み取り | `dot_claude/skills/ticket/scripts/sections.bash` | 本文の節から `#N` と未チェック項目を取り出す関数。audit.sh と create-issue.sh が source する |
@@ -47,7 +47,7 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 
 ### 検出(`audit.sh`、決定的)
 
-- **relationship の食い違い**: 本文の `## Parent` / `## Blocked by` 節にある番号と、API の `parent_issue_url` / dependencies を比べる。
+- **relationship の食い違い**: open の issue について、本文の `## Parent` / `## Blocked by` 節にある番号と、API の `parent_issue_url` / dependencies を比べる。close 済みの issue は対象にしない(作業の順序や進捗の集計に効くのは open の issue で、対象を広げると issue ごとの API 呼び出しが件数に比例して増えるため)。
 - **open のまま残った issue**: マージ済み PR の `closingIssuesReferences` から辿り、まだ open の issue を探す。既定ブランチへのマージなら GitHub が自動で close するので、当たるのは stacked PR などに限られる。既定ブランチ以外を base にした PR で `closingIssuesReferences` が埋まるかは未確認。
 - **Closes を書き忘れた PR の候補**: open の issue ごとに timeline を引き、同じリポジトリのマージ済み PR からの言及(`cross-referenced`)を候補として出す。言及は解決を意味しないので、close するかは一括承認で人が決める。
 - **AC の未チェック**: close 済みで、その issue を close した PR がマージ済みのもののうち、AC 節に `[ ]` が残る issue を探す。AC 節の見出しは `Acceptance criteria` と `完了条件` で始まるものとする(`## 完了条件(案)` などの揺れを許す)。
@@ -68,7 +68,8 @@ issue や PR を作る前に、本文ファイルを次の手順で作る。
 | 入力 | 結果 |
 |---|---|
 | `gh issue create` / `gh pr create`(alias の `new` を含む)を含まない | 無出力で通す |
-| origin が無い、GitHub 以外、owner が許可リストに無い | 無出力で通す |
+| origin が無い、GitHub 以外、作成先の owner が許可リストに無い | 無出力で通す |
+| `--help` / `-h` / `--dry-run`(作成しない) | 無出力で通す |
 | `gh issue create`(範囲内) | マーカーの有無にかかわらず deny し、`create-issue.sh` へ案内する |
 | `gh pr create` の `--body-file` / `-F` の絶対パスのファイルにマーカーがある | 無出力で通す |
 | `gh pr create` の `--body` / `-b` の値にマーカーがある | 無出力で通す |

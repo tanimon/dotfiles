@@ -237,6 +237,30 @@ open_issue() {
     assert_output $'ac-unchecked\t8\tPR #21: c'
 }
 
+@test "AC 節の下位の見出しより後ろの [ ] も ac-unchecked に出し、同じ階層の見出しで節を閉じる" {
+    jq -n '[{number:8, body:"## Acceptance criteria\n\n- [ ] a\n\n### 補足\n\n- [ ] b\n\n## メモ\n\n- [ ] AC ではない\n", closedByPullRequestsReferences:[{number:21}]}]' >"$GH_FIXTURES/closed.json"
+    run bash "$SCRIPT"
+    assert_output $'ac-unchecked\t8\tPR #21: a\nac-unchecked\t8\tPR #21: b'
+}
+
+@test "AC 節のコードブロックの中の # 行は見出しとして扱わない" {
+    jq -n '[{number:8, body:"## Acceptance criteria\n\n```sh\n# コメント\n```\n\n- [ ] a\n", closedByPullRequestsReferences:[{number:21}]}]' >"$GH_FIXTURES/closed.json"
+    run bash "$SCRIPT"
+    assert_output $'ac-unchecked\t8\tPR #21: a'
+}
+
+@test "AC 節の + と番号付きの箇条書きの [ ] も ac-unchecked に出す" {
+    jq -n '[{number:8, body:"## Acceptance criteria\n\n+ [ ] a\n1. [ ] b\n2. [x] c\n", closedByPullRequestsReferences:[{number:21}]}]' >"$GH_FIXTURES/closed.json"
+    run bash "$SCRIPT"
+    assert_output $'ac-unchecked\t8\tPR #21: a\nac-unchecked\t8\tPR #21: b'
+}
+
+@test "Blocked by 節の下位の見出しより後ろの #N も blocker として扱う" {
+    open_issue 450 $'## Blocked by\n\n### 実装の前提\n\n#401\n'
+    run bash "$SCRIPT"
+    assert_output $'blocked-by-missing\t450\t#401'
+}
+
 # --- mentioned-by-merged ---
 
 @test "マージ済み PR からの言及がある open issue は mentioned-by-merged" {

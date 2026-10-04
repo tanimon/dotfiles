@@ -4,7 +4,7 @@
 
 **Goal:** 個人リポジトリで issue / PR を作るときに、関連 issue のメンション、native relationship、`Closes #N`、AC 対応表を漏らさないようにする。マージ後に残った漏れは手動で洗い出して直せるようにする。
 
-**Architecture:** 手順の正本はグローバルスキル `ticket` に置き、作成モードと照合モードを持たせる。PreToolUse フック `ticket-guard.sh` は、範囲内のリポジトリでの `gh pr create` のうち本文にマーカー `<!-- ticket-skill -->` が無いものと、すべての `gh issue create` を deny する。issue は `create-issue.sh` が作成と native relationship の設定を一度に行う。範囲(origin の owner の許可リスト)は `lib/ticket-scope.bash` で判定する(ガードとスキルの入口が使う)。照合モードの検出は `audit.sh` が決定的に行う。
+**Architecture:** 手順の正本はグローバルスキル `ticket` に置き、作成モードと照合モードを持たせる。PreToolUse フック `ticket-guard.sh` は、範囲内のリポジトリでの `gh pr create` のうち本文にマーカー `<!-- ticket-skill -->` が無いものと、すべての `gh issue create` を deny する。issue は `create-issue.sh` が作成と native relationship の設定を一度に行う。範囲(gh が作成先にするリポジトリの owner の許可リスト)は `lib/ticket-scope.bash` で判定する(ガードとスキルの入口が使う)。照合モードの検出は `audit.sh` が決定的に行う。
 
 **Tech Stack:** bash(3.2 互換)、jq、gh CLI、bats(bats-assert)、Node の `node:test`(deliver.js)、chezmoi テンプレート
 

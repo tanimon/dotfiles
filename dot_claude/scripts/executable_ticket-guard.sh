@@ -112,6 +112,10 @@ check_segment() {
     while [[ $j -lt $count ]]; do
         argument=${tokens[$j]}
         case "$argument" in
+        # 作成しない呼び出し。範囲内でも止めると、調べもののたびに実情と合わない理由で deny する。
+        --help | -h | --dry-run) return 0 ;;
+        # タイトルは自由記述で `-` から始まりうる。値を読み飛ばさないと -F / -b / -R の短縮形と誤読する。
+        -t | --title) j=$((j + 1)) ;;
         -R | --repo)
             repo=${tokens[$((j + 1))]:-}
             j=$((j + 1))
