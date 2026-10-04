@@ -1155,6 +1155,24 @@ PRE
     assert_line '| 合計 | 1 |'
 }
 
+@test "先頭 0 付きの heartbeat も 10 進数の epoch として期間の始まりに使う" {
+    : >"$HDIR/pending.jsonl"
+    now=$(date +%s)
+    printf '0%s\n' "$((now - 3600))" >"$HDIR/weekly-heartbeat"
+    {
+        printf '{"session_id":"old","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
+        printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"repeat":1}}\n' "$((now - 60))"
+    } >"$HDIR/detections.jsonl"
+    seed_queue
+    run weekly
+    assert_success
+    refute_output --partial 'failed to build the detection counts'
+    run cat "$GH_BODY"
+    assert_line '| `repeat` | 1 |'
+    assert_line '| `tool_error` | 0 |'
+    assert_line '| 合計 | 1 |'
+}
+
 @test "検出件数の節を組み立てられなくても PR は作り、節を省く" {
     : >"$HDIR/pending.jsonl"
     seed_queue
