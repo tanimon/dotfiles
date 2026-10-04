@@ -10,8 +10,14 @@
      symlink に差し替えられ、付けると差し替え先に read+write が付与される。付けなくても
      claude-seal が ~/.claude を付与しているので動き、差し替えられていれば nono が cwd を
      付与せず(cwd は / になる)、ジョブは書き込みに失敗する(どちらも実測)。
-     PATH は launchd の既定(/usr/bin:/bin:/usr/sbin:/sbin)に claude(~/.local/bin)と
-     jq(/opt/homebrew/bin)を足す。
+     PATH は launchd の既定(/usr/bin:/bin:/usr/sbin:/sbin)に claude(~/.local/bin)、
+     mise の shims(pnpm・node・prek)、jq・gh・just(/opt/homebrew/bin)を足す。pnpm・node・prek は
+     mise の shims にしか無く、無いと選別の前の pnpm install が毎回失敗し、選別の claude が
+     走らせる commit フックと just lint も動かない。実測(2026-10-03、nono 0.79.0): 非対話の
+     `nono run --profile claude-seal` の内側で、この PATH から shims の pnpm で
+     `pnpm install --frozen-lockfile --prefer-offline` が exit 0 で通り、node と prek も解決した
+     (mise は ~/.local/state/mise に書けない WARN を出すが動作には影響しない)。shims を外した
+     PATH では pnpm が見つからない。launchd から起動した選別の通し実行は未計測。
      RunAtLoad は false: true にすると apply のたびの再登録で有料の実行が走る。
      スリープ中に予定時刻を過ぎた分は、launchd が復帰時に 1 回だけ実行する。電源オフ中に
      過ぎた分は実行されず、次の週まで待つ(heartbeat の古さとして briefing に出る)。 -->
@@ -34,7 +40,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>{{ .chezmoi.homeDir }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>{{ .chezmoi.homeDir }}/.local/bin:{{ .chezmoi.homeDir }}/.local/share/mise/shims:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict>

@@ -7,10 +7,17 @@
 # --session-id で渡された id を pending.jsonl に積み(SessionEnd hook が
 # ジョブ自身のセッションを積む状況の再現)、結果の JSON を出す。
 # 成否は STUB_CLAUDE_MODE(success / is_error / exit1)で切り替える。
+#
+# 選別の工程(プロンプトが harness-review を指すもの)では、claude のスタブが
+# cwd(ジョブが用意した worktree)で STUB_REVIEW_MODE に応じた変更と commit を行う。
+# git は実物を使い、origin は使い捨ての bare リポジトリにする。GIT_CONFIG_GLOBAL /
+# GIT_CONFIG_SYSTEM を潰すのは、このマシンの署名や push の設定を持ち込まないため。
+# gh と pnpm はスタブで、gh は呼ばれた引数と --body-file の中身を記録する。
 setup() {
     load 'helpers/setup'
     # スクリプトが読む環境変数を、このマシンのシェルから漏らさない
-    unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS
+    unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS \
+        HARNESS_WEEKLY_REVIEW_BUDGET_USD HARNESS_WEEKLY_REPO
     export INSIDE_NONO_SANDBOX=1
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-weekly.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
@@ -21,6 +28,25 @@ setup() {
     export ARGV_LOG="$BATS_TEST_TMPDIR/argv.log"
     export ENV_LOG="$BATS_TEST_TMPDIR/env.log"
     export CWD_LOG="$BATS_TEST_TMPDIR/cwd.log"
+    export STAGE_LOG="$BATS_TEST_TMPDIR/stage.log"
+    export GH_LOG="$BATS_TEST_TMPDIR/gh.log"
+    export GH_BODY="$BATS_TEST_TMPDIR/gh-body.md"
+    export PNPM_LOG="$BATS_TEST_TMPDIR/pnpm.log"
+
+    export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
+    export GIT_CONFIG_SYSTEM=/dev/null
+    printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
+        >"$GIT_CONFIG_GLOBAL"
+    ORIGIN="$BATS_TEST_TMPDIR/origin.git"
+    export HARNESS_WEEKLY_REPO="$BATS_TEST_TMPDIR/repo"
+    git init -q --bare "$ORIGIN"
+    git clone -q "$ORIGIN" "$HARNESS_WEEKLY_REPO" 2>/dev/null
+    printf 'line1\nline2\n' >"$HARNESS_WEEKLY_REPO/README.md"
+    git -C "$HARNESS_WEEKLY_REPO" add README.md
+    git -C "$HARNESS_WEEKLY_REPO" commit -qm init
+    git -C "$HARNESS_WEEKLY_REPO" push -q origin main
+    BRANCH="harness/review-$(date +%Y-%m-%d)"
+    WT="$HDIR/review-worktree"
 
     cat >"$STUBS/nono" <<'EOF'
 #!/usr/bin/env bash
@@ -36,17 +62,61 @@ printf ' %s' "$@" >>"$ARGV_LOG"
 printf '\n' >>"$ARGV_LOG"
 printf 'HARNESS_DISABLE=%s\n' "${HARNESS_DISABLE:-}" >>"$ENV_LOG"
 pwd >>"$CWD_LOG"
+all_args="$*"
 sid=""
 while [[ $# -gt 0 ]]; do
     [[ "$1" == "--session-id" ]] && sid="$2"
     shift
 done
+if [[ "$all_args" == *'harness-review skill'* ]]; then
+    printf 'review\n' >>"$STAGE_LOG"
+    body="$HOME/.claude/harness/review-pr-body-$(date +%Y-%m-%d).md"
+    archive="$HOME/.claude/harness/queue-archive.md"
+    branch=$(git branch --show-current)
+    adopt() {
+        mkdir -p rules && printf 'a\nb\nc\n' >rules/new.md && printf 'keep\n' >README.md
+        git add -A && git commit -qm 'harness: add rule'
+    }
+    case "${STUB_REVIEW_MODE:-adopt}" in
+    adopt)
+        adopt
+        printf '## 採用した変更\n\n- 理由: 同じ失敗の再発を防ぐため\n' >"$body"
+        # 記録の書式はプロンプトが指定したものをそのまま使う(run ごとの印を含む)
+        verdict=$(grep -oE 'adopted \(harness/review-[^)]*\)' <<<"$all_args" | head -n 1)
+        printf -- '- **Verdict:** %s\n' "$verdict" >>"$archive"
+        ;;
+    no_verdict)
+        adopt
+        printf 'reason\n' >"$body"
+        ;;
+    binary_pipe)
+        printf 'a\0b' >blob.bin && printf 'x\n' >'a|b.md'
+        git add -A && git commit -qm 'harness: binary and pipe'
+        printf 'reason\n' >"$body"
+        ;;
+    two_changes)
+        # 採用 2 件が同じファイルに触れる(ファイルごとの表では変更ごとの純増が読めない形)
+        mkdir -p rules && printf 'a\nb\n' >rules/shared.md
+        git add -A && git commit -qm 'harness: first | entry'
+        printf 'a\nb\nc\nd\ne\n' >rules/shared.md && printf 'keep\n' >README.md
+        git add -A && git commit -qm 'harness: second entry'
+        printf 'reason\n' >"$body"
+        ;;
+    no_body) adopt ;;
+    body_only) printf 'reason\n' >"$body" ;;
+    dirty) printf 'x\n' >stray.md ;;
+    none) ;;
+    esac
+else
+    printf 'reflect\n' >>"$STAGE_LOG"
+fi
 [[ -n "${STUB_SKIP_PENDING:-}" ]] ||
     printf '{"session_id":"%s","transcript_path":"/tmp/t","cwd":"/tmp","recorded_epoch":1}\n' "$sid" \
         >>"$HOME/.claude/harness/pending.jsonl"
 case "${STUB_CLAUDE_MODE:-success}" in
 success) printf '{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.1}\n' ;;
 is_error) printf '{"type":"result","subtype":"error_max_budget_usd","is_error":true}\n' ;;
+denied) printf '{"type":"result","subtype":"success","is_error":false,"permission_denials":[{"tool_name":"Bash"}]}\n' ;;
 exit1) exit 1 ;;
 error_exit1)
     printf '{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":4.9}\n'
@@ -65,14 +135,41 @@ EOF
 #!/usr/bin/env bash
 printf '%s\n' "${STUB_UUID:-AAAAAAAA-0000-0000-0000-000000000001}"
 EOF
+    cat >"$STUBS/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_LOG"
+if [[ "$1 $2" == "pr list" ]]; then
+    printf '%s\n' "${STUB_GH_PR_LIST-https://github.com/example/dotfiles/pull/41}"
+    exit 0
+fi
+while [[ $# -gt 0 ]]; do
+    [[ "$1" == "--body-file" ]] && cp "$2" "$GH_BODY"
+    shift
+done
+[[ -z "${STUB_GH_FAIL:-}" ]] || exit 1
+printf 'https://github.com/example/dotfiles/pull/42\n'
+EOF
+    cat >"$STUBS/pnpm" <<'EOF'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
+[[ -z "${STUB_PNPM_FAIL:-}" ]]
+EOF
     chmod +x "$STUBS"/*
     export PATH="$STUBS:$PATH"
     # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く
     printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
 }
 
+teardown() {
+    [[ -z "${LOCKED_DIR:-}" ]] || chmod 755 "$LOCKED_DIR"
+}
+
 weekly() {
     bash "$SCRIPT"
+}
+
+seed_queue() {
+    printf '# Harness improvement queue\n\n## [2026-10-03] entry\n\n- **Scope:** global\n' >"$HDIR/queue.md"
 }
 
 @test "claude -p を予算と sandbox 無効の設定付きで直接起動し、nono は自分で掛けない" {
@@ -298,4 +395,428 @@ PRE
     assert_failure
     assert_line --regexp '^harness-weekly: start .* pending=1$'
     assert_line --regexp '^harness-weekly: end .* exit=1 pending=1->1$'
+}
+
+@test "採用した変更があると、push してから draft PR をちょうど 1 本作る" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$GH_LOG"
+    assert_equal "${#lines[@]}" 1
+    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
+    # PR を作る前にブランチが origin にある(push はスクリプトが行う)
+    run git -C "$ORIGIN" log --format=%s -1 "$BRANCH"
+    assert_output 'harness: add rule'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "PR の本文に採用の理由と、追加・削除・純増の行数が載る" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '理由: 同じ失敗の再発を防ぐため'
+    assert_output --partial '## 純増'
+    assert_output --partial '| `rules/new.md` | +3 | -0 |'
+    assert_output --partial '| `README.md` | +1 | -2 |'
+    assert_output --partial '合計: +4 / -2(純増 +2 行)'
+    assert_output --partial '| harness: add rule | +4 | -2 |'
+}
+
+@test "同じファイルに触れる採用が複数あっても、純増を変更(commit)ごとに載せる" {
+    seed_queue
+    STUB_REVIEW_MODE=two_changes run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '| harness: first \| entry | +2 | -0 |'
+    assert_output --partial '| harness: second entry | +4 | -2 |'
+    assert_output --partial '| `rules/shared.md` | +5 | -0 |'
+    assert_output --partial '合計: +6 / -2(純増 +4 行)'
+}
+
+@test "採用した変更が無ければ PR を作らず、その旨をログに残す" {
+    seed_queue
+    STUB_REVIEW_MODE=none run weekly
+    assert_success
+    assert_output --partial 'review committed no changes; no PR created'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert [ ! -d "$WT" ]
+}
+
+@test "queue が空なら選別を起動せず、その旨をログに残す" {
+    run weekly
+    assert_success
+    assert_output --partial 'queue is empty; skipped review'
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+    assert [ ! -f "$GH_LOG" ]
+}
+
+@test "pending が空でも queue に項目があれば選別を起動する" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$STAGE_LOG"
+    assert_output 'review'
+}
+
+@test "選別は harness-review を origin/main から切ったループのブランチの worktree で、依存を入れてから走らせる" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" commit -q --allow-empty -m 'local only'
+    run weekly
+    assert_success
+    run tail -n 1 "$CWD_LOG"
+    assert_output "$WT"
+    run cat "$PNPM_LOG"
+    assert_output --partial "$WT install --frozen-lockfile"
+    # 手元の未 push の commit は PR に入らない
+    run git -C "$ORIGIN" log --format=%s "$BRANCH"
+    refute_output --partial 'local only'
+}
+
+@test "claude に push と PR の作成をさせず、ファイルの書き込みは Write / Edit で行わせる" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'harness-review skill'
+    assert_output --partial 'do not push'
+    assert_output --partial "${BRANCH}"
+    run grep -c 'only with the Write and Edit tools' "$ARGV_LOG"
+    assert_output '2'
+}
+
+@test "判定の記録の adopted (<ブランチ>) を PR の URL に置き換える" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$HDIR/queue-archive.md"
+    assert_output '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/42)'
+}
+
+@test "同じ日の前の run が残した採用は今回の PR の URL に置き換えず、heartbeat を書かずに知らせる" {
+    printf -- '- **Verdict:** adopted (%s)\n' "$BRANCH" >"$HDIR/queue-archive.md"
+    seed_queue
+    run weekly
+    assert_failure
+    assert_output --partial "never became a PR: adopted (${BRANCH})"
+    run grep -cF "adopted (${BRANCH})" "$HDIR/queue-archive.md"
+    assert_output '1'
+    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
+    assert_output '1'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "判定の記録にブランチ名が無ければ、URL を記録できなかったことを、陳腐化の修正だけなら正常と添えて残す" {
+    seed_queue
+    STUB_REVIEW_MODE=no_verdict run weekly
+    assert_success
+    assert_output --partial 'PR URL not recorded'
+    assert_output --partial 'normal if the PR only fixes stale rules'
+    refute_output --partial 'WARN'
+}
+
+@test "バイナリファイルは行数の代わりにバイナリと書き、パスの | はエスケープする" {
+    seed_queue
+    STUB_REVIEW_MODE=binary_pipe run weekly
+    assert_success
+    run cat "$GH_BODY"
+    assert_output --partial '| `blob.bin` | バイナリ | バイナリ |'
+    assert_output --partial '| `a\|b.md` | +1 | -0 |'
+    assert_output --partial '合計: +1 / -0(純増 +1 行)'
+    assert_output --partial 'バイナリファイル 1 件は行数に含めない'
+}
+
+@test "PR を作れたら本文のファイルを消し、作れなかったら残す" {
+    seed_queue
+    run weekly
+    assert_success
+    assert [ ! -f "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
+    # origin にあるのでローカルのブランチは消す
+    run git -C "$HARNESS_WEEKLY_REPO" rev-parse --verify --quiet "refs/heads/$BRANCH"
+    assert_failure
+    seed_queue
+    rm -f "$GH_LOG"
+    git -C "$ORIGIN" branch -D "$BRANCH" >/dev/null
+    STUB_GH_FAIL=1 run weekly
+    assert_failure
+    assert [ -s "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
+}
+
+@test "選別の claude が commit の後に失敗したら、残った commit のブランチと手で PR を作る手順を出す" {
+    : >"$HDIR/pending.jsonl"
+    seed_queue
+    STUB_CLAUDE_MODE=is_error run weekly
+    assert_failure
+    assert_output --partial "review failed after 1 commit(s) on local branch ${BRANCH}"
+    assert_output --partial "push origin ${BRANCH}"
+    assert_output --partial "gh pr create --draft --base main --head ${BRANCH} --body-file $HDIR/review-pr-body-"
+    assert [ ! -f "$GH_LOG" ]
+}
+
+@test "push に失敗した run の後に同じ日に再実行しても、手で PR を作るための本文と worktree を消さない" {
+    seed_queue
+    printf '#!/bin/sh\nexit 1\n' >"$ORIGIN/hooks/pre-receive"
+    chmod +x "$ORIGIN/hooks/pre-receive"
+    run weekly
+    assert_failure
+    assert_output --partial "push of ${BRANCH} failed"
+    assert_output --partial "--body-file $HDIR/review-pr-body-"
+    rm -f "$ORIGIN/hooks/pre-receive"
+    seed_queue
+    run weekly
+    assert_failure
+    assert_output --partial 'not on origin/main'
+    run cat "$HDIR/review-pr-body-$(date +%Y-%m-%d).md"
+    assert_output --partial '## 純増'
+    run git -C "$WT" log --format=%s -1
+    assert_output 'harness: add rule'
+    assert [ ! -e "$WT.new" ]
+}
+
+@test "origin/main に無い commit を持つ当日のローカルブランチは作り直さずに失敗する" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" branch "$BRANCH" main
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q "$BATS_TEST_TMPDIR/other" "$BRANCH"
+    git -C "$BATS_TEST_TMPDIR/other" commit -q --allow-empty -m 'unpushed'
+    git -C "$HARNESS_WEEKLY_REPO" worktree remove "$BATS_TEST_TMPDIR/other"
+    run weekly
+    assert_failure
+    assert_output --partial "local branch ${BRANCH}"
+    assert_output --partial 'not on origin/main'
+    run git -C "$HARNESS_WEEKLY_REPO" log --format=%s -1 "$BRANCH"
+    assert_output 'unpushed'
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+}
+
+@test "当日のブランチが別の worktree で checkout されていると、その旨を添えて失敗する" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q -b "$BRANCH" "$BATS_TEST_TMPDIR/other" main
+    run weekly
+    assert_failure
+    assert_output --partial 'checked out in another worktree'
+}
+
+@test "commit されていない変更が残っていたら PR を作らずに失敗する" {
+    seed_queue
+    STUB_REVIEW_MODE=dirty run weekly
+    assert_failure
+    assert_output --partial 'uncommitted changes'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "本文があるのに commit が無ければ、採用なしと扱わずに失敗する" {
+    seed_queue
+    STUB_REVIEW_MODE=body_only run weekly
+    assert_failure
+    assert_output --partial 'no commits'
+    assert_output --partial 'deploy-only'
+    refute_output --partial 'committed no changes'
+    assert [ ! -f "$GH_LOG" ]
+}
+
+@test "commit があるのに本文が無ければ PR を作らずに失敗する" {
+    seed_queue
+    STUB_REVIEW_MODE=no_body run weekly
+    assert_failure
+    assert_output --partial 'no PR body'
+    assert [ ! -f "$GH_LOG" ]
+}
+
+@test "push 後に PR の作成が失敗したら、ブランチ名を添えて失敗する" {
+    seed_queue
+    STUB_GH_FAIL=1 run weekly
+    assert_failure
+    assert_output --partial "pushed ${BRANCH} but gh pr create failed"
+    assert_output --partial "still say adopted (${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001)"
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+# launchd の plist が渡す PATH を、テストの HOME で展開して返す
+plist_path() {
+    local plist="$BATS_TEST_DIRNAME/../private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl"
+    awk '/<key>PATH<\/key>/ { getline; print; exit }' "$plist" |
+        sed -e 's|.*<string>||' -e 's|</string>.*||' -e "s|{{ .chezmoi.homeDir }}|$HOME|g"
+}
+
+@test "launchd の PATH では pnpm を mise の shims から解決して選別まで進む" {
+    # pnpm を mise の shims の場所にだけ置く(このマシンでは pnpm・node・prek はそこにしか無い)
+    rm "$STUBS/pnpm"
+    mkdir -p "$HOME/.local/share/mise/shims"
+    cat >"$HOME/.local/share/mise/shims/pnpm" <<'EOF'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
+EOF
+    chmod +x "$HOME/.local/share/mise/shims/pnpm"
+    seed_queue
+    PATH="$STUBS:$(plist_path)" run weekly
+    assert_success
+    assert [ -f "$PNPM_LOG" ]
+    run cat "$STAGE_LOG"
+    assert_output $'reflect\nreview'
+}
+
+@test "pnpm が PATH に無ければ、原因を名指しして選別の前に失敗する" {
+    rm "$STUBS/pnpm"
+    launchd_path=$(plist_path)
+    if PATH="$launchd_path" command -v pnpm >/dev/null 2>&1; then
+        skip "pnpm exists on the launchd PATH outside the mise shims on this machine"
+    fi
+    seed_queue
+    PATH="$STUBS:$launchd_path" run weekly
+    assert_failure
+    assert_output --partial 'pnpm not found on PATH'
+    assert_output --partial 'mise/shims'
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "前の run の採用が PR にならないまま判定の記録に残っていれば、heartbeat を書かずに失敗する" {
+    printf -- '- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
+    run weekly
+    assert_failure
+    assert_output --partial 'never became a PR: adopted (harness/review-2026-01-01)'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "判定の記録の採用がすべて PR の URL になっていれば heartbeat を書く" {
+    printf -- '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
+    run weekly
+    assert_success
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "前の run の採用の残りは、その週の選別と PR の作成を済ませてから知らせる" {
+    printf -- '- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
+    seed_queue
+    run weekly
+    assert_failure
+    assert_output --partial 'never became a PR'
+    run cat "$GH_LOG"
+    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
+    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
+    assert_output '1'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "依存のインストールが失敗したら選別を起動せずに失敗する" {
+    seed_queue
+    STUB_PNPM_FAIL=1 run weekly
+    assert_failure
+    assert_output --partial 'pnpm install failed'
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+}
+
+@test "止まった実行が残した worktree があっても、次の実行は作り直して PR まで進む" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q --detach "$WT" HEAD
+    printf 'leftover\n' >"$WT/leftover.md"
+    run weekly
+    assert_success
+    assert [ -f "$GH_LOG" ]
+    run git -C "$ORIGIN" ls-tree -r --name-only "$BRANCH"
+    refute_output --partial 'leftover.md'
+}
+
+@test "gitdir を stat できない他の linked worktree の登録を消さない(nono の内側の状況)" {
+    [[ "$(id -u)" -ne 0 ]] || skip 'root は権限に関係なく stat できるので状況を作れない'
+    seed_queue
+    LOCKED_DIR="$BATS_TEST_TMPDIR/workspaces"
+    mkdir -p "$LOCKED_DIR"
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q --detach "$LOCKED_DIR/other" HEAD
+    chmod 000 "$LOCKED_DIR"
+    run test -e "$LOCKED_DIR/other/.git"
+    assert_failure
+    run weekly
+    assert_success
+    assert [ -f "$GH_LOG" ]
+    assert [ -d "$HARNESS_WEEKLY_REPO/.git/worktrees/other" ]
+}
+
+@test "worktree の登録だけが残っていても、次の実行は PR まで進む" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" worktree add -q --detach "$WT" HEAD
+    rm -rf "$WT"
+    run weekly
+    assert_success
+    assert [ -f "$GH_LOG" ]
+}
+
+@test "permission の拒否(headless では hook の ask も拒否)があれば実行ログに警告を出す" {
+    STUB_CLAUDE_MODE=denied run weekly
+    assert_success
+    assert_output --partial 'WARN reflect: 1 permission denial'
+}
+
+@test "当日のループのブランチが origin に既にあれば、選別を起動せずにその旨を残す" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" push -q origin "main:refs/heads/${BRANCH}"
+    run weekly
+    assert_success
+    assert_output --partial "${BRANCH} already exists on origin (PR https://github.com/example/dotfiles/pull/41); skipped review"
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "当日のブランチが origin にあっても PR が無ければ、健全に見せずに失敗する" {
+    seed_queue
+    git -C "$HARNESS_WEEKLY_REPO" push -q origin "main:refs/heads/${BRANCH}"
+    STUB_GH_PR_LIST= run weekly
+    assert_failure
+    assert_output --partial "${BRANCH} exists on origin but has no PR"
+    assert_output --partial "--body-file $HDIR/review-pr-body-"
+    run cat "$STAGE_LOG"
+    assert_output 'reflect'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "無人の選別に chezmoi apply をさせない" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'Never run chezmoi apply'
+}
+
+@test "陳腐化したルールの修正だけでも commit させる(採用 0 件で PR を諦めさせない)" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'If nothing is adopted and nothing is stale'
+}
+
+@test "commit フックや lint で落とした変更は queue に残させ、本文を必ず書かせる" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'leave its entry in queue.md (do not move it to the archive'
+    refute_output --partial 'rejected (dropped:'
+    assert_output --partial 'Whenever a change was dropped, always write the PR body'
+}
+
+@test "コマンドの出力を一時ファイルに書いて mv する Bookkeeping は禁じない" {
+    seed_queue
+    run weekly
+    assert_success
+    run grep -c 'moving it into place' "$ARGV_LOG"
+    assert_output '2'
+}
+
+@test "commit が無い週は deploy-only の修正だけで本文を書かせない(commit の無い本文は落とした変更の印)" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'If you commit nothing, put deploy-only fixes in your final summary instead'
 }
