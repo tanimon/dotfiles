@@ -3,7 +3,12 @@
 # 週次ジョブが毎回の run で使う。
 #
 #   since <日付>                       この run の期間の始まり(epoch)を出す。<日付> より前の日付の
-#                                      週の記録のうち最新のものの until。無ければ直近 7 日。期間を
+#                                      週の記録のうち、分類に成功した(classification: ok)最新のものの
+#                                      until。その後に分類に失敗した週があれば、その週の期間も含める
+#                                      (失敗した週の失敗をこの run でもう一度分類させるため。この run の
+#                                      記録はその週の分も合わせた期間になり、失敗した週は推移で「記録なし」
+#                                      のままなので二重には数えない)。成功した週が無ければ最も古い
+#                                      失敗した週の since、記録が無ければ直近 7 日。期間を
 #                                      heartbeat で決めないのは、失敗した run が heartbeat を進めず、
 #                                      次の run の期間が前の記録と重なって二重に数えるため。同じ日の
 #                                      記録は見ないので、同じ日の再実行はその日の記録を同じ期間の
@@ -14,7 +19,10 @@
 #   trend [--weeks <N>]                直近 N 週(既定 4)の記録から推移の節(Markdown)を出す
 #
 # 週の記録は id と数値だけを持つ(仕事の文脈を含まないので、週次ジョブがリポジトリに commit する)。
-#   sessions        期間に検出器にかけたセッション数(detections.jsonl。失敗の無いセッションを含む)
+#   sessions        期間に detections.jsonl に行があるセッション数。harness-select-pending.sh は、
+#                   セッションを初めて走査したとき(失敗が無くても)と、前の記録より失敗が増えたときにだけ
+#                   行を書く。そのため「期間に活動したセッション」ではなく「期間に初めて走査したセッションと、
+#                   失敗が増えたセッション」の数になる
 #   detections      期間に検出した失敗の件数(detections.jsonl の counts の合計)
 #   classified      期間に分類した失敗の件数(classifications.jsonl)。detections より少ない分は、分類の
 #                   失敗・件数の上限・transcript の欠落で分類しなかった分。分類器は期間内に検出のあった
@@ -64,21 +72,36 @@ rows_in_period() {
 }
 
 cmd_since() {
-    local date=$1 file name previous="" now
+    local date=$1 file name earlier=() i until status oldest_failed="" now
     [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
     while IFS= read -r file; do
         [[ -n "$file" ]] || continue
         name=$(basename "$file" .json)
-        [[ "$name" < "$date" ]] && previous=$file
+        [[ "$name" < "$date" ]] && earlier+=("$file")
     done < <(record_files)
-    if [[ -z "$previous" ]]; then
-        now=$(date +%s)
-        printf '%s\n' "$((now - 7 * 24 * 60 * 60))"
+    # 新しい記録から遡り、分類に失敗した週は飛ばして、その週の始まりを候補にする
+    for ((i = ${#earlier[@]} - 1; i >= 0; i--)); do
+        file=${earlier[i]}
+        # 前の週の記録が読めないときに直近 7 日へ戻すと、期間が前の記録と重なって二重に数える
+        until=$(jq -e '.until | numbers' "$file" 2>/dev/null) || fail "cannot read .until from $file"
+        status=$(jq -r '.classification' "$file" 2>/dev/null) || status=""
+        case "$status" in
+        ok)
+            printf '%s\n' "$until"
+            return 0
+            ;;
+        failed)
+            oldest_failed=$(jq -e '.since | numbers' "$file" 2>/dev/null) || fail "cannot read .since from $file"
+            ;;
+        *) fail "cannot read .classification (ok or failed) from $file" ;;
+        esac
+    done
+    if [[ -n "$oldest_failed" ]]; then
+        printf '%s\n' "$oldest_failed"
         return 0
     fi
-    # 前の週の記録が読めないときに直近 7 日へ戻すと、期間が前の記録と重なって二重に数える
-    jq -e '.until | numbers' "$previous" 2>/dev/null || fail "cannot read .until from $previous"
-
+    now=$(date +%s)
+    printf '%s\n' "$((now - 7 * 24 * 60 * 60))"
 }
 
 cmd_record() {

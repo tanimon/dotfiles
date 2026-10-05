@@ -131,6 +131,30 @@ week_record() {
     assert_line '| 未分類 | - |'
 }
 
+@test "分類に失敗した週の期間は、次の週の期間に含めてもう一度分類させる" {
+    week_record 2026-09-19 100 2000
+    week_record 2026-09-26 2000 3000 failed
+    week_record 2026-10-03 3000 4000 failed
+    run bash "$SCRIPT" since "$TODAY"
+    assert_success
+    assert_output '2000'
+}
+
+@test "分類に成功した週が無ければ、最も古い失敗した週の始まりから" {
+    week_record 2026-09-26 100 2000 failed
+    week_record 2026-10-03 2000 3000 failed
+    run bash "$SCRIPT" since "$TODAY"
+    assert_success
+    assert_output '100'
+}
+
+@test "前の週の記録の分類の結果が読めなければ失敗する" {
+    week_record 2026-10-03 2000 3000 unknown
+    run bash "$SCRIPT" since "$TODAY"
+    assert_failure
+    assert_output --partial 'cannot read .classification'
+}
+
 @test "前の週の記録が読めなければ、直近 7 日に戻さずに失敗する" {
     mkdir -p "$RATES"
     printf 'broken\n' >"$RATES/2026-10-03.json"
