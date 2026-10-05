@@ -16,6 +16,8 @@
 # git push guard が変数を含む push に ask を返すため(#429)。
 # 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
 # heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
+# 停止(この run の失敗・前の週に成功しなかったこと・ループの PR の放置・PR にならないループの
+# ブランチ)は、EXIT trap の report_stops が GitHub Issue で知らせる。
 #
 # PR のブランチ名は `harness/review-<日付>`。CI はこの prefix で自己改善ループの PR を
 # 見分け、Evaluator のパス(scripts/evaluator-paths.txt)に触れた PR を落とす
@@ -182,10 +184,158 @@ strip_job_sessions || {
 PENDING_BEFORE=$(count_pending)
 printf 'harness-weekly: start %s session=%s pending=%s\n' \
     "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$PENDING_BEFORE"
+
+# 停止を GitHub Issue で知らせる(ADR 0012 の Consequences)。タイトルを重複を避ける鍵にし、同じ
+# タイトルの Issue が開いていればコメントにする(CI の scheduled workflow が使う
+# .github/actions/harness-issue-alert と同じ規則とラベル。ジョブはローカルで走るので gh で同じことをする)。
+# Issue は公開リポジトリに作るので、本文にログの行やエラー文は貼らない(ローカルのパスを含む)。
+# 固定の文言・日時・session id・~ で書いたパスだけにし、詳細はログ(session id で引ける)に任せる
+ALERT_LABEL=harness-analysis
+FAILED_TITLE='harness: 週次ジョブが失敗した'
+# 開いている harness-analysis の Issue のうち、タイトルが一致するものを `<番号>\t<最終更新の epoch>` で
+# 出す(無ければ何も出さない)
+open_issue() { # <タイトル>
+    local issues
+    issues=$(cd "$REPO" && gh issue list --label "$ALERT_LABEL" --state open --json number,title,updatedAt --limit 100) &&
+        jq -r --arg title "$1" '[.[] | select(.title == $title)][0]
+            | if . == null then empty
+              else "\(.number)\t\(.updatedAt | sub("\\.[0-9]+"; "") | fromdateiso8601)" end' <<<"$issues"
+}
+
+alert_issue() { # <タイトル> <本文>
+    local title=$1 body=$2 issue number
+    if ! issue=$(open_issue "$title"); then
+        printf 'harness-weekly: WARN could not report "%s" as a GitHub Issue (listing the open issues failed)\n' "$title" >&2
+        return 1
+    fi
+    number=${issue%%$'\t'*}
+    if [[ -n "$number" ]]; then
+        # 失敗の再発だけでなく、放置された PR やブランチのように同じ状態が続いている場合もあるので「再発」とは書かない
+        if (cd "$REPO" && gh issue comment "$number" --body "$(printf 'この run でも検出した。\n\n%s' "$body")") >/dev/null; then
+            printf 'harness-weekly: commented on issue #%s (%s)\n' "$number" "$title"
+            return 0
+        fi
+    elif (cd "$REPO" && gh issue create --label "$ALERT_LABEL" --title "$title" --body "$body") >/dev/null; then
+        printf 'harness-weekly: opened an issue (%s)\n' "$title"
+        return 0
+    fi
+    printf 'harness-weekly: WARN could not report "%s" as a GitHub Issue\n' "$title" >&2
+    return 1
+}
+
+# Issue の本文に書くパス。$HOME の下なら ~ で書く(ローカルアカウント名を公開リポジトリに出さない)
+home_relative() {
+    case $1 in
+    "$HOME"/*) printf '~%s\n' "${1#"$HOME"}" ;;
+    *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# 停止を Issue で知らせる。EXIT trap から呼ぶので、trap が入った後のすべての run(成功・失敗・
+# 工程を省いた exit 0)で走る。trap より前の exit(nono の外での起動・jq が無い・lock の取り合い・
+# pending の読み取りの失敗)は知らせない。そのときは次の run が「成功していなかった」を知らせ、
+# briefing が heartbeat の古さを表示する。
+# 健全性の lib を読めずに止まる run も trap の後なので、失敗の Issue は作る。そのためこの関数と
+# それが使う定義(ALERT_LABEL・FAILED_TITLE・open_issue・alert_issue・home_relative)は trap より前に置く
+# (bash は関数を定義の行を実行したときに作るので、後ろに置くと trap から呼べない)。
+# 送れなかったものは WARN を出して 1 を返すだけで、ジョブの終了コードは変えない。
+# 知らせるもの(タイトルが重複を避ける鍵なので、原因ごとに分ける):
+#   - この run の失敗
+#   - 前の成功が 1 周期より古い(起動時に MISSED_DAYS に読んだもの)
+#   - ループの PR が HARNESS_HEALTH_STALE_PR_DAYS 日以上開いたまま(PR ごと)
+#   - PR にならないまま origin/main に無い commit を持つ、7 日以上前の日付のループのブランチ(ブランチごと)。
+#     採用の記録が残る run は finish_run が失敗させるが、陳腐化の修正だけの commit は記録を残さないので、
+#     この判定でしか見つからない。PR があれば(手動の review が残したブランチや squash マージ)知らせない
+# 本文の `…` は Markdown のコードスパンで、~ と $(id -u) は人が貼り付けて実行するコマンドの一部なので展開しない
+# shellcheck disable=SC2016,SC2088
+report_stops() { # <この run の終了コード>
+    local status=$1 failed=0 reported_failure=0 failed_issue="" log remedy prs stale number url days branches branch count pr_count repo cutoff
+    log='~/Library/Logs/harness-weekly.log'
+    remedy='launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
+    if [[ "$status" -ne 0 ]]; then
+        if alert_issue "$FAILED_TITLE" "$(printf '週次ジョブ(harness-weekly.sh)が失敗し、heartbeat を書かなかった。\n\n- 日時: %s\n- run: `session=%s`\n- 終了コード: %s\n\n対処:\n\n1. ターミナルで `%s` の `session=%s` の run を読み、失敗を知らせる `harness-weekly:` の行の手順に従う\n2. 直したら、ターミナルから `%s` で再実行する\n3. 成功したらこの Issue を閉じる(閉じるまで、次の失敗はこの Issue へのコメントになる)\n' \
+            "$(date '+%Y-%m-%d %H:%M')" "$SESSION_ID" "$status" "$log" "$SESSION_ID" "$remedy")"; then
+            reported_failure=1
+        else
+            failed=1
+        fi
+    fi
+    # lib を読み込む前に終わった run では、ここから後の判定を使えない
+    declare -F harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || return "$failed"
+    # 失敗した run と、失敗した週の後の run は、前の成功も古い。同じ停止を別の Issue にしないのは、
+    # 失敗の Issue が前の成功より後の失敗を知らせているときだけにする:
+    #   - この run の失敗を知らせた: 一覧を引き直さない(作った直後の Issue は一覧に出ないことがある)
+    #   - 開いている失敗の Issue が前の成功より後に更新された(失敗した run がコメントを足している)
+    # 前の成功より前から閉じ忘れで開いている失敗の Issue は、その後の停止を知らせていないので抑止しない
+    if [[ -z "${MISSED_DAYS:-}" ]]; then
+        :
+    elif [[ "$reported_failure" == 1 ]]; then
+        printf 'harness-weekly: last success was %s days ago; the failure issue of this run reports it\n' "$MISSED_DAYS"
+    elif ! failed_issue=$(open_issue "$FAILED_TITLE"); then
+        printf 'harness-weekly: WARN could not check for an open "%s" issue\n' "$FAILED_TITLE" >&2
+        failed=1
+    elif [[ -n "$failed_issue" && "${failed_issue#*$'\t'}" -gt "${LAST_SUCCESS:-0}" ]]; then
+        printf 'harness-weekly: last success was %s days ago; issue #%s already reports the failures\n' "$MISSED_DAYS" "${failed_issue%%$'\t'*}"
+    else
+        alert_issue "harness: 週次ジョブが ${HARNESS_HEALTH_WEEKLY_STALE_DAYS} 日以上成功していなかった" "$(printf '週次ジョブの前の成功が %s 日前だった。その間の週は、ジョブが起動しなかったか失敗した。この run(`session=%s`)の起動時に見つけた。\n\n対処:\n\n1. 失敗の Issue(`harness: 週次ジョブが失敗した`)が開いていれば、先にそちらを読む\n2. 無ければ launchd が起動していない。ターミナルで `launchctl print gui/$(id -u)/local.dotfiles.harness-weekly` の `runs` と `last exit code` を見る。ラベルが無ければ `chezmoi apply` で登録し直す\n3. `%s` に start の行が無い週は、その時刻に Mac が止まっていたか、nono の起動に失敗している\n4. 原因が分かったらこの Issue を閉じる\n' \
+            "$MISSED_DAYS" "$SESSION_ID" "$log")" || failed=1
+    fi
+
+    if prs=$(cd "$REPO" && gh pr list --state open --limit 100 --json number,url,headRefName,createdAt) &&
+        stale=$(harness_health_stale_prs "$(date +%s)" "$LOOP_BRANCH_PREFIX" <<<"$prs"); then
+        while IFS=$'\t' read -r number url days; do
+            [[ -n "$number" ]] || continue
+            alert_issue "harness: ループの PR #${number} が ${HARNESS_HEALTH_STALE_PR_DAYS} 日以上放置されている" "$(printf 'ループの PR %s が作られてから %s 日、マージもクローズもされていない。承認が止まっている間、ループの変更は効かない。\n\n対処(どちらか):\n\n- 採用する: レビューし、draft なら `gh pr ready %s` で draft を外してから、マージする\n- 採用しない: `gh pr close %s` で閉じる\n\nPR が開いていなくなったら、この Issue を閉じる(開いている間は毎週コメントが付く)。\n' \
+                "$url" "$days" "$number" "$number")" || failed=1
+        done <<<"$stale"
+    else
+        printf 'harness-weekly: WARN could not list the open PRs to find loop PRs left for %s days\n' "$HARNESS_HEALTH_STALE_PR_DAYS" >&2
+        failed=1
+    fi
+
+    # 前の週から残ったブランチだけを見る(その日の run と、手動の review がまだ公開していないものを除く)。
+    # 基準日は今日の 7 日前で固定なので、前の週の run がスリープ明けなどで遅れて走ったブランチは、
+    # 今週は外れて次の週に知らせる(1 週遅れる)。基準日を近づけると作業中の手動の review を知らせてしまう
+    if cutoff=$(jq -rn --argjson epoch "$(($(date +%s) - 7 * 86400))" '$epoch | localtime | strftime("%Y-%m-%d")') &&
+        branches=$(harness_health_unpublished_loop_branches "$REPO" "$LOOP_BRANCH_PREFIX" "$cutoff"); then
+        repo=$(home_relative "$REPO")
+        while IFS=$'\t' read -r branch count; do
+            [[ -n "$branch" ]] || continue
+            # 採用の記録が残るブランチは finish_run がジョブを失敗させ、失敗の Issue が知らせる
+            # (記録の形は finish_run と同じ。PR の URL で置き換わる前の adopted (<ブランチ> …))
+            if [[ -f "$ARCHIVE" ]] && grep -qF -e "adopted ($branch)" -e "adopted ($branch run " "$ARCHIVE"; then
+                printf 'harness-weekly: %s has an adopted verdict in %s; the failure issue reports it\n' "$branch" "$ARCHIVE"
+                continue
+            fi
+            pr_count=$(cd "$REPO" && gh pr list --head "$branch" --state all --json number --jq length) || {
+                printf 'harness-weekly: WARN could not check whether %s has a PR\n' "$branch" >&2
+                failed=1
+                continue
+            }
+            if [[ "$pr_count" != 0 ]]; then
+                # PR になったブランチ(squash マージを含む)は残っている限り毎週照会されるので、消し方を残す
+                printf 'harness-weekly: %s already has a PR; delete it with git -C %s branch -D %s to stop checking it\n' "$branch" "$REPO" "$branch"
+                continue
+            fi
+            alert_issue "harness: ループのブランチ ${branch} が PR になっていない" "$(printf 'ループのブランチ `%s` が、PR にならないまま `%s` に残っている(origin/main に無い commit: %s 件)。週次ジョブはこのブランチを公開しない。\n\n対処(どちらか):\n\n- 公開する: `git -C %s push origin %s` の後に、`%s` で `gh pr create --draft --base main --head %s`\n- 要らなければ消す: `git -C %s branch -D %s`\n\nどちらかをしたら、この Issue を閉じる。\n' \
+                "$branch" "$repo" "$count" "$repo" "$branch" "$repo" "$branch" "$repo" "$branch")" || failed=1
+        done <<<"$branches"
+    else
+        printf 'harness-weekly: WARN could not list the loop branches in %s (is origin/main fetched?)\n' "$REPO" >&2
+        failed=1
+    fi
+    return "$failed"
+}
+
 cleanup() {
     local status=$?
     strip_job_sessions || true
+    # report_stops の gh はネットワークを待ち、タイムアウトを持たない(macOS に timeout が無い)。固まっても
+    # lock を握ったままにしないよう、lock は先に解放する。固まったプロセスが残る間は launchd が次の週を
+    # 起動しないことは防げない(end の行が出ないことで分かる)
     rm -rf "$LOCK"
+    report_stops "$status" ||
+        printf 'harness-weekly: WARN could not report every stop as a GitHub Issue (see the lines above)\n' >&2
     printf 'harness-weekly: end %s session=%s exit=%s pending=%s->%s\n' \
         "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$status" "$PENDING_BEFORE" "$(count_pending)"
 }
@@ -206,11 +356,33 @@ REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
 # Deploy-only Fix の報告先。PR の有無にかかわらず日付付きで追記し、空でない間は
 # briefing が警告する(人が適用したら消す)
 DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
-BRANCH="harness/review-$REVIEW_DATE"
+# ループのブランチの prefix。正本は scripts/check-evaluator-guard.sh(CI はこの prefix でループの PR を見分ける)
+LOOP_BRANCH_PREFIX="harness/review-"
+BRANCH="${LOOP_BRANCH_PREFIX}${REVIEW_DATE}"
 # 選別に書かせる採用の記録。run ごとの印(選別の session id)を入れるのは、同じ日の前の run が
 # 失敗して残した adopted (<ブランチ> …) を、今回の PR の URL で上書きしないため(record_pr_url)。
 # 前の run の記録は残り、finish_run が知らせる
 ADOPTED_MARK="adopted ($BRANCH run $REVIEW_SESSION_ID)"
+
+# 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)は健全性の lib にある。
+# 読めなければ失敗する。失敗の Issue は EXIT trap が lib に依らずに作る(report_stops)。
+# 素の source は、無い・構文エラー・空の lib で黙って落ちるので、briefing と同じ順に確かめる
+HEALTH_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/harness-health.bash"
+if [[ ! -r "$HEALTH_LIB" ]] || ! "$BASH" -n "$HEALTH_LIB" 2>/dev/null; then
+    printf 'harness-weekly: %s is missing or broken; run chezmoi apply\n' "$HEALTH_LIB" >&2
+    exit 1
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/harness-health.bash
+source "$HEALTH_LIB"
+declare -F harness_health_heartbeat_epoch harness_health_missed_run_days harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || {
+    printf 'harness-weekly: %s lacks the stop checks; run chezmoi apply\n' "$HEALTH_LIB" >&2
+    exit 1
+}
+# heartbeat はこの run が成功すると書き換わるので、起動時に読む
+MISSED_DAYS=$(harness_health_missed_run_days)
+# 前の成功の時刻。失敗の Issue がそれより後に更新されていれば、走らなかった週はその Issue が知らせている
+LAST_SUCCESS=$(harness_health_heartbeat_epoch) || LAST_SUCCESS=""
 
 # headless の claude を 1 回起動し、結果をログに残してから成否を返す。
 # 非 0 で終わっても結果(費用・エラーの種類)を先に出す。予算の上限などで止まった run も

@@ -146,3 +146,102 @@ weekly() {
     assert_success
     assert_output ''
 }
+
+# 週次ジョブが Issue で知らせる停止の判定(#402)。送るのはジョブで、lib は判定だけを持つ
+
+@test "前の成功が 1 周期(8 日)より古ければ、その日数を出す(次の run の起動時に、走らなかった週を知らせる)" {
+    heartbeat_days_ago 9
+    source "$LIB"
+    run harness_health_missed_run_days
+    assert_success
+    assert_output 9
+}
+
+@test "前の成功が 7 日前なら、走らなかった週として出さない" {
+    heartbeat_days_ago 7
+    source "$LIB"
+    run harness_health_missed_run_days
+    assert_success
+    assert_output ''
+}
+
+@test "heartbeat が無い・数値でないときは、走らなかった週として出さない(初回か、briefing が別に知らせる)" {
+    source "$LIB"
+    run harness_health_missed_run_days
+    assert_success
+    assert_output ''
+    printf 'oops\n' >"$HDIR/weekly-heartbeat"
+    run harness_health_missed_run_days
+    assert_success
+    assert_output ''
+}
+
+iso_days_ago() {
+    jq -rn --argjson e "$(($(date +%s) - $1 * 86400))" '$e | todate'
+}
+
+@test "ループのブランチの PR のうち、作られてから 14 日以上経ったものを番号・URL・日数で出す" {
+    source "$LIB"
+    prs=$(jq -n --arg old "$(iso_days_ago 15)" --arg fresh "$(iso_days_ago 13)" '[
+        {number: 1, url: "https://github.com/o/r/pull/1", headRefName: "harness/review-2026-09-01", createdAt: $old},
+        {number: 2, url: "https://github.com/o/r/pull/2", headRefName: "harness/review-2026-09-03", createdAt: $fresh},
+        {number: 3, url: "https://github.com/o/r/pull/3", headRefName: "feature/x", createdAt: $old}
+    ]')
+    run harness_health_stale_prs "$(date +%s)" harness/review- <<<"$prs"
+    assert_success
+    assert_output "$(printf '1\thttps://github.com/o/r/pull/1\t15')"
+}
+
+@test "放置された PR が無ければ何も出さない" {
+    source "$LIB"
+    run harness_health_stale_prs "$(date +%s)" harness/review- <<<'[]'
+    assert_success
+    assert_output ''
+}
+
+@test "PR の一覧が JSON として読めなければ失敗を返す" {
+    source "$LIB"
+    run harness_health_stale_prs "$(date +%s)" harness/review- <<<'not json'
+    assert_failure
+}
+
+loop_repo() {
+    export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
+    export GIT_CONFIG_SYSTEM=/dev/null
+    printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
+        >"$GIT_CONFIG_GLOBAL"
+    REPO="$BATS_TEST_TMPDIR/repo"
+    git init -q --bare "$BATS_TEST_TMPDIR/origin.git"
+    git clone -q "$BATS_TEST_TMPDIR/origin.git" "$REPO" 2>/dev/null
+    git -C "$REPO" commit -q --allow-empty -m init
+    git -C "$REPO" push -q origin main
+}
+
+
+@test "ループのブランチのうち、基準日以前の日付で origin/main に無い commit を持つものを、ブランチ名と件数で出す" {
+    loop_repo
+    git -C "$REPO" switch -q -c harness/review-2026-09-01
+    git -C "$REPO" commit -q --allow-empty -m a
+    git -C "$REPO" commit -q --allow-empty -m b
+    git -C "$REPO" switch -q -c harness/review-2026-09-08 main
+    git -C "$REPO" switch -q -c harness/review-2026-09-15 main
+    git -C "$REPO" commit -q --allow-empty -m today
+    git -C "$REPO" switch -q -c harness/review-2026-09-09 main
+    git -C "$REPO" commit -q --allow-empty -m yesterday-of-cutoff
+    git -C "$REPO" switch -q -c harness/review-manual main
+    git -C "$REPO" commit -q --allow-empty -m not-a-date
+    git -C "$REPO" switch -q -c feature/x main
+    git -C "$REPO" commit -q --allow-empty -m other
+    source "$LIB"
+    run harness_health_unpublished_loop_branches "$REPO" harness/review- 2026-09-08
+    assert_success
+    assert_output "$(printf 'harness/review-2026-09-01\t2')"
+}
+
+@test "origin/main が無ければ、判定できないので失敗を返す" {
+    loop_repo
+    git -C "$REPO" update-ref -d refs/remotes/origin/main
+    source "$LIB"
+    run harness_health_unpublished_loop_branches "$REPO" harness/review- 2026-09-08
+    assert_failure
+}
