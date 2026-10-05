@@ -190,7 +190,8 @@ alert_issue() { # <タイトル> <本文>
     fi
     number=${issue%%$'\t'*}
     if [[ -n "$number" ]]; then
-        if (cd "$REPO" && gh issue comment "$number" --body "$(printf '再発した。\n\n%s' "$body")") >/dev/null; then
+        # 失敗の再発だけでなく、放置された PR やブランチのように同じ状態が続いている場合もあるので「再発」とは書かない
+        if (cd "$REPO" && gh issue comment "$number" --body "$(printf 'この run でも検出した。\n\n%s' "$body")") >/dev/null; then
             printf 'harness-weekly: commented on issue #%s (%s)\n' "$number" "$title"
             return 0
         fi
@@ -272,7 +273,9 @@ report_stops() { # <この run の終了コード>
         failed=1
     fi
 
-    # 前の週から残ったブランチだけを見る(その日の run と、手動の review がまだ公開していないものを除く)
+    # 前の週から残ったブランチだけを見る(その日の run と、手動の review がまだ公開していないものを除く)。
+    # 基準日は今日の 7 日前で固定なので、前の週の run がスリープ明けなどで遅れて走ったブランチは、
+    # 今週は外れて次の週に知らせる(1 週遅れる)。基準日を近づけると作業中の手動の review を知らせてしまう
     if cutoff=$(jq -rn --argjson epoch "$(($(date +%s) - 7 * 86400))" '$epoch | localtime | strftime("%Y-%m-%d")') &&
         branches=$(harness_health_unpublished_loop_branches "$REPO" "$LOOP_BRANCH_PREFIX" "$cutoff"); then
         repo=$(home_relative "$REPO")
@@ -307,9 +310,12 @@ report_stops() { # <この run の終了コード>
 cleanup() {
     local status=$?
     strip_job_sessions || true
+    # report_stops の gh はネットワークを待ち、タイムアウトを持たない(macOS に timeout が無い)。固まっても
+    # lock を握ったままにしないよう、lock は先に解放する。固まったプロセスが残る間は launchd が次の週を
+    # 起動しないことは防げない(end の行が出ないことで分かる)
+    rm -rf "$LOCK"
     report_stops "$status" ||
         printf 'harness-weekly: WARN could not report every stop as a GitHub Issue (see the lines above)\n' >&2
-    rm -rf "$LOCK"
     printf 'harness-weekly: end %s session=%s exit=%s pending=%s->%s\n' \
         "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$status" "$PENDING_BEFORE" "$(count_pending)"
 }

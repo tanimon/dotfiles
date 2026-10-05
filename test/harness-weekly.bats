@@ -154,6 +154,7 @@ EOF
 #!/usr/bin/env bash
 if [[ "$1" == issue || "$*" == *createdAt* || "$*" == *'--json number '* ]]; then
     printf '%s\n' "$*" >>"$ALERT_LOG"
+    [[ ! -d "$HOME/.claude/harness/weekly.lock" ]] || printf 'lock held during: %s\n' "$*" >>"$ALERT_LOG"
     [[ -z "${STUB_GH_ALERT_FAIL:-}" ]] || exit 1
     case "$1 $2" in
     'issue list') printf '%s\n' "${STUB_GH_ISSUES-[]}" ;;
@@ -1276,6 +1277,23 @@ FAILED_TITLE='harness: 週次ジョブが失敗した'
     assert_line --partial 'issue list --label harness-analysis --state open '
     assert_line --regexp '^issue comment 7 '
     refute_line --partial 'issue create'
+}
+
+@test "停止を知らせる gh の呼び出しは lock を解放してから行う(gh が固まっても lock を握ったままにしない)" {
+    STUB_CLAUDE_MODE=exit1 run weekly
+    assert_failure
+    run cat "$ALERT_LOG"
+    assert_line --partial 'issue create'
+    refute_line --partial 'lock held during:'
+}
+
+@test "Issue へのコメントは再発とは書かず、この run でも検出したと書く" {
+    export STUB_GH_ISSUES='[{"number":7,"title":"harness: 週次ジョブが失敗した","updatedAt":"2026-01-01T00:00:00Z"}]'
+    STUB_CLAUDE_MODE=exit1 run weekly
+    assert_failure
+    run cat "$ALERT_BODIES"
+    assert_output --partial 'この run でも検出した。'
+    refute_output --partial '再発した。'
 }
 
 @test "Issue を作れなくても、ジョブの終了コードと後片付けは変わらない" {
