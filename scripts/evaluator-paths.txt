@@ -29,6 +29,9 @@ justfile
 # 入口スクリプト自身がその名前でブランチを切って push する
 dot_claude/skills/harness-review/SKILL.md
 dot_claude/scripts/executable_harness-weekly.sh
+# 週次ジョブが読み込む健全性の lib。停止を Issue で知らせる判定(PR の放置・PR にならないブランチ・
+# 走らなかった週)を書き換えると、ループの停止が知らされなくなる
+dot_claude/scripts/lib/harness-health.bash
 
 # 肥大の歯止め(ADR 0011)。ループが上限を上げる・判定の対象を狭めると、ルールが増え続けても CI が通る
 scripts/instruction-size-limits.txt
