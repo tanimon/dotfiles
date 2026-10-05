@@ -109,8 +109,8 @@ jobs:
   # 最初の step は base 側のガードを just を経由せずに実行する。head 側のスクリプト・
   # justfile・setup-lint を書き換えたループの PR でも、base の判定で落とすため。
   # setup-lint(head 側)より前に置くのは、PATH などを書き換えられる前に走らせるため。
-  # base にガードが無い(導入前の base)ときだけ、この step は判定せずに通る。
-  # base(HEAD^1)そのものを解決できないとき(checkout の深さ不足など)は通さない。
+  # base(HEAD^1)を解決できないとき(checkout の深さ不足など)も、base のガードを
+  # 読めないときも、判定せずに通すことはせず失敗する。
   evaluator-guard:
     name: Evaluator guard
     runs-on: ubuntu-latest
@@ -125,11 +125,10 @@ jobs:
             echo "base (HEAD^1) を解決できないので判定できない" >&2
             exit 2
           fi
-          if ! git cat-file -e 'HEAD^1:scripts/check-evaluator-guard.sh' 2>/dev/null; then
-            echo "base にガードが無いので、base 側の判定は行わない"
-            exit 0
+          if ! git show 'HEAD^1:scripts/check-evaluator-guard.sh' >"$RUNNER_TEMP/check-evaluator-guard.sh"; then
+            echo "base のガード(scripts/check-evaluator-guard.sh)を読めないので判定できない" >&2
+            exit 2
           fi
-          git show 'HEAD^1:scripts/check-evaluator-guard.sh' >"$RUNNER_TEMP/check-evaluator-guard.sh"
           bash "$RUNNER_TEMP/check-evaluator-guard.sh"
       - uses: ./.github/actions/setup-lint
       - run: just check-evaluator-guard
