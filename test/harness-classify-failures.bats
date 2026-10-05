@@ -218,3 +218,9 @@ classify() {
         and all(.[]; .id != "unclassified")' "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-failure-patterns.json"
     assert_success
 }
+
+@test "値の無いオプションは使い方の誤りとして 2 で終わる" {
+    run bash "$SCRIPT" --since 1 --session-id
+    assert_failure 2
+    assert_output --partial 'usage:'
+}

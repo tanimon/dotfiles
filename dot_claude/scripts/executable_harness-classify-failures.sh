@@ -24,9 +24,18 @@ set -euo pipefail
 SINCE="" CLASSIFY_SESSION_ID=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
-    --since) SINCE=${2:-} && shift 2 ;;
-    --session-id) CLASSIFY_SESSION_ID=${2:-} && shift 2 ;;
-    *) SINCE="" && break ;;
+    --since | --session-id)
+        [[ $# -ge 2 ]] || {
+            SINCE=""
+            break
+        }
+        if [[ "$1" == --since ]]; then SINCE=$2; else CLASSIFY_SESSION_ID=$2; fi
+        shift 2
+        ;;
+    *)
+        SINCE=""
+        break
+        ;;
     esac
 done
 if [[ ! "$SINCE" =~ ^[0-9]+$ || -z "$CLASSIFY_SESSION_ID" ]]; then

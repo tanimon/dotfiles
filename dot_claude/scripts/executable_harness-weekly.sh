@@ -498,7 +498,8 @@ append_detection_section() {
 
 # 検出した失敗を Failure Pattern に分類し、この run の週の再発率を記録する。期間は前の週の記録の
 # 終わりから(harness-failure-rates.sh の since)。分類に失敗した週も、失敗したことを記録する
-# (推移では「記録なし」になる)。指標の失敗では run を止めない(WARN だけ)
+# (推移では「記録なし」になる)。分類と記録の失敗では run を止めない(WARN だけ)。記録だけの PR の
+# push や作成の失敗は、採用のある PR と同じく run の失敗にする(publish_metrics_only)
 record_failure_rates() {
     local since classification=ok
     if ! since=$(bash "$FAILURE_RATES" since "$REVIEW_DATE"); then
@@ -690,7 +691,7 @@ publish_metrics_if_due() {
 # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
 # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
-    local base=$1 commits url dropped_count dropped_items
+    local base=$1 commits url dropped_count dropped_items touched
     if ! review_result_valid; then
         printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
             "$REVIEW_RESULT" >&2
@@ -727,7 +728,8 @@ publish_review() {
         printf 'harness-weekly: review made %s commit(s) but wrote no PR body; no PR created\n' "$commits" >&2
         return 1
     fi
-    if [[ -n "$(git -C "$WORKTREE" diff --name-only "$base" HEAD -- "$RATES_REPO_DIR")" ]]; then
+    touched=$(git -C "$WORKTREE" diff --name-only "$base" HEAD -- "$RATES_REPO_DIR") || return 1
+    if [[ -n "$touched" ]]; then
         printf 'harness-weekly: review commits touched %s (only this job writes the weekly failure rate records); no PR created\n' \
             "$RATES_REPO_DIR" >&2
         return 1

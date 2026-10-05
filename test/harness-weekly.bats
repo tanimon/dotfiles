@@ -18,7 +18,8 @@ setup() {
     load 'helpers/exec-cache'
     # スクリプトが読む環境変数を、このマシンのシェルから漏らさない
     unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS \
-        HARNESS_WEEKLY_REVIEW_BUDGET_USD HARNESS_WEEKLY_REPO
+        HARNESS_WEEKLY_REVIEW_BUDGET_USD HARNESS_WEEKLY_REPO \
+        HARNESS_CLASSIFY_BUDGET_USD HARNESS_CLASSIFY_MAX_ITEMS
     export INSIDE_NONO_SANDBOX=1
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-weekly.sh"
     export HOME="$BATS_TEST_TMPDIR/home"

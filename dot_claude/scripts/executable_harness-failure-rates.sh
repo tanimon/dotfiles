@@ -59,18 +59,21 @@ rows_in_period() {
 }
 
 cmd_since() {
-    local date=$1 file name previous=""
+    local date=$1 file name previous="" now
     [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
     while IFS= read -r file; do
         [[ -n "$file" ]] || continue
         name=$(basename "$file" .json)
         [[ "$name" < "$date" ]] && previous=$file
     done < <(record_files)
-    if [[ -n "$previous" ]] && jq -e '.until | type == "number"' "$previous" >/dev/null 2>&1; then
-        jq '.until' "$previous"
-    else
-        printf '%s\n' "$(($(date +%s) - 7 * 24 * 60 * 60))"
+    if [[ -z "$previous" ]]; then
+        now=$(date +%s)
+        printf '%s\n' "$((now - 7 * 24 * 60 * 60))"
+        return 0
     fi
+    # 前の週の記録が読めないときに直近 7 日へ戻すと、期間が前の記録と重なって二重に数える
+    jq -e '.until | numbers' "$previous" 2>/dev/null || fail "cannot read .until from $previous"
+
 }
 
 cmd_record() {
@@ -79,8 +82,11 @@ cmd_record() {
     [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
     while [[ $# -gt 0 ]]; do
         case "$1" in
-        --since) since=${2:-} && shift 2 ;;
-        --classification) status=${2:-} && shift 2 ;;
+        --since | --classification)
+            [[ $# -ge 2 ]] || usage
+            if [[ "$1" == --since ]]; then since=$2; else status=$2; fi
+            shift 2
+            ;;
         *) usage ;;
         esac
     done
@@ -118,7 +124,7 @@ cmd_trend() {
         usage
     fi
     [[ "$weeks" =~ ^[1-9][0-9]*$ ]] || usage
-    ids=$(jq -c '[.patterns[].id]' "$PATTERNS" 2>/dev/null) || ids="[]"
+    ids=$(jq -c '[.patterns[].id]' "$PATTERNS") || fail "cannot read the Failure Pattern list $PATTERNS"
     while IFS= read -r file; do
         [[ -n "$file" ]] || continue
         records=$(jq -c --slurpfile record "$file" '. + $record' <<<"$records") || fail "cannot read $file"

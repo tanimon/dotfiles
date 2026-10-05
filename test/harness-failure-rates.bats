@@ -130,3 +130,17 @@ week_record() {
     assert_success
     assert_line '| 未分類 | - |'
 }
+
+@test "前の週の記録が読めなければ、直近 7 日に戻さずに失敗する" {
+    mkdir -p "$RATES"
+    printf 'broken\n' >"$RATES/2026-10-03.json"
+    run bash "$SCRIPT" since "$TODAY"
+    assert_failure
+    assert_output --partial 'cannot read .until'
+}
+
+@test "値の無いオプションは使い方の誤りとして 2 で終わる" {
+    run bash "$SCRIPT" record "$TODAY" --since
+    assert_failure 2
+    assert_output --partial 'usage:'
+}
