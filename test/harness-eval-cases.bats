@@ -3,7 +3,7 @@
 # 偽の $HOME にスクリプトと eval 専用 plugin の雛形を本来の配置先(~/.claude/scripts/)へ置き、出典の
 # transcript は合成の fixture を ~/.claude/projects/ の下に置く。claude は PATH 上のスタブで、引数を
 # $ARGV_LOG に 1 行で写し、--json の先に test/fixtures/harness-eval-cases/ の結果を書く。どの結果を
-# 書くかは STUB_EVAL_<ケースの通し番号>(例: STUB_EVAL_01=ceiling)か、無ければ STUB_EVAL(既定 effective)。
+# 書くかは STUB_EVAL_<何回目の起動か>(例: STUB_EVAL_02=ceiling)か、無ければ STUB_EVAL(既定 effective)。
 # STUB_EVAL_EXIT で終了コードを変える。
 bats_require_minimum_version 1.5.0
 
@@ -46,8 +46,8 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 [[ ! -e source.jsonl ]] || printf 'source.jsonl in the staging copy\n' >>"$ARGV_LOG"
-case_id=$(ls evals)
-var="STUB_EVAL_${case_id##*-}"
+calls=$(grep -c '^plugin eval' "$ARGV_LOG")
+var=$(printf 'STUB_EVAL_%02d' "$calls")
 fixture=${!var:-${STUB_EVAL:-effective}}
 cp "$FIXTURES/$fixture.json" "$json"
 exit "${STUB_EVAL_EXIT:-0}"
@@ -66,6 +66,11 @@ rule_case() { # <title> [session] [追加のキー(JSON)]
         prompt: "区切り線を出すコマンドを 1 行で", graders: [{name: "uses-dev-zero", type: "regex", pattern: "/dev/zero"}]} + ($extra // {})'
 }
 
+# ケースの id(日付と title のハッシュ)
+id_of() {
+    printf '%s-%s\n' "$DATE" "$(printf '%s' "$1" | shasum -a 256 | cut -c1-8)"
+}
+
 run_eval() {
     run --separate-stderr bash "$SCRIPT" run --requests "$REQUESTS" --date "$DATE" --out "$OUT"
 }
@@ -74,37 +79,41 @@ run_eval() {
     requests "$(rule_case '[2026-10-09] A を守る')" "$(rule_case '[2026-10-09] B を守る' "$SID_B")"
     run_eval
     assert_success
-    for n in 01 02; do
-        dir="$HDIR/evals/$DATE-$n"
+    id1=$(id_of '[2026-10-09] A を守る')
+    id2=$(id_of '[2026-10-09] B を守る')
+    for id in "$id1" "$id2"; do
+        dir="$HDIR/evals/$id"
         assert [ -f "$dir/.claude-plugin/plugin.json" ]
         assert [ -f "$dir/hooks/hooks.json" ]
-        assert [ -f "$dir/evals/$DATE-$n/case.yaml" ]
+        assert [ -f "$dir/evals/$id/case.yaml" ]
     done
-    cmp "$HDIR/evals/$DATE-01/source.jsonl" "$PROJECTS/$SID_A.jsonl"
-    cmp "$HDIR/evals/$DATE-02/source.jsonl" "$PROJECTS/$SID_B.jsonl"
+    cmp "$HDIR/evals/$id1/source.jsonl" "$PROJECTS/$SID_A.jsonl"
+    cmp "$HDIR/evals/$id2/source.jsonl" "$PROJECTS/$SID_B.jsonl"
     # ルール本文は with の側に注入する SessionStart の additionalContext になる
-    run jq -r '.hookSpecificOutput | "\(.hookEventName) \(.additionalContext)"' "$HDIR/evals/$DATE-01/hooks/rule.json"
+    run jq -r '.hookSpecificOutput | "\(.hookEventName) \(.additionalContext)"' "$HDIR/evals/$id1/hooks/rule.json"
     assert_output 'SessionStart 区切り線は head -c N /dev/zero | tr "\\0" <文字> で作る'
-    run jq -c '{name, prompt: .execution.prompt, graders}' "$HDIR/evals/$DATE-01/evals/$DATE-01/case.yaml"
-    assert_output "{\"name\":\"$DATE-01\",\"prompt\":\"区切り線を出すコマンドを 1 行で\",\"graders\":[{\"name\":\"uses-dev-zero\",\"type\":\"regex\",\"weight\":1,\"pattern\":\"/dev/zero\",\"target\":\"last_message\",\"match\":\"contains\",\"flags\":\"\"}]}"
+    run jq -c '{name, prompt: .execution.prompt, graders}' "$HDIR/evals/$id1/evals/$id1/case.yaml"
+    assert_output "{\"name\":\"$id1\",\"prompt\":\"区切り線を出すコマンドを 1 行で\",\"graders\":[{\"name\":\"uses-dev-zero\",\"type\":\"regex\",\"weight\":1,\"pattern\":\"/dev/zero\",\"target\":\"last_message\",\"match\":\"contains\",\"flags\":\"\"}]}"
 }
 
 @test "評価の起動は固定の引数で行い、発行せず、閾値で失敗させない" {
     requests "$(rule_case '[2026-10-09] A を守る')"
     run_eval
     assert_success
+    id=$(id_of '[2026-10-09] A を守る')
     run cat "$ARGV_LOG"
-    assert_output "plugin eval . --ablation with-without --no-publish --trust-plugin --threshold 0 --runs 2 --max-cost-usd 5 --json $HARNESS_EVAL_WORK_DIR/$DATE-01/result.json"
+    assert_output "plugin eval . --ablation with-without --no-publish --trust-plugin --threshold 0 --runs 2 --max-cost-usd 5 --json $HARNESS_EVAL_WORK_DIR/$id/result.json"
     # 評価は作業用の写しで走り、結果は実体の側に戻って写しは消える
-    assert [ -f "$HDIR/evals/$DATE-01/result.json" ]
-    assert [ ! -e "$HARNESS_EVAL_WORK_DIR/$DATE-01" ]
+    assert [ -f "$HDIR/evals/$id/result.json" ]
+    assert [ ! -e "$HARNESS_EVAL_WORK_DIR/$id" ]
 }
 
 @test "依頼が run 数・ターン数・発行を決めようとしても、スクリプトの値が使われる" {
     requests "$(rule_case '[2026-10-09] A を守る' "$SID_A" '{"runs": 50, "max_turns": 200, "publish": true}')"
     run_eval
     assert_success
-    run jq -c '.execution | {max_turns, timeout_seconds}' "$HDIR/evals/$DATE-01/evals/$DATE-01/case.yaml"
+    id=$(id_of '[2026-10-09] A を守る')
+    run jq -c '.execution | {max_turns, timeout_seconds}' "$HDIR/evals/$id/evals/$id/case.yaml"
     assert_output '{"max_turns":10,"timeout_seconds":300}'
     refute grep -q -- '--runs 50' "$ARGV_LOG"
     refute grep -q -- '--publish' "$ARGV_LOG"
@@ -188,7 +197,7 @@ run_eval() {
     assert_success
     run jq -c '.cases | map(.reason)' "$OUT"
     assert_output '["transcript_missing","transcript_missing"]'
-    assert [ ! -e "$HDIR/evals/$DATE-02/source.jsonl" ]
+    assert [ ! -e "$HDIR/evals/$(id_of '[2026-10-09] symlink')/source.jsonl" ]
     assert [ ! -e "$ARGV_LOG" ]
 }
 
@@ -210,9 +219,10 @@ run_eval() {
     assert_success
     run head -n 1 "$PROJECTS/$SID_A.jsonl"
     expected=$output
-    run cat "$HDIR/evals/$DATE-01/evals/$DATE-01/history.jsonl"
+    id=$(id_of '[2026-10-09] 履歴')
+    run cat "$HDIR/evals/$id/evals/$id/history.jsonl"
     assert_output "$expected"
-    run jq -r '.context.history_file' "$HDIR/evals/$DATE-01/evals/$DATE-01/case.yaml"
+    run jq -r '.context.history_file' "$HDIR/evals/$id/evals/$id/case.yaml"
     assert_output history.jsonl
     run jq -c '.cases | map(.status)' "$OUT"
     assert_output '["evaluated","not_evaluated"]'
@@ -253,8 +263,8 @@ run_eval() {
     run --separate-stderr bash "$SCRIPT" section --results "$OUT" --adopted "$BATS_TEST_TMPDIR/adopted.txt"
     assert_success
     assert_line '## ルールの効果'
-    assert_line "| [2026-10-09] 効く \| 1 | \`$DATE-01\` | 1 | 0 | +1 | 有効 |"
-    assert_line "| [2026-10-09] 天井 | \`$DATE-02\` | 1 | 1 | - | 無効(ルールの無い側で失敗が再現しない) |"
+    assert_line "| [2026-10-09] 効く \| 1 | \`$(id_of '[2026-10-09] 効く | 1')\` | 1 | 0 | +1 | 有効 |"
+    assert_line "| [2026-10-09] 天井 | \`$(id_of '[2026-10-09] 天井')\` | 1 | 1 | - | 無効(ルールの無い側で失敗が再現しない) |"
     assert_line '- [2026-10-09] 書けない: 再現できない'
     assert_line '- [2026-10-09] 上限'
     assert_line '### 評価も免除の理由も無い採用'
@@ -264,9 +274,49 @@ run_eval() {
 @test "節は評価できなかったケースを固定の文言で書き、エラー文を載せない" {
     requests "$(rule_case '[2026-10-09] Bash' "$SID_A" '{"allowed_tools": ["Bash"]}')"
     STUB_EVAL=bash-preflight run_eval
+    assert_success
     run --separate-stderr bash "$SCRIPT" section --results "$OUT"
     assert_success
-    assert_line "| [2026-10-09] Bash | \`$DATE-01\` | - | - | - | 評価できなかった(Bash を許可する評価が事前確認で止まった) |"
+    assert_line "| [2026-10-09] Bash | \`$(id_of '[2026-10-09] Bash')\` | - | - | - | 評価できなかった(Bash を許可する評価が事前確認で止まった) |"
     refute_output --partial 'ENOENT'
     refute_output --partial '評価も免除の理由も無い採用'
+}
+
+@test "件数の上限を超えたケースも、出典の transcript の実体はコピーする" {
+    requests "$(rule_case '[2026-10-09] 1')" "$(rule_case '[2026-10-09] 2')"
+    HARNESS_EVAL_MAX_CASES=1 run_eval
+    assert_success
+    cmp "$HDIR/evals/$(id_of '[2026-10-09] 2')/source.jsonl" "$PROJECTS/$SID_A.jsonl"
+    run jq -c '.over_cap' "$OUT"
+    assert_output '["[2026-10-09] 2"]'
+}
+
+@test "同じ日の再実行で、別のルールのケースの実体を上書きしない" {
+    requests "$(rule_case '[2026-10-09] 1')"
+    run_eval
+    requests "$(rule_case '[2026-10-09] 2' "$SID_B")"
+    run_eval
+    assert_success
+    cmp "$HDIR/evals/$(id_of '[2026-10-09] 1')/source.jsonl" "$PROJECTS/$SID_A.jsonl"
+    cmp "$HDIR/evals/$(id_of '[2026-10-09] 2')/source.jsonl" "$PROJECTS/$SID_B.jsonl"
+}
+
+@test "整数でない history_lines の依頼は評価しない" {
+    requests "$(rule_case '[2026-10-09] 小数' "$SID_A" '{"history_lines": 1.5}')" \
+        "$(rule_case '[2026-10-09] 1.0' "$SID_A" '{"history_lines": 1.0}')"
+    run_eval
+    assert_success
+    run jq -c '.cases | map(.reason)' "$OUT"
+    assert_output '["bad_request","bad_request"]'
+}
+
+@test "ケースを作る途中で失敗したら、評価を起動せずに評価できなかったとする" {
+    requests "$(rule_case '[2026-10-09] 1')"
+    # 出典の transcript を読めない(コピーが失敗する)
+    chmod 000 "$PROJECTS/$SID_A.jsonl"
+    run_eval
+    assert_success
+    run jq -c '.cases | map(.reason)' "$OUT"
+    assert_output '["setup_failed"]'
+    assert [ ! -e "$ARGV_LOG" ]
 }

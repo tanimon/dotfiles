@@ -356,8 +356,7 @@ REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
 # Deploy-only Fix の報告先。PR の有無にかかわらず日付付きで追記し、空でない間は
 # briefing が警告する(人が適用したら消す)
 DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
-# 採用したルールの Eval Case の依頼。選別に書かせ、harness-eval-cases.sh が評価して結果を書く(ADR 0011)。
-# 依頼が決めるのはルール・プロンプト・grader・出典・免除の理由だけで、評価の条件はスクリプトが固定で決める
+# 採用したルールの Eval Case の依頼。選別に書かせ、harness-eval-cases.sh が評価して結果を書く(ADR 0011)
 EVAL_CASES="$HOME/.claude/scripts/harness-eval-cases.sh"
 EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
 EVAL_RESULTS="$HARNESS_DIR/eval-results-$REVIEW_DATE.json"

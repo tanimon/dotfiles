@@ -1787,10 +1787,11 @@ PRE
     assert_output 1
     run grep '^claude plugin eval' "$ARGV_LOG"
     assert_output --partial '--no-publish'
-    cmp "$HDIR/evals/$TODAY-01/source.jsonl" "$HOME/.claude/projects/-work-repo/$sid.jsonl"
+    id="$TODAY-$(printf '%s' '[2026-10-03] entry' | shasum -a 256 | cut -c1-8)"
+    cmp "$HDIR/evals/$id/source.jsonl" "$HOME/.claude/projects/-work-repo/$sid.jsonl"
     run cat "$GH_BODY"
     assert_line '## ルールの効果'
-    assert_line "| [2026-10-03] entry | \`$TODAY-01\` | 1 | 0 | +1 | 有効 |"
+    assert_line "| [2026-10-03] entry | \`$id\` | 1 | 0 | +1 | 有効 |"
     refute_output --partial '評価も免除の理由も無い採用'
 }
 
