@@ -1203,13 +1203,16 @@ PRE
 @test "検出件数の節を組み立てられなくても PR は作り、節を省く" {
     : >"$HDIR/pending.jsonl"
     seed_queue
-    # pending が空なので選別は記録を読まず、節の組み立てだけが読み取りに失敗する
+    # pending が空なので選別は記録を読まず、節の組み立てと週の再発率の記録が読み取りに失敗する。
+    # 週の記録が欠けるので run は失敗にするが(heartbeat を書かない)、PR は作る
     printf '{}\n' >"$HDIR/detections.jsonl"
     chmod 000 "$HDIR/detections.jsonl"
     run weekly
     chmod 644 "$HDIR/detections.jsonl"
-    assert_success
+    assert_failure
     assert_output --partial 'failed to build the detection counts'
+    assert_output --partial 'opened draft PR'
+    assert_output --partial 'this week has no failure rate record'
     run cat "$GH_BODY"
     refute_output --partial '## 失敗の検出'
 }
@@ -1400,4 +1403,57 @@ PRE
     run cat "$GH_BODY"
     refute_output --partial 'reason'
     assert_output --partial '4 週分たまった'
+}
+
+@test "前の週の記録が読めず期間を決められない週は、週の処理を済ませたうえで失敗し heartbeat を書かない" {
+    mkdir -p "$RATES"
+    printf 'not json\n' >"$RATES/2026-09-26.json"
+    run weekly
+    assert_failure
+    assert_output --partial 'could not decide the period'
+    assert_output --partial 'this week has no failure rate record'
+    assert [ ! -f "$RATES/$TODAY.json" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    # 抽出の claude は起動している(週の処理は止めない)
+    assert [ -f "$ARGV_LOG" ]
+}
+
+@test "claude がローカルの週の記録を書き換えたら、記録を commit せず PR も作らずに失敗する" {
+    seed_queue
+    old_record 2026-09-26
+    cat >"$STUBS/claude-pre" <<'PRE'
+if [[ "$*" == *'harness-review skill'* ]]; then
+    printf '{"date":"2026-09-26","since":0,"until":1,"classification":"ok","patterns":{}}\n' \
+        >"$HOME/.claude/harness/failure-pattern-rates/2026-09-26.json"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'changed after the claude runs started'
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "同じ日の再実行で書き直した記録は、origin/main に同じ日付のファイルがあっても PR に載せる" {
+    seed_queue
+    old_record "$TODAY"
+    commit_on_main "$TODAY"
+    run weekly
+    assert_success
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
+    assert_output "$RATES_REPO_DIR/$TODAY.json"
+}
+
+@test "origin/main にある前の日付の記録は、ローカルの中身が違っても PR に載せない" {
+    seed_queue
+    old_record 2026-09-26
+    commit_on_main 2026-09-26
+    # origin/main の記録を人が直した後の状態(ローカルの古い写しで戻さない)
+    printf '{"date":"2026-09-26","since":0,"until":1,"classification":"ok","patterns":{}}\n' >"$RATES/2026-09-26.json"
+    run weekly
+    assert_success
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
+    assert_output "$RATES_REPO_DIR/$TODAY.json"
 }

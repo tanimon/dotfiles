@@ -16,8 +16,13 @@
 # 週の記録は id と数値だけを持つ(仕事の文脈を含まないので、週次ジョブがリポジトリに commit する)。
 #   sessions        期間に検出器にかけたセッション数(detections.jsonl。失敗の無いセッションを含む)
 #   detections      期間に検出した失敗の件数(detections.jsonl の counts の合計)
-#   classified      期間に分類した失敗の件数(classifications.jsonl)。detections との差は、分類の
-#                   失敗・件数の上限・transcript の欠落で分類しなかった分
+#   classified      期間に分類した失敗の件数(classifications.jsonl)。detections より少ない分は、分類の
+#                   失敗・件数の上限・transcript の欠落で分類しなかった分。分類器は期間内に検出のあった
+#                   セッションの、前の週に分類できなかった失敗もまとめて分類する
+#                   (harness-classify-failures.sh のヘッダ)ので、classified と patterns の occurrences には
+#                   前の週の失敗が入ることがあり、classified が detections を上回ることもある。rate も同じで、
+#                   数えるセッションは期間内に検出のあったものに限られるが、そのセッションをある Failure Pattern
+#                   に当たったと数える根拠の失敗は、期間より前のものでありうる
 #   classification  この run の分類器が成功したか(ok / failed)。failed の週は推移で「記録なし」と書く
 #                   (0% と書くと改善したように読めるため)
 #   patterns        一覧の id と "unclassified" ごとの {occurrences, sessions, rate}。rate はその

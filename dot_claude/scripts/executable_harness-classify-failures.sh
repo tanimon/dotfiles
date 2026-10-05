@@ -5,7 +5,9 @@
 # 対象は ~/.claude/harness/detections.jsonl のうち epoch が --since より後で、失敗のある(counts が
 # 空でない)行のセッション。セッションごとに transcript(~/.claude/projects/*/<session_id>.jsonl)を
 # 検出器にかけ直し、~/.claude/harness/classifications.jsonl にまだ無い失敗(セッション・行・信号の組)
-# だけを、前後の抜粋を添えて claude -p に 1 回で渡す。答えは失敗ごとに一覧の id か "unclassified"
+# だけを、前後の抜粋を添えて claude -p に 1 回で渡す。検出器は transcript の全体にかけるので、同じ
+# セッションの前の週の失敗のうち、分類に失敗したか件数の上限で漏れたものもこの run で分類する(分類の
+# 記録の epoch は分類した時刻なので、再発率ではこの週に数える。harness-failure-rates.sh の classified)。答えは失敗ごとに一覧の id か "unclassified"
 # (一覧に当てはまらない)。一覧への追加は人が別の PR で行う。
 # 答えの形を確かめてから、失敗 1 件につき 1 行
 #   {"session_id","line","signal","pattern","run","epoch"}
@@ -79,10 +81,15 @@ if [[ -f "$LEDGER" ]]; then
             and (.counts | type) == "object" and .counts != {})
         | .session_id | strings' "$LEDGER" | awk '!seen[$0]++')
 fi
-classified_keys="[]"
-if [[ -f "$RECORDS" ]]; then
-    classified_keys=$(jq -R -s -c '[split("\n")[] | (try fromjson catch null) | select(type == "object")
-        | "\(.session_id)\u0000\(.line)\u0000\(.signal)"] | unique' "$RECORDS")
+# 分類済みの失敗のキーを object で持つ(失敗ごとに引くので配列の走査にしない)。classifications.jsonl は
+# 追記されるだけなので、対象のセッションの分だけに絞る
+classified_keys="{}"
+if [[ -f "$RECORDS" && -n "$sessions" ]]; then
+    classified_keys=$(jq -R -s -c --arg sessions "$sessions" '
+        ($sessions | split("\n") | map(select(. != "") | {key: ., value: true}) | from_entries) as $targets
+        | reduce (split("\n")[] | (try fromjson catch null)
+            | select(type == "object" and (.session_id | type) == "string" and $targets[.session_id] == true)) as $r
+            ({}; .["\($r.session_id)\u0000\($r.line)\u0000\($r.signal)"] = true)' "$RECORDS")
 fi
 
 # 検出した行ごとの抜粋。tool_result の行は呼び出したツールの名前と入力を添え、人の発言の行は本文、
@@ -129,7 +136,7 @@ while IFS= read -r session_id; do
     fi
     detections=$(bash "$DETECTOR" "$transcript") || fail "detector failed on session $session_id"
     detections=$(jq -s -c --arg sid "$session_id" --argjson keys "$classified_keys" '
-        map(select(("\($sid)\u0000\(.line)\u0000\(.signal)") as $k | any($keys[]; . == $k) | not)
+        map(select($keys["\($sid)\u0000\(.line)\u0000\(.signal)"] != true)
             | {session_id: $sid, line, signal})' <<<"$detections")
     [[ "$detections" != "[]" ]] || continue
     jq -R -n -c --argjson detections "$detections" "$EXCERPT" "$transcript" >>"$ITEMS" ||

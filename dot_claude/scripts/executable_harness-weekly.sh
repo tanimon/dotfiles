@@ -499,12 +499,17 @@ append_detection_section() {
 
 # 検出した失敗を Failure Pattern に分類し、この run の週の再発率を記録する。期間は前の週の記録の
 # 終わりから(harness-failure-rates.sh の since)。分類に失敗した週も、失敗したことを記録する
-# (推移では「記録なし」になる)。分類と記録の失敗では run を止めない(WARN だけ)。記録だけの PR の
-# push や作成の失敗は、採用のある PR と同じく run の失敗にする(publish_metrics_only)
+# (推移では「記録なし」になる)ので、分類の失敗は WARN だけにする。期間を決められない・記録を
+# 書けない週は記録そのものが欠け、推移に「記録なし」とも出ないので、RATE_RECORD_ERROR に残して
+# finish_run で run を失敗させる(週の処理は止めない)。since は前の週の記録が読めないと毎週失敗するので、
+# WARN だけだと以降の週の記録が黙って作られなくなる。記録だけの PR の push や作成の失敗は、
+# 採用のある PR と同じく run の失敗にする(publish_metrics_only)
+RATE_RECORD_ERROR=""
 record_failure_rates() {
     local since classification=ok
     if ! since=$(bash "$FAILURE_RATES" since "$REVIEW_DATE"); then
-        printf 'harness-weekly: WARN could not decide the period with %s; failure rates not recorded\n' "$FAILURE_RATES" >&2
+        RATE_RECORD_ERROR="could not decide the period with $FAILURE_RATES (is a record in $LOCAL_RATES_DIR unreadable?); failure rates not recorded"
+        printf 'harness-weekly: %s\n' "$RATE_RECORD_ERROR" >&2
         return 0
     fi
     bash "$CLASSIFY_FAILURES" --since "$since" --session-id "$CLASSIFY_SESSION_ID" || {
@@ -512,9 +517,26 @@ record_failure_rates() {
             "$CLASSIFY_FAILURES" >&2
         classification=failed
     }
-    bash "$FAILURE_RATES" record "$REVIEW_DATE" --since "$since" --classification "$classification" ||
-        printf 'harness-weekly: WARN failed to record the failure rates with %s\n' "$FAILURE_RATES" >&2
+    bash "$FAILURE_RATES" record "$REVIEW_DATE" --since "$since" --classification "$classification" || {
+        RATE_RECORD_ERROR="failed to record the failure rates with $FAILURE_RATES"
+        printf 'harness-weekly: %s\n' "$RATE_RECORD_ERROR" >&2
+    }
 }
+
+# ローカルの週の記録の「ファイル名 ハッシュ」を 1 行ずつ出す。抽出と選別の claude は
+# --dangerously-skip-permissions で動き、~/.claude/harness に書ける(queue.md などを書くため)ので、
+# claude を起動する前に取った値と commit の前に取った値を比べ、ローカルの記録の書き換えを見つける
+# (commit_rate_records)。値はこのスクリプトのシェル変数にだけ持つ(ファイルに置くと claude が書き換えられる)
+rate_record_digests() {
+    local file digest
+    [[ -d "$LOCAL_RATES_DIR" ]] || return 0
+    for file in "$LOCAL_RATES_DIR"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json; do
+        [[ -f "$file" ]] || continue
+        digest=$(git hash-object -- "$file") || return 1
+        printf '%s %s\n' "${file##*/}" "$digest"
+    done
+}
+RATE_RECORD_DIGESTS=""
 
 # 再発率の推移の節を、組み立てに成功したときだけ本文に足す(検出件数の節と同じ扱い)
 append_rates_section() {
@@ -535,23 +557,46 @@ job_git() {
 }
 
 # ローカルの週の記録のうち、base(origin/main)の $RATES_REPO_DIR に無いものを出す。閉じた PR や
-# 未マージの PR に入っていた週も、origin/main に無ければ出す(ローカルの印では判定しない)
+# 未マージの PR に入っていた週も、origin/main に無ければ出す(ローカルの印では判定しない)。
+# この run の日付の記録だけは、origin/main にあっても中身が違えば出す。同じ日の再実行がその日の記録を
+# 書き直すため(harness-failure-rates.sh の since)。リポジトリ側は oxfmt を通してあるので、バイト列では
+# なく JSON として比べ、どちらかが JSON として読めなければ違うものとして出す。ほかの日付は中身を比べない:
+# origin/main の記録を人が直したときにローカルの古い写しで戻さないためと、前の週の claude が書き換えた
+# 記録(この run のハッシュでは見つけられない。commit_rate_records)でマージ済みの記録を上書きしないため。
+# 再実行が選別を省いた(当日のブランチが origin にある)週は、書き直した記録はローカルにだけ残る
 uncommitted_rate_records() {
-    local base=$1 file
+    local base=$1 file committed local_record
     [[ -d "$LOCAL_RATES_DIR" ]] || return 0
     for file in "$LOCAL_RATES_DIR"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json; do
         [[ -f "$file" ]] || continue
-        git -C "$WORKTREE" cat-file -e "$base:$RATES_REPO_DIR/${file##*/}" 2>/dev/null || printf '%s\n' "$file"
+        if ! git -C "$WORKTREE" cat-file -e "$base:$RATES_REPO_DIR/${file##*/}" 2>/dev/null; then
+            printf '%s\n' "$file"
+        elif [[ "${file##*/}" == "$REVIEW_DATE.json" ]]; then
+            if ! committed=$(git -C "$WORKTREE" show "$base:$RATES_REPO_DIR/${file##*/}" | jq -S -c . 2>/dev/null) ||
+                ! local_record=$(jq -S -c . "$file" 2>/dev/null) || [[ "$committed" != "$local_record" ]]; then
+                printf '%s\n' "$file"
+            fi
+        fi
     done
 }
 
-# origin/main に無い週の記録を worktree に写し、このスクリプトの commit 1 つにする。選別の claude には
-# 書かせない(改善する側が指標を書き換えられないように。publish_review が確かめる)。oxfmt を通すのは、
-# commit フックが JSON の書式を検査するため。写した件数を RATE_RECORDS_COMMITTED に入れる
+# origin/main に無い週の記録を worktree に写し、このスクリプトの commit 1 つにする。抽出と選別の claude
+# には書かせない(改善する側が指標を書き換えられないように)。リポジトリ側の書き換えは publish_review が、
+# ローカルの記録の書き換えは claude を起動する前に取ったハッシュ(RATE_RECORD_DIGESTS)との比較が見つける。
+# 書き換えを見つけたら commit せずに 2 を返す。比べられるのはこの run の claude による書き換えまでで、
+# 前の週から持ち越した記録をその週の claude が書き換えていた場合は、この run のハッシュがそれを正として
+# 取るので見つけられない(ローカルの置き場は claude の書ける ~/.claude/harness の中にしか無い)。
+# oxfmt を通すのは、commit フックが JSON の書式を検査するため。写した件数を RATE_RECORDS_COMMITTED に入れる
 RATE_RECORDS_COMMITTED=0
 commit_rate_records() {
-    local base=$1 files file
+    local base=$1 files file digests
     RATE_RECORDS_COMMITTED=0
+    digests=$(rate_record_digests) || return 1
+    if [[ "$digests" != "$RATE_RECORD_DIGESTS" ]]; then
+        printf 'harness-weekly: the weekly failure rate records in %s changed after the claude runs started (only this job writes them); not committed. Before: [%s] After: [%s]\n' \
+            "$LOCAL_RATES_DIR" "$(tr '\n' ' ' <<<"$RATE_RECORD_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
+        return 2
+    fi
     files=$(uncommitted_rate_records "$base")
     [[ -n "$files" ]] || return 0
     mkdir -p "$WORKTREE/$RATES_REPO_DIR" || return 1
@@ -692,7 +737,7 @@ publish_metrics_if_due() {
 # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
 # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
-    local base=$1 commits url dropped_count dropped_items touched
+    local base=$1 commits url dropped_count dropped_items touched commit_status=0
     if ! review_result_valid; then
         printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
             "$REVIEW_RESULT" >&2
@@ -740,7 +785,12 @@ publish_review() {
     append_rates_section
     # 純増は選別の commit だけで数える(記録の commit を混ぜると、ルールの肥大の数字に記録の行が入る)
     net_change_section "$base" >>"$PR_BODY" || return 1
-    if commit_rate_records "$base"; then
+    commit_rate_records "$base" || commit_status=$?
+    if [[ "$commit_status" -eq 2 ]]; then
+        # 書き換えられた記録を正として持ち越さないよう、PR を作らずに失敗させて人に見せる
+        printf 'harness-weekly: no PR created; check %s by hand\n' "$LOCAL_RATES_DIR" >&2
+        return 1
+    elif [[ "$commit_status" -eq 0 ]]; then
         [[ "$RATE_RECORDS_COMMITTED" -eq 0 ]] ||
             printf 'harness-weekly: committed %s weekly failure rate record(s)\n' "$RATE_RECORDS_COMMITTED"
     else
@@ -825,6 +875,10 @@ finish_run() {
             "$ARCHIVE" "$(printf '%s\n' "$leftovers" | sort -u | tr '\n' ' ')" "$REPO" >&2
         return 1
     fi
+    if [[ -n "$RATE_RECORD_ERROR" ]]; then
+        printf 'harness-weekly: this week has no failure rate record (%s); heartbeat not updated\n' "$RATE_RECORD_ERROR" >&2
+        return 1
+    fi
     write_heartbeat
 }
 
@@ -840,6 +894,11 @@ bash "$SELECT_PENDING" --run "$SESSION_ID" || {
 }
 # 分類と週の記録は、選別を省く・当日の PR が既にあるなどの早期の終了より前に、毎週行う
 record_failure_rates
+# 抽出と選別の claude を起動する前に、ローカルの週の記録のハッシュを取る(commit_rate_records が比べる)
+RATE_RECORD_DIGESTS=$(rate_record_digests) || {
+    printf 'harness-weekly: failed to hash the weekly failure rate records in %s\n' "$LOCAL_RATES_DIR" >&2
+    exit 1
+}
 if [[ "$(count_pending)" -eq 0 ]]; then
     printf 'harness-weekly: pending is empty; skipped reflect\n'
 else
