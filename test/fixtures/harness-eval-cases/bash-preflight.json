@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "costUsd": 0.17,
+  "partial": false,
+  "cases": [
+    {
+      "name": "x",
+      "arms": {
+        "with": [
+          {
+            "score": 0,
+            "turns": 0,
+            "error": "a credentials file in this environment could not be followed (ENOENT), so the Bash sandbox cannot exclude the files it points at — a Bash-granting evaluation cannot run here"
+          }
+        ],
+        "without": [
+          {
+            "score": 0,
+            "turns": 0,
+            "error": "a credentials file in this environment could not be followed (ENOENT) — a Bash-granting evaluation cannot run here"
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 0,
+        "scoreWithout": 0,
+        "delta": 0
+      }
+    }
+  ]
+}

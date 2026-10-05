@@ -19,7 +19,8 @@ setup() {
     # スクリプトが読む環境変数を、このマシンのシェルから漏らさない
     unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS \
         HARNESS_WEEKLY_REVIEW_BUDGET_USD HARNESS_WEEKLY_REPO \
-        HARNESS_CLASSIFY_BUDGET_USD HARNESS_CLASSIFY_MAX_ITEMS
+        HARNESS_CLASSIFY_BUDGET_USD HARNESS_CLASSIFY_MAX_ITEMS HARNESS_WEEKLY_EVAL_BUDGET_USD \
+        HARNESS_EVAL_RUNS HARNESS_EVAL_BUDGET_USD HARNESS_EVAL_MAX_CASES HARNESS_EVAL_MAX_HISTORY_BYTES HARNESS_EVAL_PLUGIN_TEMPLATE
     export INSIDE_NONO_SANDBOX=1
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-weekly.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
@@ -72,7 +73,13 @@ while [[ $# -gt 0 ]]; do
     [[ "$1" == "--session-id" ]] && sid="$2"
     shift
 done
-if [[ "$all_args" == *'--no-session-persistence'* ]]; then
+if [[ "$all_args" == 'plugin eval '* ]]; then
+    # 2 アーム評価。--json の先に STUB_EVAL_FIXTURE(既定 effective)の結果を書く
+    printf 'eval\n' >>"$STAGE_LOG"
+    json=$(grep -oE -- '--json [^ ]+' <<<"$all_args" | cut -d' ' -f2)
+    cp "$EVAL_FIXTURES/${STUB_EVAL_FIXTURE:-effective}.json" "$json"
+    exit 0
+elif [[ "$all_args" == *'--no-session-persistence'* ]]; then
     # 失敗の分類器。標準入力のプロンプトの項目をすべて STUB_PATTERN に分類する
     printf 'classify\n' >>"$STAGE_LOG"
     answer=$(grep -oE '^\{"id":[0-9]+' | grep -oE '[0-9]+$' |
@@ -103,7 +110,14 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         printf '## 採用した変更\n\n- 理由: 同じ失敗の再発を防ぐため\n' >"$body"
         # 記録の書式はプロンプトが指定したものをそのまま使う(run ごとの印を含む)
         verdict=$(grep -oE 'adopted \(harness/review-[^)]*\)' <<<"$all_args" | head -n 1)
+        [[ -z "${STUB_ARCHIVE_TITLE:-}" ]] || printf '## %s\n\n' "$STUB_ARCHIVE_TITLE" >>"$archive"
         printf -- '- **Verdict:** %s\n' "$verdict" >>"$archive"
+        # 評価される側が評価の仕組みを書き換える run の再現
+        [[ -z "${STUB_TAMPER_EVAL:-}" ]] || printf 'exit 0\n' >>"$HOME/.claude/scripts/harness-eval-cases.sh"
+        # Eval Case の依頼(プロンプトが指定したパス)。STUB_EVAL_REQUEST があればそのまま書く
+        if [[ -n "${STUB_EVAL_REQUEST:-}" ]]; then
+            printf '%s\n' "$STUB_EVAL_REQUEST" >"$(grep -oE '[^ ]*/eval-requests-[0-9-]+\.json' <<<"$all_args" | head -n 1)"
+        fi
         ;;
     no_verdict)
         adopt
@@ -221,6 +235,16 @@ EOF
         "$HOME/.claude/scripts/harness-failure-rates.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-failure-patterns.json" \
         "$HOME/.claude/scripts/harness-failure-patterns.json"
+    # Eval Case の評価のスクリプトと eval 専用 plugin の雛形も本物を置く(claude plugin eval はスタブ)
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-eval-cases.sh" \
+        "$HOME/.claude/scripts/harness-eval-cases.sh"
+    mkdir -p "$HOME/.claude/scripts/harness-eval-plugin/.claude-plugin" "$HOME/.claude/scripts/harness-eval-plugin/hooks"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-eval-plugin/dot_claude-plugin/plugin.json" \
+        "$HOME/.claude/scripts/harness-eval-plugin/.claude-plugin/plugin.json"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-eval-plugin/hooks/hooks.json" \
+        "$HOME/.claude/scripts/harness-eval-plugin/hooks/hooks.json"
+    export EVAL_FIXTURES="$BATS_TEST_DIRNAME/fixtures/harness-eval-cases"
+    export HARNESS_EVAL_WORK_DIR="$BATS_TEST_TMPDIR/eval-work"
     RATES="$HDIR/failure-pattern-rates"
     RATES_REPO_DIR=docs/harness/failure-pattern-rates
     TODAY=$(date +%Y-%m-%d)
@@ -1114,7 +1138,7 @@ EOF
     run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_output --partial 'Do not write line counts, failure detection counts, failure pattern rates, dropped changes or deploy-only fixes in the PR body'
+    assert_output --partial 'Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body'
     assert_output --partial "Never change files under ${RATES_REPO_DIR}; this job commits them"
     refute_output --partial 'final summary instead'
     refute_output --partial 'Report a deploy-only fix in the PR body'
@@ -1750,4 +1774,61 @@ PRE
     assert_success
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
     assert_output "$RATES_REPO_DIR/$TODAY.json"
+}
+
+@test "採用したルールの Eval Case を評価し、with / without と Δ を PR の本文に載せる" {
+    seed_queue
+    sid=11111111-1111-4111-8111-111111111111
+    mkdir -p "$HOME/.claude/projects/-work-repo"
+    cp "$BATS_TEST_DIRNAME/fixtures/harness-detect-failures/negation.jsonl" "$HOME/.claude/projects/-work-repo/$sid.jsonl"
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    export STUB_EVAL_REQUEST="{\"cases\":[{\"title\":\"[2026-10-03] entry\",\"rule\":\"r\",\"source_session\":\"$sid\",\"prompt\":\"p\",\"graders\":[{\"name\":\"g\",\"type\":\"regex\",\"pattern\":\"x\"}]}]}"
+    run weekly
+    assert_success
+    run grep -c '^eval$' "$STAGE_LOG"
+    assert_output 1
+    run grep '^claude plugin eval' "$ARGV_LOG"
+    assert_output --partial '--no-publish'
+    id="$TODAY-$(printf '%s' '[2026-10-03] entry' | shasum -a 256 | cut -c1-8)"
+    cmp "$HDIR/evals/$id/source.jsonl" "$HOME/.claude/projects/-work-repo/$sid.jsonl"
+    run cat "$GH_BODY"
+    assert_line '## ルールの効果'
+    assert_line "| [2026-10-03] entry | \`$id\` | 1 | 0 | +1 | 有効 |"
+    refute_output --partial '評価も免除の理由も無い採用'
+}
+
+@test "選別が Eval Case の依頼を書かなかった採用は、評価も免除の理由も無いとして本文に名前が出る" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    run weekly
+    assert_success
+    refute grep -q '^eval$' "$STAGE_LOG"
+    run cat "$GH_BODY"
+    assert_line '### 評価も免除の理由も無い採用'
+    assert_line '- [2026-10-03] entry'
+}
+
+@test "評価の工程が失敗しても PR は作り、本文に効果を測っていないことを書く" {
+    seed_queue
+    rm "$HOME/.claude/scripts/harness-eval-plugin/hooks/hooks.json"
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    export STUB_EVAL_REQUEST='{"cases":[]}'
+    run weekly
+    assert_success
+    assert_output --partial 'WARN evaluating the eval cases'
+    run cat "$GH_BODY"
+    assert_output --partial '評価の工程が失敗したため、この PR のルールの効果は測っていない'
+}
+
+@test "選別の claude が評価のスクリプトを書き換えた run は、評価も PR の作成もせずに失敗する" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    export STUB_EVAL_REQUEST='{"cases":[]}'
+    export STUB_TAMPER_EVAL=1
+    run weekly
+    assert_failure
+    assert_output --partial 'the eval script or plugin template changed after the claude runs started'
+    assert [ ! -e "$HDIR/eval-results-$TODAY.json" ]
+    refute grep -q 'pr create' "$GH_LOG"
+    assert [ ! -e "$HDIR/weekly-heartbeat" ]
 }
