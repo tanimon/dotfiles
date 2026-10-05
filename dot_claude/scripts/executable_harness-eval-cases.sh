@@ -235,12 +235,15 @@ run_case() { # <依頼の要素(JSON)> <id> <残りの予算>
     # 結果とログは実体の側に戻す。
     # --no-publish: 既定では報告が claude.ai に発行され、transcript 由来のプロンプトが載る。
     # --threshold 0: 既定の 1.0 では満点でないケースが exit 1 になり、実行の失敗と区別できない
+    # HARNESS_DISABLE=1: 評価のセッションは利用者の SessionEnd フックで pending に積まれうる(履歴付きのケースは
+    # 10 ターンの閾値を超える)。週次ジョブは自分で export するが、手動の /harness-review の経路は付けないので
+    # ここで付ける
     stage="$WORK_ROOT/$id"
     if ! { rm -rf "$stage" && mkdir -p "$stage" && cp -R "$dir/.claude-plugin" "$dir/hooks" "$dir/evals" "$stage/"; }; then
         not_evaluated "$title" "$id" eval_failed
         return 0
     fi
-    (cd "$stage" && claude plugin eval . --ablation with-without --no-publish --trust-plugin \
+    (cd "$stage" && HARNESS_DISABLE=1 claude plugin eval . --ablation with-without --no-publish --trust-plugin \
         --threshold 0 --runs "$RUNS" --max-cost-usd "$budget" --json "$stage/result.json" \
         ${allow[@]+"${allow[@]}"}) >"$dir/run.log" 2>&1 || status=$?
     rm -f "$dir/result.json"

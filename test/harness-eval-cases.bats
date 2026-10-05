@@ -5,7 +5,7 @@
 # $ARGV_LOG に 1 行で写し、--json の先に test/fixtures/harness-eval-cases/ の結果を書く。どの結果を
 # 書くかは STUB_EVAL_<何回目の起動か>(例: STUB_EVAL_02=ceiling)か、無ければ STUB_EVAL(既定 effective)。
 # none なら結果を書かない。
-# STUB_EVAL_EXIT で終了コードを変える。
+# STUB_EVAL_EXIT で終了コードを変える。起動時の HARNESS_DISABLE を $ENV_LOG に写す。
 bats_require_minimum_version 1.5.0
 
 SID_A=11111111-1111-4111-8111-111111111111
@@ -16,7 +16,7 @@ setup() {
     load 'helpers/setup'
     load 'helpers/exec-cache'
     unset HARNESS_EVAL_RUNS HARNESS_EVAL_BUDGET_USD HARNESS_EVAL_MAX_CASES HARNESS_EVAL_MAX_HISTORY_BYTES HARNESS_EVAL_PLUGIN_TEMPLATE \
-        HARNESS_EVAL_WORK_DIR \
+        HARNESS_EVAL_WORK_DIR HARNESS_DISABLE \
         STUB_EVAL STUB_EVAL_EXIT
     export HOME="$BATS_TEST_TMPDIR/home"
     HDIR="$HOME/.claude/harness"
@@ -34,6 +34,7 @@ setup() {
     export FIXTURES="$BATS_TEST_DIRNAME/fixtures/harness-eval-cases"
     export HARNESS_EVAL_WORK_DIR="$BATS_TEST_TMPDIR/work"
     export ARGV_LOG="$BATS_TEST_TMPDIR/argv.log"
+    export ENV_LOG="$BATS_TEST_TMPDIR/env.log"
     REQUESTS="$BATS_TEST_TMPDIR/requests.json"
     OUT="$BATS_TEST_TMPDIR/results.json"
     STUBS="$BATS_TEST_TMPDIR/bin"
@@ -41,6 +42,7 @@ setup() {
     install_exec "$STUBS/claude" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$ARGV_LOG"
+printf 'HARNESS_DISABLE=%s\n' "${HARNESS_DISABLE-unset}" >>"$ENV_LOG"
 json=""
 while [[ $# -gt 0 ]]; do
     [[ "$1" == --json ]] && json=$2
@@ -107,6 +109,14 @@ run_eval() {
     # 評価は作業用の写しで走り、結果は実体の側に戻って写しは消える
     assert [ -f "$HDIR/evals/$id/result.json" ]
     assert [ ! -e "$HARNESS_EVAL_WORK_DIR/$id" ]
+}
+
+@test "評価のセッションは HARNESS_DISABLE=1 で起動し、SessionEnd の記録(pending)に積ませない" {
+    requests "$(rule_case '[2026-10-09] A を守る')"
+    run_eval
+    assert_success
+    run cat "$ENV_LOG"
+    assert_output 'HARNESS_DISABLE=1'
 }
 
 @test "依頼が run 数・ターン数・発行を決めようとしても、スクリプトの値が使われる" {
