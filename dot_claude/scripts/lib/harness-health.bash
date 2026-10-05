@@ -13,8 +13,8 @@
 # 週次ジョブが読み込むので、この lib は Evaluator のパス(scripts/evaluator-paths.txt)に載せてある。
 #
 # Interface: harness_health_dir / harness_health_bootstrap / harness_health_weekly /
-# harness_health_heartbeat_days / harness_health_missed_run_days / harness_health_stale_prs /
-# harness_health_unpublished_loop_branches。
+# harness_health_heartbeat_epoch / harness_health_heartbeat_days / harness_health_missed_run_days /
+# harness_health_stale_prs / harness_health_unpublished_loop_branches。
 # パスは呼び出しのたびに $HOME から作る(source した後に HOME が変わっても追従するため)。
 # 関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
 
@@ -49,16 +49,24 @@ harness_health_bootstrap() {
     fi
 }
 
-# 最後に成功した週次ジョブ(heartbeat)からの経過日数を出す。heartbeat が無いか数値でなければ
+# 最後に成功した週次ジョブ(heartbeat)の時刻を epoch で出す。heartbeat が無いか数値でなければ
 # 何も出さずに 1 を返す。
-harness_health_heartbeat_days() {
+harness_health_heartbeat_epoch() {
     local dir heartbeat
     dir=$(harness_health_dir) || return 1
     [[ -f "$dir/weekly-heartbeat" ]] || return 1
     heartbeat=$(tr -d '[:space:]' <"$dir/weekly-heartbeat" 2>/dev/null) || return 1
     [[ "$heartbeat" =~ ^[0-9]+$ ]] || return 1
     # 10# を付けないと、先頭 0 付きの値(0899 など)が 8 進数として解釈されて算術展開が落ちる
-    printf '%s\n' "$((($(date +%s) - 10#$heartbeat) / 86400))"
+    printf '%s\n' "$((10#$heartbeat))"
+}
+
+# 最後に成功した週次ジョブ(heartbeat)からの経過日数を出す。heartbeat が無いか数値でなければ
+# 何も出さずに 1 を返す。
+harness_health_heartbeat_days() {
+    local heartbeat
+    heartbeat=$(harness_health_heartbeat_epoch) || return 1
+    printf '%s\n' "$((($(date +%s) - heartbeat) / 86400))"
 }
 
 # 週次ジョブ(ADR 0012)の健全性を判定し、stdout に次の行を出す(区切りは TAB、文言に TAB は含めない)。
@@ -130,6 +138,8 @@ harness_health_missed_run_days() {
 # 開いている PR の一覧(stdin。`gh pr list --json number,url,headRefName,createdAt` の配列)から、
 # ブランチ名が <prefix> で始まり、作られてから HARNESS_HEALTH_STALE_PR_DAYS 日以上経ったものを
 # `<番号>\t<URL>\t<経過日数>` で出す。prefix は引数で受ける(正本は scripts/check-evaluator-guard.sh)。
+# draft かどうかは見ない: draft を外したがマージもクローズもされていない PR も、承認が止まっている
+# 間はループの変更が効かない点で同じ放置だから(知らせる本文の対処は両方に合わせて書く)。
 # 一覧を読めなければ失敗を返す。
 harness_health_stale_prs() { # <現在の epoch> <ブランチの prefix>
     jq -r --argjson now "$1" --arg prefix "$2" --argjson limit "$HARNESS_HEALTH_STALE_PR_DAYS" '

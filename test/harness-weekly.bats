@@ -1269,7 +1269,7 @@ FAILED_TITLE='harness: 週次ジョブが失敗した'
 }
 
 @test "同じ失敗の Issue が開いていれば、新しく作らずにコメントする" {
-    export STUB_GH_ISSUES='[{"number":7,"title":"harness: 週次ジョブが失敗した"},{"number":8,"title":"other"}]'
+    export STUB_GH_ISSUES='[{"number":7,"title":"harness: 週次ジョブが失敗した","updatedAt":"2026-01-01T00:00:00Z"},{"number":8,"title":"other","updatedAt":"2026-01-01T00:00:00Z"}]'
     STUB_CLAUDE_MODE=exit1 run weekly
     assert_failure
     run cat "$ALERT_LOG"
@@ -1317,7 +1317,7 @@ iso_days_ago() {
         {number: 51, url: "https://github.com/example/dotfiles/pull/51", headRefName: "harness/review-2026-09-01", createdAt: $old}
     ]')
     export STUB_GH_OPEN_PRS
-    export STUB_GH_ISSUES='[{"number":9,"title":"harness: ループの PR #51 が 14 日以上放置されている"}]'
+    export STUB_GH_ISSUES='[{"number":9,"title":"harness: ループの PR #51 が 14 日以上放置されている","updatedAt":"2026-01-01T00:00:00Z"}]'
     run weekly
     assert_success
     run cat "$ALERT_LOG"
@@ -1357,9 +1357,22 @@ leftover_branch() { # <ブランチ>
     leftover_branch harness/review-2026-09-01
     STUB_GH_BRANCH_PRS=1 run weekly
     assert_success
+    assert_output --partial 'harness/review-2026-09-01 already has a PR; delete it with git -C '
     run cat "$ALERT_LOG"
     assert_line --partial 'pr list --head harness/review-2026-09-01 '
     refute_line --partial 'issue create'
+}
+
+@test "採用の記録が残るループのブランチは、失敗の Issue が知らせるのでブランチの Issue にしない" {
+    leftover_branch harness/review-2026-09-01
+    printf -- '- **Verdict:** adopted (harness/review-2026-09-01 run old)\n' >"$HDIR/queue-archive.md"
+    run weekly
+    assert_failure
+    assert_output --partial 'harness/review-2026-09-01 has an adopted verdict'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    refute_line --partial 'pr list --head harness/review-2026-09-01'
+    refute_line --partial 'ループのブランチ'
 }
 
 @test "origin/main に無い commit を持たないループのブランチは、PR を照会せず Issue も作らない" {
@@ -1384,9 +1397,10 @@ leftover_branch() { # <ブランチ>
     refute_output --partial "$HOME"
 }
 
-@test "失敗の Issue が開いていれば、前の成功が古くても別の Issue にしない(1 回の失敗で Issue を増やさない)" {
+@test "前の成功より後に更新された失敗の Issue が開いていれば、前の成功が古くても別の Issue にしない" {
     printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
-    export STUB_GH_ISSUES='[{"number":7,"title":"harness: 週次ジョブが失敗した"}]'
+    STUB_GH_ISSUES=$(jq -nc --arg updated "$(iso_days_ago 2)" '[{number: 7, title: "harness: 週次ジョブが失敗した", updatedAt: $updated}]')
+    export STUB_GH_ISSUES
     run weekly
     assert_success
     assert_output --partial 'issue #7 already reports the failures'
@@ -1395,9 +1409,31 @@ leftover_branch() { # <ブランチ>
     refute_line --partial 'issue comment'
 }
 
+@test "この run が失敗して Issue を作ったら、一覧に出なくても走らなかった週の Issue を作らない" {
+    # 作った直後の Issue は一覧に出ないことがある。スタブの一覧は作った Issue を返さない
+    printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
+    STUB_CLAUDE_MODE=exit1 run weekly
+    assert_failure
+    assert_output --partial 'the failure issue of this run reports it'
+    run grep -c 'issue create' "$ALERT_LOG"
+    assert_output 1
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+@test "前の成功より前から開いている失敗の Issue は、その後に走らなかった週を抑えない" {
+    printf '%s\n' "$(($(date +%s) - 20 * 86400))" >"$HDIR/weekly-heartbeat"
+    STUB_GH_ISSUES=$(jq -nc --arg updated "$(iso_days_ago 30)" '[{number: 7, title: "harness: 週次ジョブが失敗した", updatedAt: $updated}]')
+    export STUB_GH_ISSUES
+    run weekly
+    assert_success
+    run cat "$ALERT_LOG"
+    assert_line --partial 'issue create --label harness-analysis --title harness: 週次ジョブが 8 日以上成功していなかった'
+}
+
 @test "走らなかった週の Issue が開いていれば、次に見つけたときはコメントにする" {
     printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
-    export STUB_GH_ISSUES='[{"number":11,"title":"harness: 週次ジョブが 8 日以上成功していなかった"}]'
+    export STUB_GH_ISSUES='[{"number":11,"title":"harness: 週次ジョブが 8 日以上成功していなかった","updatedAt":"2026-01-01T00:00:00Z"}]'
     run weekly
     assert_success
     run cat "$ALERT_LOG"
