@@ -112,6 +112,8 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         verdict=$(grep -oE 'adopted \(harness/review-[^)]*\)' <<<"$all_args" | head -n 1)
         [[ -z "${STUB_ARCHIVE_TITLE:-}" ]] || printf '## %s\n\n' "$STUB_ARCHIVE_TITLE" >>"$archive"
         printf -- '- **Verdict:** %s\n' "$verdict" >>"$archive"
+        # 評価される側が評価の仕組みを書き換える run の再現
+        [[ -z "${STUB_TAMPER_EVAL:-}" ]] || printf 'exit 0\n' >>"$HOME/.claude/scripts/harness-eval-cases.sh"
         # Eval Case の依頼(プロンプトが指定したパス)。STUB_EVAL_REQUEST があればそのまま書く
         if [[ -n "${STUB_EVAL_REQUEST:-}" ]]; then
             printf '%s\n' "$STUB_EVAL_REQUEST" >"$(grep -oE '[^ ]*/eval-requests-[0-9-]+\.json' <<<"$all_args" | head -n 1)"
@@ -1816,4 +1818,17 @@ PRE
     assert_output --partial 'WARN evaluating the eval cases'
     run cat "$GH_BODY"
     assert_output --partial '評価の工程が失敗したため、この PR のルールの効果は測っていない'
+}
+
+@test "選別の claude が評価のスクリプトを書き換えた run は、評価も PR の作成もせずに失敗する" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    export STUB_EVAL_REQUEST='{"cases":[]}'
+    export STUB_TAMPER_EVAL=1
+    run weekly
+    assert_failure
+    assert_output --partial 'the eval script or plugin template changed after the claude runs started'
+    assert [ ! -e "$HDIR/eval-results-$TODAY.json" ]
+    refute grep -q 'pr create' "$GH_LOG"
+    assert [ ! -e "$HDIR/weekly-heartbeat" ]
 }

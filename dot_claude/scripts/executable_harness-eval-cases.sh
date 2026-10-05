@@ -360,6 +360,9 @@ section_mode() {
           (if (.exempt | length) > 0 then "\n### 免除\n", (.exempt[] | "- \(.title | cell): \(.reason | cell)") else empty end),
           (if (.over_cap | length) > 0 then "\n### 件数の上限で今回は評価しなかったもの\n", (.over_cap[] | "- \(. | cell)") else empty end),
           (if ($missing | length) > 0 then "\n### 評価も免除の理由も無い採用\n", ($missing[] | "- \(. | cell)") else empty end),
+          (if ([.cases[] | select(.id != null)] | length) > 0 then
+              "\n各ケースの依頼(ルール・プロンプト・grader)は、このマシンの `~/.claude/harness/evals/<Eval Case>/request.json` にある。grader が自明でないかはそこで確かめる。"
+           else empty end),
           "\n評価の費用(定価での推定): $\(.cost_usd | num)"' "$RESULTS"
 }
 

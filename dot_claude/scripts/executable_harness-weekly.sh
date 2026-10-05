@@ -358,6 +358,7 @@ REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
 DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
 # 採用したルールの Eval Case の依頼。選別に書かせ、harness-eval-cases.sh が評価して結果を書く(ADR 0011)
 EVAL_CASES="$HOME/.claude/scripts/harness-eval-cases.sh"
+EVAL_PLUGIN_TEMPLATE="$HOME/.claude/scripts/harness-eval-plugin"
 EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
 EVAL_RESULTS="$HARNESS_DIR/eval-results-$REVIEW_DATE.json"
 EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
@@ -736,8 +737,30 @@ adopted_titles() {
 # 採用したルールの Eval Case を評価し、効果の節を本文に足す。採用したのに結果にも免除にも無いものは、節が
 # 名前で出す(依頼が無ければ全件がそうなる)。評価の工程の失敗は WARN にとどめて PR の公開は止めないが、
 # 本文に評価できなかったことを書く(黙って節を省くと、効果が測られていないことが PR から見えない)
+# 評価のスクリプトと eval 専用 plugin の雛形の「パス ハッシュ」を 1 行ずつ出す。抽出と選別の claude は
+# ~/.claude に書けるので、claude を起動する前に取った値(EVALUATOR_DIGESTS)と評価の直前に取った値を比べ、
+# 評価される側が評価の仕組みを書き換えた run を見つける(rate_record_digests と同じ扱い)。無いファイルは
+# 「missing」として比べる(消されたことも書き換えとして見つける)
+evaluator_digests() {
+    local file
+    for file in "$EVAL_CASES" "$EVAL_PLUGIN_TEMPLATE/.claude-plugin/plugin.json" "$EVAL_PLUGIN_TEMPLATE/hooks/hooks.json"; do
+        if [[ -f "$file" ]]; then
+            printf '%s %s\n' "$file" "$(git hash-object -- "$file")" || return 1
+        else
+            printf '%s missing\n' "$file"
+        fi
+    done
+}
+EVALUATOR_DIGESTS=""
+
 append_eval_section() {
-    local adopted="$HARNESS_DIR/.eval-adopted-$REVIEW_DATE" section
+    local adopted="$HARNESS_DIR/.eval-adopted-$REVIEW_DATE" section digests
+    digests=$(evaluator_digests) || return 1
+    if [[ "$digests" != "$EVALUATOR_DIGESTS" ]]; then
+        printf 'harness-weekly: the eval script or plugin template changed after the claude runs started (%s); not evaluated and no PR created. Restore them with chezmoi apply and check what changed them\n' \
+            "$(tr '\n' ' ' <<<"$digests")" >&2
+        return 2
+    fi
     adopted_titles >"$adopted" || {
         printf 'harness-weekly: WARN could not read the adopted verdicts from %s for the eval section\n' "$ARCHIVE" >&2
         : >"$adopted"
@@ -992,7 +1015,10 @@ publish_review() {
     result_sections >>"$PR_BODY" || return 1
     append_detection_section
     append_rates_section
-    append_eval_section
+    append_eval_section || {
+        printf 'harness-weekly: no PR created; the evaluation could not be trusted\n' >&2
+        return 1
+    }
     # 純増は選別の commit だけで数える(記録の commit を混ぜると、ルールの肥大の数字に記録の行が入る)
     net_change_section "$base" >>"$PR_BODY" || return 1
     commit_rate_records "$base" || commit_status=$?
@@ -1105,6 +1131,11 @@ bash "$SELECT_PENDING" --run "$SESSION_ID" || {
 # 分類と週の記録は、選別を省く・当日の PR が既にあるなどの早期の終了より前に、毎週行う
 record_failure_rates
 # 抽出と選別の claude を起動する前に、ローカルの週の記録のハッシュを取る(commit_rate_records が比べる)
+# 評価の仕組みのハッシュも同じ時点で取る(append_eval_section が比べる)
+EVALUATOR_DIGESTS=$(evaluator_digests) || {
+    printf 'harness-weekly: failed to hash the eval script and plugin template\n' >&2
+    exit 1
+}
 RATE_RECORD_DIGESTS=$(rate_record_digests) || {
     printf 'harness-weekly: failed to hash the weekly failure rate records in %s\n' "$LOCAL_RATES_DIR" >&2
     exit 1
