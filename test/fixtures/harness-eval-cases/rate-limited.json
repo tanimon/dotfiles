@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "costUsd": 0.17,
+  "partial": false,
+  "cases": [
+    {
+      "name": "x",
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "turns": 1,
+            "error": null
+          },
+          {
+            "score": 1,
+            "turns": 1,
+            "error": null
+          }
+        ],
+        "without": [
+          {
+            "score": 0,
+            "turns": 1,
+            "error": "API Error: usage limit reached for your plan"
+          },
+          {
+            "score": 0,
+            "turns": 1,
+            "error": "Rate limit exceeded (429)"
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 0,
+        "scoreWithout": 0,
+        "delta": 0
+      }
+    }
+  ]
+}

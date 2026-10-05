@@ -356,6 +356,12 @@ REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
 # Deploy-only Fix の報告先。PR の有無にかかわらず日付付きで追記し、空でない間は
 # briefing が警告する(人が適用したら消す)
 DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
+# 採用したルールの Eval Case の依頼。選別に書かせ、harness-eval-cases.sh が評価して結果を書く(ADR 0011)。
+# 依頼が決めるのはルール・プロンプト・grader・出典・免除の理由だけで、評価の条件はスクリプトが固定で決める
+EVAL_CASES="$HOME/.claude/scripts/harness-eval-cases.sh"
+EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
+EVAL_RESULTS="$HARNESS_DIR/eval-results-$REVIEW_DATE.json"
+EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
 # ループのブランチの prefix。正本は scripts/check-evaluator-guard.sh(CI はこの prefix でループの PR を見分ける)
 LOOP_BRANCH_PREFIX="harness/review-"
 BRANCH="${LOOP_BRANCH_PREFIX}${REVIEW_DATE}"
@@ -721,6 +727,37 @@ append_rates_section() {
     fi
 }
 
+# 判定の記録のうち、この run の選別が採用した($ADOPTED_MARK を持つ)項目の見出し(`## ` より後ろ)を 1 行ずつ出す。
+# record_pr_url が印を PR の URL に置き換える前に読む
+adopted_titles() {
+    [[ -f "$ARCHIVE" ]] || return 0
+    awk -v mark="$ADOPTED_MARK" '/^## / { title = substr($0, 4) } index($0, mark) > 0 && title != "" { print title; title = "" }' "$ARCHIVE"
+}
+
+# 採用したルールの Eval Case を評価し、効果の節を本文に足す。採用したのに結果にも免除にも無いものは、節が
+# 名前で出す(依頼が無ければ全件がそうなる)。評価の工程の失敗は WARN にとどめて PR の公開は止めないが、
+# 本文に評価できなかったことを書く(黙って節を省くと、効果が測られていないことが PR から見えない)
+append_eval_section() {
+    local adopted="$HARNESS_DIR/.eval-adopted-$REVIEW_DATE" section
+    adopted_titles >"$adopted" || {
+        printf 'harness-weekly: WARN could not read the adopted verdicts from %s for the eval section\n' "$ARCHIVE" >&2
+        : >"$adopted"
+    }
+    if [[ ! -f "$EVAL_REQUESTS" ]]; then
+        printf 'harness-weekly: review wrote no eval requests %s; the PR body lists every adopted rule as unevaluated\n' "$EVAL_REQUESTS"
+        printf '{"cases": []}\n' >"$EVAL_REQUESTS"
+    fi
+    if HARNESS_EVAL_BUDGET_USD="$EVAL_BUDGET_USD" bash "$EVAL_CASES" run \
+        --requests "$EVAL_REQUESTS" --date "$REVIEW_DATE" --out "$EVAL_RESULTS" &&
+        section=$(bash "$EVAL_CASES" section --results "$EVAL_RESULTS" --adopted "$adopted"); then
+        printf '%s\n' "$section" >>"$PR_BODY"
+    else
+        printf 'harness-weekly: WARN evaluating the eval cases with %s failed; the PR body says so\n' "$EVAL_CASES" >&2
+        printf '\n## ルールの効果\n\n評価の工程が失敗したため、この PR のルールの効果は測っていない(週次ジョブのログを参照)。\n' >>"$PR_BODY"
+    fi
+    rm -f "$adopted"
+}
+
 job_git() {
     if [[ -z "${GIT_CONFIG_GLOBAL:-}" && -f "$AGENT_GIT_CONFIG" ]]; then
         GIT_CONFIG_GLOBAL="$AGENT_GIT_CONFIG" git "$@"
@@ -956,6 +993,7 @@ publish_review() {
     result_sections >>"$PR_BODY" || return 1
     append_detection_section
     append_rates_section
+    append_eval_section
     # 純増は選別の commit だけで数える(記録の commit を混ぜると、ルールの肥大の数字に記録の行が入る)
     net_change_section "$base" >>"$PR_BODY" || return 1
     commit_rate_records "$base" || commit_status=$?
@@ -1140,7 +1178,7 @@ prepare_worktree || {
 # 前回の本文と結果ファイルを消すのは prepare_worktree の判定を通った後。手で publish すべき
 # commit が残っている間は、その PR に使う本文を残す。結果ファイルを消すのは、同じ日の前の
 # run が残したものを今回の結果として読まないため
-rm -f "$PR_BODY" "$REVIEW_RESULT"
+rm -f "$PR_BODY" "$REVIEW_RESULT" "$EVAL_REQUESTS" "$EVAL_RESULTS"
 REVIEW_BASE=$(git -C "$WORKTREE" rev-parse HEAD)
 # commit フック(prek)と just lint が node_modules を要るので、claude の前に入れる。
 # claude に入れさせないのは、失敗したときに予算を使って直そうとさせないため
@@ -1159,7 +1197,8 @@ Use the harness-review skill, following its rules, with these changes:
 - Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). List a deploy-only fix (one that a commit cannot fix and that takes effect only when a human applies it) in the result file instead.
 - In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Fold fixes for a failing commit hook or just lint into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
 - Always write the result file ${REVIEW_RESULT} before you finish, even if nothing happened: a JSON object {\"dropped\": [...], \"deploy_only\": [...]} whose elements are one-line strings (in Japanese). In \"dropped\", put each dropped change with its queue title and the failing hook or lint check; in \"deploy_only\", each deploy-only fix with what to apply and why. Use empty arrays when there are none. This job decides whether the run failed from this file, not from the PR body.
-- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, failure pattern rates, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection and rate records and the result file. Never change files under ${RATES_REPO_DIR}; this job commits them. If nothing is adopted and nothing is stale, make no commits.
+- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection and rate records, the evaluation and the result file. Never change files under ${RATES_REPO_DIR}; this job commits them. If nothing is adopted and nothing is stale, make no commits.
+- For every adopted change, write an Eval Case request to ${EVAL_REQUESTS} as described in the skill's \"Eval Case requests\" section (Write tool only; this job runs the evaluation and appends the effect to the PR body). Do not run the evaluation yourself.
 - In \"Bookkeeping\", record each adopted verdict as \"${ADOPTED_MARK}\" exactly; this job replaces it with the PR URL.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.

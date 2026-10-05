@@ -1,0 +1,5 @@
+{
+  "name": "harness-rule-eval",
+  "version": "0.0.1",
+  "description": "自己改善ループの Eval Case 専用。ルール本文を with の側にだけ注入する(harness-eval-cases.sh が使う)"
+}

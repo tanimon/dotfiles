@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "costUsd": 0.17,
+  "partial": false,
+  "cases": [
+    {
+      "name": "x",
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "turns": 1,
+            "error": null
+          },
+          {
+            "score": 0,
+            "turns": 1,
+            "error": "rate limit exceeded"
+          }
+        ],
+        "without": [
+          {
+            "score": 0,
+            "turns": 1,
+            "error": null
+          },
+          {
+            "score": 0,
+            "turns": 1,
+            "error": "usage limit reached"
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 0,
+        "scoreWithout": 0,
+        "delta": 0
+      }
+    }
+  ]
+}

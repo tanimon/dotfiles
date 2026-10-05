@@ -98,6 +98,36 @@ of caution are noise — deprecate aggressively; git history preserves them.
 If nothing was adopted and nothing is stale, skip the PR — record verdicts
 and say so. An empty review is a valid outcome.
 
+### Eval Case requests
+
+採用したルールごとに、効果を測る Eval Case の依頼を書く(ADR 0011)。評価そのものは
+`~/.claude/scripts/harness-eval-cases.sh`(Evaluator)が行い、run 数・予算・判定の基準は
+スクリプトが決める。依頼は `~/.claude/harness/eval-requests-YYYY-MM-DD.json` に Write ツールで書く:
+
+```json
+{"cases": [
+  {"title": "[YYYY-MM-DD] <queue の見出しのタイトル>", "rule": "<注入するルール本文>",
+   "source_session": "<queue の Source の session id>",
+   "prompt": "<ルールが無いと元の失敗が起きる依頼>",
+   "graders": [{"name": "uses-x", "type": "regex", "pattern": "<JavaScript の正規表現>"}],
+   "history_lines": 0},
+  {"title": "[YYYY-MM-DD] <タイトル>", "exempt": "<Eval Case を書けない理由>"}
+]}
+```
+
+- `title` は queue の見出しの `## ` より後ろをそのまま書く(採用と結果をこの文字列で突き合わせる)。
+- prompt はルールをほのめかさない。prompt が答えを指定すると、ルールが無くても成功して無効になる(天井効果)。
+- ツールは持たせず、「実行するコマンドを答えて」の形で書く。`allowed_tools` に `Bash` を入れたケースは、
+  このマシンでは評価の事前確認で止まり「評価できなかった」になる(`.claude/rules/harness-weekly.md`)。
+- grader は `regex`(`target`: `last_message` / `trace`、`match`: `contains` / `not_contains`)、
+  `tool_used`(Read / Glob / Grep / Bash)、`llm`(`criteria`)だけを使える。
+- `history_lines` を正にすると、出典の transcript のその行までを再開してから prompt を渡す(大きい履歴は評価しない)。
+- 再現できる依頼を書けない(人の判断の誤り、外部サービスの状態など)ルールは `exempt` に理由を書く。
+
+週次ジョブでは、ジョブが評価して効果の節を PR の本文に足す。手動の review では、PR を開く前に
+`bash ~/.claude/scripts/harness-eval-cases.sh run --requests <依頼> --date <日付> --out ~/.claude/harness/eval-results-<日付>.json`
+と `… section --results <結果>` を実行し、出力を本文に載せる(費用がかかる。既定の上限は $5)。
+
 ## Step 6: Bookkeeping
 
 1. Move every processed entry from `queue.md` to

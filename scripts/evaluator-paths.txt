@@ -3,9 +3,9 @@
 # 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
 # それ以外は完全一致。# で始まる行と空行は無視する。
 #
-# Evaluator のうち、判定の基準と Eval Case の目録はまだリポジトリに無い。それを作る PR(#405)が、
-# その PR でここにも足す。足し忘れを機械的に検出する仕組みは無く、その PR のレビューで確かめる。
-# ガードは base 側の版を読むので、足した行はマージ後に効く。
+# Eval Case の目録(Failure Pattern 名・作った日付・出典の PR)は Rule Ledger(#406)に置く。台帳は週次ジョブが
+# ループの PR で commit するので、週の再発率の記録と同じくここには載せない。Evaluator のパスを足し忘れたことを
+# 機械的に検出する仕組みは無く、足す PR のレビューで確かめる。ガードは base 側の版を読むので、足した行はマージ後に効く。
 
 # ガード自身。一覧・判定・テストを書き換えられると、ガードを外せる
 scripts/evaluator-paths.txt
@@ -57,3 +57,11 @@ dot_claude/scripts/executable_harness-classify-failures.sh
 dot_claude/scripts/executable_harness-failure-rates.sh
 test/harness-classify-failures.bats
 test/harness-failure-rates.bats
+
+# Eval Case と 2 アーム評価(ADR 0011)。判定の基準(評価できなかった run の除外・無効の判定・件数と予算の上限)・
+# 評価の起動の引数・注入の経路を書き換えると、効かないルールを効いたように見せられる。Eval Case の依頼は選別の
+# claude が書くが、依頼が決められない条件はこのスクリプトが固定で持つ。実体は ~/.claude/harness/evals/(リポジトリの外)
+dot_claude/scripts/executable_harness-eval-cases.sh
+dot_claude/scripts/harness-eval-plugin/
+test/harness-eval-cases.bats
+test/fixtures/harness-eval-cases/
