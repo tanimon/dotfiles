@@ -1458,3 +1458,34 @@ leftover_branch() { # <ブランチ>
     run cat "$ALERT_LOG"
     refute_line --partial 'issue create'
 }
+
+# 健全性の lib を読めずに止まった run も、失敗の Issue は lib に依らずに作る。
+# 入口スクリプトは自分の隣の lib/ を読むので、lib を置かない場所に複製して起動する
+weekly_without_lib() { # [<lib に置く中身>]
+    local dir="$BATS_TEST_TMPDIR/nolib"
+    mkdir -p "$dir"
+    cp "$SCRIPT" "$dir/harness-weekly.sh"
+    if [[ $# -gt 0 ]]; then
+        mkdir -p "$dir/lib"
+        printf '%s\n' "$1" >"$dir/lib/harness-health.bash"
+    fi
+    bash "$dir/harness-weekly.sh"
+}
+
+@test "健全性の lib が無くて止まった run も、失敗の Issue を作る" {
+    run weekly_without_lib
+    assert_failure
+    assert_output --partial 'is missing or broken'
+    refute_output --partial 'command not found'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+@test "健全性の lib に停止の判定が無くて止まった run も、失敗の Issue を作る" {
+    run weekly_without_lib '# empty'
+    assert_failure
+    assert_output --partial 'lacks the stop checks'
+    refute_output --partial 'command not found'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
