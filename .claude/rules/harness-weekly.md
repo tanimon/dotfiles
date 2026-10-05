@@ -6,6 +6,11 @@ paths:
   - "dot_claude/scripts/executable_harness-briefing.sh"
   - "dot_claude/scripts/executable_harness-doctor.sh"
   - "dot_claude/scripts/lib/harness-health.bash"
+  - "dot_claude/scripts/executable_harness-classify-failures.sh"
+  - "dot_claude/scripts/executable_harness-failure-rates.sh"
+  - "dot_claude/scripts/harness-failure-patterns.json"
+  - "test/harness-classify-failures.bats"
+  - "test/harness-failure-rates.bats"
   - "test/harness-weekly.bats"
   - "test/harness-health.bats"
   - "test/harness-briefing.bats"
@@ -24,6 +29,8 @@ paths:
 - **heartbeat を書く条件**: `~/.claude/harness/weekly-heartbeat`(epoch)を tmp+mv で書くのは `finish_run` だけ。`finish_run` に届くのは、抽出が成功したか省かれ、かつ次のどれかのとき: queue が空で選別を省いた / 当日のブランチが origin にあり PR も既にある / 選別と `publish_review` が成功した(結果ファイルが決めた形で、commit が 0 件かつ Dropped Change が無ければ PR 本文の有無に関わらず PR を作らずに成功、commit と本文があれば push と PR 作成まで。それ以外の失敗の条件は `publish_review` のコメント。判定の記録の URL への置き換えは失敗しても WARN だけで、残った印を `finish_run` が捕まえる)。届いても、判定の記録(`queue-archive.md`)に `adopted (harness/review-…)` が残っていれば(前の run の採用が PR にならなかった)、または記録を読めなければ、heartbeat を書かずに exit 1 する。その週の工程がすべて成功していても、手で publish するか queue に戻すまで毎週失敗する。`state.json` に入れないのは、trigger と reflect も `state.json` を書き換えるため(lost update)。
 - **予算と件数**: 1 回で扱うセッション数はプロンプトで上限を置き(既定 10、`HARNESS_WEEKLY_MAX_SESSIONS`)、予算は歯止めにする。予算だけだと、溜まった分を捌けない週は毎回予算切れで失敗し、進んでいても heartbeat が書かれない。既定値の根拠: Bash を 1 回呼ぶだけの実行でも固定の文脈で $0.43 かかる(2026-10-02)。抽出の工程の実行(2026-10-03、pending 16 件のうち上限の 10 件を処理)は `total_cost_usd` $1.20 で、既定の予算 $5 に届かずに終わった。予算切れの run は exit 1・`subtype: error_max_budget_usd`・`is_error: true` で終わる(実測は Contrast Pair の項)ので、失敗として扱われ heartbeat は書かれない。
 - **抽出の入力は失敗の検出器で選ぶ**(ADR 0011、#403): 抽出の前に `~/.claude/scripts/harness-select-pending.sh --run <抽出の session id>` を実行し、pending の各 transcript を `harness-detect-failures.sh` にかけ、失敗が 0 件のセッションを pending から外す。残りが無ければ抽出の claude を起動しない。手動の `/harness-reflect` も同じスクリプトを(`--run` なしで)使う。信号の定義は検出器のヘッダ、Evaluator として CI で守るパスは `scripts/evaluator-paths.txt`。セッションごとの信号別の件数は `~/.claude/harness/detections.jsonl` に、前の記録より増えた分だけを epoch 付きで記録し(pending に残って次の週にまた選別されても数え直さない)、PR の本文には `detection_section` が前回の heartbeat より後(heartbeat が無ければ直近 7 日)の行を、手動の reflect が記録した分も含めて集計して載せる。節を組み立てられなければ WARN を出して節を省き、PR の公開は止めない。採用 0 件で PR を作らない週の件数は、このファイルにだけ残る。抽出の入力を選ぶのはこの検出器だけで、SessionEnd の 10 ターンの閾値は pending に積むかどうかの閾値として別に働く。
+- **Failure Pattern への分類と週の再発率**(ADR 0011、#404): 選別の直後、抽出より前に毎週(選別を省く週や当日の PR が既にある週も)`harness-classify-failures.sh` が期間内に検出した失敗を `harness-failure-patterns.json` の一覧か `unclassified` に分類し(claude をツール無し・session を保存しない形で 1 回起動する。分類器の session id も `weekly-sessions.txt` に記録する)、`harness-failure-rates.sh record` が週の記録を `~/.claude/harness/failure-pattern-rates/<日付>.json` に書く。期間は heartbeat ではなく前の週の記録の終わりから(失敗した run の後に二重に数えないため)。分類の失敗は WARN にとどめ、その週は `classification: failed` として記録し、推移では「記録なし」と書く。形式・期間・率の定義は両スクリプトのヘッダ。一覧への追加は人が別の PR で行う(Evaluator。`scripts/evaluator-paths.txt`)。
+- **週の記録の commit**: 記録は選別の claude ではなくこのスクリプトが commit する(`commit_rate_records`。oxfmt を通し、`GIT_CONFIG_GLOBAL` が無ければ `~/.config/git/claude-code.inc` で署名する)。リポジトリの置き場は `docs/harness/failure-pattern-rates/`(1 週 1 ファイル。記録を含む PR が 2 本開いてもコンフリクトしない)。採用のある PR には origin/main に無い週の分をまとめて足し、本文に直近 4 週の推移を載せる(純増は記録の commit を足す前に数える)。採用の無い週は持ち越し、origin/main に無い週が 4 件たまり、開いているループの PR が無ければ、記録だけの draft PR を作る(queue が空の週も、選別が何も commit しなかった週も)。選別の claude の commit が記録に触れたら PR を作らずに失敗する。
 - **自分のセッションの除外は 2 段**: `HARNESS_DISABLE=1` で SessionEnd trigger に積ませず、加えて起動前に `weekly-sessions.txt` へ記録した session id を pending から実行の前後に外す。後者は環境変数が nono や hook まで届かなかった場合と、SIGKILL で後片付けの trap が動かなかった前回の積み残しのため。
 - **再実行の安全性**: `weekly.lock/`(中に PID)で同時実行を防ぎ、持ち主が死んだ lock は取り戻す。nono の内側では `ps` が拒否され、別の nono インスタンスや境界の外のプロセスへの `kill -0` は EPERM になる(どちらも実測)ので、EPERM は生存とみなす(死んだとみなすと並走する)。1 日より古い lock は持ち主の生死に関わらず取り戻す(PID の再利用で EPERM が返り続ける場合のため)。抽出はセッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進むので、途中で止まっても失うのは高々 1 セッション分。pending の読み取り失敗と、外す行が無いときの扱いは `strip_job_sessions` のコメント。
 - **lock が防ぐのは週次ジョブ同士だけ**: 対話セッションの `/harness-reflect` や `/harness-review` と同時に走ると、pending と queue の書き換えが競合しうる。土曜 10:00 の起動と手動の reflect が重なる場合に限るので受容している。

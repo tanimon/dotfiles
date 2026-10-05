@@ -5,9 +5,12 @@
 # 工程は 2 つで、それぞれ headless の `claude -p` を 1 回ずつ起動する。
 #   1. 抽出: 失敗の検出器で pending を選別し(harness-select-pending.sh。失敗の無いセッションを外す)、
 #      残ったセッションに対して harness-reflect スキルを行う(残りが無ければ省く)
+#      その前に、検出した失敗を Failure Pattern に分類し(harness-classify-failures.sh。claude を
+#      ツール無しで 1 回起動する)、週の再発率を記録する(harness-failure-rates.sh)
 #   2. 選別: queue に項目があれば、chezmoi の source リポジトリの使い捨ての worktree で
 #      harness-review スキルを行い、採用した変更を commit させる(queue が空なら省く)
-# 採用した commit があれば、push と `gh pr create --draft` はこのスクリプトが固定の引数で
+# 採用した commit があれば(または採用が無くても週の再発率の記録がたまっていれば。
+# publish_metrics_only)、push と `gh pr create --draft` はこのスクリプトが固定の引数で
 # 行う。claude にさせないのは、headless では PreToolUse フックの ask が拒否になり、
 # git push guard が変数を含む push に ask を返すため(#429)。
 # 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
@@ -92,6 +95,21 @@ JOB_SESSIONS="$HARNESS_DIR/weekly-sessions.txt"
 # 失敗の検出器で抽出の入力を選ぶスクリプトと、それが書くセッションごとの検出件数の記録
 SELECT_PENDING="$HOME/.claude/scripts/harness-select-pending.sh"
 DETECTIONS="$HARNESS_DIR/detections.jsonl"
+# 失敗を Failure Pattern に分類するスクリプトと、週の再発率を記録して推移の節を作るスクリプト
+CLASSIFY_FAILURES="$HOME/.claude/scripts/harness-classify-failures.sh"
+FAILURE_RATES="$HOME/.claude/scripts/harness-failure-rates.sh"
+# 週の再発率の記録(1 週 1 ファイル)。ローカルに全週を持ち、PR を作る run がリポジトリの
+# RATES_REPO_DIR に無い週の分をこのスクリプトの commit で足す(commit_rate_records)。
+# 1 つのファイルに追記しないのは、記録を含む PR が 2 本開いたときに同じ行の追記どうしで
+# コンフリクトするため(同じ内容の新規ファイルどうしならぶつからない)
+LOCAL_RATES_DIR="$HARNESS_DIR/failure-pattern-rates"
+RATES_REPO_DIR="docs/harness/failure-pattern-rates"
+# origin/main に無い週の記録がこの件数たまったら、採用が無くても記録だけの draft PR を作る
+METRICS_ONLY_WEEKS=4
+# このスクリプト自身の commit が使う git の設定。launchd の環境には GIT_CONFIG_GLOBAL が無く
+# (Claude Code の子プロセスには settings.json の env が渡す)、~/.gitconfig の署名は 1Password に
+# 頼るので、無人の run では止まる。Claude Code の git と同じ設定(ローカルの署名鍵)を使う
+AGENT_GIT_CONFIG="$HOME/.config/git/claude-code.inc"
 
 # ジョブ自身のセッションを処理の対象から外す(ADR 0012 の Consequences)。
 # 2 段構え: HARNESS_DISABLE で SessionEnd hook に積ませず、それでも積まれた
@@ -152,8 +170,9 @@ fi
 
 SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 REVIEW_SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+CLASSIFY_SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 # 記録は起動より前に行い、直近の分だけ残す
-printf '%s\n%s\n' "$SESSION_ID" "$REVIEW_SESSION_ID" >>"$JOB_SESSIONS"
+printf '%s\n%s\n%s\n' "$SESSION_ID" "$REVIEW_SESSION_ID" "$CLASSIFY_SESSION_ID" >>"$JOB_SESSIONS"
 tail -n 20 "$JOB_SESSIONS" >"$JOB_SESSIONS.tmp" && mv "$JOB_SESSIONS.tmp" "$JOB_SESSIONS"
 strip_job_sessions || {
     rm -rf "$LOCK"
@@ -477,15 +496,192 @@ append_detection_section() {
     fi
 }
 
+# 検出した失敗を Failure Pattern に分類し、この run の週の再発率を記録する。期間は前の週の記録の
+# 終わりから(harness-failure-rates.sh の since)。分類に失敗した週も、失敗したことを記録する
+# (推移では「記録なし」になる)。指標の失敗では run を止めない(WARN だけ)
+record_failure_rates() {
+    local since classification=ok
+    if ! since=$(bash "$FAILURE_RATES" since "$REVIEW_DATE"); then
+        printf 'harness-weekly: WARN could not decide the period with %s; failure rates not recorded\n' "$FAILURE_RATES" >&2
+        return 0
+    fi
+    bash "$CLASSIFY_FAILURES" --since "$since" --session-id "$CLASSIFY_SESSION_ID" || {
+        printf 'harness-weekly: WARN classifying failures with %s failed; this week is recorded as unclassified\n' \
+            "$CLASSIFY_FAILURES" >&2
+        classification=failed
+    }
+    bash "$FAILURE_RATES" record "$REVIEW_DATE" --since "$since" --classification "$classification" ||
+        printf 'harness-weekly: WARN failed to record the failure rates with %s\n' "$FAILURE_RATES" >&2
+}
+
+# 再発率の推移の節を、組み立てに成功したときだけ本文に足す(検出件数の節と同じ扱い)
+append_rates_section() {
+    local section
+    if section=$(bash "$FAILURE_RATES" trend --weeks 4); then
+        printf '%s\n' "$section" >>"$PR_BODY"
+    else
+        printf 'harness-weekly: WARN failed to build the failure rate trend; left it out of %s\n' "$PR_BODY" >&2
+    fi
+}
+
+job_git() {
+    if [[ -z "${GIT_CONFIG_GLOBAL:-}" && -f "$AGENT_GIT_CONFIG" ]]; then
+        GIT_CONFIG_GLOBAL="$AGENT_GIT_CONFIG" git "$@"
+    else
+        git "$@"
+    fi
+}
+
+# ローカルの週の記録のうち、base(origin/main)の $RATES_REPO_DIR に無いものを出す。閉じた PR や
+# 未マージの PR に入っていた週も、origin/main に無ければ出す(ローカルの印では判定しない)
+uncommitted_rate_records() {
+    local base=$1 file
+    [[ -d "$LOCAL_RATES_DIR" ]] || return 0
+    for file in "$LOCAL_RATES_DIR"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json; do
+        [[ -f "$file" ]] || continue
+        git -C "$WORKTREE" cat-file -e "$base:$RATES_REPO_DIR/${file##*/}" 2>/dev/null || printf '%s\n' "$file"
+    done
+}
+
+# origin/main に無い週の記録を worktree に写し、このスクリプトの commit 1 つにする。選別の claude には
+# 書かせない(改善する側が指標を書き換えられないように。publish_review が確かめる)。oxfmt を通すのは、
+# commit フックが JSON の書式を検査するため。写した件数を RATE_RECORDS_COMMITTED に入れる
+RATE_RECORDS_COMMITTED=0
+commit_rate_records() {
+    local base=$1 files file
+    RATE_RECORDS_COMMITTED=0
+    files=$(uncommitted_rate_records "$base")
+    [[ -n "$files" ]] || return 0
+    mkdir -p "$WORKTREE/$RATES_REPO_DIR" || return 1
+    while IFS= read -r file; do
+        cp "$file" "$WORKTREE/$RATES_REPO_DIR/" || return 1
+        RATE_RECORDS_COMMITTED=$((RATE_RECORDS_COMMITTED + 1))
+    done <<<"$files"
+    (cd "$WORKTREE" && pnpm exec oxfmt "$RATES_REPO_DIR") || return 1
+    git -C "$WORKTREE" add -- "$RATES_REPO_DIR" || return 1
+    job_git -C "$WORKTREE" commit --quiet -m "harness: Failure Pattern の再発率の週の記録を足す" || return 1
+}
+
+# 開いている自己改善ループの PR(ブランチ harness/review-*)の URL を出す。無ければ空
+open_loop_pr() {
+    (cd "$REPO" && gh pr list --state open --json headRefName,url \
+        --jq '[.[] | select(.headRefName | startswith("harness/review-"))][0].url // empty')
+}
+
+# 記録だけの draft PR を作るべきか。origin/main に無い週の記録が METRICS_ONLY_WEEKS 件以上あり、
+# 開いているループの PR が無いとき。開いている PR があれば作らない(その PR に記録が入っているか、
+# 次に採用のある PR がまとめて足す。作ると毎週 1 本ずつ増える)
+metrics_only_due() {
+    local base=$1 count open_pr
+    count=$(uncommitted_rate_records "$base" | grep -c . || true)
+    if [[ "$count" -lt "$METRICS_ONLY_WEEKS" ]]; then
+        printf 'harness-weekly: %s weekly failure rate record(s) not on origin/main; carried over in %s (a metrics-only PR needs %s)\n' \
+            "$count" "$LOCAL_RATES_DIR" "$METRICS_ONLY_WEEKS"
+        return 1
+    fi
+    open_pr=$(open_loop_pr) || {
+        printf 'harness-weekly: WARN listing open loop PRs failed; no metrics-only PR this week\n' >&2
+        return 1
+    }
+    if [[ -n "$open_pr" ]]; then
+        printf 'harness-weekly: %s weekly failure rate record(s) not on origin/main, but loop PR %s is open; carried over\n' \
+            "$count" "$open_pr"
+        return 1
+    fi
+}
+
+# 採用の無い週に、週の記録だけの draft PR を作る。worktree と依存は用意済みの前提
+publish_metrics_only() {
+    local base=$1 url
+    commit_rate_records "$base" || {
+        printf 'harness-weekly: failed to commit the weekly failure rate records in %s; no PR created\n' "$WORKTREE" >&2
+        return 1
+    }
+    printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
+        "$RATE_RECORDS_COMMITTED" >"$PR_BODY"
+    append_rates_section
+    append_detection_section
+    git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
+        printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
+            "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
+        return 1
+    }
+    url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
+        --title "harness: 週次の指標 $REVIEW_DATE" --body-file "$PR_BODY") || {
+        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand with gh pr create --draft --base main --head %s --body-file %s\n' \
+            "$BRANCH" "$BRANCH" "$PR_BODY" >&2
+        return 1
+    }
+    url=${url##*$'\n'}
+    printf 'harness-weekly: opened metrics-only draft PR %s (%s weekly record(s))\n' "$url" "$RATE_RECORDS_COMMITTED"
+    rm -f "$PR_BODY" "$REVIEW_RESULT"
+    remove_worktree
+    git -C "$REPO" branch --quiet -D "$BRANCH" >/dev/null 2>&1 ||
+        printf 'harness-weekly: WARN could not delete local branch %s in %s\n' "$BRANCH" "$REPO" >&2
+}
+
+# queue が空で選別を省いた週に、記録だけの PR が要るかを確かめて作る。worktree を作る前に、ローカルの
+# 記録の件数(origin/main に無い件数の上限)と開いているループの PR で絞る。当日のブランチが origin に
+# あれば、その日の PR は作成済みか手で作るのを待っているので作らない
+publish_metrics_if_due() {
+    local local_count=0 file open_pr remote_status=0 base
+    for file in "$LOCAL_RATES_DIR"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json; do
+        [[ -f "$file" ]] && local_count=$((local_count + 1))
+    done
+    if [[ "$local_count" -lt "$METRICS_ONLY_WEEKS" ]]; then
+        printf 'harness-weekly: at most %s weekly failure rate record(s) not on origin/main; carried over in %s (a metrics-only PR needs %s)\n' \
+            "$local_count" "$LOCAL_RATES_DIR" "$METRICS_ONLY_WEEKS"
+        return 0
+    fi
+    open_pr=$(open_loop_pr) || {
+        printf 'harness-weekly: WARN listing open loop PRs failed; no metrics-only PR this week\n' >&2
+        return 0
+    }
+    if [[ -n "$open_pr" ]]; then
+        printf 'harness-weekly: loop PR %s is open; weekly failure rate records carried over\n' "$open_pr"
+        return 0
+    fi
+    git -C "$REPO" ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null || remote_status=$?
+    if [[ "$remote_status" -ne 2 ]]; then
+        [[ "$remote_status" -eq 0 ]] ||
+            printf 'harness-weekly: WARN failed to query origin for %s (git ls-remote exit %s); no metrics-only PR this week\n' \
+                "$BRANCH" "$remote_status" >&2
+        return 0
+    fi
+    command -v pnpm >/dev/null 2>&1 || {
+        printf 'harness-weekly: pnpm not found on PATH (%s); add the directory that holds it (e.g. ~/.local/share/mise/shims) to PATH in the launchd plist; no metrics-only PR\n' \
+            "$PATH" >&2
+        return 1
+    }
+    prepare_worktree || {
+        printf 'harness-weekly: failed to prepare the worktree %s for a metrics-only PR\n' "$WORKTREE" >&2
+        return 1
+    }
+    rm -f "$PR_BODY" "$REVIEW_RESULT"
+    base=$(git -C "$WORKTREE" rev-parse HEAD) || return 1
+    if ! metrics_only_due "$base"; then
+        remove_worktree
+        return 0
+    fi
+    (cd "$WORKTREE" && pnpm install --frozen-lockfile --prefer-offline) || {
+        printf 'harness-weekly: pnpm install failed in %s; no metrics-only PR\n' "$WORKTREE" >&2
+        return 1
+    }
+    publish_metrics_only "$base"
+}
+
 # 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
 # Dropped Change の判定に使わない(本文には採用 0 件の週にも指標などが載りうるため)。
-#   - commit 0 件・dropped が空 → PR を作らずに成功(deploy-only だけの週を含む)
+#   - commit 0 件・dropped が空 → 成功。PR は作らない(deploy-only だけの週を含む)。ただし
+#     origin/main に無い週の再発率の記録がたまっていれば、記録だけの PR を作る(metrics_only_due)
 #   - commit 0 件・dropped が空でない → 失敗(すべてが Dropped Change)
-#   - commit 1 件以上 → PR を作る。dropped は queue に残っており、次の選別にかけ直される
+#   - commit 1 件以上 → PR を作る。dropped は queue に残っており、次の選別にかけ直される。
+#     origin/main に無い週の再発率の記録を、このスクリプトの commit で足す(commit_rate_records)
 # 次はどれも失敗として扱い、heartbeat を書かせない:
 #   - commit されていない変更が残った
 #   - 結果ファイルが無い、または決めた形でない
 #   - commit があるのに本文が無い
+#   - 選別の claude の commit が週の再発率の記録($RATES_REPO_DIR)に触れた
 #   - push か PR の作成が失敗した
 # Deploy-only Fix は、結果ファイルを読めた時点で、未 commit の変更を含むどの失敗の判定よりも
 # 先に $DEPLOY_ONLY へ残す。commit 0 件で成功する週は本文を PR にしないので捨てる(採用も
@@ -517,6 +713,11 @@ publish_review() {
                 "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
             return 1
         fi
+        if metrics_only_due "$base"; then
+            printf 'harness-weekly: review committed no changes; opening a metrics-only PR\n'
+            publish_metrics_only "$base"
+            return
+        fi
         printf 'harness-weekly: review committed no changes; no PR created\n'
         rm -f "$PR_BODY" "$REVIEW_RESULT"
         remove_worktree
@@ -526,9 +727,26 @@ publish_review() {
         printf 'harness-weekly: review made %s commit(s) but wrote no PR body; no PR created\n' "$commits" >&2
         return 1
     fi
+    if [[ -n "$(git -C "$WORKTREE" diff --name-only "$base" HEAD -- "$RATES_REPO_DIR")" ]]; then
+        printf 'harness-weekly: review commits touched %s (only this job writes the weekly failure rate records); no PR created\n' \
+            "$RATES_REPO_DIR" >&2
+        return 1
+    fi
     result_sections >>"$PR_BODY" || return 1
     append_detection_section
+    append_rates_section
+    # 純増は選別の commit だけで数える(記録の commit を混ぜると、ルールの肥大の数字に記録の行が入る)
     net_change_section "$base" >>"$PR_BODY" || return 1
+    if commit_rate_records "$base"; then
+        [[ "$RATE_RECORDS_COMMITTED" -eq 0 ]] ||
+            printf 'harness-weekly: committed %s weekly failure rate record(s)\n' "$RATE_RECORDS_COMMITTED"
+    else
+        # 記録は ~/.claude/harness に残り、次の PR がまとめて足す。採用の公開は止めない
+        printf 'harness-weekly: WARN failed to commit the weekly failure rate records; they stay in %s for the next PR\n' \
+            "$LOCAL_RATES_DIR" >&2
+        git -C "$WORKTREE" reset --quiet --hard HEAD || return 1
+        git -C "$WORKTREE" clean --quiet -fd -- "$RATES_REPO_DIR" || return 1
+    fi
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
             "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
@@ -577,6 +795,7 @@ report_failed_review() {
             printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
     fi
     append_detection_section
+    append_rates_section
     printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
         "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$ADOPTED_MARK" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
 }
@@ -616,6 +835,8 @@ bash "$SELECT_PENDING" --run "$SESSION_ID" || {
     printf 'harness-weekly: selecting pending sessions with %s failed; skipped reflect\n' "$SELECT_PENDING" >&2
     exit 1
 }
+# 分類と週の記録は、選別を省く・当日の PR が既にあるなどの早期の終了より前に、毎週行う
+record_failure_rates
 if [[ "$(count_pending)" -eq 0 ]]; then
     printf 'harness-weekly: pending is empty; skipped reflect\n'
 else
@@ -639,6 +860,7 @@ fi
 QUEUE_ENTRIES=$(count_queue)
 if [[ "$QUEUE_ENTRIES" -eq 0 ]]; then
     printf 'harness-weekly: queue is empty; skipped review\n'
+    publish_metrics_if_due || exit 1
     finish_run || exit 1
     exit 0
 fi
@@ -702,7 +924,7 @@ Use the harness-review skill, following its rules, with these changes:
 - Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). List a deploy-only fix (one that a commit cannot fix and that takes effect only when a human applies it) in the result file instead.
 - In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Fold fixes for a failing commit hook or just lint into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
 - Always write the result file ${REVIEW_RESULT} before you finish, even if nothing happened: a JSON object {\"dropped\": [...], \"deploy_only\": [...]} whose elements are one-line strings (in Japanese). In \"dropped\", put each dropped change with its queue title and the failing hook or lint check; in \"deploy_only\", each deploy-only fix with what to apply and why. Use empty arrays when there are none. This job decides whether the run failed from this file, not from the PR body.
-- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection records and the result file. If nothing is adopted and nothing is stale, make no commits.
+- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, failure pattern rates, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection and rate records and the result file. Never change files under ${RATES_REPO_DIR}; this job commits them. If nothing is adopted and nothing is stale, make no commits.
 - In \"Bookkeeping\", record each adopted verdict as \"${ADOPTED_MARK}\" exactly; this job replaces it with the PR URL.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
