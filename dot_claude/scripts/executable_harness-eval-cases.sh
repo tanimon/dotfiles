@@ -9,8 +9,10 @@
 # 依頼は選別(改善する側の claude)が書く JSON の object {"cases": [...]}。受け付ける形の正本は REQUEST_DEFS、
 # 書き方は harness-review スキルの「Eval Case requests」節。依頼が決められるのはルール本文・プロンプト・grader・
 # 出典のセッション・免除の理由だけで、run 数・ターン数・時間・予算・ablation・発行の有無はこのスクリプトが決める。
-# 残存: grader とプロンプトは改善する側が書くので、自明な grader で Δ を作ることはこのスクリプトでは防げない
-# (ADR 0011 は Eval Case を Evaluator に置く)。防ぐのは人の PR レビューで、依頼は実体の request.json に残る。
+# 残存: grader・プロンプト・with の側に注入するルール本文は改善する側が書くので、自明な grader で Δ を作ることも、
+# PR で commit したのとは別の(答えを指定する)文字列を注入して Δ を作ることも、このスクリプトでは防げない
+# (ADR 0011 は Eval Case を Evaluator に置く。注入したルールが commit したルールと一致するかは確かめていない)。
+# 防ぐのは人の PR レビューで、依頼は実体の request.json に残り、節は注入したルールの sha256 を載せる。
 #
 # Eval Case の実体は ~/.claude/harness/evals/<id>/(chezmoi 管理外・git 管理外)に 1 ケース 1 plugin で
 # 作る。ルールは plugin の SessionStart フックの additionalContext で with の側にだけ注入される
@@ -159,9 +161,15 @@ judge_case() { # <title> <id> <result.json> <eval の終了コード>
         + (if $status == 2 then {partial: true} else {} end)' "$3"
 }
 
-not_evaluated() { # <title> <id> <reason>
-    jq -n -c --arg title "$1" --arg id "$2" --arg reason "$3" \
-        '{title: $title, id: $id, status: "not_evaluated", reason: $reason, cost_usd: 0}'
+not_evaluated() { # <title> <id> <reason> [費用]
+    jq -n -c --arg title "$1" --arg id "$2" --arg reason "$3" --argjson cost "${4:-0}" \
+        '{title: $title, id: $id, status: "not_evaluated", reason: $reason, cost_usd: $cost}'
+}
+
+# 評価を起動したのに評価できなかったケースの費用。result.json の costUsd が読めればそれを、読めなければ渡した
+# 予算を使い切ったものとして返す(費用を 0 にすると、次のケースに予算の全額が渡って総額の上限を超える)
+failed_cost() { # <result.json> <渡した予算>
+    jq -e 'if (.costUsd | type) == "number" then .costUsd else error end' "$1" 2>/dev/null || printf '%s\n' "$2"
 }
 
 # ケースの id。日付と title のハッシュで決め、同じ日の再実行で別のルールの実体を上書きしない(同じ title なら
@@ -215,7 +223,7 @@ prepare_case() { # <依頼の要素(JSON)> <id>
 
 # 作ったケースを評価し、結果の 1 要素を出す
 run_case() { # <依頼の要素(JSON)> <id> <残りの予算>
-    local request=$1 id=$2 budget=$3 title dir stage allow=() status=0
+    local request=$1 id=$2 budget=$3 title dir stage entry allow=() status=0
     title=$(jq -r '.title' <<<"$request") || return 1
     dir="$EVALS_DIR/$id"
     if jq -e '(.allowed_tools // []) | index("Bash")' <<<"$request" >/dev/null; then
@@ -241,11 +249,12 @@ run_case() { # <依頼の要素(JSON)> <id> <残りの予算>
     fi
     rm -rf "$stage"
     if [[ "$status" -ne 0 && "$status" -ne 2 ]] ||
-        ! jq -e '.cases | type == "array" and length > 0' "$dir/result.json" >/dev/null 2>&1; then
-        not_evaluated "$title" "$id" eval_failed
+        ! jq -e '.cases | type == "array" and length > 0' "$dir/result.json" >/dev/null 2>&1 ||
+        ! entry=$(judge_case "$title" "$id" "$dir/result.json" "$status"); then
+        not_evaluated "$title" "$id" eval_failed "$(failed_cost "$dir/result.json" "$budget")"
         return 0
     fi
-    judge_case "$title" "$id" "$dir/result.json" "$status"
+    printf '%s\n' "$entry"
 }
 
 run_mode() {
@@ -277,7 +286,11 @@ run_mode() {
             continue
         fi
         id=$(case_id "$title")
-        if ! jq -e "$REQUEST_DEFS"'case_valid' <<<"$request" >/dev/null; then
+        if jq -e --arg t "$title" '[.cases[] | select(has("exempt") | not) | select(.title == $t)] | length > 1' \
+            "$REQUESTS" >/dev/null; then
+            # id は title で決まるので、同じ title のケースは互いの実体を消し合う。どちらも作らない
+            entry=$(not_evaluated "$title" "" bad_request | jq -c 'del(.id)')
+        elif ! jq -e "$REQUEST_DEFS"'case_valid' <<<"$request" >/dev/null; then
             # 形の不正な依頼は出典を信用できないので、実体も作らない
             entry=$(not_evaluated "$title" "$id" bad_request)
         else
@@ -297,8 +310,16 @@ run_mode() {
                 entry=$(not_evaluated "$title" "$id" budget_exhausted)
             else
                 evaluated=$((evaluated + 1))
-                entry=$(run_case "$request" "$id" "$remaining") || entry=$(not_evaluated "$title" "$id" eval_failed)
+                # run_case 自体が失敗したときは、評価を起動した後かもしれないので予算を使い切ったものとする
+                entry=$(run_case "$request" "$id" "$remaining") ||
+                    entry=$(not_evaluated "$title" "$id" eval_failed "$remaining")
             fi
+        fi
+        # 注入したルールのハッシュ。依頼はローカルにしか残らないので、PR で commit したルールと同じものを注入したかを
+        # PR の本文から確かめられるようにする
+        if jq -e '.rule | type == "string"' <<<"$request" >/dev/null; then
+            entry=$(jq -c --arg sha "$(jq -j '.rule' <<<"$request" | shasum -a 256 | cut -c1-12)" \
+                '. + {rule_sha256: $sha}' <<<"$entry")
         fi
         cost=$(jq '.cost_usd // 0' <<<"$entry")
         spent=$(jq -n --argjson s "$spent" --argjson c "$cost" '$s + $c')
@@ -360,8 +381,13 @@ section_mode() {
           (if (.exempt | length) > 0 then "\n### 免除\n", (.exempt[] | "- \(.title | cell): \(.reason | cell)") else empty end),
           (if (.over_cap | length) > 0 then "\n### 件数の上限で今回は評価しなかったもの\n", (.over_cap[] | "- \(. | cell)") else empty end),
           (if ($missing | length) > 0 then "\n### 評価も免除の理由も無い採用\n", ($missing[] | "- \(. | cell)") else empty end),
+          (if ([.cases[] | select(.rule_sha256 != null)] | length) > 0 then
+              "\n### 注入したルールの sha256(先頭 12 桁)\n",
+              "with の側に注入したルール本文の `printf %s \"<ルール>\" | shasum -a 256` の先頭。PR で commit したルールと一致するかの確認に使う。\n",
+              (.cases[] | select(.rule_sha256 != null) | "- \(.title | cell): `\(.rule_sha256)`")
+           else empty end),
           (if ([.cases[] | select(.id != null)] | length) > 0 then
-              "\n各ケースの依頼(ルール・プロンプト・grader)は、このマシンの `~/.claude/harness/evals/<Eval Case>/request.json` にある。grader が自明でないかはそこで確かめる。"
+              "\n各ケースの依頼(ルール・プロンプト・grader)は、このマシンの `~/.claude/harness/evals/<Eval Case>/request.json` にある。grader が自明でないか、注入したルールが PR で commit したルールと同じかはそこで確かめる。"
            else empty end),
           "\n評価の費用(定価での推定): $\(.cost_usd | num)"' "$RESULTS"
 }

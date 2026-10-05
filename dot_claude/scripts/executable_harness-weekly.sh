@@ -734,9 +734,6 @@ adopted_titles() {
     awk -v mark="$ADOPTED_MARK" '/^## / { title = substr($0, 4) } index($0, mark) > 0 && title != "" { print title; title = "" }' "$ARCHIVE"
 }
 
-# 採用したルールの Eval Case を評価し、効果の節を本文に足す。採用したのに結果にも免除にも無いものは、節が
-# 名前で出す(依頼が無ければ全件がそうなる)。評価の工程の失敗は WARN にとどめて PR の公開は止めないが、
-# 本文に評価できなかったことを書く(黙って節を省くと、効果が測られていないことが PR から見えない)
 # 評価のスクリプトと eval 専用 plugin の雛形の「パス ハッシュ」を 1 行ずつ出す。抽出と選別の claude は
 # ~/.claude に書けるので、claude を起動する前に取った値(EVALUATOR_DIGESTS)と評価の直前に取った値を比べ、
 # 評価される側が評価の仕組みを書き換えた run を見つける(rate_record_digests と同じ扱い)。無いファイルは
@@ -753,6 +750,9 @@ evaluator_digests() {
 }
 EVALUATOR_DIGESTS=""
 
+# 採用したルールの Eval Case を評価し、効果の節を本文に足す。採用したのに結果にも免除にも無いものは、節が
+# 名前で出す(依頼が無ければ全件がそうなる)。評価の工程の失敗は WARN にとどめて PR の公開は止めないが、
+# 本文に評価できなかったことを書く(黙って節を省くと、効果が測られていないことが PR から見えない)
 append_eval_section() {
     local adopted="$HARNESS_DIR/.eval-adopted-$REVIEW_DATE" section digests
     digests=$(evaluator_digests) || return 1

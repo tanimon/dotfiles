@@ -4,6 +4,7 @@
 # transcript は合成の fixture を ~/.claude/projects/ の下に置く。claude は PATH 上のスタブで、引数を
 # $ARGV_LOG に 1 行で写し、--json の先に test/fixtures/harness-eval-cases/ の結果を書く。どの結果を
 # 書くかは STUB_EVAL_<何回目の起動か>(例: STUB_EVAL_02=ceiling)か、無ければ STUB_EVAL(既定 effective)。
+# none なら結果を書かない。
 # STUB_EVAL_EXIT で終了コードを変える。
 bats_require_minimum_version 1.5.0
 
@@ -49,7 +50,7 @@ done
 calls=$(grep -c '^plugin eval' "$ARGV_LOG")
 var=$(printf 'STUB_EVAL_%02d' "$calls")
 fixture=${!var:-${STUB_EVAL:-effective}}
-cp "$FIXTURES/$fixture.json" "$json"
+[[ "$fixture" == none ]] || cp "$FIXTURES/$fixture.json" "$json"
 exit "${STUB_EVAL_EXIT:-0}"
 EOF
     export PATH="$STUBS:$PATH"
@@ -245,6 +246,49 @@ run_eval() {
     assert_success
     run jq -c '.cases | map(.reason)' "$OUT"
     assert_output '["eval_failed"]'
+}
+
+@test "評価の起動が失敗しても、結果に費用があればそれを使った分として次のケースの予算から引く" {
+    requests "$(rule_case '[2026-10-09] 1')" "$(rule_case '[2026-10-09] 2')"
+    STUB_EVAL_EXIT=3 HARNESS_EVAL_BUDGET_USD=0.3 run_eval
+    assert_success
+    run grep -oE -- '--max-cost-usd [0-9.]+' "$ARGV_LOG"
+    assert_line --index 1 -- '--max-cost-usd 0.13'
+    run jq -c '[.cases[].cost_usd, .cost_usd]' "$OUT"
+    assert_output '[0.17,0.17,0.34]'
+}
+
+@test "評価の起動が結果を残さずに失敗したら、渡した予算を使い切ったものとする" {
+    requests "$(rule_case '[2026-10-09] 1')" "$(rule_case '[2026-10-09] 2')"
+    STUB_EVAL=none STUB_EVAL_EXIT=3 HARNESS_EVAL_BUDGET_USD=0.3 run_eval
+    assert_success
+    run grep -c '^plugin eval' "$ARGV_LOG"
+    assert_output 1
+    run jq -c '[.cases[] | [.reason, .cost_usd]]' "$OUT"
+    assert_output '[["eval_failed",0.3],["budget_exhausted",0]]'
+}
+
+@test "同じ title のケースが依頼に 2 件あれば、どちらも実体を作らずに不正な依頼とする" {
+    requests "$(rule_case '[2026-10-09] 重複')" "$(rule_case '[2026-10-09] 重複' "$SID_B")" \
+        '{"title":"[2026-10-09] 重複","exempt":"免除の理由"}'
+    run_eval
+    assert_success
+    run jq -c '[.cases[] | [.reason, .id]]' "$OUT"
+    assert_output '[["bad_request",null],["bad_request",null]]'
+    assert [ ! -e "$HDIR/evals/$(id_of '[2026-10-09] 重複')" ]
+    assert [ ! -e "$ARGV_LOG" ]
+}
+
+@test "結果と節は、with の側に注入したルール本文の sha256 を載せる" {
+    requests "$(rule_case '[2026-10-09] A を守る')"
+    run_eval
+    assert_success
+    expected=$(printf '%s' '区切り線は head -c N /dev/zero | tr "\\0" <文字> で作る' | shasum -a 256 | cut -c1-12)
+    run jq -r '.cases[0].rule_sha256' "$OUT"
+    assert_output "$expected"
+    run --separate-stderr bash "$SCRIPT" section --results "$OUT"
+    assert_success
+    assert_line "- [2026-10-09] A を守る: \`$expected\`"
 }
 
 @test "依頼が読めなければ失敗する" {
