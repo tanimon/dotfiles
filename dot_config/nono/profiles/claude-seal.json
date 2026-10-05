@@ -49,7 +49,8 @@
       "$XDG_CONFIG_HOME/zed",
       "$XDG_CONFIG_HOME/zellij",
       "$XDG_CONFIG_HOME/zsh",
-      "$XDG_CONFIG_HOME/nono"
+      "$XDG_CONFIG_HOME/nono",
+      "$HOME/orca/workspaces/chezmoi"
     ],
     "write": [
       "$XDG_DATA_HOME/chezmoi/.git/objects",
@@ -81,6 +82,15 @@
       "$HOME/.bash_profile",
       "$HOME/.zshrc",
       "$HOME/.zprofile"
+    ],
+    "suppress_save_prompt": [
+      "$HOME/.ssh",
+      "$HOME/Library/Application Support/Arc/User Data",
+      "$HOME/Library/Application Support/Chromium",
+      "$HOME/Library/Application Support/Google/Chrome",
+      "$HOME/Library/Application Support/Microsoft Edge",
+      "$HOME/Library/Application Support/Vivaldi",
+      "$HOME/.config"
     ],
     "unix_socket": ["$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"]
   },
