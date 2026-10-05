@@ -2,7 +2,8 @@
 # 自己改善ループの週次ジョブの入口(ADR 0012)。launchd が週 1 回、nono の内側で起動する
 # (plist の ProgramArguments が `nono run … -- /bin/bash <このスクリプト>`)。
 #
-# 工程は 2 つで、それぞれ headless の `claude -p` を 1 回ずつ起動する。
+# 工程は 2 つで、それぞれ headless の `claude -p` を 1 回ずつ起動する(ほかに分類器が、分類する失敗が
+# あるときだけツール無しで 1 回起動する)。
 #   1. 抽出: 失敗の検出器で pending を選別し(harness-select-pending.sh。失敗の無いセッションを外す)、
 #      残ったセッションに対して harness-reflect スキルを行う(残りが無ければ省く)
 #      その前に、検出した失敗を Failure Pattern に分類し(harness-classify-failures.sh。claude を
@@ -829,7 +830,7 @@ finish_run() {
 
 # 処理対象が無い工程は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
 # 両方の工程を省いた週も、finish_run の確認を通れば heartbeat は書く(「ジョブが健全に
-# 回った」の意味。その週は claude と認証の経路を通らない)
+# 回った」の意味。分類する失敗も無ければ、その週は claude と認証の経路を通らない)
 # 抽出の入力は失敗の検出器で選ぶ(ADR 0011)。失敗の無いセッションは claude にかけずに pending から外し、
 # セッションごとの件数を $DETECTIONS に残す。選別が失敗したら抽出に進まない(選ばれていない入力で
 # 抽出すると、検出件数の無いセッションが混ざる)
