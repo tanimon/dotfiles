@@ -3,9 +3,8 @@
 # 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
 # それ以外は完全一致。# で始まる行と空行は無視する。
 #
-# Evaluator のうち、Failure Pattern の一覧、判定の基準、Eval Case の目録はまだリポジトリに無い。
-# それぞれを作る PR(#404 Failure Pattern、#405 判定の基準と Eval Case の目録)が、その PR でここにも足す。
-# 足し忘れを機械的に検出する仕組みは無く、それらの PR のレビューで確かめる。
+# Evaluator のうち、判定の基準と Eval Case の目録はまだリポジトリに無い。それを作る PR(#405)が、
+# その PR でここにも足す。足し忘れを機械的に検出する仕組みは無く、その PR のレビューで確かめる。
 # ガードは base 側の版を読むので、足した行はマージ後に効く。
 
 # ガード自身。一覧・判定・テストを書き換えられると、ガードを外せる
@@ -45,3 +44,13 @@ dot_claude/skills/harness-reflect/SKILL.md
 test/harness-detect-failures.bats
 test/harness-select-pending.bats
 test/fixtures/harness-detect-failures/
+
+# Failure Pattern の一覧と分類器・再発率の集計(ADR 0011)。一覧や分類の手順を書き換えると、失敗を
+# 「未分類」や別の類型に寄せて再発率を動かせる。週の再発率の記録(harness-weekly.sh の RATES_REPO_DIR)は
+# 週次ジョブがループの PR で commit するので載せない(載せるとループの PR が必ず落ちる)。選別の claude の
+# commit が記録に触れたら週次ジョブが PR を作らずに失敗する(harness-weekly.sh の publish_review)
+dot_claude/scripts/harness-failure-patterns.json
+dot_claude/scripts/executable_harness-classify-failures.sh
+dot_claude/scripts/executable_harness-failure-rates.sh
+test/harness-classify-failures.bats
+test/harness-failure-rates.bats

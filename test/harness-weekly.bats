@@ -18,7 +18,8 @@ setup() {
     load 'helpers/exec-cache'
     # スクリプトが読む環境変数を、このマシンのシェルから漏らさない
     unset HARNESS_DISABLE HARNESS_WEEKLY_BUDGET_USD HARNESS_WEEKLY_MAX_SESSIONS \
-        HARNESS_WEEKLY_REVIEW_BUDGET_USD HARNESS_WEEKLY_REPO
+        HARNESS_WEEKLY_REVIEW_BUDGET_USD HARNESS_WEEKLY_REPO \
+        HARNESS_CLASSIFY_BUDGET_USD HARNESS_CLASSIFY_MAX_ITEMS
     export INSIDE_NONO_SANDBOX=1
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-weekly.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
@@ -69,7 +70,15 @@ while [[ $# -gt 0 ]]; do
     [[ "$1" == "--session-id" ]] && sid="$2"
     shift
 done
-if [[ "$all_args" == *'harness-review skill'* ]]; then
+if [[ "$all_args" == *'--no-session-persistence'* ]]; then
+    # 失敗の分類器。標準入力のプロンプトの項目をすべて STUB_PATTERN に分類する
+    printf 'classify\n' >>"$STAGE_LOG"
+    answer=$(grep -oE '^\{"id":[0-9]+' | grep -oE '[0-9]+$' |
+        jq -R -s -c --arg p "${STUB_PATTERN:-shell-pitfall}" 'split("\n") | map(select(length > 0) | {id: tonumber, pattern: $p})')
+    [[ -n "${STUB_CLASSIFY_FAIL:-}" ]] && answer='not json'
+    jq -n -c --arg r "$answer" '{type: "result", is_error: false, result: $r}'
+    exit 0
+elif [[ "$all_args" == *'harness-review skill'* ]]; then
     printf 'review\n' >>"$STAGE_LOG"
     body="$HOME/.claude/harness/review-pr-body-$(date +%Y-%m-%d).md"
     # 結果ファイル(落とした変更と deploy-only の修正)。既定は空配列で書く。
@@ -147,6 +156,13 @@ EOF
     install_exec "$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GH_LOG"
+if [[ "$1 $2" == "pr list" && "$*" == *'--state open'* ]]; then
+    # 開いているループの PR の一覧(記録だけの PR を作るかの判定)。既定は無し
+    [[ -z "${STUB_GH_OPEN_FAIL:-}" ]] || exit 1
+    printf '%s' "${STUB_GH_OPEN_LOOP_PR:-}"
+    [[ -z "${STUB_GH_OPEN_LOOP_PR:-}" ]] || printf '\n'
+    exit 0
+fi
 if [[ "$1 $2" == "pr list" ]]; then
     printf '%s\n' "${STUB_GH_PR_LIST-https://github.com/example/dotfiles/pull/41}"
     exit 0
@@ -170,6 +186,16 @@ EOF
         "$HOME/.claude/scripts/harness-detect-failures.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-select-pending.sh" \
         "$HOME/.claude/scripts/harness-select-pending.sh"
+    # 分類器・再発率のスクリプトと Failure Pattern の一覧も本物を置く
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-classify-failures.sh" \
+        "$HOME/.claude/scripts/harness-classify-failures.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-failure-rates.sh" \
+        "$HOME/.claude/scripts/harness-failure-rates.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-failure-patterns.json" \
+        "$HOME/.claude/scripts/harness-failure-patterns.json"
+    RATES="$HDIR/failure-pattern-rates"
+    RATES_REPO_DIR=docs/harness/failure-pattern-rates
+    TODAY=$(date +%Y-%m-%d)
     # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く。transcript が無いので
     # 選別は検出器にかけずに残す
     printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
@@ -437,8 +463,8 @@ PRE
     assert_equal "${#lines[@]}" 1
     assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
     # PR を作る前にブランチが origin にある(push はスクリプトが行う)
-    run git -C "$ORIGIN" log --format=%s -1 "$BRANCH"
-    assert_output 'harness: add rule'
+    run git -C "$ORIGIN" log --format=%s "$BRANCH"
+    assert_line 'harness: add rule'
     assert [ -f "$HDIR/weekly-heartbeat" ]
 }
 
@@ -603,8 +629,8 @@ PRE
     assert_output --partial 'not on origin/main'
     run cat "$HDIR/review-pr-body-$(date +%Y-%m-%d).md"
     assert_output --partial '## 純増'
-    run git -C "$WT" log --format=%s -1
-    assert_output 'harness: add rule'
+    run git -C "$WT" log --format=%s
+    assert_line 'harness: add rule'
     assert [ ! -e "$WT.new" ]
 }
 
@@ -1060,7 +1086,8 @@ EOF
     run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_output --partial 'Do not write line counts, failure detection counts, dropped changes or deploy-only fixes in the PR body'
+    assert_output --partial 'Do not write line counts, failure detection counts, failure pattern rates, dropped changes or deploy-only fixes in the PR body'
+    assert_output --partial "Never change files under ${RATES_REPO_DIR}; this job commits them"
     refute_output --partial 'final summary instead'
     refute_output --partial 'Report a deploy-only fix in the PR body'
     refute_output --partial 'reads a PR body without commits'
@@ -1176,13 +1203,16 @@ PRE
 @test "検出件数の節を組み立てられなくても PR は作り、節を省く" {
     : >"$HDIR/pending.jsonl"
     seed_queue
-    # pending が空なので選別は記録を読まず、節の組み立てだけが読み取りに失敗する
+    # pending が空なので選別は記録を読まず、節の組み立てと週の再発率の記録が読み取りに失敗する。
+    # 週の記録が欠けるので run は失敗にするが(heartbeat を書かない)、PR は作る
     printf '{}\n' >"$HDIR/detections.jsonl"
     chmod 000 "$HDIR/detections.jsonl"
     run weekly
     chmod 644 "$HDIR/detections.jsonl"
-    assert_success
+    assert_failure
     assert_output --partial 'failed to build the detection counts'
+    assert_output --partial 'opened draft PR'
+    assert_output --partial 'this week has no failure rate record'
     run cat "$GH_BODY"
     refute_output --partial '## 失敗の検出'
 }
@@ -1212,4 +1242,218 @@ PRE
     run cat "$HDIR/review-pr-body-$(date +%Y-%m-%d).md"
     assert_output --partial '## 失敗の検出'
     assert_line '| `tool_error` | 3 |'
+}
+
+# old_record <date>: 前の週の再発率の記録をローカルに置く
+old_record() {
+    mkdir -p "$RATES"
+    printf '{"date":"%s","since":0,"until":1,"sessions":2,"detections":1,"classified":1,"classification":"ok","patterns":{"shell-pitfall":{"occurrences":1,"sessions":1,"rate":0.5},"unclassified":{"occurrences":0,"sessions":0,"rate":0}}}\n' \
+        "$1" >"$RATES/$1.json"
+}
+
+# commit_on_main <file>: origin/main に週の記録を commit する(マージ済みの記録の再現)
+commit_on_main() {
+    mkdir -p "$HARNESS_WEEKLY_REPO/$RATES_REPO_DIR"
+    cp "$RATES/$1.json" "$HARNESS_WEEKLY_REPO/$RATES_REPO_DIR/"
+    git -C "$HARNESS_WEEKLY_REPO" add -A
+    git -C "$HARNESS_WEEKLY_REPO" commit -qm "record $1"
+    git -C "$HARNESS_WEEKLY_REPO" push -q origin main
+}
+
+@test "検出した失敗を分類し、queue が空の週も再発率を記録する" {
+    : >"$HDIR/pending.jsonl"
+    add_session err1 tool-error
+    STUB_PATTERN=tool-contract run weekly
+    assert_success
+    run jq -c '{sessions, detections, classified, classification, tc: .patterns["tool-contract"]}' "$RATES/$TODAY.json"
+    assert_output '{"sessions":1,"detections":3,"classified":3,"classification":"ok","tc":{"occurrences":3,"sessions":1,"rate":1}}'
+    run cat "$STAGE_LOG"
+    assert_line --index 0 'classify'
+}
+
+@test "分類器のセッションは pending に残さない" {
+    : >"$HDIR/pending.jsonl"
+    add_session err1 tool-error
+    STUB_UUID=CCCCCCCC-0000-0000-0000-000000000003 run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial '--session-id cccccccc-0000-0000-0000-000000000003 --max-budget-usd'
+    run cat "$HDIR/pending.jsonl"
+    refute_output --partial 'cccccccc-0000-0000-0000-000000000003'
+}
+
+@test "分類に失敗しても run は成功し、その週を分類の失敗として記録する" {
+    : >"$HDIR/pending.jsonl"
+    add_session err1 tool-error
+    STUB_CLASSIFY_FAIL=1 run weekly
+    assert_success
+    assert_output --partial 'classifying failures with'
+    run jq -r '.classification, .classified' "$RATES/$TODAY.json"
+    assert_output "$(printf '%s\n' failed 0)"
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "採用のある PR に、origin/main に無い週の記録をジョブの commit で足し、本文に推移を載せる" {
+    seed_queue
+    old_record 2026-09-19
+    old_record 2026-09-26
+    commit_on_main 2026-09-19
+    run weekly
+    assert_success
+    run git -C "$ORIGIN" log --format=%s "$BRANCH"
+    assert_line --index 0 'harness: Failure Pattern の再発率の週の記録を足す'
+    assert_line --index 1 'harness: add rule'
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
+    assert_output "$(printf '%s\n' "$RATES_REPO_DIR/2026-09-26.json" "$RATES_REPO_DIR/$TODAY.json")"
+    run cat "$GH_BODY"
+    assert_line '## Failure Pattern の再発率'
+    assert_output --partial "| Failure Pattern | 2026-09-19 | 2026-09-26 | ${TODAY} |"
+    # 純増は選別の commit だけで数える
+    assert_output --partial '合計: +4 / -2(純増 +2 行)'
+    refute_output --partial "$RATES_REPO_DIR"
+    run cat "$PNPM_LOG"
+    assert_output --partial "$WT exec oxfmt $RATES_REPO_DIR"
+}
+
+@test "選別の claude の commit が週の記録に触れたら PR を作らずに失敗する" {
+    seed_queue
+    cat >"$STUBS/claude-pre" <<'PRE'
+if [[ "$*" == *'harness-review skill'* ]]; then
+    mkdir -p docs/harness/failure-pattern-rates && printf '{}\n' >docs/harness/failure-pattern-rates/2026-01-01.json
+    git add -A && git commit -qm 'tamper'
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'review commits touched docs/harness/failure-pattern-rates'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "採用 0 件の週は、origin/main に無い記録が 4 週分に満たなければ持ち越して PR を作らない" {
+    old_record 2026-09-19
+    old_record 2026-09-26
+    run weekly
+    assert_success
+    assert_output --partial '3 weekly failure rate record(s) not on origin/main; carried over'
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ -f "$RATES/$TODAY.json" ]
+    assert [ ! -d "$WT" ]
+}
+
+@test "採用 0 件の週に origin/main に無い記録が 4 週分たまったら、記録だけの draft PR を作る" {
+    old_record 2026-09-12
+    old_record 2026-09-19
+    old_record 2026-09-26
+    run weekly
+    assert_success
+    assert_output --partial 'opened metrics-only draft PR'
+    run grep '^pr create' "$GH_LOG"
+    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} --title harness: 週次の指標 "
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_output 'harness: Failure Pattern の再発率の週の記録を足す'
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH"
+    assert_output "$(printf '%s\n' "$RATES_REPO_DIR/2026-09-12.json" "$RATES_REPO_DIR/2026-09-19.json" \
+        "$RATES_REPO_DIR/2026-09-26.json" "$RATES_REPO_DIR/$TODAY.json")"
+    run cat "$GH_BODY"
+    assert_output --partial '4 週分たまった'
+    assert_line '## Failure Pattern の再発率'
+    assert_line '## 失敗の検出'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert [ ! -d "$WT" ]
+}
+
+@test "origin/main にある週の記録は、記録だけの PR の件数に数えない" {
+    old_record 2026-09-12
+    old_record 2026-09-19
+    old_record 2026-09-26
+    commit_on_main 2026-09-12
+    run weekly
+    assert_success
+    assert_output --partial '3 weekly failure rate record(s) not on origin/main; carried over'
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ ! -d "$WT" ]
+}
+
+@test "開いているループの PR があれば、記録がたまっていても記録だけの PR を作らない" {
+    old_record 2026-09-12
+    old_record 2026-09-19
+    old_record 2026-09-26
+    STUB_GH_OPEN_LOOP_PR=https://github.com/example/dotfiles/pull/40 run weekly
+    assert_success
+    assert_output --partial 'loop PR https://github.com/example/dotfiles/pull/40 is open'
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ ! -d "$WT" ]
+}
+
+@test "選別が何も commit しなかった週も、記録がたまっていれば記録だけの PR を作る" {
+    seed_queue
+    old_record 2026-09-12
+    old_record 2026-09-19
+    old_record 2026-09-26
+    STUB_REVIEW_MODE=body_only run weekly
+    assert_success
+    assert_output --partial 'review committed no changes; opening a metrics-only PR'
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_output 'harness: Failure Pattern の再発率の週の記録を足す'
+    run cat "$GH_BODY"
+    refute_output --partial 'reason'
+    assert_output --partial '4 週分たまった'
+}
+
+@test "前の週の記録が読めず期間を決められない週は、週の処理を済ませたうえで失敗し heartbeat を書かない" {
+    mkdir -p "$RATES"
+    printf 'not json\n' >"$RATES/2026-09-26.json"
+    run weekly
+    assert_failure
+    assert_output --partial 'could not decide the period'
+    assert_output --partial 'this week has no failure rate record'
+    assert [ ! -f "$RATES/$TODAY.json" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    # 抽出の claude は起動している(週の処理は止めない)
+    assert [ -f "$ARGV_LOG" ]
+}
+
+@test "claude がローカルの週の記録を書き換えたら、記録を commit せず PR も作らずに失敗する" {
+    seed_queue
+    old_record 2026-09-26
+    cat >"$STUBS/claude-pre" <<'PRE'
+if [[ "$*" == *'harness-review skill'* ]]; then
+    printf '{"date":"2026-09-26","since":0,"until":1,"classification":"ok","patterns":{}}\n' \
+        >"$HOME/.claude/harness/failure-pattern-rates/2026-09-26.json"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'changed after the claude runs started'
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "同じ日の再実行で書き直した記録は、origin/main に同じ日付のファイルがあっても PR に載せる" {
+    seed_queue
+    old_record "$TODAY"
+    commit_on_main "$TODAY"
+    run weekly
+    assert_success
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
+    assert_output "$RATES_REPO_DIR/$TODAY.json"
+}
+
+@test "origin/main にある前の日付の記録は、ローカルの中身が違っても PR に載せない" {
+    seed_queue
+    old_record 2026-09-26
+    commit_on_main 2026-09-26
+    # origin/main の記録を人が直した後の状態(ローカルの古い写しで戻さない)
+    printf '{"date":"2026-09-26","since":0,"until":1,"classification":"ok","patterns":{}}\n' >"$RATES/2026-09-26.json"
+    run weekly
+    assert_success
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
+    assert_output "$RATES_REPO_DIR/$TODAY.json"
 }
