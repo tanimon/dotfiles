@@ -139,17 +139,21 @@ harness_health_stale_prs() { # <現在の epoch> <ブランチの prefix>
         | "\(.number)\t\(.url)\t\($days)"'
 }
 
-# <repo> のローカルブランチのうち、名前が <prefix> で始まり、<除くブランチ>(その日の run のブランチ)
-# ではなく、origin/main に無い commit を持つものを `<ブランチ>\t<commit 数>` で出す。
+# <repo> のローカルブランチのうち、名前が <prefix><日付>(YYYY-MM-DD)で、その日付が <基準日> 以前で、
+# origin/main に無い commit を持つものを `<ブランチ>\t<commit 数>` で出す。基準日より新しいブランチ
+# (その日の run や、手動の review がまだ公開していないもの)と、名前が日付で終わらないものは見ない。
 # PR になったかは見ない(呼び出し側が gh で確かめる)。squash マージされたブランチも commit は
 # origin/main に無いままなので、ここでの一致だけでは「PR にならなかった」とは言えない。
 # origin/main は最後に fetch した時点のもの。origin/main が無ければ判定できないので失敗を返す。
-harness_health_unpublished_loop_branches() { # <repo> <prefix> <除くブランチ>
-    local repo=$1 prefix=$2 exclude=$3 branches branch count
+harness_health_unpublished_loop_branches() { # <repo> <prefix> <基準日 YYYY-MM-DD>
+    local repo=$1 prefix=$2 cutoff=$3 branches branch day count
     git -C "$repo" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null || return 1
     branches=$(git -C "$repo" for-each-ref --format='%(refname:short)' "refs/heads/$prefix*") || return 1
     while IFS= read -r branch; do
-        [[ -n "$branch" && "$branch" != "$exclude" ]] || continue
+        day=${branch#"$prefix"}
+        [[ "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || continue
+        # 同じ桁数の YYYY-MM-DD は文字列の順が日付の順になる
+        [[ ! "$day" > "$cutoff" ]] || continue
         count=$(git -C "$repo" rev-list --count "refs/remotes/origin/main..refs/heads/$branch") || return 1
         if [[ "$count" -gt 0 ]]; then
             printf '%s\t%s\n' "$branch" "$count"

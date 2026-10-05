@@ -1334,7 +1334,7 @@ leftover_branch() { # <ブランチ>
     git -C "$HARNESS_WEEKLY_REPO" switch -q main
 }
 
-@test "PR にならないまま origin/main に無い commit を持つ前の週のループのブランチがあれば Issue を作る" {
+@test "PR にならないまま origin/main に無い commit を持つ、7 日以上前のループのブランチがあれば Issue を作る" {
     # 本文のパスを ~ で書くことを確かめるため、リポジトリを HOME の下に置く(既定の置き場所と同じ形)
     mv "$HARNESS_WEEKLY_REPO" "$HOME/repo"
     export HARNESS_WEEKLY_REPO="$HOME/repo"
@@ -1382,6 +1382,37 @@ leftover_branch() { # <ブランチ>
     assert_output --partial '9 日前'
     assert_output --partial 'launchctl print gui/$(id -u)/local.dotfiles.harness-weekly'
     refute_output --partial "$HOME"
+}
+
+@test "失敗の Issue が開いていれば、前の成功が古くても別の Issue にしない(1 回の失敗で Issue を増やさない)" {
+    printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
+    export STUB_GH_ISSUES='[{"number":7,"title":"harness: 週次ジョブが失敗した"}]'
+    run weekly
+    assert_success
+    assert_output --partial 'issue #7 already reports the failures'
+    run cat "$ALERT_LOG"
+    refute_line --partial 'issue create'
+    refute_line --partial 'issue comment'
+}
+
+@test "走らなかった週の Issue が開いていれば、次に見つけたときはコメントにする" {
+    printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
+    export STUB_GH_ISSUES='[{"number":11,"title":"harness: 週次ジョブが 8 日以上成功していなかった"}]'
+    run weekly
+    assert_success
+    run cat "$ALERT_LOG"
+    assert_line --regexp '^issue comment 11 '
+    refute_line --partial 'issue create'
+}
+
+@test "この 7 日のうちに切られたループのブランチは、まだ公開前かもしれないので PR を照会しない" {
+    leftover_branch "harness/review-$(date +%Y-%m-%d)-x"
+    leftover_branch "harness/review-$(jq -rn --argjson e "$(($(date +%s) - 86400))" '$e | localtime | strftime("%Y-%m-%d")')"
+    run weekly
+    assert_success
+    run cat "$ALERT_LOG"
+    refute_line --partial 'pr list --head'
+    refute_line --partial 'issue create'
 }
 
 @test "前の成功が 7 日前なら、走らなかった週の Issue を作らない" {

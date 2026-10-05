@@ -218,7 +218,7 @@ loop_repo() {
 }
 
 
-@test "ループのブランチのうち、今日の分以外で origin/main に無い commit を持つものを、ブランチ名と件数で出す" {
+@test "ループのブランチのうち、基準日以前の日付で origin/main に無い commit を持つものを、ブランチ名と件数で出す" {
     loop_repo
     git -C "$REPO" switch -q -c harness/review-2026-09-01
     git -C "$REPO" commit -q --allow-empty -m a
@@ -226,10 +226,14 @@ loop_repo() {
     git -C "$REPO" switch -q -c harness/review-2026-09-08 main
     git -C "$REPO" switch -q -c harness/review-2026-09-15 main
     git -C "$REPO" commit -q --allow-empty -m today
+    git -C "$REPO" switch -q -c harness/review-2026-09-09 main
+    git -C "$REPO" commit -q --allow-empty -m yesterday-of-cutoff
+    git -C "$REPO" switch -q -c harness/review-manual main
+    git -C "$REPO" commit -q --allow-empty -m not-a-date
     git -C "$REPO" switch -q -c feature/x main
     git -C "$REPO" commit -q --allow-empty -m other
     source "$LIB"
-    run harness_health_unpublished_loop_branches "$REPO" harness/review- harness/review-2026-09-15
+    run harness_health_unpublished_loop_branches "$REPO" harness/review- 2026-09-08
     assert_success
     assert_output "$(printf 'harness/review-2026-09-01\t2')"
 }
@@ -238,6 +242,6 @@ loop_repo() {
     loop_repo
     git -C "$REPO" update-ref -d refs/remotes/origin/main
     source "$LIB"
-    run harness_health_unpublished_loop_branches "$REPO" harness/review- harness/review-2026-09-15
+    run harness_health_unpublished_loop_branches "$REPO" harness/review- 2026-09-08
     assert_failure
 }
