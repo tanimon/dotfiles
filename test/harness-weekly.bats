@@ -216,6 +216,12 @@ if [[ "$1 $2" == "pr list" ]]; then
     printf '%s\n' "${STUB_GH_PR_LIST-https://github.com/example/dotfiles/pull/41}"
     exit 0
 fi
+if [[ "$1 $2" == "pr view" && "$*" == *'--json state'* ]]; then
+    # Rule Ledger の書き出しが引く PR の状態。STUB_GH_STATE_<番号>(既定 MERGED)
+    var="STUB_GH_STATE_$3"
+    printf '%s\n' "${!var:-MERGED}"
+    exit 0
+fi
 while [[ $# -gt 0 ]]; do
     [[ "$1" == "--body-file" ]] && cp "$2" "$GH_BODY"
     shift
@@ -1863,9 +1869,13 @@ ledger_record() {
     export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     export STUB_EVAL_REQUEST="{\"cases\":[{\"title\":\"[2026-10-03] entry\",\"rule\":\"r\",\"source_session\":\"$sid\",\"prompt\":\"p\",\"graders\":[{\"name\":\"g\",\"type\":\"regex\",\"pattern\":\"x\"}]}]}"
     carried=$(ledger_record 30 '[2026-09-20] carried over')
+    # マージされずに閉じた PR の記録は採用ではないので載せない
+    closed=$(ledger_record 31 '[2026-09-20] closed without a merge')
+    export STUB_GH_STATE_31=CLOSED
     run weekly
     assert_success
     assert_output --partial 'committed 2 Rule Ledger record(s)'
+    assert [ -f "$closed" ]
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_line --index 0 'harness: Rule Ledger の記録を足す'
     id="pr42-$(printf '%s' '[2026-10-03] entry' | shasum -a 256 | cut -c1-8)"
@@ -1929,7 +1939,7 @@ HOOK
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
     assert_output "$LEDGER_REPO_DIR/${carried##*/}"
     run cat "$GH_BODY"
-    assert_output --partial 'Rule Ledger の記録 1 件'
+    assert_output --partial 'Rule Ledger の記録のうち、まだ載っていなかった 1 件'
 }
 
 @test "選別の claude の commit が Rule Ledger に触れたら PR を作らずに失敗する" {
@@ -1962,6 +1972,43 @@ PRE
     assert_failure
     assert_output --partial 'Rule Ledger records'
     assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "選別の claude が置いた偽の評価の結果は Rule Ledger に記録せず、測っていないと記録する" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    # 形の違う依頼で評価の工程を失敗させ、得点を偽った結果のファイルを置く
+    export STUB_EVAL_REQUEST='{}'
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    printf '%s\n' '{"date":"$TODAY","cases":[{"title":"[2026-10-03] entry","id":"$TODAY-00000000","status":"evaluated","with":1,"without":0,"delta":1}],"exempt":[],"over_cap":[],"cost_usd":0}' >"$HDIR/eval-results-$TODAY.json"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_success
+    assert_output --partial 'WARN evaluating the eval cases'
+    id="pr42-$(printf '%s' '[2026-10-03] entry' | shasum -a 256 | cut -c1-8)"
+    run jq -c .eval "$LEDGER/$id.json"
+    assert_output '{"status":"missing","reason":"not_measured"}'
+    run git -C "$ORIGIN" show "$BRANCH:$LEDGER_REPO_DIR/$id.json"
+    assert_output --partial 'not_measured'
+}
+
+@test "選別の claude が Rule Ledger のスクリプトを書き換えたら、PR を作らずに失敗する" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'Rule Ledger script'
+    refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 

@@ -726,16 +726,23 @@ rate_record_digests() {
 }
 RATE_RECORD_DIGESTS=""
 
-# Rule Ledger の記録の入力(ローカルの記録と、Failure Pattern を引く分類の記録)の「ファイル名 ハッシュ」を
-# 1 行ずつ出す。ローカルの記録は前の週や手動の review から持ち越したもので、このスクリプトが写して commit する
-# ので、週の再発率の記録と同じく claude の起動前と比べて書き換えを見つける(check_ledger_inputs)。
-# 分類の記録は claude の起動前に分類器が書き終えている
+# Rule Ledger の記録の入力(ローカルの記録と書き出した形、Failure Pattern を引く分類の記録)と、記録を作って
+# 写す harness-rule-ledger.sh 自身の「パス ハッシュ」を 1 行ずつ出す。ローカルの記録は前の週や手動の review
+# から持ち越したもので、このスクリプトが写して commit するので、週の再発率の記録と同じく claude の起動前と
+# 比べて書き換えを見つける(check_ledger_inputs)。分類の記録は claude の起動前に分類器が書き終えている。
+# harness-rule-ledger.sh は Evaluator の一部(ADR 0011)で、~/.claude に書ける claude が書き換えると伏せ字や
+# 評価値を偽れるので、評価のスクリプト(evaluator_digests)と同じく比べる。無ければ「missing」として比べる
 ledger_input_digests() {
     local file digest
-    for file in "$LOCAL_LEDGER_DIR"/*.json "$CLASSIFICATIONS"; do
+    if [[ -f "$RULE_LEDGER" ]]; then
+        printf '%s %s\n' "$RULE_LEDGER" "$(git hash-object -- "$RULE_LEDGER")" || return 1
+    else
+        printf '%s missing\n' "$RULE_LEDGER"
+    fi
+    for file in "$LOCAL_LEDGER_DIR"/*.json "$LOCAL_LEDGER_DIR"/exported/*.json "$CLASSIFICATIONS"; do
         [[ -f "$file" ]] || continue
         digest=$(git hash-object -- "$file") || return 1
-        printf '%s %s\n' "${file##*/}" "$digest"
+        printf '%s %s\n' "$file" "$digest"
     done
 }
 LEDGER_INPUT_DIGESTS=""
@@ -745,8 +752,8 @@ check_ledger_inputs() {
     local digests
     digests=$(ledger_input_digests) || return 1
     if [[ "$digests" != "$LEDGER_INPUT_DIGESTS" ]]; then
-        printf 'harness-weekly: the Rule Ledger records in %s or %s changed after the claude runs started (only this job and the manual review write them); no PR created. Before: [%s] After: [%s]\n' \
-            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
+        printf 'harness-weekly: the Rule Ledger records in %s or %s, or the Rule Ledger script %s, changed after the claude runs started (only this job and the manual review write the records; restore the script with chezmoi apply); no PR created. Before: [%s] After: [%s]\n' \
+            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
         return 1
     fi
 }
@@ -783,6 +790,8 @@ evaluator_digests() {
     done
 }
 EVALUATOR_DIGESTS=""
+# この run の評価の工程が書いた結果のハッシュ。評価が成功しなかった run では空(append_eval_section)
+EVAL_RESULTS_DIGEST=""
 
 # 採用したルールの Eval Case を評価し、効果の節を本文に足す。採用したのに結果にも免除にも無いものは、節が
 # 名前で出す(依頼が無ければ全件がそうなる)。評価の工程の失敗は WARN にとどめて PR の公開は止めないが、
@@ -803,10 +812,15 @@ append_eval_section() {
         printf 'harness-weekly: review wrote no eval requests %s; the PR body lists every adopted rule as unevaluated\n' "$EVAL_REQUESTS"
         printf '{"cases": []}\n' >"$EVAL_REQUESTS"
     fi
+    # 結果のファイルは選別の claude も置けるので、評価の前に消し、評価が成功したときだけ Rule Ledger に渡す
+    # (EVAL_RESULTS_DIGEST。record_and_publish_ledger が照合する)
+    EVAL_RESULTS_DIGEST=""
+    rm -f "$EVAL_RESULTS" || return 1
     if HARNESS_EVAL_BUDGET_USD="$EVAL_BUDGET_USD" bash "$EVAL_CASES" run \
         --requests "$EVAL_REQUESTS" --date "$REVIEW_DATE" --out "$EVAL_RESULTS" &&
         section=$(bash "$EVAL_CASES" section --results "$EVAL_RESULTS" --adopted "$adopted"); then
         printf '%s\n' "$section" >>"$PR_BODY"
+        EVAL_RESULTS_DIGEST=$(git hash-object -- "$EVAL_RESULTS") || EVAL_RESULTS_DIGEST=""
     else
         printf 'harness-weekly: WARN evaluating the eval cases with %s failed; the PR body says so\n' "$EVAL_CASES" >&2
         printf '\n## ルールの効果\n\n評価の工程が失敗したため、この PR のルールの効果は測っていない(週次ジョブのログを参照)。\n' >>"$PR_BODY"
@@ -876,21 +890,25 @@ commit_rate_records() {
 }
 
 # base(origin/main)に無いローカルの Rule Ledger の記録を worktree に写し、このスクリプトの commit 1 つにする。
-# 写すのと仕事の識別子の検査・伏せ字は harness-rule-ledger.sh export が行う。選別の claude には書かせない
-# (publish_review が commit を、check_ledger_inputs がローカルの記録を確かめる)。写した件数を
-# LEDGER_RECORDS_COMMITTED に入れる。失敗しても記録はローカルに残り、次の PR が足す
+# 写す記録の選び方(マージされた PR と、この run の PR の記録だけ)と仕事の識別子の検査・伏せ字は
+# harness-rule-ledger.sh export が行う。選別の claude には書かせない(publish_review が commit を、
+# check_ledger_inputs がローカルの記録とスクリプトを確かめる)。写した件数を LEDGER_RECORDS_COMMITTED に入れる。
+# 失敗しても記録はローカルに残り、後の PR が足す
 LEDGER_RECORDS_COMMITTED=0
 # Rule Ledger の commit に失敗したときに、worktree を <revision> に戻して写しかけの記録を消す。記録はローカルに残る
 drop_ledger_commit() { # <revision>
-    printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for the next PR\n' "$LOCAL_LEDGER_DIR" >&2
+    printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for a later PR\n' "$LOCAL_LEDGER_DIR" >&2
     git -C "$WORKTREE" reset --quiet --hard "$1" || return 1
     git -C "$WORKTREE" clean --quiet -fd -- "$LEDGER_REPO_DIR" || return 1
 }
 
-commit_ledger_records() {
-    local base=$1 output count
+commit_ledger_records() { # <base> [この run の PR の番号]
+    local base=$1 output count pr_args=()
     LEDGER_RECORDS_COMMITTED=0
-    output=$(bash "$RULE_LEDGER" export --base "$base" --worktree "$WORKTREE") || return 1
+    [[ -z "${2:-}" ]] || pr_args=(--pr "$2")
+    # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを渡す
+    output=$(SENSITIVE_PATTERNS_LOCAL="${SENSITIVE_PATTERNS_LOCAL-$REPO/scripts/sensitive-patterns.local.txt}" \
+        bash "$RULE_LEDGER" export --base "$base" --worktree "$WORKTREE" ${pr_args[@]+"${pr_args[@]}"}) || return 1
     printf '%s\n' "$output"
     count=$(sed -n 's/^harness-rule-ledger: exported \([0-9][0-9]*\) record(s)$/\1/p' <<<"$output")
     [[ "$count" =~ ^[0-9]+$ ]] || return 1
@@ -901,18 +919,24 @@ commit_ledger_records() {
     LEDGER_RECORDS_COMMITTED=$count
 }
 
-# PR を作った後に、この run の採用を Rule Ledger に記録し、base に無い記録(持ち越した分を含む)をこのスクリプトの
-# commit で足して push し直す。PR 番号は PR を作るまで決まらないので、PR を作る前の commit には入れられない。
-# どこで失敗しても PR と採用の公開は止めない: 記録はローカルに残り、次に PR を作る run が足す。記録そのもの
-# (record)に失敗したときは、判定の記録の adopted (PR <url>) から手で作り直せる
+# PR を作った後に、この run の採用を Rule Ledger に記録し、base に無い記録(マージされた PR から持ち越した分を
+# 含む)をこのスクリプトの commit で足して push し直す。PR 番号は PR を作るまで決まらないので、PR を作る前の
+# commit には入れられない。どこで失敗しても PR と採用の公開は止めない: 記録はローカルに残り、この PR が
+# マージされた後に PR を作る run が足す。記録そのもの(record)に失敗したときは、判定の記録の
+# adopted (PR <url>) から手で作り直せる
 record_and_publish_ledger() { # <base> <PR の URL>
     local base=$1 url=$2 pushed results=()
     pushed=$(git -C "$WORKTREE" rev-parse HEAD) || return 0
-    [[ ! -f "$EVAL_RESULTS" ]] || results=(--results "$EVAL_RESULTS")
+    # 評価の工程が書いた結果だけを渡す。評価が失敗した run や、結果が評価の後に変わった run では渡さず、
+    # 採用を「測っていない」として記録する(選別の claude が置いた偽の得点を記録しない)
+    if [[ -n "$EVAL_RESULTS_DIGEST" && -f "$EVAL_RESULTS" &&
+        "$(git hash-object -- "$EVAL_RESULTS" 2>/dev/null)" == "$EVAL_RESULTS_DIGEST" ]]; then
+        results=(--results "$EVAL_RESULTS")
+    fi
     bash "$RULE_LEDGER" record --pr-url "$url" --date "$REVIEW_DATE" --via weekly ${results[@]+"${results[@]}"} ||
         printf 'harness-weekly: WARN failed to record the adoptions of %s in the Rule Ledger %s; record them by hand with bash %s record --pr-url %s --date %s --via weekly\n' \
             "$url" "$LOCAL_LEDGER_DIR" "$RULE_LEDGER" "$url" "$REVIEW_DATE" >&2
-    if ! commit_ledger_records "$base"; then
+    if ! commit_ledger_records "$base" "${url##*/}"; then
         # PR は作成済みなので、戻せなくても失敗にしない(worktree は remove_worktree が消す)
         drop_ledger_commit "$pushed" || true
         return 0
@@ -921,7 +945,7 @@ record_and_publish_ledger() { # <base> <PR の URL>
     if git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH"; then
         printf 'harness-weekly: committed %s Rule Ledger record(s) to %s\n' "$LEDGER_RECORDS_COMMITTED" "$url"
     else
-        printf 'harness-weekly: WARN push of the Rule Ledger records to %s failed; they stay in %s for the next PR\n' \
+        printf 'harness-weekly: WARN push of the Rule Ledger records to %s failed; they stay in %s for a PR after this one merges\n' \
             "$BRANCH" "$LOCAL_LEDGER_DIR" >&2
     fi
 }
@@ -968,7 +992,7 @@ publish_metrics_only() {
     printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
         "$RATE_RECORDS_COMMITTED" >"$PR_BODY"
     [[ "$LEDGER_RECORDS_COMMITTED" -eq 0 ]] ||
-        printf '\n前の PR に載らなかった Rule Ledger の記録 %s 件も足した(%s)。\n' "$LEDGER_RECORDS_COMMITTED" "$LEDGER_REPO_DIR" >>"$PR_BODY"
+        printf '\nマージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった %s 件も足した(%s)。\n' "$LEDGER_RECORDS_COMMITTED" "$LEDGER_REPO_DIR" >>"$PR_BODY"
     append_rates_section
     append_detection_section
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
@@ -1122,7 +1146,7 @@ publish_review() {
     # Rule Ledger の記録は PR 番号が要るので、PR を作った後の commit で足す(record_and_publish_ledger)。
     # 足せなかったことは本文では知らせられないので、ログの WARN と、PR の commit に記録が無いことで分かる
     if [[ -n "$(adopted_titles)" ]]; then
-        printf '\n## Rule Ledger\n\n採用したルールの記録(%s)は、この PR を作った後に週次ジョブが「harness: Rule Ledger の記録を足す」の commit で足す。その commit が無ければ、記録はローカルに残っていて次の PR に載る。\n' \
+        printf '\n## Rule Ledger\n\n採用したルールの記録(%s)は、この PR を作った後に週次ジョブが「harness: Rule Ledger の記録を足す」の commit で足す。その commit が無ければ、記録はローカルに残っていて、この PR がマージされた後の PR に載る(マージせずに閉じたら載らない)。\n' \
             "$LEDGER_REPO_DIR" >>"$PR_BODY"
     fi
     commit_rate_records "$base" || commit_status=$?

@@ -184,6 +184,13 @@ run_eval() {
     assert_success
     run jq -c '{cases: (.cases | length), over_cap}' "$OUT"
     assert_output '{"cases":20,"over_cap":["[2026-10-09] ルール 21","[2026-10-09] ルール 22"]}'
+    # 上限を超えたケースも実体は作り、その id を over_cap_cases に残す(Rule Ledger が目録として引く)
+    run jq -r '.over_cap_cases | map(.title) | join(",")' "$OUT"
+    assert_output '[2026-10-09] ルール 21,[2026-10-09] ルール 22'
+    for i in 21 22; do
+        id=$(jq -r --arg t "[2026-10-09] ルール $i" '.over_cap_cases[] | select(.title == $t) | .id' "$OUT")
+        assert [ -f "$HDIR/evals/$id/request.json" ]
+    done
     run wc -l <"$ARGV_LOG"
     assert_output --regexp '^ *20$'
 }

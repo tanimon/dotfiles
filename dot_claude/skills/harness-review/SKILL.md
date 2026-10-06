@@ -135,7 +135,7 @@ and say so. An empty review is a valid outcome.
    `- **Verdict:** adopted (PR <url>) | rejected (<reason>) | handoff (<repo>) | merged into <title>`
 2. 採用があれば、Rule Ledger(採用したルールごとの記録。ADR 0011)をローカルに作る:
    `bash ~/.claude/scripts/harness-rule-ledger.sh record --pr-url <PR の URL> --date <日付> --via manual --results ~/.claude/harness/eval-results-<日付>.json`
-   (評価しなかったら `--results` は付けない)。記録の commit は週次ジョブが次の PR で行うので、
+   (評価しなかったら `--results` は付けない)。記録の commit は、この PR がマージされた後に週次ジョブが PR を作るときに行うので、
    `docs/harness/rule-ledger/` には書かず、この PR にも入れない(ループの PR はその置き場の既存のファイルを
    変えられない。`scripts/evaluator-paths.txt` の `+` の行)。週次ジョブでは、この手順はジョブが行う。
 3. Update state (temp file + `mv`):

@@ -19,12 +19,18 @@ setup() {
     STUBS="$BATS_TEST_TMPDIR/bin"
     mkdir -p "$STUBS"
     export GH_LOG="$BATS_TEST_TMPDIR/gh.log"
-    # gh pr view <url> --json createdAt --jq .createdAt。STUB_GH_FAIL_PR に一致する URL は失敗する
+    # gh pr view <url> --json createdAt --jq .createdAt。STUB_GH_FAIL_PR に一致する URL は失敗する。
+    # gh pr view <番号> --json state --jq .state は STUB_GH_STATE_<番号>(既定 MERGED)を返す
     cat >"$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GH_LOG"
 [[ "$1 $2" == "pr view" ]] || exit 1
 [[ -z "${STUB_GH_FAIL_PR:-}" || "$3" != *"$STUB_GH_FAIL_PR" ]] || exit 1
+if [[ "$*" == *'--json state'* ]]; then
+    var="STUB_GH_STATE_$3"
+    printf '%s\n' "${!var:-MERGED}"
+    exit 0
+fi
 printf '2026-09-28T03:00:00Z\n'
 EOF
     chmod +x "$STUBS/gh"
@@ -94,7 +100,7 @@ EOF
 {"date":"2026-10-04","cases":[
  {"title":"[2026-10-03] invalid","id":"2026-10-04-aaaaaaaa","status":"invalid","with":1,"without":1,"cost_usd":0},
  {"title":"[2026-10-03] limited","id":"2026-10-04-bbbbbbbb","status":"not_evaluated","reason":"rate_limited","cost_usd":0}],
- "exempt":[],"over_cap":["[2026-10-03] capped"],"cost_usd":0}
+ "exempt":[],"over_cap":["[2026-10-03] capped"],"over_cap_cases":[{"title":"[2026-10-03] capped","id":"2026-10-04-cccccccc"}],"cost_usd":0}
 EOF
     run bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly --results "$BATS_TEST_TMPDIR/results.json"
     assert_success
@@ -103,7 +109,17 @@ EOF
     run jq -c .eval "$LEDGER/$(ledger_id 42 '[2026-10-03] limited').json"
     assert_output '{"status":"not_evaluated","case_id":"2026-10-04-bbbbbbbb","reason":"rate_limited"}'
     run jq -c .eval "$LEDGER/$(ledger_id 42 '[2026-10-03] capped').json"
-    assert_output '{"status":"over_cap"}'
+    assert_output '{"status":"over_cap","case_id":"2026-10-04-cccccccc"}'
+}
+
+@test "over_cap_cases の無い古い評価の結果では、上限を超えたケースの case_id を null で記録する" {
+    entry '[2026-10-03] capped' "adopted (PR $URL)"
+    printf '{"date":"2026-10-04","cases":[],"exempt":[],"over_cap":["[2026-10-03] capped"],"cost_usd":0}\n' \
+        >"$BATS_TEST_TMPDIR/results.json"
+    run bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly --results "$BATS_TEST_TMPDIR/results.json"
+    assert_success
+    run jq -c .eval "$LEDGER/$(ledger_id 42 '[2026-10-03] capped').json"
+    assert_output '{"status":"over_cap","case_id":null}'
 }
 
 @test "読めない評価の結果は、測っていないと記録して警告する" {
@@ -297,12 +313,80 @@ make_worktree() {
 
 @test "書き出しは、識別子の検査を走らせられなければ何も写さずに失敗する" {
     make_worktree
-    rm "$WT/scripts/scan-sensitive-info.sh"
+    git -C "$WT" rm -q scripts/scan-sensitive-info.sh
+    git -C "$WT" commit -qm 'drop the guard'
     entry '[2026-10-03] a' "adopted (PR $URL)"
     bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly >/dev/null
     run bash "$SCRIPT" export --base HEAD --worktree "$WT"
     assert_failure
     assert [ ! -e "$WT/docs/harness/rule-ledger" ]
+}
+
+@test "書き出しは、worktree で弱められた検査ではなく base の identity leak guard とローカルのパターンを使う" {
+    make_worktree
+    base=$(git -C "$WT" rev-parse HEAD)
+    # 選別の claude の commit がスキャナとパターンを弱めた worktree
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$WT/scripts/scan-sensitive-info.sh"
+    : >"$WT/scripts/sensitive-patterns.txt"
+    git -C "$WT" commit -qam 'weaken the guard'
+    printf 'oldaccountname\n' >"$BATS_TEST_TMPDIR/local-patterns.txt"
+    export SENSITIVE_PATTERNS_LOCAL="$BATS_TEST_TMPDIR/local-patterns.txt"
+    entry '[2026-10-03] oldaccountname の設定' "adopted (PR $URL)"
+    entry '[2026-10-03] acmework の worktree' "adopted (PR $URL)"
+    bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly >/dev/null
+    run bash "$SCRIPT" export --base "$base" --worktree "$WT"
+    assert_success
+    run jq -r .title "$WT/docs/harness/rule-ledger/$(ledger_id 42 '[2026-10-03] oldaccountname の設定').json"
+    assert_output '(仕事の文脈を含むため伏せた)'
+    run jq -r .title "$WT/docs/harness/rule-ledger/$(ledger_id 42 '[2026-10-03] acmework の worktree').json"
+    assert_output '(仕事の文脈を含むため伏せた)'
+}
+
+@test "書き出しは、マージされた PR と --pr の PR の記録だけを写し、閉じた PR・開いた別の PR・状態を引けない PR の記録は残す" {
+    make_worktree
+    for n in 42 43 44 45 46; do
+        entry "[2026-10-03] pr $n" "adopted (PR https://github.com/example/dotfiles/pull/$n)"
+        bash "$SCRIPT" record --pr-url "https://github.com/example/dotfiles/pull/$n" --date 2026-10-04 --via weekly >/dev/null
+    done
+    export STUB_GH_STATE_43=CLOSED STUB_GH_STATE_44=OPEN STUB_GH_STATE_45=OPEN STUB_GH_FAIL_PR=46
+    run bash "$SCRIPT" export --base HEAD --worktree "$WT" --pr 45
+    assert_success
+    assert_output --partial 'exported 2 record(s)'
+    assert_output --partial "not exported $(ledger_id 43 '[2026-10-03] pr 43'): its PR #43 was closed without a merge"
+    assert_output --partial "not exported $(ledger_id 44 '[2026-10-03] pr 44'): its PR #44 is still open"
+    assert_output --partial "not exported $(ledger_id 46 '[2026-10-03] pr 46'): cannot read the state of its PR #46"
+    run ls "$WT/docs/harness/rule-ledger"
+    assert_output "$(printf '%s.json\n' "$(ledger_id 42 '[2026-10-03] pr 42')" "$(ledger_id 45 '[2026-10-03] pr 45')" | sort)"
+    # 写さなかった記録もローカルには残す
+    assert [ -f "$LEDGER/$(ledger_id 43 '[2026-10-03] pr 43').json" ]
+    # --pr の PR は状態を引かない
+    run grep -c 'pr view 45' "$GH_LOG"
+    assert_output 0
+}
+
+@test "書き出しは、初めて写した形を残し、仕事のリポジトリの一覧から名前が消えても同じ形で写す" {
+    make_worktree
+    mkdir -p "$HOME/ghq/github.com/$SENSITIVE_WORK_ORG/newrepo"
+    entry '[2026-10-03] newrepo の設定' "adopted (PR $URL)"
+    bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly >/dev/null
+    id=$(ledger_id 42 '[2026-10-03] newrepo の設定')
+    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    assert_success
+    first=$(cat "$WT/docs/harness/rule-ledger/$id.json")
+    run jq -r .title <<<"$first"
+    assert_output '(仕事の文脈を含むため伏せた)'
+    assert [ -f "$LEDGER/exported/$id.json" ]
+    # 前の PR が未マージの間に、仕事のリポジトリが手元から消えた
+    rm -rf "$WT/docs" "$HOME/ghq/github.com/$SENSITIVE_WORK_ORG/newrepo"
+    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    assert_success
+    assert_equal "$(cat "$WT/docs/harness/rule-ledger/$id.json")" "$first"
+    # 残した形が無ければ、伏せない形で写る(上の比較が残した形によるものであることの対)
+    rm -rf "$WT/docs" "$LEDGER/exported"
+    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    assert_success
+    run jq -r .title "$WT/docs/harness/rule-ledger/$id.json"
+    assert_output '[2026-10-03] newrepo の設定'
 }
 
 @test "書き出しは、仕事のリポジトリ名を含む記録の自由記述を伏せて写す" {
