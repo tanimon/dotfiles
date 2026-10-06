@@ -1,0 +1,12 @@
+{
+  "id": "pr373-0d6ed282",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-12] 「ローカル緑なら CI も緑」の主張を BSD/GNU 可搬性の例外つきに直し、PR 作成後は CI を確認する",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

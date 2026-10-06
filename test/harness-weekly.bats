@@ -47,7 +47,13 @@ setup() {
     git init -q --bare "$ORIGIN"
     git clone -q "$ORIGIN" "$HARNESS_WEEKLY_REPO" 2>/dev/null
     printf 'line1\nline2\n' >"$HARNESS_WEEKLY_REPO/README.md"
-    git -C "$HARNESS_WEEKLY_REPO" add README.md
+    # Rule Ledger の書き出しが記録を検査する identity leak guard。識別子はこのマシンから引かず、テストの値にする
+    mkdir -p "$HARNESS_WEEKLY_REPO/scripts"
+    cp "$BATS_TEST_DIRNAME/../scripts/scan-sensitive-info.sh" "$BATS_TEST_DIRNAME/../scripts/sensitive-patterns.txt" \
+        "$HARNESS_WEEKLY_REPO/scripts/"
+    : >"$HARNESS_WEEKLY_REPO/scripts/sensitive-allowlist.txt"
+    export SENSITIVE_WORK_ORG=acmework SENSITIVE_LOCAL_USER='' SENSITIVE_PATTERNS_LOCAL="$BATS_TEST_TMPDIR/no-local-patterns"
+    git -C "$HARNESS_WEEKLY_REPO" add README.md scripts
     git -C "$HARNESS_WEEKLY_REPO" commit -qm init
     git -C "$HARNESS_WEEKLY_REPO" push -q origin main
     BRANCH="harness/review-$(date +%Y-%m-%d)"
@@ -243,6 +249,11 @@ EOF
         "$HOME/.claude/scripts/harness-eval-plugin/.claude-plugin/plugin.json"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-eval-plugin/hooks/hooks.json" \
         "$HOME/.claude/scripts/harness-eval-plugin/hooks/hooks.json"
+    # Rule Ledger のスクリプトも本物を置く
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-rule-ledger.sh" \
+        "$HOME/.claude/scripts/harness-rule-ledger.sh"
+    LEDGER="$HDIR/rule-ledger"
+    LEDGER_REPO_DIR=docs/harness/rule-ledger
     export EVAL_FIXTURES="$BATS_TEST_DIRNAME/fixtures/harness-eval-cases"
     export HARNESS_EVAL_WORK_DIR="$BATS_TEST_TMPDIR/eval-work"
     RATES="$HDIR/failure-pattern-rates"
@@ -1139,7 +1150,7 @@ EOF
     assert_success
     run cat "$ARGV_LOG"
     assert_output --partial 'Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body'
-    assert_output --partial "Never change files under ${RATES_REPO_DIR}; this job commits them"
+    assert_output --partial "Never change files under ${RATES_REPO_DIR} or ${LEDGER_REPO_DIR}, or the local Rule Ledger in ${LEDGER}; this job commits them"
     refute_output --partial 'final summary instead'
     refute_output --partial 'Report a deploy-only fix in the PR body'
     refute_output --partial 'reads a PR body without commits'
@@ -1831,4 +1842,132 @@ PRE
     assert [ ! -e "$HDIR/eval-results-$TODAY.json" ]
     refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -e "$HDIR/weekly-heartbeat" ]
+}
+
+# ledger_record <PR 番号> <title>: 前の週か手動の review が残したローカルの Rule Ledger の記録を置き、パスを出す
+ledger_record() {
+    local id="pr$1-$(printf '%s' "$2" | shasum -a 256 | cut -c1-8)"
+    mkdir -p "$LEDGER"
+    jq -n --arg id "$id" --arg title "$2" --argjson pr "$1" \
+        '{id: $id, adopted: "2026-09-26", title: $title, failure_patterns: [], eval: {status: "missing", reason: "no_request"}, pr: $pr, via: "manual"}' \
+        >"$LEDGER/$id.json"
+    printf '%s\n' "$LEDGER/$id.json"
+}
+
+@test "採用のある PR に、採用ごとの Rule Ledger の記録をジョブの commit で足し、Eval Case の id が実体と対応する" {
+    seed_queue
+    sid=11111111-1111-4111-8111-111111111111
+    mkdir -p "$HOME/.claude/projects/-work-repo"
+    cp "$BATS_TEST_DIRNAME/fixtures/harness-detect-failures/negation.jsonl" "$HOME/.claude/projects/-work-repo/$sid.jsonl"
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    export STUB_EVAL_REQUEST="{\"cases\":[{\"title\":\"[2026-10-03] entry\",\"rule\":\"r\",\"source_session\":\"$sid\",\"prompt\":\"p\",\"graders\":[{\"name\":\"g\",\"type\":\"regex\",\"pattern\":\"x\"}]}]}"
+    carried=$(ledger_record 30 '[2026-09-20] carried over')
+    run weekly
+    assert_success
+    assert_output --partial 'committed 2 Rule Ledger record(s)'
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_line --index 0 'harness: Rule Ledger の記録を足す'
+    id="pr42-$(printf '%s' '[2026-10-03] entry' | shasum -a 256 | cut -c1-8)"
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
+    assert_output "$(printf '%s\n' "$LEDGER_REPO_DIR/$id.json" "$LEDGER_REPO_DIR/${carried##*/}" | sort)"
+    run git -C "$ORIGIN" show "$BRANCH:$LEDGER_REPO_DIR/$id.json"
+    case_id=$(jq -r '.eval.case_id' <<<"$output")
+    assert_equal "$(jq -c '{adopted, pr, via, eval: .eval.status, delta: .eval.delta}' <<<"$output")" \
+        "{\"adopted\":\"$TODAY\",\"pr\":42,\"via\":\"weekly\",\"eval\":\"evaluated\",\"delta\":1}"
+    assert [ -f "$HDIR/evals/$case_id/request.json" ]
+    run cat "$PNPM_LOG"
+    assert_output --partial "$WT exec oxfmt $LEDGER_REPO_DIR"
+    # 純増は選別の commit だけで数える
+    run cat "$GH_BODY"
+    assert_output --partial '合計: +4 / -2(純増 +2 行)'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "Rule Ledger の記録の push に失敗しても、PR と heartbeat は残し、記録はローカルに持ち越す" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    cat >"$ORIGIN/hooks/pre-receive" <<'HOOK'
+#!/usr/bin/env bash
+while read -r old new ref; do
+    if git ls-tree -r --name-only "$new" | grep -q '^docs/harness/rule-ledger/'; then
+        echo 'rejected' >&2
+        exit 1
+    fi
+done
+HOOK
+    chmod +x "$ORIGIN/hooks/pre-receive"
+    run weekly
+    assert_success
+    assert_output --partial 'WARN'
+    assert_output --partial 'Rule Ledger'
+    run grep -c '^pr create' "$GH_LOG"
+    assert_output 1
+    id="pr42-$(printf '%s' '[2026-10-03] entry' | shasum -a 256 | cut -c1-8)"
+    assert [ -f "$LEDGER/$id.json" ]
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
+    assert_output ''
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "採用 0 件の週は Rule Ledger の記録を持ち越し、記録だけの PR に載せる" {
+    carried=$(ledger_record 30 '[2026-09-20] carried over')
+    run weekly
+    assert_success
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
+    assert [ -f "$carried" ]
+    old_record 2026-09-12
+    old_record 2026-09-19
+    old_record 2026-09-26
+    run weekly
+    assert_success
+    assert_output --partial 'opened metrics-only draft PR'
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_line --index 0 'harness: Rule Ledger の記録を足す'
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
+    assert_output "$LEDGER_REPO_DIR/${carried##*/}"
+    run cat "$GH_BODY"
+    assert_output --partial 'Rule Ledger の記録 1 件'
+}
+
+@test "選別の claude の commit が Rule Ledger に触れたら PR を作らずに失敗する" {
+    seed_queue
+    cat >"$STUBS/claude-pre" <<'PRE'
+if [[ "$*" == *'harness-review skill'* ]]; then
+    mkdir -p docs/harness/rule-ledger && printf '{}\n' >docs/harness/rule-ledger/pr1-00000000.json
+    git add -A && git commit -qm 'tamper'
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'review commits touched docs/harness/rule-ledger'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "claude がローカルの Rule Ledger か分類の記録を書き換えたら、PR を作らずに失敗する" {
+    seed_queue
+    carried=$(ledger_record 30 '[2026-09-20] carried over')
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    jq '.eval = {status: "evaluated", case_id: "2026-09-26-00000000", with: 1, without: 0, delta: 1}' "$carried" >"$carried.tmp"
+    mv "$carried.tmp" "$carried"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'Rule Ledger records'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "選別のプロンプトは Rule Ledger を書かせず、ジョブが記録することを伝える" {
+    seed_queue
+    run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'Never change files under docs/harness/failure-pattern-rates or docs/harness/rule-ledger'
+    assert_output --partial 'Do not run harness-rule-ledger.sh'
 }

@@ -1,0 +1,12 @@
+{
+  "id": "pr451-bbb67091",
+  "adopted": "2026-10-04",
+  "title": "[2026-10-03] スキル一覧に無いスキルを「未インストール」と断定せず、代用を提案しない",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 451,
+  "via": "migrated"
+}

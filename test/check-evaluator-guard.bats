@@ -48,6 +48,58 @@ guard() {
     assert_output --partial 'rules/fixed.md'
 }
 
+@test "ループの PR は追加だけ許すディレクトリに新しいファイルを足せる" {
+    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put ledger/a.json '{"a":1}'
+    commit base-ledger
+    base="$(git -C "$REPO" rev-parse HEAD)"
+    put ledger/b.json '{"b":1}'
+    put ledger/sub/c.json '{"c":1}'
+    commit add
+    run guard harness/review-2026-10-04 "$base"
+    assert_success
+}
+
+@test "ループの PR が追加だけ許すディレクトリの既存のファイルを変えたら落ちる" {
+    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put ledger/a.json '{"a":1}'
+    commit base-ledger
+    base="$(git -C "$REPO" rev-parse HEAD)"
+    put ledger/a.json '{"a":2}'
+    put ledger/b.json '{"b":1}'
+    commit change
+    run guard harness/review-2026-10-04 "$base"
+    assert_failure 1
+    assert_output --partial 'ledger/a.json'
+    refute_output --partial 'ledger/b.json'
+}
+
+@test "ループの PR が追加だけ許すディレクトリのファイルを消すか移したら落ちる" {
+    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put ledger/a.json '{"a":1}'
+    put ledger/b.json '{"b":1}'
+    commit base-ledger
+    base="$(git -C "$REPO" rev-parse HEAD)"
+    git -C "$REPO" rm -q ledger/a.json
+    git -C "$REPO" mv ledger/b.json ledger/renamed.json
+    commit remove
+    run guard harness/review-2026-10-04 "$base"
+    assert_failure 1
+    assert_output --partial 'ledger/a.json'
+    assert_output --partial 'ledger/b.json'
+}
+
+@test "人の PR は追加だけ許すディレクトリの既存のファイルを変えても通る" {
+    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put ledger/a.json '{"a":1}'
+    commit base-ledger
+    base="$(git -C "$REPO" rev-parse HEAD)"
+    put ledger/a.json '{"a":2}'
+    commit change
+    run guard feature-x "$base"
+    assert_success
+}
+
 @test "人の PR は Evaluator に触れても通る" {
     put evaluator/detector.sh 'echo changed'
     commit change
@@ -158,6 +210,10 @@ guard() {
     local root="$BATS_TEST_DIRNAME/.." entry tracked bad=()
     while IFS= read -r entry; do
         [[ -z $entry || $entry == \#* ]] && continue
+        if [[ $entry == +* ]]; then
+            entry=${entry#+}
+            [[ $entry == */ ]] || bad+=("+$entry (追加だけ許す行はディレクトリを末尾 / 付きで指す)")
+        fi
         if [[ $entry != "${entry#[[:space:]]}" || $entry != "${entry%[[:space:]]}" || $entry == ./* || $entry == /* ]]; then
             bad+=("$entry (前後の空白か先頭の ./ や /)")
             continue

@@ -1,0 +1,12 @@
+{
+  "id": "pr373-a7ec7957",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-24] web-verify の事前チェックで「検証 URL を握っているコンテナがこの worktree のものか」と「ビルド済みアセットが HEAD より新しいか」を確認させる",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

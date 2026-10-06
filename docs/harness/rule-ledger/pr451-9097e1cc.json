@@ -1,0 +1,12 @@
+{
+  "id": "pr451-9097e1cc",
+  "adopted": "2026-10-04",
+  "title": "[2026-10-03] push 後の upstream 設定エラーを報告しないルールが効いていないので書き方を直す",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 451,
+  "via": "migrated"
+}

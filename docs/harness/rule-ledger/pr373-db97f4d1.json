@@ -1,0 +1,12 @@
+{
+  "id": "pr373-db97f4d1",
+  "adopted": "2026-09-28",
+  "title": "[2026-08-06] ma_store の `.gitignore` に `.claude/reviews/` を追加する — レビュー成果物の置き場を毎回判断している",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

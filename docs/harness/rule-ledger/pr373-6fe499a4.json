@@ -1,0 +1,12 @@
+{
+  "id": "pr373-6fe499a4",
+  "adopted": "2026-09-28",
+  "title": "[2026-07-23] Keep temp-file create+consume in one Bash call when a task toggles the sandbox",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

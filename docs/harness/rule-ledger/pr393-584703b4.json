@@ -1,0 +1,12 @@
+{
+  "id": "pr393-584703b4",
+  "adopted": "2026-10-02",
+  "title": "[2026-10-02] 「画面でできる」と書く前に、画面側の表示・活性条件まで追う",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 393,
+  "via": "migrated"
+}

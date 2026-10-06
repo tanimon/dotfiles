@@ -1,0 +1,12 @@
+{
+  "id": "pr451-1b8a9f94",
+  "adopted": "2026-10-04",
+  "title": "[2026-10-03] deliver / review-verify スキルの起動手順を scriptPath から name 指定に変える",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 451,
+  "via": "migrated"
+}

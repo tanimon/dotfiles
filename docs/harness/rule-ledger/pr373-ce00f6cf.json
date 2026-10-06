@@ -1,0 +1,12 @@
+{
+  "id": "pr373-ce00f6cf",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-03] harness-reflect の帳簿更新(`~/.claude/harness/` への書き込み)がサンドボックスと分類器に塞がれる経路を直す",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

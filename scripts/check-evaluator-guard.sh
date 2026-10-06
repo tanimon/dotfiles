@@ -9,6 +9,10 @@
 #   merge commit で、第 1 親が base。checkout に fetch-depth: 2 が要る)、
 #   無ければ origin/main と HEAD の merge-base。
 #
+# 一覧の行が + で始まるディレクトリは「追加だけ許す」: ループの PR はそこへ新しいファイルを足せるが、
+# 既存のファイルの変更・削除・移動は Evaluator に触れたものとして落とす。Rule Ledger(1 ルール 1 ファイル)の
+# ように、週次ジョブがループの PR で記録を足すが、ループに過去の記録を書き換えさせない置き場に使う。
+#
 # 終了コード: 0 = 通過、1 = ループの PR が Evaluator に触れた、2 = 判定できない。
 # ループの PR で判定できないときは通さない(fail-closed)。
 #
@@ -72,17 +76,23 @@ fi
 # 引用符付きで出すので、一覧と一致しない
 changed_file="$(mktemp)"
 trap 'rm -f "$changed_file"' EXIT
-git diff --no-ext-diff --no-renames --name-only -z "$base" HEAD >"$changed_file" || {
+git diff --no-ext-diff --no-renames --name-status -z "$base" HEAD >"$changed_file" || {
     echo "evaluator-guard: $base と HEAD の差分を取れない" >&2
     exit 2
 }
 
-# 一覧の行は、末尾が / ならディレクトリ配下すべて、それ以外は完全一致
+# 一覧の行は、末尾が / ならディレクトリ配下すべて、それ以外は完全一致。+ で始まる行は、
+# 追加(status A)だけを許す
 touches_evaluator() {
-    local file=$1 entry
+    local status=$1 file=$2 entry
     while IFS= read -r entry; do
         entry="${entry%$'\r'}"
         [[ -z $entry || $entry == \#* ]] && continue
+        if [[ $entry == +* ]]; then
+            entry=${entry#+}
+            [[ $status != A && $file == "$entry"* ]] && return 0
+            continue
+        fi
         if [[ $entry == */ ]]; then
             [[ $file == "$entry"* ]] && return 0
         else
@@ -93,9 +103,10 @@ touches_evaluator() {
 }
 
 violations=()
-while IFS= read -r -d '' file; do
+# --name-status -z の出力は「status NUL パス NUL」の繰り返し(--no-renames なので移動元と移動先の 2 つを持つ行は無い)
+while IFS= read -r -d '' status && IFS= read -r -d '' file; do
     [[ -z $file ]] && continue
-    if touches_evaluator "$file"; then
+    if touches_evaluator "$status" "$file"; then
         violations+=("$file")
     fi
 done <"$changed_file"

@@ -1,0 +1,12 @@
+{
+  "id": "pr373-b897f143",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-24] `./scripts/worktree/*` 経由の Docker がサンドボックスで落ちる問題を設定かドキュメントで畳む",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

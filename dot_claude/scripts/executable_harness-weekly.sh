@@ -14,6 +14,8 @@
 # publish_metrics_only)、push と `gh pr create --draft` はこのスクリプトが固定の引数で
 # 行う。claude にさせないのは、headless では PreToolUse フックの ask が拒否になり、
 # git push guard が変数を含む push に ask を返すため(#429)。
+# PR を作った後に、採用ごとの Rule Ledger の記録を作り(harness-rule-ledger.sh)、このスクリプトの
+# commit で同じブランチに足して push し直す(PR 番号は PR を作るまで決まらないため)。
 # 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
 # heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
 # 停止(この run の失敗・前の週に成功しなかったこと・ループの PR の放置・PR にならないループの
@@ -107,6 +109,13 @@ FAILURE_RATES="$HOME/.claude/scripts/harness-failure-rates.sh"
 # コンフリクトするため(同じ内容の新規ファイルどうしならぶつからない)
 LOCAL_RATES_DIR="$HARNESS_DIR/failure-pattern-rates"
 RATES_REPO_DIR="docs/harness/failure-pattern-rates"
+# Rule Ledger(採用したルールごとの記録。ADR 0011)。ローカルに 1 採用 1 ファイルで作り、PR を作る run が
+# リポジトリの LEDGER_REPO_DIR に無い記録をこのスクリプトの commit で足す(commit_ledger_records)。
+# 記録の形と書き出しはスクリプトのヘッダ
+RULE_LEDGER="$HOME/.claude/scripts/harness-rule-ledger.sh"
+LOCAL_LEDGER_DIR="$HARNESS_DIR/rule-ledger"
+LEDGER_REPO_DIR="docs/harness/rule-ledger"
+CLASSIFICATIONS="$HARNESS_DIR/classifications.jsonl"
 # origin/main に無い週の記録がこの件数たまったら、採用が無くても記録だけの draft PR を作る
 METRICS_ONLY_WEEKS=4
 # このスクリプト自身の commit が使う git の設定。launchd の環境には GIT_CONFIG_GLOBAL が無く
@@ -717,6 +726,30 @@ rate_record_digests() {
 }
 RATE_RECORD_DIGESTS=""
 
+# Rule Ledger の記録の入力(ローカルの記録と、Failure Pattern を引く分類の記録)の「ファイル名 ハッシュ」を
+# 1 行ずつ出す。ローカルの記録は前の週や手動の review から持ち越したもので、このスクリプトが写して commit する
+# ので、週の再発率の記録と同じく claude の起動前と比べて書き換えを見つける(check_ledger_inputs)。
+# 分類の記録は claude の起動前に分類器が書き終えている
+ledger_input_digests() {
+    local file
+    for file in "$LOCAL_LEDGER_DIR"/*.json "$CLASSIFICATIONS"; do
+        [[ -f "$file" ]] || continue
+        printf '%s %s\n' "${file##*/}" "$(git hash-object -- "$file")" || return 1
+    done
+}
+LEDGER_INPUT_DIGESTS=""
+
+# claude の起動後に Rule Ledger の入力が変わっていれば、記録を作らず PR も作らないよう 1 を返す
+check_ledger_inputs() {
+    local digests
+    digests=$(ledger_input_digests) || return 1
+    if [[ "$digests" != "$LEDGER_INPUT_DIGESTS" ]]; then
+        printf 'harness-weekly: the Rule Ledger records in %s or %s changed after the claude runs started (only this job and the manual review write them); no PR created. Before: [%s] After: [%s]\n' \
+            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
+        return 1
+    fi
+}
+
 # 再発率の推移の節を、組み立てに成功したときだけ本文に足す(検出件数の節と同じ扱い)
 append_rates_section() {
     local section
@@ -841,6 +874,51 @@ commit_rate_records() {
     job_git -C "$WORKTREE" commit --quiet -m "harness: Failure Pattern の再発率の週の記録を足す" || return 1
 }
 
+# base(origin/main)に無いローカルの Rule Ledger の記録を worktree に写し、このスクリプトの commit 1 つにする。
+# 写すのと仕事の識別子の検査・伏せ字は harness-rule-ledger.sh export が行う。選別の claude には書かせない
+# (publish_review が commit を、check_ledger_inputs がローカルの記録を確かめる)。写した件数を
+# LEDGER_RECORDS_COMMITTED に入れる。失敗しても記録はローカルに残り、次の PR が足す
+LEDGER_RECORDS_COMMITTED=0
+commit_ledger_records() {
+    local base=$1 output count
+    LEDGER_RECORDS_COMMITTED=0
+    output=$(bash "$RULE_LEDGER" export --base "$base" --worktree "$WORKTREE") || return 1
+    printf '%s\n' "$output"
+    count=$(sed -n 's/^harness-rule-ledger: exported \([0-9][0-9]*\) record(s)$/\1/p' <<<"$output")
+    [[ "$count" =~ ^[0-9]+$ ]] || return 1
+    [[ "$count" -gt 0 ]] || return 0
+    (cd "$WORKTREE" && pnpm exec oxfmt "$LEDGER_REPO_DIR") || return 1
+    git -C "$WORKTREE" add -- "$LEDGER_REPO_DIR" || return 1
+    job_git -C "$WORKTREE" commit --quiet -m "harness: Rule Ledger の記録を足す" || return 1
+    LEDGER_RECORDS_COMMITTED=$count
+}
+
+# PR を作った後に、この run の採用を Rule Ledger に記録し、base に無い記録(持ち越した分を含む)をこのスクリプトの
+# commit で足して push し直す。PR 番号は PR を作るまで決まらないので、PR を作る前の commit には入れられない。
+# どこで失敗しても PR と採用の公開は止めない: 記録はローカルに残り、次に PR を作る run が足す。記録そのもの
+# (record)に失敗したときは、判定の記録の adopted (PR <url>) から手で作り直せる
+record_and_publish_ledger() { # <base> <PR の URL>
+    local base=$1 url=$2 pushed results=()
+    pushed=$(git -C "$WORKTREE" rev-parse HEAD) || return 0
+    [[ ! -f "$EVAL_RESULTS" ]] || results=(--results "$EVAL_RESULTS")
+    bash "$RULE_LEDGER" record --pr-url "$url" --date "$REVIEW_DATE" --via weekly ${results[@]+"${results[@]}"} ||
+        printf 'harness-weekly: WARN failed to record the adoptions of %s in the Rule Ledger %s; record them by hand with bash %s record --pr-url %s --date %s --via weekly\n' \
+            "$url" "$LOCAL_LEDGER_DIR" "$RULE_LEDGER" "$url" "$REVIEW_DATE" >&2
+    if ! commit_ledger_records "$base"; then
+        printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for the next PR\n' "$LOCAL_LEDGER_DIR" >&2
+        git -C "$WORKTREE" reset --quiet --hard "$pushed" || true
+        git -C "$WORKTREE" clean --quiet -fd -- "$LEDGER_REPO_DIR" || true
+        return 0
+    fi
+    [[ "$LEDGER_RECORDS_COMMITTED" -gt 0 ]] || return 0
+    if git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH"; then
+        printf 'harness-weekly: committed %s Rule Ledger record(s) to %s\n' "$LEDGER_RECORDS_COMMITTED" "$url"
+    else
+        printf 'harness-weekly: WARN push of the Rule Ledger records to %s failed; they stay in %s for the next PR\n' \
+            "$BRANCH" "$LOCAL_LEDGER_DIR" >&2
+    fi
+}
+
 # 開いている自己改善ループの PR(ブランチ harness/review-*)の URL を出す。無ければ空
 open_loop_pr() {
     (cd "$REPO" && gh pr list --state open --json headRefName,url \
@@ -872,12 +950,22 @@ metrics_only_due() {
 # 採用の無い週に、週の記録だけの draft PR を作る。worktree と依存は用意済みの前提
 publish_metrics_only() {
     local base=$1 url
+    local recorded
     commit_rate_records "$base" || {
         printf 'harness-weekly: failed to commit the weekly failure rate records in %s; no PR created\n' "$WORKTREE" >&2
         return 1
     }
+    check_ledger_inputs || return 1
+    recorded=$(git -C "$WORKTREE" rev-parse HEAD) || return 1
+    commit_ledger_records "$base" || {
+        printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for the next PR\n' "$LOCAL_LEDGER_DIR" >&2
+        git -C "$WORKTREE" reset --quiet --hard "$recorded" || return 1
+        git -C "$WORKTREE" clean --quiet -fd -- "$LEDGER_REPO_DIR" || return 1
+    }
     printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
         "$RATE_RECORDS_COMMITTED" >"$PR_BODY"
+    [[ "$LEDGER_RECORDS_COMMITTED" -eq 0 ]] ||
+        printf '\n前の PR に載らなかった Rule Ledger の記録 %s 件も足した(%s)。\n' "$LEDGER_RECORDS_COMMITTED" "$LEDGER_REPO_DIR" >>"$PR_BODY"
     append_rates_section
     append_detection_section
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
@@ -1012,6 +1100,13 @@ publish_review() {
             "$RATES_REPO_DIR" >&2
         return 1
     fi
+    touched=$(git -C "$WORKTREE" diff --name-only "$base" HEAD -- "$LEDGER_REPO_DIR") || return 1
+    if [[ -n "$touched" ]]; then
+        printf 'harness-weekly: review commits touched %s (only this job writes the Rule Ledger); no PR created\n' \
+            "$LEDGER_REPO_DIR" >&2
+        return 1
+    fi
+    check_ledger_inputs || return 1
     result_sections >>"$PR_BODY" || return 1
     append_detection_section
     append_rates_section
@@ -1051,6 +1146,7 @@ publish_review() {
     printf 'harness-weekly: opened draft PR %s (%s commit(s))\n' "$url" "$commits"
     rm -f "$PR_BODY" "$REVIEW_RESULT"
     record_pr_url "$url"
+    record_and_publish_ledger "$base" "$url"
     remove_worktree
     # ブランチは origin にあるので、ローカルの分は消す(残すと週ごとに溜まる)
     git -C "$REPO" branch --quiet -D "$BRANCH" >/dev/null 2>&1 ||
@@ -1140,6 +1236,10 @@ RATE_RECORD_DIGESTS=$(rate_record_digests) || {
     printf 'harness-weekly: failed to hash the weekly failure rate records in %s\n' "$LOCAL_RATES_DIR" >&2
     exit 1
 }
+LEDGER_INPUT_DIGESTS=$(ledger_input_digests) || {
+    printf 'harness-weekly: failed to hash the Rule Ledger records in %s\n' "$LOCAL_LEDGER_DIR" >&2
+    exit 1
+}
 if [[ "$(count_pending)" -eq 0 ]]; then
     printf 'harness-weekly: pending is empty; skipped reflect\n'
 else
@@ -1227,9 +1327,9 @@ Use the harness-review skill, following its rules, with these changes:
 - Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). List a deploy-only fix (one that a commit cannot fix and that takes effect only when a human applies it) in the result file instead.
 - In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Fold fixes for a failing commit hook or just lint into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
 - Always write the result file ${REVIEW_RESULT} before you finish, even if nothing happened: a JSON object {\"dropped\": [...], \"deploy_only\": [...]} whose elements are one-line strings (in Japanese). In \"dropped\", put each dropped change with its queue title and the failing hook or lint check; in \"deploy_only\", each deploy-only fix with what to apply and why. Use empty arrays when there are none. This job decides whether the run failed from this file, not from the PR body.
-- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection and rate records, the evaluation and the result file. Never change files under ${RATES_REPO_DIR}; this job commits them. If nothing is adopted and nothing is stale, make no commits.
+- Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection and rate records, the evaluation and the result file. Never change files under ${RATES_REPO_DIR} or ${LEDGER_REPO_DIR}, or the local Rule Ledger in ${LOCAL_LEDGER_DIR}; this job commits them. If nothing is adopted and nothing is stale, make no commits.
 - For every adopted change, write an Eval Case request to ${EVAL_REQUESTS} as described in the skill's \"Eval Case requests\" section (Write tool only; this job runs the evaluation and appends the effect to the PR body). Do not run the evaluation yourself.
-- In \"Bookkeeping\", record each adopted verdict as \"${ADOPTED_MARK}\" exactly; this job replaces it with the PR URL.
+- In \"Bookkeeping\", record each adopted verdict as \"${ADOPTED_MARK}\" exactly; this job replaces it with the PR URL. Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
 - Finish with a one-line summary: entries adopted, rejected, handed off."

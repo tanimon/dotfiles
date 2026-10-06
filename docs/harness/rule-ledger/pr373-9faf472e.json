@@ -1,0 +1,12 @@
+{
+  "id": "pr373-9faf472e",
+  "adopted": "2026-09-28",
+  "title": "[2026-08-28] Stop burning turns on timed-out Bash waits for subagent completion",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}
