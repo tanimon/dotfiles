@@ -14,8 +14,8 @@
 # 記録の形(形の正本は RECORD_DEFS の record_valid):
 #   {"id": "pr<PR 番号>-<title の sha256 の先頭 8 桁>", "adopted": "<採用日>", "title": "<queue の見出し>",
 #    "failure_patterns": [<出典のセッションの失敗を分類した Failure Pattern の id>],
-#    "eval": <下記>, "pr": <PR 番号>, "via": "weekly" | "manual" | "migrated"}
-# eval は評価の結果(harness-eval-cases.sh run の出力)から title で引く:
+#    "eval": <eval の status ごとの形>, "pr": <PR 番号>, "via": "weekly" | "manual" | "migrated"}
+# eval の status ごとの形。評価の結果(harness-eval-cases.sh run の出力)から title で引く:
 #   evaluated     {case_id, with, without, delta}  ルールの有無の平均得点と Δ
 #   invalid       {case_id, with, without}         ルールの無い側で失敗が再現しなかった
 #   not_evaluated {case_id, reason}                評価できなかった(reason は評価のスクリプトの固定の分類)
@@ -29,9 +29,15 @@
 # 同時実行: 記録は一時ファイルに書いてから ln で置く(既にあれば失敗する)ので、週次ジョブ・手動の review・
 # 移行が同時に走っても、互いの記録を消さず、壊れた記録も残さない。既にある記録は上書きしない。
 #
-# 仕事の文脈: 記録の自由記述は title と免除の理由だけ。export はリポジトリの identity leak guard
-# (scripts/scan-sensitive-info.sh)で写した記録を検査し、当たれば両方を固定の文言で伏せる。伏せても当たる記録は
-# 写さない。ローカルの記録は伏せない。
+# 仕事の文脈: 記録の自由記述は title と免除の理由だけ。export は写した記録を、リポジトリの identity leak guard
+# (scripts/scan-sensitive-info.sh)と仕事のリポジトリ名(~/ghq/github.com/<仕事の org>/ のディレクトリ名。
+# RULE_LEDGER_WORK_REPOS で上書きできる)で検査し、当たれば両方を固定の文言で伏せる。伏せても当たる記録は
+# 写さない。仕事の org(SENSITIVE_WORK_ORG か chezmoi の .ghOrg)かリポジトリの一覧を引けなければ、検査が空振り
+# しないよう何も写さずに失敗する。名前を含まない仕事の文脈(仕事のリポジトリにしか無いスクリプトの名前など)は
+# 捕まえられない。ローカルの記録は伏せない。
+#
+# 週次ジョブは claude の起動前に取ったローカルの記録のハッシュと比べるので、週次ジョブの run の最中に手動の
+# /harness-review が記録を作ると、その run は PR を作らずに失敗する(記録は失わない。次の run が載せる)。
 #
 # 終了コード: 0 = 成功(記録が 0 件の場合を含む)、1 = 失敗(check では形の違う記録がある)、2 = 引数の誤り
 set -euo pipefail
@@ -39,8 +45,11 @@ set -euo pipefail
 HARNESS_DIR="$HOME/.claude/harness"
 ARCHIVE="$HARNESS_DIR/queue-archive.md"
 CLASSIFICATIONS="$HARNESS_DIR/classifications.jsonl"
-LEDGER_DIR="$HARNESS_DIR/rule-ledger"
-REPO_LEDGER_DIR="docs/harness/rule-ledger"
+LOCAL_LEDGER_DIR="$HARNESS_DIR/rule-ledger"
+LEDGER_REPO_DIR="docs/harness/rule-ledger"
+# Eval Case の評価(harness-eval-cases.sh)を入れた日。migrate はこれより前に作った PR の採用だけを移す。
+# 以後の採用は record が評価の結果と一緒に記録する
+EVAL_CASES_SINCE=2026-10-05
 MIGRATED_REASON='Eval Case の仕組みを入れる前に採用した(移行した記録)'
 REDACTED='(仕事の文脈を含むため伏せた)'
 
@@ -133,28 +142,30 @@ write_record() { # <記録の JSON>
         return 1
     }
     id=$(jq -r '.id' <<<"$record")
-    mkdir -p "$LEDGER_DIR" || return 1
-    tmp=$(mktemp "$LEDGER_DIR/.record.XXXXXX") || return 1
+    mkdir -p "$LOCAL_LEDGER_DIR" || return 1
+    tmp=$(mktemp "$LOCAL_LEDGER_DIR/.record.XXXXXX") || return 1
     if ! jq '.' <<<"$record" >"$tmp"; then
         rm -f "$tmp"
         return 1
     fi
-    if ln "$tmp" "$LEDGER_DIR/$id.json" 2>/dev/null; then
+    if ln "$tmp" "$LOCAL_LEDGER_DIR/$id.json" 2>/dev/null; then
         rm -f "$tmp"
         WRITTEN=$((WRITTEN + 1))
         printf 'harness-rule-ledger: recorded %s\n' "$id"
     else
         rm -f "$tmp"
-        [[ -f "$LEDGER_DIR/$id.json" ]] || return 1
+        [[ -f "$LOCAL_LEDGER_DIR/$id.json" ]] || return 1
         EXISTING=$((EXISTING + 1))
         printf 'harness-rule-ledger: %s already recorded; left it unchanged\n' "$id"
     fi
 }
 
 build_record() { # <entry の JSON> <PR 番号> <採用日> <via> <eval の JSON>
-    local entry=$1 digest patterns
-    digest=$(title_digest "$(jq -r '.title' <<<"$entry")") || return 1
-    patterns=$(failure_patterns "$(jq -c '.sources' <<<"$entry")") || return 1
+    local entry=$1 title sources digest patterns
+    title=$(jq -r '.title' <<<"$entry") || return 1
+    sources=$(jq -c '.sources' <<<"$entry") || return 1
+    digest=$(title_digest "$title") || return 1
+    patterns=$(failure_patterns "$sources") || return 1
     jq -c -n --argjson entry "$entry" --argjson pr "$2" --arg adopted "$3" --arg via "$4" --argjson eval "$5" \
         --arg digest "$digest" --argjson patterns "$patterns" \
         '{id: "pr\($pr)-\($digest)", adopted: $adopted, title: $entry.title, failure_patterns: $patterns,
@@ -208,12 +219,13 @@ record_mode() {
         title=$(jq -r '.title' <<<"$entry")
         eval_json=$(eval_of "$title" "$results") || fail "cannot read the eval results $results"
         record=$(build_record "$entry" "$pr" "$DATE" "$VIA" "$eval_json") || fail "cannot build the record of $title"
-        write_record "$record" || fail "cannot write the record of $title in $LEDGER_DIR"
+        write_record "$record" || fail "cannot write the record of $title in $LOCAL_LEDGER_DIR"
     done <<<"$entries"
     printf 'harness-rule-ledger: %s recorded, %s already recorded\n' "$WRITTEN" "$EXISTING"
 }
 
 # 判定の記録の採用を 1 回だけ新しい形式に移す。採用日は PR を作った日(gh で引き、PR ごとに 1 回だけ)。
+# 移すのは EVAL_CASES_SINCE より前に作った PR の採用だけで、免除の理由を「仕組みを入れる前」とする。
 # 何度実行しても、既にある記録は上書きしない。移せないものは「skipped<TAB>理由<TAB>title」で出す
 migrate_mode() {
     local entries entry verdict title url pr created adopted dates="" record skipped=0 eval_json
@@ -251,8 +263,13 @@ migrate_mode() {
             skipped=$((skipped + 1))
             continue
         fi
+        if [[ ! "$adopted" < "$EVAL_CASES_SINCE" ]]; then
+            printf 'skipped\tEval Case を入れた後の採用(record で記録する)\t%s\n' "$title"
+            skipped=$((skipped + 1))
+            continue
+        fi
         record=$(build_record "$entry" "$pr" "$adopted" migrated "$eval_json") || fail "cannot build the record of $title"
-        write_record "$record" >/dev/null || fail "cannot write the record of $title in $LEDGER_DIR"
+        write_record "$record" >/dev/null || fail "cannot write the record of $title in $LOCAL_LEDGER_DIR"
     done <<<"$entries"
     printf 'harness-rule-ledger: migrated %s, already recorded %s, skipped %s (listed above)\n' "$WRITTEN" "$EXISTING" "$skipped"
 }
@@ -263,45 +280,86 @@ file_valid() { # <ファイル>
     jq -e --arg name "$name" "$RECORD_DEFS"'record_valid and (.id + ".json") == $name' "$1" >/dev/null 2>&1
 }
 
-# base に無いローカルの記録を worktree の置き場に写す。写した記録を identity leak guard で検査し、当たれば
-# 自由記述を伏せる。検査そのものを走らせられなければ何も写さずに失敗する(検査なしで写すと、仕事の文脈が
-# commit フックまで届き、フックが通らない週が続く)
-export_mode() {
-    local scanner probe file name dest exported=0 redacted
-    [[ -n "$BASE" && -n "$WORKTREE" ]] || usage
-    scanner="$WORKTREE/scripts/scan-sensitive-info.sh"
-    probe=$(mktemp "${TMPDIR:-/tmp}/rule-ledger-probe.XXXXXX") || return 1
-    printf '{}\n' >"$probe"
-    if [[ ! -f "$scanner" ]] || ! bash "$scanner" "$probe" >/dev/null 2>&1; then
-        rm -f "$probe"
-        fail "cannot run the identity leak guard $scanner; nothing exported"
+# base に無いローカルの記録を worktree の置き場に写す。写した記録を仕事の文脈で検査し(leaks_work_context)、
+# 当たれば自由記述を伏せる。検査そのものを走らせられなければ何も写さずに失敗する(検査なしで写すと、仕事の
+# 文脈が公開リポジトリに出るか、commit フックで止まる週が続く)
+# 仕事の org を出す。scan-sensitive-info.sh の resolve_work_org と同じく、SENSITIVE_WORK_ORG が設定されていれば
+# (空でも)それを使う
+work_org() {
+    if [[ -n ${SENSITIVE_WORK_ORG+set} ]]; then
+        printf '%s\n' "$SENSITIVE_WORK_ORG"
+        return 0
     fi
-    rm -f "$probe"
-    [[ -d "$LEDGER_DIR" ]] || {
+    command -v chezmoi >/dev/null 2>&1 || return 0
+    chezmoi data 2>/dev/null | jq -r '.ghOrg // empty' 2>/dev/null || true
+}
+
+# 仕事のリポジトリ名を 1 行 1 件で出す。読めなければ失敗する
+work_repos() { # <org>
+    local dir
+    if [[ -n ${RULE_LEDGER_WORK_REPOS+set} ]]; then
+        tr ' ' '\n' <<<"$RULE_LEDGER_WORK_REPOS" | sed '/^$/d'
+        return 0
+    fi
+    dir="$HOME/ghq/github.com/$1"
+    [[ -d "$dir" && -r "$dir" ]] || return 1
+    for dir in "$dir"/*/; do
+        [[ -d "$dir" ]] || continue
+        dir=${dir%/}
+        printf '%s\n' "${dir##*/}"
+    done
+}
+
+# 記録の自由記述が仕事の文脈に当たるか(identity leak guard か仕事のリポジトリ名)
+leaks_work_context() { # <記録のファイル>
+    local status=0
+    SENSITIVE_WORK_ORG="$ORG" bash "$SCANNER" "$1" >/dev/null 2>&1 || return 0
+    jq -r '.title, (.eval.reason // empty)' "$1" | grep -qiF -f "$NAMES" || status=$?
+    [[ "$status" -ne 0 ]] || return 0
+    [[ "$status" -eq 1 ]] || return 0
+    return 1
+}
+
+export_mode() {
+    local file name dest exported=0 redacted repos
+    [[ -n "$BASE" && -n "$WORKTREE" ]] || usage
+    SCANNER="$WORKTREE/scripts/scan-sensitive-info.sh"
+    ORG=$(work_org)
+    [[ -n "$ORG" ]] || fail 'cannot resolve the work org (SENSITIVE_WORK_ORG or chezmoi .ghOrg); nothing exported'
+    repos=$(work_repos "$ORG") || fail "cannot list the work repositories in ~/ghq/github.com/$ORG (or set RULE_LEDGER_WORK_REPOS); nothing exported"
+    NAMES=$(mktemp "${TMPDIR:-/tmp}/rule-ledger-names.XXXXXX") || return 1
+    PROBE=$(mktemp "${TMPDIR:-/tmp}/rule-ledger-probe.XXXXXX") || return 1
+    trap 'rm -f "$NAMES" "$PROBE"' EXIT
+    printf '%s\n' "$ORG" "$repos" | sed '/^$/d' >"$NAMES"
+    printf '{}\n' >"$PROBE"
+    if [[ ! -f "$SCANNER" ]] || ! SENSITIVE_WORK_ORG="$ORG" bash "$SCANNER" "$PROBE" >/dev/null 2>&1; then
+        fail "cannot run the identity leak guard $SCANNER; nothing exported"
+    fi
+    [[ -d "$LOCAL_LEDGER_DIR" ]] || {
         printf 'harness-rule-ledger: exported 0 record(s)\n'
         return 0
     }
-    for file in "$LEDGER_DIR"/*.json; do
+    for file in "$LOCAL_LEDGER_DIR"/*.json; do
         [[ -f "$file" ]] || continue
         name=${file##*/}
         if ! file_valid "$file"; then
             printf 'harness-rule-ledger: WARN %s does not match the record format; not exported\n' "$file" >&2
             continue
         fi
-        git -C "$WORKTREE" cat-file -e "$BASE:$REPO_LEDGER_DIR/$name" 2>/dev/null && continue
-        dest="$WORKTREE/$REPO_LEDGER_DIR/$name"
-        mkdir -p "$WORKTREE/$REPO_LEDGER_DIR" || return 1
+        git -C "$WORKTREE" cat-file -e "$BASE:$LEDGER_REPO_DIR/$name" 2>/dev/null && continue
+        dest="$WORKTREE/$LEDGER_REPO_DIR/$name"
+        mkdir -p "$WORKTREE/$LEDGER_REPO_DIR" || return 1
         cp "$file" "$dest" || return 1
-        if ! bash "$scanner" "$dest" >/dev/null 2>&1; then
+        if leaks_work_context "$dest"; then
             redacted=$(jq --arg r "$REDACTED" '.title = $r | if .eval.status == "exempt" then .eval.reason = $r else . end' "$dest") ||
                 return 1
             printf '%s\n' "$redacted" >"$dest"
-            if ! bash "$scanner" "$dest" >/dev/null 2>&1; then
+            if leaks_work_context "$dest"; then
                 rm -f "$dest"
-                printf 'harness-rule-ledger: WARN %s still matches the identity leak guard after redaction; not exported\n' "${name%.json}" >&2
+                printf 'harness-rule-ledger: WARN %s still matches the work context after redaction; not exported\n' "${name%.json}" >&2
                 continue
             fi
-            printf 'harness-rule-ledger: redacted the free text of %s (it matched the identity leak guard)\n' "${name%.json}"
+            printf 'harness-rule-ledger: redacted the free text of %s (it matched the work context)\n' "${name%.json}"
         fi
         exported=$((exported + 1))
     done

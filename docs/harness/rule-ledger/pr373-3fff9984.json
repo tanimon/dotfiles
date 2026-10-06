@@ -1,11 +1,11 @@
 {
   "id": "pr373-3fff9984",
   "adopted": "2026-09-28",
-  "title": "[2026-07-23] Wrapping gh in a compound/subshell command defeats the sandbox excludedCommands exclusion",
+  "title": "(仕事の文脈を含むため伏せた)",
   "failure_patterns": [],
   "eval": {
     "status": "exempt",
-    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+    "reason": "(仕事の文脈を含むため伏せた)"
   },
   "pr": 373,
   "via": "migrated"

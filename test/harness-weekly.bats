@@ -53,6 +53,7 @@ setup() {
         "$HARNESS_WEEKLY_REPO/scripts/"
     : >"$HARNESS_WEEKLY_REPO/scripts/sensitive-allowlist.txt"
     export SENSITIVE_WORK_ORG=acmework SENSITIVE_LOCAL_USER='' SENSITIVE_PATTERNS_LOCAL="$BATS_TEST_TMPDIR/no-local-patterns"
+    mkdir -p "$HOME/ghq/github.com/$SENSITIVE_WORK_ORG/shop_admin"
     git -C "$HARNESS_WEEKLY_REPO" add README.md scripts
     git -C "$HARNESS_WEEKLY_REPO" commit -qm init
     git -C "$HARNESS_WEEKLY_REPO" push -q origin main
@@ -1879,6 +1880,7 @@ ledger_record() {
     assert_output --partial "$WT exec oxfmt $LEDGER_REPO_DIR"
     # 純増は選別の commit だけで数える
     run cat "$GH_BODY"
+    assert_line '## Rule Ledger'
     assert_output --partial '合計: +4 / -2(純増 +2 行)'
     assert [ -f "$HDIR/weekly-heartbeat" ]
 }

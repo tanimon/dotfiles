@@ -7,7 +7,9 @@ bats_require_minimum_version 1.5.0
 
 setup() {
     load 'helpers/setup'
-    unset SENSITIVE_WORK_ORG SENSITIVE_LOCAL_USER SENSITIVE_PATTERNS_LOCAL
+    unset SENSITIVE_WORK_ORG SENSITIVE_LOCAL_USER SENSITIVE_PATTERNS_LOCAL RULE_LEDGER_WORK_REPOS
+    # 移行は PR の作成時刻をローカルの日付にする。テストの期待値をマシンの TZ に依らせない
+    export TZ=UTC
     export HOME="$BATS_TEST_TMPDIR/home"
     HDIR="$HOME/.claude/harness"
     LEDGER="$HDIR/rule-ledger"
@@ -241,6 +243,8 @@ make_worktree() {
     git -C "$WT" add -A
     git -C "$WT" commit -qm init
     export SENSITIVE_WORK_ORG=acmework SENSITIVE_LOCAL_USER='' SENSITIVE_PATTERNS_LOCAL="$BATS_TEST_TMPDIR/none"
+    # 仕事のリポジトリ名は ~/ghq/github.com/<org>/ のディレクトリ名から引く
+    mkdir -p "$HOME/ghq/github.com/$SENSITIVE_WORK_ORG/shop_admin" "$HOME/ghq/github.com/$SENSITIVE_WORK_ORG/core-lib"
 }
 
 @test "書き出しは、base に無いローカルの記録だけをリポジトリの置き場に写す" {
@@ -299,4 +303,54 @@ make_worktree() {
     run bash "$SCRIPT" export --base HEAD --worktree "$WT"
     assert_failure
     assert [ ! -e "$WT/docs/harness/rule-ledger" ]
+}
+
+@test "書き出しは、仕事のリポジトリ名を含む記録の自由記述を伏せて写す" {
+    make_worktree
+    entry '[2026-10-03] Shop_Admin の .gitignore に足す' "adopted (PR $URL)"
+    entry '[2026-10-03] 個人の設定' "adopted (PR $URL)"
+    bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly >/dev/null
+    id=$(ledger_id 42 '[2026-10-03] Shop_Admin の .gitignore に足す')
+    other=$(ledger_id 42 '[2026-10-03] 個人の設定')
+    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    assert_success
+    assert_output --partial "redacted the free text of $id"
+    run jq -r .title "$WT/docs/harness/rule-ledger/$id.json"
+    assert_output '(仕事の文脈を含むため伏せた)'
+    run jq -r .title "$WT/docs/harness/rule-ledger/$other.json"
+    assert_output '[2026-10-03] 個人の設定'
+}
+
+@test "書き出しは、仕事の org を引けなければ何も写さずに失敗する" {
+    make_worktree
+    export SENSITIVE_WORK_ORG=''
+    entry '[2026-10-03] a' "adopted (PR $URL)"
+    bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly >/dev/null
+    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    assert_failure
+    assert_output --partial 'work org'
+    assert [ ! -e "$WT/docs/harness/rule-ledger" ]
+}
+
+@test "書き出しは、仕事のリポジトリの一覧を読めなければ何も写さずに失敗する" {
+    make_worktree
+    rm -rf "$HOME/ghq"
+    entry '[2026-10-03] a' "adopted (PR $URL)"
+    bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly >/dev/null
+    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    assert_failure
+    assert [ ! -e "$WT/docs/harness/rule-ledger" ]
+}
+
+@test "移行は Eval Case を入れた後に作った PR の採用を移さず、record で記録するよう一覧に出す" {
+    cat >"$STUBS/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_LOG"
+printf '2026-10-10T03:00:00Z\n'
+EOF
+    entry '[2026-10-09] new' 'adopted (PR https://github.com/example/dotfiles/pull/500)'
+    run bash "$SCRIPT" migrate
+    assert_success
+    assert_line "$(printf 'skipped\tEval Case を入れた後の採用(record で記録する)\t[2026-10-09] new')"
+    assert [ ! -d "$LEDGER" ] || [ -z "$(ls -A "$LEDGER")" ]
 }

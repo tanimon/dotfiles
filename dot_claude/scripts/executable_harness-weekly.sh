@@ -731,10 +731,11 @@ RATE_RECORD_DIGESTS=""
 # ので、週の再発率の記録と同じく claude の起動前と比べて書き換えを見つける(check_ledger_inputs)。
 # 分類の記録は claude の起動前に分類器が書き終えている
 ledger_input_digests() {
-    local file
+    local file digest
     for file in "$LOCAL_LEDGER_DIR"/*.json "$CLASSIFICATIONS"; do
         [[ -f "$file" ]] || continue
-        printf '%s %s\n' "${file##*/}" "$(git hash-object -- "$file")" || return 1
+        digest=$(git hash-object -- "$file") || return 1
+        printf '%s %s\n' "${file##*/}" "$digest"
     done
 }
 LEDGER_INPUT_DIGESTS=""
@@ -879,6 +880,13 @@ commit_rate_records() {
 # (publish_review が commit を、check_ledger_inputs がローカルの記録を確かめる)。写した件数を
 # LEDGER_RECORDS_COMMITTED に入れる。失敗しても記録はローカルに残り、次の PR が足す
 LEDGER_RECORDS_COMMITTED=0
+# Rule Ledger の commit に失敗したときに、worktree を <revision> に戻して写しかけの記録を消す。記録はローカルに残る
+drop_ledger_commit() { # <revision>
+    printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for the next PR\n' "$LOCAL_LEDGER_DIR" >&2
+    git -C "$WORKTREE" reset --quiet --hard "$1" || return 1
+    git -C "$WORKTREE" clean --quiet -fd -- "$LEDGER_REPO_DIR" || return 1
+}
+
 commit_ledger_records() {
     local base=$1 output count
     LEDGER_RECORDS_COMMITTED=0
@@ -905,9 +913,8 @@ record_and_publish_ledger() { # <base> <PR の URL>
         printf 'harness-weekly: WARN failed to record the adoptions of %s in the Rule Ledger %s; record them by hand with bash %s record --pr-url %s --date %s --via weekly\n' \
             "$url" "$LOCAL_LEDGER_DIR" "$RULE_LEDGER" "$url" "$REVIEW_DATE" >&2
     if ! commit_ledger_records "$base"; then
-        printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for the next PR\n' "$LOCAL_LEDGER_DIR" >&2
-        git -C "$WORKTREE" reset --quiet --hard "$pushed" || true
-        git -C "$WORKTREE" clean --quiet -fd -- "$LEDGER_REPO_DIR" || true
+        # PR は作成済みなので、戻せなくても失敗にしない(worktree は remove_worktree が消す)
+        drop_ledger_commit "$pushed" || true
         return 0
     fi
     [[ "$LEDGER_RECORDS_COMMITTED" -gt 0 ]] || return 0
@@ -957,11 +964,7 @@ publish_metrics_only() {
     }
     check_ledger_inputs || return 1
     recorded=$(git -C "$WORKTREE" rev-parse HEAD) || return 1
-    commit_ledger_records "$base" || {
-        printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for the next PR\n' "$LOCAL_LEDGER_DIR" >&2
-        git -C "$WORKTREE" reset --quiet --hard "$recorded" || return 1
-        git -C "$WORKTREE" clean --quiet -fd -- "$LEDGER_REPO_DIR" || return 1
-    }
+    commit_ledger_records "$base" || drop_ledger_commit "$recorded" || return 1
     printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
         "$RATE_RECORDS_COMMITTED" >"$PR_BODY"
     [[ "$LEDGER_RECORDS_COMMITTED" -eq 0 ]] ||
@@ -1116,6 +1119,12 @@ publish_review() {
     }
     # 純増は選別の commit だけで数える(記録の commit を混ぜると、ルールの肥大の数字に記録の行が入る)
     net_change_section "$base" >>"$PR_BODY" || return 1
+    # Rule Ledger の記録は PR 番号が要るので、PR を作った後の commit で足す(record_and_publish_ledger)。
+    # 足せなかったことは本文では知らせられないので、ログの WARN と、PR の commit に記録が無いことで分かる
+    if [[ -n "$(adopted_titles)" ]]; then
+        printf '\n## Rule Ledger\n\n採用したルールの記録(%s)は、この PR を作った後に週次ジョブが「harness: Rule Ledger の記録を足す」の commit で足す。その commit が無ければ、記録はローカルに残っていて次の PR に載る。\n' \
+            "$LEDGER_REPO_DIR" >>"$PR_BODY"
+    fi
     commit_rate_records "$base" || commit_status=$?
     if [[ "$commit_status" -eq 2 ]]; then
         # 書き換えられた記録を正として持ち越さないよう、PR を作らずに失敗させて人に見せる
