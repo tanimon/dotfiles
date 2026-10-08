@@ -14,6 +14,8 @@ Claude Code 専用のルール。どのリポジトリでも成立する。こ�
   コマンド全体が exit 1 で出力ごと失われる。区切り線は `echo '==='` か `echo ---` にする。
 - **glob を含む引数はクォートする。** zsh は一致しない glob でコマンド全体を `no matches found` で止める。
   `grep -r --include='*.vue'` のようにオプション値の `*` も対象。`no matches found` の後に出た件数(`0` など)は無効。
+  展開させたい glob(`for f in dir/*.md` のループ対象など)が空になりうるときは、コマンドの先頭に `setopt nullglob;` を置く。
+  glob 修飾子 `(N)` はこのシェルが `nobareglobqual` で動くため効かず、同じ `no matches found` で止まる(実測)。
 - **`path` `fpath` `cdpath` `manpath` `status` `argv` を変数名にしない。** `for path in …` は `PATH` を書き換え、
   以降の外部コマンドが `command not found` になる。症状は代入から離れた場所で出る。
 - `$VAR` の直後に `:` が続くときは `${VAR}` で閉じる(`:a` `:h` などが修飾子として消費される)。
