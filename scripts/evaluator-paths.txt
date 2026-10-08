@@ -38,6 +38,8 @@ scripts/check-instruction-size.sh
 test/check-instruction-size.bats
 # 合成後の出力の上限は描画してから測るので、描画の seam(helper と fixture)も載せる。外にあると、
 # ループの PR が測る対象を差し替えられる(fixture が空のデータを返せば、出力が縮んで上限内に見える)
+# test/fixtures/ は配下すべてを覆うので、test/fixtures/harness-detect-failures/ と test/fixtures/harness-eval-cases/ の
+# 行は判定上は重複になる。それぞれの検出器・評価器の節で何を守るかが読めるよう、その行も残す
 test/rendered-instruction-size.bats
 test/helpers/render.bash
 test/fixtures/

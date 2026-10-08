@@ -28,8 +28,9 @@
 #   行数は縛らない(連結した rules で 200 行を超えるのは想定どおり)。
 # - ~/.claude/CLAUDE.md(dot_claude/CLAUDE.md.tmpl): 起動時に読み込まれる 1 ファイルなので既定値と同じ値。
 #
-# リポジトリのルートの AGENTS.md(生成物。~/.codex/AGENTS.md とは別物)の 32 KiB 超えは意図した設計で、Codex の切り捨てが 1 モジュールの内側で起きる
-# 並びを test/harness-instructions.bats が守っている。ここでは増加を止めるためだけに登録する。
+# リポジトリのルートの AGENTS.md(生成物。~/.codex/AGENTS.md とは別物)の 32 KiB 超えは意図した
+# 設計で、Codex の切り捨てが 1 モジュールの内側で起きる並びを test/harness-instructions.bats が
+# 守っている。ここでは増加を止めるためだけに登録する。
 
 * 200 32768
 
