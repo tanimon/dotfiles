@@ -50,14 +50,13 @@ measure_rendered() {
 
 # measure_rendered が本当に落ちることの確認。落ちない実装でも「合成後の出力はすべての profile で上限に収まる」は通るため
 @test "上限を超える出力は落ちる" {
-    local template="$BATS_TEST_TMPDIR/big.tmpl" limit
-    # 上限の値は一覧から読む(一覧の上限を変えてもこのテストが追従するように)
-    limit=$(awk '$1 == "render:dot_codex/AGENTS.md.tmpl" { print $3 }' "$RENDER_REPO/scripts/instruction-size-limits.txt")
-    [[ "$limit" =~ ^[0-9]+$ ]] || fail "render:dot_codex/AGENTS.md.tmpl の上限が一覧から読めない: '$limit'"
-    printf '{{ repeat %d "x" }}' "$((limit + 1))" >"$template"
+    local template="$BATS_TEST_TMPDIR/big.tmpl"
+    # 1 MiB はどの上限よりも十分大きい。一覧を読むのは check-instruction-size.sh だけにするため、
+    # 上限の値をここで一覧から読んだり直書きしたりしない
+    printf '{{ repeat 1048576 "x" }}' >"$template"
     run measure_rendered dot_codex/AGENTS.md.tmpl personal "$template"
     assert_failure 1
-    assert_output --partial "render:dot_codex/AGENTS.md.tmpl: $((limit + 1)) バイト"
+    assert_output --partial "render:dot_codex/AGENTS.md.tmpl: 1048576 バイト"
 }
 
 @test "描画に失敗したテンプレートは落ちる" {
