@@ -226,9 +226,10 @@ check-templates:
 @check-instruction-size:
     bash scripts/check-instruction-size.sh
 
-# check-instruction-size.sh のテスト。LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合の回避
+# check-instruction-size.sh のテストと、合成後のグローバル指示のサイズ上限(chezmoi が要る)。
+# LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合の回避
 @test-instruction-size:
-    LC_ALL=C pnpm exec bats test/check-instruction-size.bats
+    LC_ALL=C pnpm exec bats test/check-instruction-size.bats test/rendered-instruction-size.bats
 
 # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 @test-harness-sync:

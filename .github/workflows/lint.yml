@@ -172,9 +172,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # chezmoi は必須。test/rendered-instruction-size.bats は合成後のグローバル指示を描画して測るので、
+      # chezmoi が無いと skip せず fail する
       - uses: ./.github/actions/setup-lint
         with:
           pnpm: 'true'
+          chezmoi: 'true'
       - run: just test-instruction-size
 
   harness-sync:

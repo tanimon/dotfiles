@@ -3,6 +3,11 @@
 # 1 行 1 件で「<パス> <最大行数> <最大バイト数>」を空白で区切る(空白を含むパスは登録できない)。
 # パスが * の行は既定値。# で始まる行(字下げしてもよい)と空行は無視する。
 #
+# 「render:<テンプレート> <最大行数> <最大バイト数>」の行は、テンプレートのソースではなく合成後の出力の上限。
+# 最大行数には - を書ける(行数を縛らない)。既定値は当てはまらないので、行ごとに明示する。
+# 描画は test/rendered-instruction-size.bats が test/fixtures/chezmoi-*.toml のすべての profile で行い、
+# scripts/check-instruction-size.sh --rendered で測る。合成後の出力を測る対象を増やすときはここに 1 行足す。
+#
 # 既定値の根拠:
 # - 200 行: Claude Code 公式ドキュメント(https://code.claude.com/docs/en/memory)が CLAUDE.md の目安を
 #   「target under 200 lines per CLAUDE.md file」とし、長いほど遵守が落ちるとしている。
@@ -16,10 +21,14 @@
 # 落とす(scripts/evaluator-paths.txt)ので、ループがこれらのファイルに書き足すには同じだけ削る。
 #
 # 上限はファイルごとに測るので、グローバル指示はテンプレートのソース(dot_claude/CLAUDE.md.tmpl と
-# .chezmoitemplates/agent-instructions-common)を別々に測る。合成後の ~/.claude/CLAUDE.md は
-# 各ソースが上限内でも超えうるので、test/global-instructions.bats が合成後を既定値で測っている。
+# .chezmoitemplates/agent-instructions-common)を別々に測る。合成後の出力は各ソースが上限内でも
+# 超えうるので、render: の行で別に測る:
+# - ~/.codex/AGENTS.md(dot_codex/AGENTS.md.tmpl): 共有本文に dot_claude/rules/common/ を連結するので、
+#   ルールを足すたびに太る。Codex が切り捨てるのは 32 KiB を超えた分なので 32768 バイトまで。
+#   行数は縛らない(連結した rules で 200 行を超えるのは想定どおり)。
+# - ~/.claude/CLAUDE.md(dot_claude/CLAUDE.md.tmpl): 起動時に読み込まれる 1 ファイルなので既定値と同じ値。
 #
-# AGENTS.md(生成物)の 32 KiB 超えは意図した設計で、Codex の切り捨てが 1 モジュールの内側で起きる
+# リポジトリのルートの AGENTS.md(生成物。~/.codex/AGENTS.md とは別物)の 32 KiB 超えは意図した設計で、Codex の切り捨てが 1 モジュールの内側で起きる
 # 並びを test/harness-instructions.bats が守っている。ここでは増加を止めるためだけに登録する。
 
 * 200 32768
@@ -29,3 +38,6 @@ CLAUDE.md 237 52243
 .claude/rules/shell-scripts.md 221 11866
 dot_claude/scripts/CLAUDE.md 548 60046
 dot_config/nono/CLAUDE.md 42 39472
+
+render:dot_codex/AGENTS.md.tmpl - 32768
+render:dot_claude/CLAUDE.md.tmpl 200 32768
