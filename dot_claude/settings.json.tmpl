@@ -397,6 +397,11 @@
             "command": "bash -c 'mkdir -p \"$HOME/.claude/logs\" && \"$HOME/.claude/scripts/harness-reflect-trigger.sh\" 2>>\"$HOME/.claude/logs/harness-errors.log\" || true'"
           }
         ]
+      },
+      {
+        "hooks": [
+          {{ template "orca-agent-hook" . }}
+        ]
       }
     ],
     "UserPromptSubmit": [
