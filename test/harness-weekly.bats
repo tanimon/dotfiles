@@ -932,6 +932,7 @@ PRE
 }
 
 @test "選別の後に queue を読めなければ、残数を 0 と読まずに失敗する" {
+    [ "$(id -u)" -ne 0 ] || skip "root は mode 000 のファイルも読めるので再現できない"
     seed_queue
     STUB_REVIEW_MODE=none STUB_QUEUE_UNREADABLE=1 run weekly
     assert_failure
