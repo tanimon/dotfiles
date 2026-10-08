@@ -48,7 +48,7 @@ measure_rendered() {
     [ "$count" -eq $(($(wc -l <<<"$templates") * ${#profiles[@]})) ]
 }
 
-# 以下は measure_rendered が本当に落ちることの確認(落ちない実装でも上のテストは通るため)
+# measure_rendered が本当に落ちることの確認。落ちない実装でも「合成後の出力はすべての profile で上限に収まる」は通るため
 @test "上限を超える出力は落ちる" {
     local template="$BATS_TEST_TMPDIR/big.tmpl"
     printf '{{ repeat 32769 "x" }}' >"$template"
