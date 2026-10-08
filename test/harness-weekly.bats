@@ -144,10 +144,18 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         printf 'reason\n' >"$body"
         ;;
     no_body) adopt ;;
+    adopt_uncommitted)
+        # 採用を判定の記録に書いたのに commit しなかった run の再現
+        verdict=$(grep -oE 'adopted \(harness/review-[^)]*\)' <<<"$all_args" | head -n 1)
+        printf -- '- **Verdict:** %s\n' "$verdict" >>"$archive"
+        ;;
     body_only) printf 'reason\n' >"$body" ;;
     dirty) printf 'x\n' >stray.md ;;
     none) ;;
     esac
+    # 処理した項目は queue から外す(harness-review の手順)。STUB_KEEP_QUEUE があれば
+    # 外さない(採用か却下した項目を queue に残した run、または落とした変更を残した run の再現)
+    [[ -n "${STUB_KEEP_QUEUE:-}" ]] || printf '# Harness improvement queue\n' >"$HOME/.claude/harness/queue.md"
 else
     printf 'reflect\n' >>"$STAGE_LOG"
 fi
@@ -890,6 +898,76 @@ PRE
     STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["", "x(prek で失敗)"],"deploy_only":[]}' run weekly
     assert_failure
     assert_output --partial 'dropped 1 change(s)'
+}
+
+@test "dropped が空なのに queue に項目が残っていれば、PR を作らずに失敗し heartbeat を書かない" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_KEEP_QUEUE=1 run weekly
+    assert_failure
+    assert_output --partial "review left 1 entr(ies) in $HDIR/queue.md but reported 0 dropped change(s)"
+    refute_output --partial 'committed no changes'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    assert [ -s "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
+}
+
+@test "commit があっても、dropped が空なのに queue に項目が残っていれば PR を作らずに失敗する" {
+    seed_queue
+    STUB_KEEP_QUEUE=1 run weekly
+    assert_failure
+    assert_output --partial 'review left 1 entr(ies)'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "queue に残った項目と dropped の件数が一致すれば、従来どおり PR を作って成功する" {
+    seed_queue
+    STUB_KEEP_QUEUE=1 STUB_RESULT='{"dropped":["harness: other entry(prek で失敗)"],"deploy_only":[]}' run weekly
+    assert_success
+    refute_output --partial 'review left'
+    run cat "$GH_LOG"
+    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "この run の採用の印が判定の記録にあるのに commit が無ければ、dropped が空でも失敗する" {
+    seed_queue
+    STUB_REVIEW_MODE=adopt_uncommitted run weekly
+    assert_failure
+    assert_output --partial "has 1 verdict(s) marked adopted (${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001) but the review committed nothing"
+    refute_output --partial 'committed no changes'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "この run の採用の印があり commit もあれば、従来どおり PR を作って成功する" {
+    seed_queue
+    STUB_REVIEW_MODE=adopt run weekly
+    assert_success
+    refute_output --partial 'but the review committed nothing'
+    run cat "$GH_LOG"
+    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "PR の URL に置き換え済みの採用は、commit が無い週の失敗に数えない" {
+    seed_queue
+    printf -- '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
+    STUB_REVIEW_MODE=none run weekly
+    assert_success
+    assert_output --partial 'review committed no changes; no PR created'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "前の run が残した別の run の採用の印は、この run の commit が無いことの失敗に数えない" {
+    seed_queue
+    printf -- '- **Verdict:** adopted (%s run old)\n' "$BRANCH" >"$HDIR/queue-archive.md"
+    STUB_REVIEW_MODE=none run weekly
+    # 前の run の印は finish_run が知らせる(この run の publish_review は成功する)
+    assert_failure
+    assert_output --partial 'review committed no changes; no PR created'
+    assert_output --partial "never became a PR: adopted (${BRANCH} run old)"
+    refute_output --partial 'but the review committed nothing'
 }
 
 @test "選別の claude が結果ファイルを書いた後に失敗しても、deploy-only の修正は deploy-only.md に残す" {
