@@ -156,6 +156,7 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
     # 処理した項目は queue から外す(harness-review の手順)。STUB_KEEP_QUEUE があれば
     # 外さない(採用か却下した項目を queue に残した run、または落とした変更を残した run の再現)
     [[ -n "${STUB_KEEP_QUEUE:-}" ]] || printf '# Harness improvement queue\n' >"$HOME/.claude/harness/queue.md"
+    [[ -z "${STUB_QUEUE_UNREADABLE:-}" ]] || chmod 000 "$HOME/.claude/harness/queue.md"
 else
     printf 'reflect\n' >>"$STAGE_LOG"
 fi
@@ -928,6 +929,15 @@ PRE
     run cat "$GH_LOG"
     assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
     assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "選別の後に queue を読めなければ、残数を 0 と読まずに失敗する" {
+    seed_queue
+    STUB_REVIEW_MODE=none STUB_QUEUE_UNREADABLE=1 run weekly
+    assert_failure
+    assert_output --partial "failed to count the entries in $HDIR/queue.md"
+    refute_output --partial 'committed no changes'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
 @test "この run の採用の印が判定の記録にあるのに commit が無ければ、dropped が空でも失敗する" {

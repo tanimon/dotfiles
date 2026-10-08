@@ -1077,6 +1077,11 @@ publish_metrics_if_due() {
 check_review_claims() { # <commit の件数> <dropped の件数>
     local commits=$1 dropped_count=$2 remaining marks=0 status=0
     remaining=$(count_queue) || return 1
+    # count_queue は grep の失敗も || true で通すので、読めない queue は空の出力になる(空は 0 と比べられる)
+    if [[ ! "$remaining" =~ ^[0-9]+$ ]]; then
+        printf 'harness-weekly: failed to count the entries in %s; no PR created\n' "$QUEUE" >&2
+        return 1
+    fi
     if [[ "$remaining" -gt "$dropped_count" ]]; then
         printf 'harness-weekly: review left %s entr(ies) in %s but reported %s dropped change(s) in %s (an entry was neither moved to %s nor reported as dropped); no PR created\n' \
             "$remaining" "$QUEUE" "$dropped_count" "$REVIEW_RESULT" "$ARCHIVE" >&2
