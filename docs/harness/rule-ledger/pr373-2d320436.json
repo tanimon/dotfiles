@@ -1,0 +1,12 @@
+{
+  "id": "pr373-2d320436",
+  "adopted": "2026-09-28",
+  "title": "[2026-07-23] Never print a truncated gh auth token to verify authentication",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

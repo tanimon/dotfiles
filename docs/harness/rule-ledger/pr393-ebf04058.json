@@ -1,0 +1,12 @@
+{
+  "id": "pr393-ebf04058",
+  "adopted": "2026-10-02",
+  "title": "[2026-10-02] サンドボックス内では upstream が書けない前提で push する(push -u の失敗と別ブランチ作成)",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 393,
+  "via": "migrated"
+}

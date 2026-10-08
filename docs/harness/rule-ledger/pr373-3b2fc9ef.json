@@ -1,0 +1,12 @@
+{
+  "id": "pr373-3b2fc9ef",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-01] シェルの `pipefail` 下では下流の早期 exit(`grep -q` / `awk … exit` / `head`)を使わない",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

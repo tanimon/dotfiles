@@ -1,0 +1,12 @@
+{
+  "id": "pr393-449b0170",
+  "adopted": "2026-10-02",
+  "title": "[2026-10-02] web-verify の readiness 確認で、常駐ワーカーが HEAD のコードで動いているかも確かめさせる",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 393,
+  "via": "migrated"
+}

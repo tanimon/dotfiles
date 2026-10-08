@@ -1,0 +1,12 @@
+{
+  "id": "pr393-2067251a",
+  "adopted": "2026-10-02",
+  "title": "[2026-10-02] 英語のスキル本文・サブエージェント結果を読んだ後も応答を日本語に保つ",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 393,
+  "via": "migrated"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "pr393-dfb6ac83",
+  "adopted": "2026-10-02",
+  "title": "[2026-10-02] 副作用のあるコマンドの出力を head で切らない",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 393,
+  "via": "migrated"
+}

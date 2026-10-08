@@ -1,0 +1,12 @@
+{
+  "id": "pr373-89ddd1d8",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-17] Bash ツールの zsh では `=` 始まりの単語と未マッチ glob をクォートする",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

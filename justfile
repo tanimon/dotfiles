@@ -34,7 +34,7 @@ bats_jobs := `command -v parallel >/dev/null 2>&1 && echo "--jobs $(getconf _NPR
 # 依存レシピはどれもリポジトリに書き込まないので並列に走らせる。出力は混ざるが、失敗したレシピ名は just が最後に出す
 # Run all checks (mirrors CI)
 [parallel]
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -204,9 +204,9 @@ check-templates:
 
 # LC_ALL=C for the same bats-core locale bug as test-scripts: the weekly-job
 # tests in briefing / doctor / weekly have Japanese @test names.
-# Smoke test harness loop scripts (reflect-trigger, health lib, briefing, doctor, weekly job, failure detector, pending selection, failure classifier, failure rates)
+# Smoke test harness loop scripts (reflect-trigger, health lib, briefing, doctor, weekly job, failure detector, pending selection, failure classifier, failure rates, eval cases, rule ledger)
 @test-harness-scripts:
-    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-health.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats test/harness-classify-failures.bats test/harness-failure-rates.bats test/harness-eval-cases.bats
+    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-health.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats test/harness-classify-failures.bats test/harness-failure-rates.bats test/harness-eval-cases.bats test/harness-rule-ledger.bats
 
 # 人の PR とローカルの通常のブランチでは何も判定せずに通る。CI の base は merge commit の第 1 親。
 # 自己改善ループの PR(ブランチ名 harness/review-*)が Evaluator のパスに触れていたら落とす
@@ -217,6 +217,10 @@ check-templates:
 # check-evaluator-guard.sh のテスト
 @test-evaluator-guard:
     LC_ALL=C pnpm exec bats test/check-evaluator-guard.bats
+
+# Rule Ledger(docs/harness/rule-ledger/)の記録の形を検査する(形の正本は harness-rule-ledger.sh)
+@check-rule-ledger:
+    bash dot_claude/scripts/executable_harness-rule-ledger.sh check docs/harness/rule-ledger
 
 # ルールと指示のファイルごとのサイズ上限(上限と根拠は scripts/instruction-size-limits.txt)
 @check-instruction-size:

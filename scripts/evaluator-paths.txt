@@ -1,11 +1,11 @@
 # Evaluator のパスの一覧(ADR 0011)。自己改善ループの PR がここに載ったパスに触れると、
 # scripts/check-evaluator-guard.sh が CI で失敗させる。人の PR は判定しない。
 # 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
-# それ以外は完全一致。# で始まる行と空行は無視する。
+# それ以外は完全一致。+ で始まる行(末尾 / のディレクトリ)は追加だけを許し、ループの PR はそこへ新しい
+# ファイルを足せるが、既存のファイルの変更・削除・移動は落とす。# で始まる行と空行は無視する。
 #
-# Eval Case の目録(Failure Pattern 名・作った日付・出典の PR)はまだリポジトリに無い。置き場とここに載せるかは
-# Rule Ledger を作る PR(#406)が決める。Evaluator のパスを足し忘れたことを機械的に検出する仕組みは無く、
-# 足す PR のレビューで確かめる。ガードは base 側の版を読むので、足した行はマージ後に効く。
+# Evaluator のパスを足し忘れたことを機械的に検出する仕組みは無く、足す PR のレビューで確かめる。
+# ガードは base 側の版を読むので、足した行はマージ後に効く。
 
 # ガード自身。一覧・判定・テストを書き換えられると、ガードを外せる
 scripts/evaluator-paths.txt
@@ -65,3 +65,11 @@ dot_claude/scripts/executable_harness-eval-cases.sh
 dot_claude/scripts/harness-eval-plugin/
 test/harness-eval-cases.bats
 test/fixtures/harness-eval-cases/
+
+# Rule Ledger(採用したルールごとの記録。Eval Case の目録を兼ねる。ADR 0011)。記録の作り方・形の検査・伏せ字を
+# 書き換えると、効果の記録を都合よく残せる。記録の置き場は追加だけを許す: 週次ジョブがループの PR で新しい記録を
+# 足すが、ループに過去の記録(Eval Case の id や得点)を書き換えさせない。選別の claude の commit が置き場に
+# 触れたら週次ジョブが PR を作らずに失敗する(harness-weekly.sh の publish_review)
+dot_claude/scripts/executable_harness-rule-ledger.sh
+test/harness-rule-ledger.bats
++docs/harness/rule-ledger/

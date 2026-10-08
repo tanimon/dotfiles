@@ -1,0 +1,12 @@
+{
+  "id": "pr373-25a2a553",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-18] bats で外部コマンドを隠すときは存在しないディレクトリを PATH に前置しない。`run` は stderr も `$output` に混ぜるので stub のエラー文で `--partial` が空振りする",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

@@ -29,8 +29,8 @@
 #     (turns 0)は評価の結果から除き、0 点を回帰として扱わない。ターン数の上限や時間切れは
 #     ルールの効果の一部なので除かない
 # claude plugin eval の aggregates は除くべき run も 0 点で数えるので使わず、run ごとの score から平均を取り直す。
-# 1 回の run で評価するケースは HARNESS_EVAL_MAX_CASES(既定 20、上限も 20)件までで、超えた分は over_cap に残す
-# (実体は作る)。
+# 1 回の run で評価するケースは HARNESS_EVAL_MAX_CASES(既定 20、上限も 20)件までで、超えた分は over_cap に
+# title を残す(実体は作る)。実体の id は over_cap_cases の {title, id} に残す(Rule Ledger が目録として引く)。
 #
 # 結果の節は公開リポジトリの PR に載るので、エラー文やパスは貼らず、理由は固定の分類で書く(生の結果は
 # ~/.claude/harness/evals/<id>/result.json と run.log に残る)。
@@ -301,7 +301,7 @@ run_mode() {
             prepare_case "$request" "$id" || prepared=$?
             remaining=$(jq -n --argjson b "$BUDGET_USD" --argjson s "$spent" '(($b - $s) * 10000 | round) / 10000')
             if [[ "$prepared" -eq 0 && "$evaluated" -ge "$MAX_CASES" ]]; then
-                jq -c '{kind: "over_cap", title}' <<<"$request" >>"$RESULTS_TMP"
+                jq -c --arg id "$id" '{kind: "over_cap", title, id: $id}' <<<"$request" >>"$RESULTS_TMP"
                 continue
             elif [[ "$prepared" -eq 3 ]]; then
                 entry=$(not_evaluated "$title" "$id" transcript_missing)
@@ -332,6 +332,7 @@ run_mode() {
         cases: map(select(.kind == "case") | del(.kind)),
         exempt: map(select(.kind == "exempt") | del(.kind)),
         over_cap: map(select(.kind == "over_cap") | .title),
+        over_cap_cases: map(select(.kind == "over_cap") | {title, id}),
         cost_usd: (map(.cost_usd // 0) | add // 0)}' "$RESULTS_TMP" >"$OUT.tmp"
     mv "$OUT.tmp" "$OUT"
     cases=$(jq '.cases | length' "$OUT")

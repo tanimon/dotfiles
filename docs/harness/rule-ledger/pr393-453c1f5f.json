@@ -1,0 +1,12 @@
+{
+  "id": "pr393-453c1f5f",
+  "adopted": "2026-10-02",
+  "title": "[2026-10-02] background Bash の完了を sleep で待たない規則を bash-tool.md にも置く",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 393,
+  "via": "migrated"
+}

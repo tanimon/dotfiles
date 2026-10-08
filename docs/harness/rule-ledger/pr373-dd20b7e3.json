@@ -1,0 +1,12 @@
+{
+  "id": "pr373-dd20b7e3",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-03] `gh api` の書き込み呼び出しはパスをフラグより前に置く(allow ルールに合う形にする)",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

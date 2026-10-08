@@ -1,0 +1,12 @@
+{
+  "id": "pr373-46e998d0",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-24] 決定的に許可したい Bash コマンドは `if`/`for`/`&&` で包まず単独のコマンド文字列にする",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "pr373-1fe7b5d7",
+  "adopted": "2026-09-28",
+  "title": "[2026-09-24] Bash で閲覧したファイルに Edit を使うと「File has not been read yet」で落ちる — 編集前に Read するか、編集も Bash で行う",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 373,
+  "via": "migrated"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "pr393-ab1a8031",
+  "adopted": "2026-10-02",
+  "title": "[2026-10-02] 変異テストの複製では runner の存在と control を判定に含める",
+  "failure_patterns": [],
+  "eval": {
+    "status": "exempt",
+    "reason": "Eval Case の仕組みを入れる前に採用した(移行した記録)"
+  },
+  "pr": 393,
+  "via": "migrated"
+}
