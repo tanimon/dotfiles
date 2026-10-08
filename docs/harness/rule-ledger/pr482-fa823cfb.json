@@ -1,0 +1,15 @@
+{
+  "id": "pr482-fa823cfb",
+  "adopted": "2026-10-08",
+  "title": "[2026-10-08] 展開させたい glob は `(N)` ではなく先頭の `setopt nullglob` で空一致を許す",
+  "failure_patterns": ["shell-pitfall", "unclassified"],
+  "eval": {
+    "status": "evaluated",
+    "case_id": "2026-10-08-fa823cfb",
+    "with": 1,
+    "without": 0,
+    "delta": 1
+  },
+  "pr": 482,
+  "via": "weekly"
+}
