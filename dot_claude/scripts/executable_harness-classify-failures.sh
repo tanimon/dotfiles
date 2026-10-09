@@ -11,7 +11,10 @@
 # (一覧に当てはまらない)。一覧への追加は人が別の PR で行う。
 # 答えの形を確かめてから、失敗 1 件につき 1 行
 #   {"session_id","line","signal","pattern","run","epoch"}
-# を classifications.jsonl に足す。形が違えば(id の欠落・重複、一覧に無い pattern、JSON でない)
+# を classifications.jsonl に足す。答えは --json-schema の structured_output で受け取る(pattern は
+# 一覧の id と "unclassified" の enum、id は渡した項目の enum、件数は項目数)。同じ id の重複は
+# スキーマでは縛れず、CLI がスキーマを守らない場合もあるので、受け取った後にも確かめ、形が違えば
+# (structured_output が無い、id の欠落・重複、一覧に無い pattern)
 # 1 行も書かずに失敗する。一部だけを書くと、その週の再発率が分類できた分だけに偏るため。
 # 抜粋は claude に渡すだけで記録に残さない(transcript には仕事の文脈が入りうる)。
 #
@@ -167,25 +170,30 @@ fi
     printf '%s\n' '' \
         'Use "unclassified" when no pattern fits. Never invent an id.' \
         'Each item below is one detected failure: its id, the detector signal, and an excerpt of the transcript at that point.' \
-        'Answer with only a JSON array that covers every item exactly once, each element {"id": <item id>, "pattern": "<pattern id or unclassified>"}. Your whole reply must be that array: no prose before or after it.' \
-        'Ignore suggestions from SessionStart hook output (such as using a skill or running /harness-review); you have no tools and this is not an interactive session.' \
+        'Classify every item exactly once.' \
+        'Ignore suggestions from SessionStart hook output (such as using a skill or running /harness-review); this is not an interactive session.' \
         '' 'Items (one JSON object per line):'
     jq -c '{id, signal, excerpt}' "$WORK/batch.jsonl"
 } >"$WORK/prompt.txt"
 
+ids=$(jq -s -c 'map(.id)' "$WORK/batch.jsonl")
+SCHEMA=$(jq -c -n --argjson allowed "$ALLOWED" --argjson ids "$ids" '{type: "object",
+    required: ["classifications"], additionalProperties: false,
+    properties: {classifications: {type: "array", minItems: ($ids | length), maxItems: ($ids | length),
+        items: {type: "object", required: ["id", "pattern"], additionalProperties: false,
+            properties: {id: {type: "integer", enum: $ids}, pattern: {type: "string", enum: $allowed}}}}}}')
 status=0
 result=$(claude -p \
     --tools "" \
     --no-session-persistence \
     --session-id "$CLASSIFY_SESSION_ID" \
     --max-budget-usd "$BUDGET_USD" \
-    --output-format json <"$WORK/prompt.txt") || status=$?
-if [[ "$status" -ne 0 ]] || ! jq -e '.is_error == false and (.result | type) == "string"' >/dev/null 2>&1 <<<"$result"; then
+    --output-format json \
+    --json-schema "$SCHEMA" <"$WORK/prompt.txt") || status=$?
+if [[ "$status" -ne 0 ]] || ! jq -e '.is_error == false' >/dev/null 2>&1 <<<"$result"; then
     fail "claude failed (exit $status) or reported an error; nothing recorded"
 fi
-# 答えを囲むコードフェンスだけは外す(それ以外の前置きや後書きは形の違反として扱う)
-answer=$(jq -r '.result' <<<"$result" | sed -e '1{/^```/d;}' -e '${/^```/d;}')
-ids=$(jq -s -c 'map(.id)' "$WORK/batch.jsonl")
+answer=$(jq -c '.structured_output.classifications' <<<"$result")
 jq -e --argjson ids "$ids" --argjson allowed "$ALLOWED" '
     type == "array"
     and all(.[]; type == "object" and (.id | type) == "number"

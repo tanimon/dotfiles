@@ -91,8 +91,8 @@ elif [[ "$all_args" == *'--no-session-persistence'* ]]; then
     printf 'classify\n' >>"$STAGE_LOG"
     answer=$(grep -oE '^\{"id":[0-9]+' | grep -oE '[0-9]+$' |
         jq -R -s -c --arg p "${STUB_PATTERN:-shell-pitfall}" 'split("\n") | map(select(length > 0) | {id: tonumber, pattern: $p})')
-    [[ -n "${STUB_CLASSIFY_FAIL:-}" ]] && answer='not json'
-    jq -n -c --arg r "$answer" '{type: "result", is_error: false, result: $r}'
+    [[ -n "${STUB_CLASSIFY_FAIL:-}" ]] && answer='"not an array"'
+    jq -n -c --argjson a "$answer" '{type: "result", is_error: false, result: ($a | tojson), structured_output: {classifications: $a}}'
     exit 0
 elif [[ "$all_args" == *'harness-review skill'* ]]; then
     printf 'review\n' >>"$STAGE_LOG"

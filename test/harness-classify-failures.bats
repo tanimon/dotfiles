@@ -4,7 +4,8 @@
 # transcript は検出器の fixture を ~/.claude/projects/ の下に写して使う。claude は PATH 上のスタブで、
 # 標準入力のプロンプトを $PROMPT_LOG に写し、STUB_CLASSIFY に応じた結果を出す:
 #   all:<pattern>  プロンプトの項目の id をすべて <pattern> に分類する(既定は all:shell-pitfall)
-#   raw            STUB_CLASSIFY_RAW をそのまま結果の文字列にする
+#   raw            STUB_CLASSIFY_RAW を JSON として structured_output.classifications に入れる
+#   text_only      正しい配列を結果の文字列にだけ入れ、structured_output を返さない
 #   is_error       結果に is_error を立てる
 bats_require_minimum_version 1.5.0
 
@@ -38,9 +39,14 @@ case "$mode" in
 all:*)
     answer=$(grep -oE '^\{"id":[0-9]+' "$PROMPT_LOG" | grep -oE '[0-9]+$' |
         jq -R -s -c --arg p "${mode#all:}" 'split("\n") | map(select(length > 0) | {id: tonumber, pattern: $p})')
+    jq -n -c --argjson a "$answer" '{type: "result", is_error: false, result: ($a | tojson), structured_output: {classifications: $a}}'
+    ;;
+raw) jq -n -c --argjson a "$STUB_CLASSIFY_RAW" '{type: "result", is_error: false, result: "", structured_output: {classifications: $a}}' ;;
+text_only)
+    answer=$(grep -oE '^\{"id":[0-9]+' "$PROMPT_LOG" | grep -oE '[0-9]+$' |
+        jq -R -s -c 'split("\n") | map(select(length > 0) | {id: tonumber, pattern: "shell-pitfall"})')
     jq -n -c --arg r "$answer" '{type: "result", is_error: false, result: $r}'
     ;;
-raw) jq -n -c --arg r "$STUB_CLASSIFY_RAW" '{type: "result", is_error: false, result: $r}' ;;
 is_error) printf '{"type":"result","is_error":true,"result":"Reached maximum budget"}\n' ;;
 esac
 EOF
@@ -111,16 +117,27 @@ classify() {
     assert_output --partial '--session-id 11111111-2222-3333-4444-555555555555'
     assert_output --partial '--max-budget-usd 2'
     assert_output --partial '--output-format json'
+    assert_output --partial '--json-schema '
+    assert_output --partial '"external-cause"'
+    assert_output --partial '"unclassified"'
     refute_output --partial 'dangerously-skip-permissions'
 }
 
-@test "コードフェンスで囲んだ配列も読む" {
+@test "structured_output の分類を項目ごとに記録する" {
     add_session err1 tool-error
-    STUB_CLASSIFY=raw STUB_CLASSIFY_RAW=$'```json\n[{"id":1,"pattern":"tool-contract"},{"id":2,"pattern":"tool-contract"},{"id":3,"pattern":"external-cause"}]\n```' \
+    STUB_CLASSIFY=raw STUB_CLASSIFY_RAW='[{"id":1,"pattern":"tool-contract"},{"id":2,"pattern":"tool-contract"},{"id":3,"pattern":"external-cause"}]' \
         run classify
     assert_success
     run jq -r .pattern "$RECORDS"
     assert_output "$(printf '%s\n' tool-contract tool-contract external-cause)"
+}
+
+@test "structured_output の無い結果は、文字列が正しい配列でも拒否し、何も記録しない" {
+    add_session err1 tool-error
+    STUB_CLASSIFY=text_only run classify
+    assert_failure
+    assert_output --partial 'invalid'
+    assert [ ! -s "$RECORDS" ]
 }
 
 # 形式の違反は、どれも記録を 1 行も書かずに失敗する(分類の一部だけを記録して再発率を歪めない)
@@ -147,9 +164,9 @@ classify() {
     assert [ ! -s "$RECORDS" ]
 }
 
-@test "JSON として読めない出力は拒否し、何も記録しない" {
+@test "配列でない分類は拒否し、何も記録しない" {
     add_session err1 tool-error
-    STUB_CLASSIFY=raw STUB_CLASSIFY_RAW='分類しました: 全部 shell-pitfall です' run classify
+    STUB_CLASSIFY=raw STUB_CLASSIFY_RAW='"全部 shell-pitfall です"' run classify
     assert_failure
     assert [ ! -s "$RECORDS" ]
 }
