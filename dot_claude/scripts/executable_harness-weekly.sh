@@ -1064,11 +1064,51 @@ publish_metrics_if_due() {
     publish_metrics_only "$base"
 }
 
+# 結果ファイルの申告(dropped)を、ジョブが自分で観測できる事実と突き合わせる。claude が採用を
+# 落としたのに "dropped": [] と書いた週を、成功として扱わないため。
+#   - harness-review は処理した項目をすべて archive に移すので、queue に残ってよいのは落とした
+#     変更だけ。残数が dropped の件数より多ければ、申告しなかった項目がある
+#   - archive にこの run の $ADOPTED_MARK があるのに commit が 0 件なら、採用を commit していない。
+#     陳腐化の修正には印が付かないので、採用と区別できる。record_pr_url が印を置き換える前に呼ぶ
+# 項目はタイトルではなく件数で比べる(commit の件名に queue のタイトルがそのまま入る保証は無い)。
+# そのため、採用の一部だけを commit せず陳腐化の修正の commit で件数が埋まる週は見分けられない。
+# dropped の要素は queue の項目ではなく変更の単位なので、queue に項目を持たない陳腐化の修正を
+# dropped に入れると件数がかさ上げされ、申告しなかった項目が同じ数だけ残っていても見分けられない。
+# 逆に複数の項目を 1 つの変更にまとめて落とすと、正しく申告した週でも失敗する。
+# 選別の最中に対話セッションの /harness-reflect が queue に足した項目も残数に数えるので、その週は
+# 誤って失敗する(成功を偽るより安全なので受け入れる)
+check_review_claims() { # <commit の件数> <dropped の件数>
+    local commits=$1 dropped_count=$2 remaining marks=0 status=0
+    remaining=$(count_queue) || return 1
+    # count_queue は grep の失敗も || true で通すので、読めない queue は空の出力になる(空は 0 と比べられる)
+    if [[ ! "$remaining" =~ ^[0-9]+$ ]]; then
+        printf 'harness-weekly: failed to count the entries in %s; no PR created\n' "$QUEUE" >&2
+        return 1
+    fi
+    if [[ "$remaining" -gt "$dropped_count" ]]; then
+        printf 'harness-weekly: review left %s entr(ies) in %s but reported %s dropped change(s) in %s (an entry was neither moved to %s nor reported as dropped); no PR created\n' \
+            "$remaining" "$QUEUE" "$dropped_count" "$REVIEW_RESULT" "$ARCHIVE" >&2
+        return 1
+    fi
+    [[ "$commits" -eq 0 && -f "$ARCHIVE" ]] || return 0
+    marks=$(grep -cF -- "$ADOPTED_MARK" "$ARCHIVE") || status=$?
+    if [[ "$status" -gt 1 ]]; then
+        printf 'harness-weekly: failed to read %s (grep exit %s); no PR created\n' "$ARCHIVE" "$status" >&2
+        return 1
+    fi
+    if [[ "$marks" -gt 0 ]]; then
+        printf 'harness-weekly: %s has %s verdict(s) marked %s but the review committed nothing (an adopted change was not committed and not reported as dropped); no PR created\n' \
+            "$ARCHIVE" "$marks" "$ADOPTED_MARK" >&2
+        return 1
+    fi
+}
+
 # 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
 # Dropped Change の判定に使わない(本文には採用 0 件の週にも指標などが載りうるため)。
 #   - commit 0 件・dropped が空 → 成功。PR は作らない(deploy-only だけの週を含む)。ただし
 #     origin/main に無い週の再発率の記録がたまっていれば、記録だけの PR を作る(metrics_only_due)
 #   - commit 0 件・dropped が空でない → 失敗(すべてが Dropped Change)
+#   - dropped の申告が queue と archive の観測と食い違う → 失敗(check_review_claims)
 #   - commit 1 件以上 → PR を作る。dropped は queue に残っており、次の選別にかけ直される。
 #     origin/main に無い週の再発率の記録を、このスクリプトの commit で足す(commit_rate_records)
 # 次はどれも失敗として扱い、heartbeat を書かせない:
@@ -1100,13 +1140,14 @@ publish_review() {
     fi
     commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD") || return 1
     dropped_count=$(result_count dropped) || return 1
+    if [[ "$commits" -eq 0 && "$dropped_count" -gt 0 ]]; then
+        dropped_items=$(result_items dropped) || return 1
+        printf 'harness-weekly: review dropped %s change(s) and committed nothing (a commit hook or lint failed; the entries stay in the queue); no PR created. Dropped (see %s):\n%s\n' \
+            "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
+        return 1
+    fi
+    check_review_claims "$commits" "$dropped_count" || return 1
     if [[ "$commits" -eq 0 ]]; then
-        if [[ "$dropped_count" -gt 0 ]]; then
-            dropped_items=$(result_items dropped) || return 1
-            printf 'harness-weekly: review dropped %s change(s) and committed nothing (a commit hook or lint failed; the entries stay in the queue); no PR created. Dropped (see %s):\n%s\n' \
-                "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
-            return 1
-        fi
         if metrics_only_due "$base"; then
             printf 'harness-weekly: review committed no changes; opening a metrics-only PR\n'
             publish_metrics_only "$base"
