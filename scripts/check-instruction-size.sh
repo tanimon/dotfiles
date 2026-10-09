@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ルールと指示のファイルが、ファイルごとのサイズ上限を超えていたら失敗する(ADR 0011 の肥大の歯止め)。
+# ルールと指示のファイルと skill の本文(SKILL.md)が、ファイルごとのサイズ上限を超えていたら失敗する
+# (ADR 0011 の肥大の歯止め)。
 # 上限の値とその根拠は scripts/instruction-size-limits.txt にある。
 #
 # 使い方(どれもリポジトリのルートで実行する):
@@ -43,8 +44,9 @@ esac
 
 LIMITS_FILE='scripts/instruction-size-limits.txt'
 
-# エージェントが指示として読み込むファイル。harness/modules/ は生成物の CLAUDE.md / AGENTS.md
+# エージェントが指示として読み込むファイルと skill の本文。harness/modules/ は生成物の CLAUDE.md / AGENTS.md
 # を通して縛られるので、ここには入れない(入れると同じ中身に上限を二重に登録することになる)。
+# skill の補助ファイル(references/ など)は必要なときにしか読み込まれないので入れない。
 INSTRUCTION_PATHSPECS=(
     ':(glob)**/CLAUDE.md'
     ':(glob)**/AGENTS.md'
@@ -54,7 +56,12 @@ INSTRUCTION_PATHSPECS=(
     'dot_claude/CLAUDE.md.tmpl'
     'dot_codex/AGENTS.md.tmpl'
     '.chezmoitemplates/agent-instructions-common'
+    ':(glob)**/SKILL.md'
 )
+
+is_skill() {
+    [[ $1 == SKILL.md || $1 == */SKILL.md ]]
+}
 
 if [[ ! -f $LIMITS_FILE ]]; then
     echo "instruction-size: 上限の一覧が無い: $LIMITS_FILE" >&2
@@ -115,8 +122,11 @@ report() {
 
 SKIP_LINE_PATTERN='^[[:space:]]*(#|$)'
 RENDER_PREFIX='render:'
+SKILL_DEFAULT='skill:*'
 default_lines=''
 default_bytes=''
+skill_default_lines=''
+skill_default_bytes=''
 override_paths=()
 override_lines=()
 override_bytes=()
@@ -133,17 +143,21 @@ while IFS= read -r line || [[ -n $line ]]; do
     lines_pattern='^[0-9]+$'
     [[ $path == "$RENDER_PREFIX"* ]] && lines_pattern='^([0-9]+|-)$'
     if [[ -n ${extra:-} || ! ${max_lines:-} =~ $lines_pattern || ! ${max_bytes:-} =~ ^[0-9]+$ ]]; then
-        echo "instruction-size: $LIMITS_FILE の行を読めない(<パス> <行数> <バイト数> か render:<テンプレート> <行数か -> <バイト数> の形にする): $line" >&2
+        echo "instruction-size: $LIMITS_FILE の行を読めない(<パス> <行数> <バイト数>、skill:* <行数> <バイト数>、render:<テンプレート> <行数か -> <バイト数> のどれかの形にする): $line" >&2
         exit 2
     fi
     # 重複を後勝ちにすると、末尾に緩い行を足すだけで上限を上げられる
-    if [[ $path == '*' && -n $default_lines ]] || is_overridden "$path"; then
+    if [[ $path == '*' && -n $default_lines ]] || [[ $path == "$SKILL_DEFAULT" && -n $skill_default_lines ]] ||
+        is_overridden "$path"; then
         echo "instruction-size: $LIMITS_FILE に同じパスの行が複数ある: $path" >&2
         exit 2
     fi
     if [[ $path == '*' ]]; then
         default_lines=$max_lines
         default_bytes=$max_bytes
+    elif [[ $path == "$SKILL_DEFAULT" ]]; then
+        skill_default_lines=$max_lines
+        skill_default_bytes=$max_bytes
     elif [[ $path == "$RENDER_PREFIX"* ]]; then
         # テンプレートが消えた行が残っていると、測るつもりの出力が黙って測られなくなる
         if [[ ! -f ${path#"$RENDER_PREFIX"} ]]; then
@@ -173,6 +187,16 @@ if [[ -z $default_lines ]]; then
     exit 2
 fi
 
+# skill の本文に * の既定値を当てると、根拠(起動時に読み込まれるファイル向けの値)の違う上限で測ることになる
+if [[ -z $skill_default_lines ]]; then
+    for file in ${targets[@]+"${targets[@]}"}; do
+        if is_skill "$file"; then
+            echo "instruction-size: $LIMITS_FILE に skill の既定値の行(skill:* <行数> <バイト数>)が無い: $file" >&2
+            exit 2
+        fi
+    done
+fi
+
 if [[ $mode == list-rendered ]]; then
     for template in ${rendered_templates[@]+"${rendered_templates[@]}"}; do
         printf '%s\n' "$template"
@@ -200,6 +224,10 @@ else
     for file in ${targets[@]+"${targets[@]}"}; do
         limit_lines=$default_lines
         limit_bytes=$default_bytes
+        if is_skill "$file"; then
+            limit_lines=$skill_default_lines
+            limit_bytes=$skill_default_bytes
+        fi
         for i in ${override_paths[@]+"${!override_paths[@]}"}; do
             if [[ ${override_paths[$i]} == "$file" ]]; then
                 limit_lines=${override_lines[$i]}
