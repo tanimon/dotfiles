@@ -22,22 +22,24 @@ in `~/.local/share/chezmoi` itself (that worktree stays on `main` because
 `chezmoi apply` deploys from it). Inside nono the original checkout's `.git/`
 is writable only under `objects`/`refs`/`logs`/`worktrees`, so `.git/config` and
 `.git/FETCH_HEAD` cannot be written there; fetch inside the new worktree instead,
-in the same order as the weekly job's `prepare_worktree`:
+in the same order as the weekly job's `prepare_worktree`. The worktree path
+`~/.claude/harness/manual-review-worktree` is writable inside nono and is not the
+weekly job's `review-worktree`. It is written out in full in every command because
+shell variables do not survive between separate Bash tool calls:
 
 ```sh
-WT=~/.claude/harness/manual-review-worktree   # writable inside nono; not the weekly job's review-worktree
-git -C "$(chezmoi source-path)" worktree add --detach "$WT" HEAD
-git -C "$WT" fetch origin main
-git -C "$WT" switch --no-track -c harness/review-YYYY-MM-DD-manual FETCH_HEAD
-(cd "$WT" && pnpm install --frozen-lockfile --prefer-offline)   # the commit hook (prek) and `just lint` need node_modules
+git -C "$(chezmoi source-path)" worktree add --detach ~/.claude/harness/manual-review-worktree HEAD
+git -C ~/.claude/harness/manual-review-worktree fetch origin main
+git -C ~/.claude/harness/manual-review-worktree switch --no-track -c harness/review-YYYY-MM-DD-manual FETCH_HEAD
+(cd ~/.claude/harness/manual-review-worktree && pnpm install --frozen-lockfile --prefer-offline)   # the commit hook (prek) and `just lint` need node_modules
 ```
 
 The `-manual` suffix keeps the branch from colliding with the weekly job's
 `harness/review-YYYY-MM-DD` on a Saturday; the `harness/review-` prefix stays
-because CI identifies loop PRs by it. If `$WT` or the branch is left over from an
-earlier run, remove them (`git -C "$(chezmoi source-path)" worktree remove --force "$WT"`,
+because CI identifies loop PRs by it. If the worktree or the branch is left over from an
+earlier run, remove them (`git -C "$(chezmoi source-path)" worktree remove --force ~/.claude/harness/manual-review-worktree`,
 then `git -C "$(chezmoi source-path)" branch -D <branch>` once its PR exists or it is
-abandoned) before starting. Work in `$WT`.
+abandoned) before starting. Work in `~/.claude/harness/manual-review-worktree`.
 The weekly job has already prepared its worktree and branch, so it skips this.
 All rule/doc changes are made in the worktree, never on deployed files under `~/`.
 

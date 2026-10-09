@@ -110,6 +110,10 @@ erased on the next apply and are not version-controlled. Find the source with
 `chezmoi source-path`. That is the checkout `chezmoi apply` deploys from, and
 adopted drift is edited there — not in a separate feature worktree, even if the
 dotfiles repo is otherwise worked on in one. Committing it is the user's call.
+Inside nono that checkout is read-only unless the session was started in it
+(the wrapper grants only the working directory for writing). If an edit or
+`chezmoi re-add` is denied, stop and ask the user to rerun from
+`chezmoi source-path` instead of editing somewhere else.
 
 **Regular file, adopt the whole file:** let chezmoi do it — it is exact and
 preserves file attributes:
