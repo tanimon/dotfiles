@@ -29,6 +29,7 @@ WT=~/.claude/harness/manual-review-worktree   # writable inside nono; not the we
 git -C "$(chezmoi source-path)" worktree add --detach "$WT" HEAD
 git -C "$WT" fetch origin main
 git -C "$WT" switch --no-track -c harness/review-YYYY-MM-DD-manual FETCH_HEAD
+(cd "$WT" && pnpm install --frozen-lockfile --prefer-offline)   # the commit hook (prek) and `just lint` need node_modules
 ```
 
 The `-manual` suffix keeps the branch from colliding with the weekly job's
