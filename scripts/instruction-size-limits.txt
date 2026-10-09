@@ -21,13 +21,20 @@
 # - 32768 バイト: Codex は AGENTS.md を project_doc_max_bytes(既定 32 KiB)で黙って切り捨てる。
 #   行数だけでは 1 行が長いファイル(段落を 1 行で書く CLAUDE.md)を縛れないので、バイト数も見る。
 #
-# skill の既定値の根拠(* の根拠はどちらも起動時に読み込まれるファイル向けで、skill には当てはまらない):
-# - 500 行: Claude Code 公式ドキュメント(https://code.claude.com/docs/en/skills)が
-#   「Keep SKILL.md under 500 lines. Move detailed reference material to separate files.」としている。
+# skill の既定値の根拠(* の根拠はどちらも起動時に読み込まれるファイル向けで、skill には当てはまらない)。
+# どちらも Claude Code 公式ドキュメント(https://code.claude.com/docs/en/skills)による:
+# - 500 行: 「Keep SKILL.md under 500 lines. Move detailed reference material to separate files.」としている。
 #   skill は一度読み込まれると以降のターンも context に残り、毎ターンのコストになる。
-# - 32768 バイト: 一次ソースは無い。行数だけでは 1 行が長い SKILL.md を縛れないので、ルールと指示の既定値と
-#   同じ値にそろえた(根拠の無い数をもう 1 つ増やさないため)。行数が少なくても 1 行が長い SKILL.md
-#   (dot_claude/skills/deliver/SKILL.md など)があるので、バイト数も見る。
+# - 15000 バイト: 「Skill content lifecycle」の節が、auto-compaction の後は各 skill の先頭 5,000 トークン
+#   だけを再添付する(再添付される skill 全体で 25,000 トークン)としている。超えた分は圧縮後に黙って
+#   切り捨てられる(* の 32768 バイトが Codex の切り捨てを根拠にしているのと同じ種類の根拠)。
+#   トークン数はオフラインで測れないので、1 トークンを 3 バイトと見積もってバイト数に換算した。日本語は
+#   UTF-8 で 1 文字 3 バイトで、ほぼ 1 文字 1 トークンになり、英語やコードは 1 トークンが 3 バイトより長い
+#   ので、日本語が中心の SKILL.md でも 5,000 トークンに収まる側に倒れる見積もりにしている。
+#   行数が少なくても 1 行が長い SKILL.md(dot_claude/skills/deliver/SKILL.md など)があるので、
+#   バイト数も見る。
+# 日本語が中心の SKILL.md は 1 行あたりのバイト数が多く(500 行 × 約 100 バイト ≒ 50 KB)、500 行より先に
+# 15000 バイトに当たる。実際に効くのはほぼバイト数の上限で、500 行は 1 行が短い SKILL.md の歯止めになる。
 #
 # 個別の上限は、既定値を超えているファイルの実測値(行数・バイト数とも)。上げる変更は差分として
 # 人のレビューに見える。ファイルを削ったら値も下げる(下げ忘れは検査しない。削った分の余白は
@@ -47,7 +54,7 @@
 # 守っている。ここでは増加を止めるためだけに登録する。
 
 * 200 32768
-skill:* 500 32768
+skill:* 500 15000
 
 AGENTS.md 219 53266
 CLAUDE.md 237 52243
