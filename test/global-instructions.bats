@@ -3,6 +3,7 @@
 #
 # 描画は test/helpers/render.bash を通す。
 # harness/ は一切通らない(グローバル指示は chezmoi テンプレートだけで合成する)。
+# 合成後の出力のサイズ上限はここでは測らない(test/rendered-instruction-size.bats)。
 #
 # chezmoi が無いときに skip せず失敗させるのは seam(test/helpers/render.bash)が担う。
 # CI は .github/workflows/lint.yml の global-instructions job で chezmoi を入れている。
@@ -145,31 +146,6 @@ EOF
     codex=$(render_codex)
     printf '%s\n' "$codex" | grep -q 'Claude Code のスラッシュコマンド' ||
         fail "AGENTS.md に Claude 専用機構の disclaimer がありません"
-}
-
-@test "AGENTS.md は Codex の切り捨て(32 KiB)に収まる" {
-    # codex は project_doc_max_bytes(既定 32768 バイト)で AGENTS.md を黙って切る
-    local bytes
-    bytes=$(render_codex | wc -c | tr -d ' ')
-    # 0 バイト(レンダリング失敗)でも「32768 未満」は成り立つので下限も見る
-    [ "$bytes" -gt 4096 ] || fail "AGENTS.md が ${bytes} バイトしかありません"
-    [ "$bytes" -lt 32768 ] ||
-        fail "AGENTS.md が ${bytes} バイトで 32768 を超えています"
-}
-
-@test "合成後の CLAUDE.md はルールと指示の既定のサイズ上限に収まる" {
-    # scripts/check-instruction-size.sh はテンプレートのソースをファイルごとに測るので、
-    # 実際に読み込まれる合成後の出力はここで測る。上限は scripts/instruction-size-limits.txt の既定値
-    local max_lines max_bytes lines bytes
-    read -r _ max_lines max_bytes < <(grep -E '^\* ' "$REPO/scripts/instruction-size-limits.txt")
-    [[ $max_lines =~ ^[0-9]+$ && $max_bytes =~ ^[0-9]+$ ]] ||
-        fail "既定値の行を読めません: ${max_lines:-} ${max_bytes:-}"
-    lines=$(render_claude | awk 'END { print NR }')
-    bytes=$(render_claude | wc -c | tr -d ' ')
-    # 0 行(レンダリング失敗)でも上限内は成り立つので下限も見る
-    [ "$lines" -gt 10 ] || fail "CLAUDE.md が ${lines} 行しかありません"
-    [ "$lines" -le "$max_lines" ] || fail "CLAUDE.md が ${lines} 行で上限 ${max_lines} を超えています"
-    [ "$bytes" -le "$max_bytes" ] || fail "CLAUDE.md が ${bytes} バイトで上限 ${max_bytes} を超えています"
 }
 
 @test "AGENTS.md のテンプレートは common/ 以外の rules を取り込まない" {

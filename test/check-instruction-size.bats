@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../scripts/check-instruction-size.sh"
@@ -185,4 +187,162 @@ check() {
     run check
     assert_failure 2
     assert_output --partial '上限の一覧が無い'
+}
+
+# 合成後の出力の上限(render: の行)。テンプレートは判定の対象の pathspec の外に置き、
+# ソースとしての判定(既定値 3 行 / 20 バイト)に巻き込まれないようにする
+setup_rendered() {
+    put tmpl/a.tmpl 'a'
+    put tmpl/b.tmpl 'b'
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:tmpl/a.tmpl 4 30\nrender:tmpl/b.tmpl - 10'
+}
+
+check_rendered() {
+    (cd "$REPO" && bash "$SCRIPT" --rendered "$@")
+}
+
+@test "--list-rendered は render: の行のテンプレートを一覧の順に出す" {
+    setup_rendered
+    run --separate-stderr bash -c 'cd "$1" && bash "$2" --list-rendered' _ "$REPO" "$SCRIPT"
+    assert_success
+    assert_output $'tmpl/a.tmpl\ntmpl/b.tmpl'
+}
+
+@test "--list-rendered の出力はそのまま --rendered の名前に使える" {
+    setup_rendered
+    make_lines out.txt 1
+    local name names
+    names=$(cd "$REPO" && bash "$SCRIPT" --list-rendered)
+    [ -n "$names" ]
+    while IFS= read -r name; do
+        run check_rendered "$name" "$REPO/out.txt"
+        assert_success
+    done <<<"$names"
+}
+
+@test "render: の行が無ければ --list-rendered は何も出さない" {
+    run --separate-stderr bash -c 'cd "$1" && bash "$2" --list-rendered' _ "$REPO" "$SCRIPT"
+    assert_success
+    assert_output ''
+}
+
+@test "--rendered は上限ちょうどのファイルを通す" {
+    setup_rendered
+    # 4 行 / 8 バイトと、1 行 / 30 バイト
+    make_lines out4.txt 4
+    put out30.txt '01234567890123456789012345678'
+    run check_rendered tmpl/a.tmpl "$REPO/out4.txt"
+    assert_success
+    run check_rendered tmpl/a.tmpl "$REPO/out30.txt"
+    assert_success
+}
+
+@test "--rendered は行数が上限を超えたら落ち、名前と超過量を表示する" {
+    setup_rendered
+    make_lines out.txt 5
+    run check_rendered tmpl/a.tmpl "$REPO/out.txt"
+    assert_failure 1
+    assert_output --partial 'render:tmpl/a.tmpl: 5 行(上限 4、+1 行)'
+}
+
+@test "--rendered はバイト数が上限を超えたら落ち、名前と超過量を表示する" {
+    setup_rendered
+    put out.txt '012345678901234567890123456789'
+    run check_rendered tmpl/a.tmpl "$REPO/out.txt"
+    assert_failure 1
+    assert_output --partial 'render:tmpl/a.tmpl: 31 バイト(上限 30、+1 バイト)'
+}
+
+@test "--rendered は行数が - の行では行数を判定しない" {
+    setup_rendered
+    # 5 行 / 10 バイト: 行数は既定値(3)も個別の値も超えるが、バイト数はちょうど
+    make_lines out.txt 5
+    run check_rendered tmpl/b.tmpl "$REPO/out.txt"
+    assert_success
+    make_lines out.txt 6
+    run check_rendered tmpl/b.tmpl "$REPO/out.txt"
+    assert_failure 1
+    assert_output --partial 'render:tmpl/b.tmpl: 12 バイト(上限 10、+2 バイト)'
+}
+
+@test "--rendered に一覧に無い名前を渡すと落ちる(既定値で測らない)" {
+    setup_rendered
+    make_lines out.txt 1
+    run check_rendered tmpl/c.tmpl "$REPO/out.txt"
+    assert_failure 2
+    assert_output --partial 'tmpl/c.tmpl'
+    # render: を付けた名前も一覧の名前ではない
+    run check_rendered render:tmpl/a.tmpl "$REPO/out.txt"
+    assert_failure 2
+}
+
+@test "--rendered に存在しないファイルを渡すと落ちる" {
+    setup_rendered
+    run check_rendered tmpl/a.tmpl "$REPO/missing.txt"
+    assert_failure 2
+    assert_output --partial 'missing.txt'
+}
+
+@test "--rendered の引数の個数が違えば落ちる" {
+    setup_rendered
+    make_lines out.txt 1
+    run check_rendered tmpl/a.tmpl
+    assert_failure 2
+    run check_rendered tmpl/a.tmpl "$REPO/out.txt" extra
+    assert_failure 2
+}
+
+@test "知らない引数を渡すと落ちる" {
+    run bash -c 'cd "$1" && bash "$2" --bogus' _ "$REPO" "$SCRIPT"
+    assert_failure 2
+}
+
+@test "render: の行のテンプレートが存在しなければ、通常の実行も落ちる" {
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:tmpl/missing.tmpl 4 30'
+    run check
+    assert_failure 2
+    assert_output --partial 'tmpl/missing.tmpl'
+    run --separate-stderr bash -c 'cd "$1" && bash "$2" --list-rendered' _ "$REPO" "$SCRIPT"
+    assert_failure 2
+}
+
+@test "通常の実行は render: の行の上限で作業ツリーのファイルを測らない" {
+    setup_rendered
+    # tmpl/a.tmpl 自体は判定の対象の外なので、render: の行があっても大きくてよい
+    make_lines tmpl/a.tmpl 10
+    run check
+    assert_success
+}
+
+@test "行数の - は render: の行にだけ書ける" {
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md - 40'
+    run check
+    assert_failure 2
+    assert_output --partial 'CLAUDE.md - 40'
+    put scripts/instruction-size-limits.txt $'* - 20\nCLAUDE.md 5 40'
+    run check
+    assert_failure 2
+}
+
+@test "render: の行のバイト数は - にできない" {
+    put tmpl/a.tmpl 'a'
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:tmpl/a.tmpl 4 -'
+    run check
+    assert_failure 2
+    assert_output --partial 'render:tmpl/a.tmpl 4 -'
+}
+
+@test "列が足りない render: の行は落ちる" {
+    put tmpl/a.tmpl 'a'
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:tmpl/a.tmpl 4'
+    run check
+    assert_failure 2
+}
+
+@test "同じテンプレートの render: の行が複数あれば落ちる" {
+    put tmpl/a.tmpl 'a'
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:tmpl/a.tmpl 4 30\nrender:tmpl/a.tmpl 40 300'
+    run check
+    assert_failure 2
+    assert_output --partial '同じパスの行が複数ある: render:tmpl/a.tmpl'
 }
