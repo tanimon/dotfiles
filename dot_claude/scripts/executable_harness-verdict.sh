@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Verdict(選別が queue の項目に下した結果。CONTEXT.md)を扱う CLI(ADR 0017)。判定の記録(~/.claude/harness/queue-archive.md)の
-# Verdict 行の書式を知っているのはこのスクリプトだけにし、Rule Ledger のスクリプトなどの読み手は子プロセスとして呼ぶ。
+# Verdict 行の書式を知っているのはこのスクリプトだけにする。Rule Ledger のスクリプトなどの読み手は子プロセスとして呼ぶ。
+# 週次ジョブの印の書き込みと照合、harness-review skill の Bookkeeping は、サブコマンドに移すまでこのスクリプトの外にも書式を持つ(ADR 0017)。
 #
 #   entries
 #
@@ -16,7 +17,7 @@
 #   handoff (<repo>)     kind handoff と arg
 #   merged into <見出し>  kind merged と arg(行末まで)
 # どれにも当たらない行(括弧の無い rejected など)と Verdict 行の無い項目は kind unknown で、raw を見て扱う。
-# sources は最初の Source 行に現れる session id(UUID)。判定の記録が無ければ何も出さずに成功する。
+# sources は最初の Source 行に現れる session id(UUID)。判定の記録が無ければ何も出さずに成功する(リンク先の無い symlink は無いとは読まずに失敗する)。
 #
 # 終了コード: 0 = 成功、1 = 失敗(判定の記録を読めない)、2 = 引数の誤り
 set -euo pipefail
@@ -34,7 +35,7 @@ fail() {
 }
 
 entries_mode() {
-    [[ -e "$ARCHIVE" ]] || return 0
+    [[ -e "$ARCHIVE" || -L "$ARCHIVE" ]] || return 0
     [[ -f "$ARCHIVE" && -r "$ARCHIVE" ]] || fail "cannot read $ARCHIVE"
     awk '
         function flush() {

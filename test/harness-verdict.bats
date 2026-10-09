@@ -114,6 +114,13 @@ EOF
     assert_output ''
 }
 
+@test "判定の記録がリンク先の無い symlink なら、記録が無いとは読まずに失敗する" {
+    ln -s "$HDIR/missing.md" "$ARCHIVE"
+    run --separate-stderr bash "$SCRIPT" entries
+    assert_failure
+    assert_output ''
+}
+
 @test "知らないサブコマンドと引数の無い起動は usage で exit 2" {
     run --separate-stderr bash "$SCRIPT" nope
     assert_failure 2
