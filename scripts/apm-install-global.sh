@@ -39,7 +39,8 @@ if [ -L "${link_path}" ]; then
     link_target=$(readlink "${link_path}")
     case "${link_target}" in
     /*) real_path="${link_target}" ;;
-    *) real_path="${home_dir}/${link_target}" ;;
+    # 相対パスの link target は link 自身のディレクトリが基準(readlink の意味どおり)
+    *) real_path="$(dirname "${link_path}")/${link_target}" ;;
     esac
 fi
 
@@ -74,7 +75,10 @@ if [ -L "${link_path}" ]; then
 fi
 
 apm_status=0
-"${apm_bin}" install --global --target "${apm_targets}" || apm_status=$?
+# CLAUDE_CONFIG_DIR は外して渡す。APM のアダプタはこの変数を見るので、nono 内などで設定されたまま
+# だと configure 側の書き込みが de-link 中の ~/.claude.json ではなく移動元の実体のパスに落ち、
+# 実体が再出現して re-link の段で exit 70 に倒れる。prune 側はこの変数を見ず ~/.claude.json を使う。
+env -u CLAUDE_CONFIG_DIR "${apm_bin}" install --global --target "${apm_targets}" || apm_status=$?
 
 if [ "${relink_needed}" = true ]; then
     if [ -L "${link_path}" ]; then

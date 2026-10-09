@@ -161,6 +161,7 @@ echo "apm saw a regular file"'
     printf '{"mcpServers":{"deepwiki":{}}}\n' >"${FAKE_HOME}/.claude/.claude.json"
     ln -s "${FAKE_HOME}/.claude/.claude.json" "${FAKE_HOME}/.claude.json"
     make_fake_apm 'test -L "${APM_INSTALL_HOME}/.claude.json" && exit 1
+test -e "${APM_INSTALL_HOME}/.claude/.claude.json" && exit 1
 echo "apm saw a regular file"'
 
     run bash "${SCRIPT}"
@@ -169,4 +170,22 @@ echo "apm saw a regular file"'
 
     [ "$(readlink "${FAKE_HOME}/.claude.json")" = "${FAKE_HOME}/.claude/.claude.json" ]
     [ -f "${FAKE_HOME}/.claude/.claude.json" ]
+    [ ! -L "${FAKE_HOME}/.claude/.claude.json" ]
+    assert_equal "$(cat "${FAKE_HOME}/.claude.json")" '{"mcpServers":{"deepwiki":{}}}'
+}
+
+# CLAUDE_CONFIG_DIR が残っていると APM のアダプタの書き込みが移動元の実体のパスに落ち、
+# 実体が再出現して exit 70 になる。apm には変数を外して渡す
+@test "apm runs without CLAUDE_CONFIG_DIR even when the caller sets it" {
+    make_linked_topology
+    export CLAUDE_CONFIG_DIR="${FAKE_HOME}/.claude"
+    make_fake_apm 'test -n "${CLAUDE_CONFIG_DIR:-}" && exit 1
+echo "apm saw no CLAUDE_CONFIG_DIR"'
+
+    run bash "${SCRIPT}"
+    assert_success
+    assert_output --partial 'apm saw no CLAUDE_CONFIG_DIR'
+
+    [ -L "${FAKE_HOME}/.claude.json" ]
+    assert_equal "$(cat "${FAKE_HOME}/.claude.json")" '{"mcpServers":{"deepwiki":{}}}'
 }
