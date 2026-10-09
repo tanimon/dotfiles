@@ -21,11 +21,11 @@
 # スクリプトや一覧を書き換えても、base 側の版の判定で落ちる。
 # 残存: base 側の版を実行する step も、それを含む lint.yml も head 側の版が使われる
 # (pull_request の CI は head の workflow を実行する)。ループの PR が job や step を消すか
-# 書き換えれば、その PR ではガードが走らず、CI は赤にも黄にもならない。さらに main の
-# ruleset に required status check が無いので、ガードが赤でもマージは止まらない。
-# lint.yml・justfile は一覧に載せてあるが、保証は「書き換えが差分として人のレビューに
-# 見える」ところまで。ガードの結果を必須にするには ruleset に「Guarded paths」を
-# required status check として登録する(リポジトリ設定。コードの外)。
+# 書き換えれば、その PR ではガードが走らない。main の ruleset は job 名「Guarded paths」を
+# required status check にしている(リポジトリ設定。コードの外)ので、ガードが赤のときと、job を
+# 消すか改名して結果が報告されないときはマージが止まる。止まらないのは、job 名を残したまま
+# step を書き換えて常に成功させたとき。lint.yml・justfile は一覧に載せてあるが、その書き換えへの
+# 保証は「差分として人のレビューに見える」ところまで。job 名を変えるときは ruleset も合わせて変える。
 # 残存: ループの PR かどうかはブランチ名だけで決まる。ブランチ名はループの手順が
 # 指定するが、エージェントが別の名前で PR を作れば判定されない。名前を指定する手順
 # (harness-review の SKILL.md)は一覧に載せてあり、ループの PR からは書き換えられない。
