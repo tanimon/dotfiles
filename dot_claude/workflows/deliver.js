@@ -150,11 +150,9 @@ const MERGE_SCHEMA = {
           file: { type: "string" },
           line: { type: "integer" },
           summary: { type: "string" },
-          target: { type: "string", enum: ["code", "requirements"] },
-          requirementsBreaking: { type: "boolean" },
           members: STRINGS,
         },
-        required: ["key", "file", "summary", "target", "members"],
+        required: ["key", "file", "summary", "members"],
       },
     },
   },
@@ -300,8 +298,8 @@ function isBlocking(finding) {
   return Boolean(reviewer && reviewer.blocking.includes(finding.severity));
 }
 
-// target と requirementsBreaking は merge の申告ではなく元の指摘(members)から導く。merge に任せるのは
-// 重複をまとめることだけで、判定の入力にはしない(ADR 0007)。
+// target と requirementsBreaking は元の指摘(members)から導く。merge に任せるのは重複をまとめることだけで、
+// merge の出力には判定の入力になる値を持たせない(ADR 0007)。
 // closedKeys(Deferred / Unresolved 済み)に統合された修正必須指摘は、判定から外すが報告には残す。
 function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys) {
   const out = {
@@ -427,7 +425,6 @@ function mergePrompt(findings, knownClusters) {
 - 同じ問題を指す指摘は1つの cluster にまとめ、members に元の id を全て入れる。どの指摘も必ずちょうど1つの cluster に入れる。
 - key は「ファイルパス::問題の種類を表す英小文字の短いスラッグ」とする(例: src/a.ts::missing-null-check)。
 - 過去のラウンドに同じ問題があれば、その key をそのまま使う。過去の cluster(JSON): ${JSON.stringify(knownClusters)}
-- target は、members のいずれかが "requirements" なら "requirements"、それ以外は "code"。requirementsBreaking は、members のいずれかが true なら true。
 - summary は日本語の1文で書く。`;
 }
 
@@ -738,8 +735,6 @@ async function mergeFindings(state, findings) {
       file: f.file,
       line: f.line,
       summary: f.summary,
-      target: f.target,
-      requirementsBreaking: Boolean(f.requirementsBreaking),
       members: [f.id],
     });
   }
