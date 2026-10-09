@@ -24,17 +24,25 @@ loop_registrations() {
         | . as $group
         | .hooks[]
         | select((.command // "") | contains($script))
-        | {matcher: ($group.matcher // ""), type, extra: (keys - ["type", "command", "timeout"])}
+        | {matcher: ($group.matcher // ""), type, command, extra: (keys - ["type", "command", "timeout"])}
     ' "$SETTINGS"
 }
 
-# assert_loop_wired EVENT NAME MATCHER_JQ: ちょうど 1 つ配線され、matcher が MATCHER_JQ を満たす
+# expected_command NAME: NAME を起動する command の全文。パスを含むかだけを見ると、
+# `true || "<script>"` のようにパスを残したまま実行しない command に書き換えても通るので、全文で照合する
+expected_command() {
+    printf '%s' "bash -c 'mkdir -p \"\$HOME/.claude/logs\" && \"\$HOME/.claude/scripts/$1.sh\" 2>>\"\$HOME/.claude/logs/harness-errors.log\" || true'"
+}
+
+# assert_loop_wired EVENT NAME MATCHER_JQ: ちょうど 1 つ配線され、command が expected_command と一致し、
+# matcher が MATCHER_JQ を満たす
 assert_loop_wired() {
     run loop_registrations "$1" "$2"
     assert_success
     [ "$(printf '%s\n' "$output" | grep -c .)" -eq 1 ] ||
         fail "$2 の $1 の登録がちょうど 1 つではない: $output"
-    run jq -e ".type == \"command\" and .extra == [] and ($3)" <<<"$output"
+    run jq -e --arg command "$(expected_command "$2")" \
+        ".type == \"command\" and .command == \$command and .extra == [] and ($3)" <<<"$output"
     assert_success
 }
 
