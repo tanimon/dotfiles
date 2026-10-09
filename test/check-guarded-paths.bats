@@ -228,3 +228,21 @@ guard() {
     run printf '%s\n' "${bad[@]}"
     assert_output ''
 }
+
+# リポジトリの一覧が改善ループ自身を覆うことを、ループの PR の振る舞いで確かめる(ADR 0011)
+@test "リポジトリの一覧では、ループの PR が reflect トリガーや ADR 0011 に触れたら落ちる" {
+    local adr='docs/adr/0011-self-improvement-gated-by-a-fixed-evaluator.md'
+    local trigger='dot_claude/scripts/executable_harness-reflect-trigger.sh'
+    put scripts/guarded-paths.txt "$(cat "$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt")"
+    put "$adr" 'adr'
+    put "$trigger" 'trigger'
+    commit base-real-list
+    base="$(git -C "$REPO" rev-parse HEAD)"
+    put "$adr" 'changed'
+    put "$trigger" 'changed'
+    commit change
+    run guard harness/review-2026-10-09 "$base"
+    assert_failure 1
+    assert_output --partial "$adr"
+    assert_output --partial "$trigger"
+}

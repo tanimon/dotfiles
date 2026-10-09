@@ -1,10 +1,10 @@
-# Evaluator のパスの一覧(ADR 0011)。自己改善ループの PR がここに載ったパスに触れると、
+# Guarded Path の一覧(ADR 0011)。Evaluator と改善ループ自身から成る。自己改善ループの PR がここに載ったパスに触れると、
 # scripts/check-guarded-paths.sh が CI で失敗させる。人の PR は判定しない。
 # 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
 # それ以外は完全一致。+ で始まる行(末尾 / のディレクトリ)は追加だけを許し、ループの PR はそこへ新しい
 # ファイルを足せるが、既存のファイルの変更・削除・移動は落とす。# で始まる行と空行は無視する。
 #
-# Evaluator のパスを足し忘れたことを機械的に検出する仕組みは無く、足す PR のレビューで確かめる。
+# Guarded Path を足し忘れたことを機械的に検出する仕組みは無く、足す PR のレビューで確かめる。
 # ガードは base 側の版を読むので、足した行はマージ後に効く。
 
 # ガード自身。一覧・判定・テストを書き換えられると、ガードを外せる
@@ -31,6 +31,29 @@ dot_claude/scripts/executable_harness-weekly.sh
 # 週次ジョブが読み込む健全性の lib。停止を Issue で知らせる判定(PR の放置・PR にならないブランチ・
 # 走らなかった週)を書き換えると、ループの停止が知らされなくなる
 dot_claude/scripts/lib/harness-health.bash
+
+# 改善ループ自身(ADR 0011。解禁の条件も ADR 0011)。ループが自分の抽出・選別・週次ジョブ・状態表示を書き換えると、
+# 改善の効果とループの変更の効果を区別できなくなる。ファイル単位で守るので、ループが自分の手順を改善する
+# PR も落ちる。これは改善ループ自身を Improvement Surface に含めない決定の帰結として受け入れる。
+# harness-review / harness-reflect の SKILL.md と週次ジョブの入口は、識別規約と検出器の節に載せてある。
+# 載せないもの: 振る舞いを持たない文書(.claude/rules/harness-weekly.md、docs/superpowers/ のループの設計書、
+# CONTEXT.md のループの用語)。ループの PR がこれらを変えたら、レビューで、記述がこの一覧に載ったファイルの
+# 実際の振る舞いと食い違っていないか、ADR 0011・0012 の決定を言い換えて緩めていないかを確かめる。
+# settings.json.tmpl も載せない(ループが改善してよい hook と permissions を含む)。briefing と reflect トリガーの
+# 配線は、配線のテストを載せて守る
+dot_claude/scripts/executable_harness-reflect-trigger.sh
+dot_claude/scripts/executable_harness-briefing.sh
+dot_claude/scripts/executable_harness-doctor.sh
+private_Library/LaunchAgents/local.dotfiles.harness-weekly.plist.tmpl
+.chezmoiscripts/run_onchange_after_darwin-register-harness-weekly.sh.tmpl
+test/harness-reflect-trigger.bats
+test/harness-briefing.bats
+test/harness-doctor.bats
+test/harness-weekly.bats
+test/harness-health.bats
+test/harness-hook-wiring.bats
+docs/adr/0011-self-improvement-gated-by-a-fixed-evaluator.md
+docs/adr/0012-self-improvement-runs-weekly-headless-inside-nono.md
 
 # 肥大の歯止め(ADR 0011)。ループが上限を上げる・判定の対象を狭めると、ルールが増え続けても CI が通る
 scripts/instruction-size-limits.txt

@@ -259,9 +259,9 @@ check-templates:
     LC_ALL=C pnpm exec bats test/global-instructions.bats
 
 # Needs chezmoi — fails (not skips) without it, for the same reason as above.
-# Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca)
+# Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca) and the improvement loop entry points
 @test-settings-hooks:
-    LC_ALL=C pnpm exec bats test/settings-hooks.bats
+    LC_ALL=C pnpm exec bats test/settings-hooks.bats test/harness-hook-wiring.bats
 
 # Needs chezmoi — fails (not skips) without it, for the same reason as test-settings-hooks.
 # Contract test for the startup promises every PreToolUse guard keeps (lib / jq / stdin / HOME failures), plus the guard list vs. the rendered wiring
