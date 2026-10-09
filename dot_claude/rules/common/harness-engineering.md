@@ -56,9 +56,10 @@ Bad rules:
   sessions means the briefing hook itself is dead — investigate immediately.
 - A warning that stays for weeks is itself a harness bug: queue it.
 - Diagnostics: `bash ~/.claude/scripts/harness-doctor.sh`.
-- All monitoring is deterministic shell; LLM judgment runs only inside
-  /harness-reflect and /harness-review, in interactive sessions where failures
-  are visible.
+- All monitoring is deterministic shell. LLM judgment runs inside /harness-reflect
+  and /harness-review — interactively, or unattended in the weekly launchd job,
+  which reports its own failures (missing heartbeat, GitHub Issue) instead of
+  relying on a human watching the session.
 
 ## Anti-Patterns
 

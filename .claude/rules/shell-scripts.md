@@ -50,7 +50,7 @@ command -v pnpm >/dev/null 2>&1 || { echo "WARNING: pnpm not found, skipping"; e
 
 ## 「静かに逆の結果になる」bash の書き方
 
-shellcheck も shfmt も通るのに、意図と逆の挙動になる書き方。どちらも #310 で実際に踏んだ。
+shellcheck も shfmt も通るのに、意図と逆の挙動になる書き方。
 
 ### 改行をパターンに埋めるときは `$'\n'`。`"$(printf '\n')"` は使わない
 
@@ -139,8 +139,8 @@ shell**. A test that does not neutralize them passes or fails for the wrong reas
 
 The concrete case: `dot_claude/scripts/executable_notify.sh` suppresses itself when
 `ORCA_PANE_KEY`, `ORCA_AGENT_HOOK_PORT`, and `ORCA_AGENT_HOOK_TOKEN` are all set — and the
-maintainer works inside orca-managed terminals, where they are. The first version of the test
-suite passed in CI and failed on the maintainer's machine every time.
+maintainer works inside orca-managed terminals, where they are. A test that does not unset them
+passes in CI and fails on the maintainer's machine.
 
 `.bats` ファイルの `setup()` で読み込む各変数をクリアし、個々の `@test` ケースが必要な値を
 明示的に `export` する:
@@ -185,20 +185,19 @@ unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK
   存在しないため、失敗をチェックし忘れることがあり得ない
   （`docs/solutions/integration-issues/makefile-mktemp-silent-pass-and-macos-tmpdir-sandbox.md` 参照）。
 - **偽バイナリは `printf` ではなく heredoc で作る。** heredoc（`cat > "$fake" <<'EOF' ... EOF`）は
-  外側のコマンド置換と衝突しない。これは今回置き換えた旧Makefileレシピの `printf` パターンとは
-  異なる。
+  外側のコマンド置換と衝突しない。
 - **フォールバック経路を `$PATH` を空にしてテストしない。** `PATH` を空にすると `bash`/`jq`/`git`
   までスクリプトから見えなくなり、無関係な理由でテストが失敗する。スクリプトに明示的な上書き
   変数（例: `CLAUDE_NOTIFY_BACKEND=osascript`）を用意し、それでフォールバックを選択する。
 - 各 `@test` が非空虚（vacuous でない）ことを確認する。`assert_output --partial 'title='` の
   ように、あらゆる出力が満たしてしまうアサーションは失敗し得ない。`@test` ごとに専用の
-  `$BATS_TEST_TMPDIR` が与えられるため、旧Makefileレシピと異なり、*別の*テストケースが残した
+  `$BATS_TEST_TMPDIR` が与えられるため、*別の*テストケースが残した
   ファイルを読むことはできない。もし2つのケースが状態を共有しているように見えるなら、1つの
   `@test` に統合すること。
 - **外部コマンドを隠すときに、存在しないディレクトリを `PATH` に前置しない。** 前置は「先頭で見つからなければ
   後ろを探す」だけなので、後ろの実 `PATH` にある本物が呼ばれる(`PATH=/nonexistent:$PATH command -v gh` は
-  本物の `gh` を返す)。失敗する stub を `$BATS_TEST_TMPDIR/bin` に置いて前置する。PR #355 ではこれで
-  本物の `gh` が呼ばれ、5 ケースが無関係な理由で通っていた。
+  本物の `gh` を返す)。失敗する stub を `$BATS_TEST_TMPDIR/bin` に置いて前置する。前置を誤ると
+  本物の `gh` が呼ばれ、ケースが無関係な理由で通る。
 - **`run` は stderr も `$output` と `${lines[@]}` に混ぜる。** stub が出す診断文に含まれる語(ブランチ名など)で
   `assert_output --partial` すると、本体の出力が壊れていても通る。`assert_line` も `${lines[@]}` を見るので
   同じく通ってしまう(bats 1.13.0 で `run bash -c 'echo out; echo diag >&2'` の `lines[1]` が `diag` になることを実測)。
