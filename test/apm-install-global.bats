@@ -19,8 +19,8 @@ setup() {
 
 # 実体 + symlink の、通常のトポロジを作る
 make_linked_topology() {
-    printf '{"mcpServers":{"deepwiki":{}}}\n' >"${FAKE_HOME}/.claude/claude.json"
-    ln -s .claude/claude.json "${FAKE_HOME}/.claude.json"
+    printf '{"mcpServers":{"deepwiki":{}}}\n' >"${FAKE_HOME}/.claude/.claude.json"
+    ln -s .claude/.claude.json "${FAKE_HOME}/.claude.json"
 }
 
 # $1 に書いた本体を持つ偽 apm を作り、APM_BIN に設定する
@@ -40,7 +40,7 @@ EOF
     make_linked_topology
     make_fake_apm 'test -f "${APM_INSTALL_HOME}/.claude.json" || exit 1
 test -L "${APM_INSTALL_HOME}/.claude.json" && exit 1
-test -e "${APM_INSTALL_HOME}/.claude/claude.json" && exit 1
+test -e "${APM_INSTALL_HOME}/.claude/.claude.json" && exit 1
 echo "apm saw a regular file"'
 
     run bash "${SCRIPT}"
@@ -49,9 +49,9 @@ echo "apm saw a regular file"'
 
     # トポロジが元に戻っていること
     [ -L "${FAKE_HOME}/.claude.json" ]
-    [ -f "${FAKE_HOME}/.claude/claude.json" ]
-    [ ! -L "${FAKE_HOME}/.claude/claude.json" ]
-    [ "$(readlink "${FAKE_HOME}/.claude.json")" = '.claude/claude.json' ]
+    [ -f "${FAKE_HOME}/.claude/.claude.json" ]
+    [ ! -L "${FAKE_HOME}/.claude/.claude.json" ]
+    [ "$(readlink "${FAKE_HOME}/.claude.json")" = '.claude/.claude.json' ]
     assert_equal "$(cat "${FAKE_HOME}/.claude.json")" '{"mcpServers":{"deepwiki":{}}}'
 }
 
@@ -66,14 +66,14 @@ true'
 
     [ -f "${FAKE_HOME}/.claude.json" ]
     [ ! -L "${FAKE_HOME}/.claude.json" ]
-    [ ! -e "${FAKE_HOME}/.claude/claude.json" ]
+    [ ! -e "${FAKE_HOME}/.claude/.claude.json" ]
 }
 
 @test "nono re-links during the window: leaves it as is, no clobber" {
     make_linked_topology
     # 偽 apm が nono のふるまい(実体を戻して symlink を張る)を再現する
-    make_fake_apm 'mv "${APM_INSTALL_HOME}/.claude.json" "${APM_INSTALL_HOME}/.claude/claude.json"
-ln -s .claude/claude.json "${APM_INSTALL_HOME}/.claude.json"'
+    make_fake_apm 'mv "${APM_INSTALL_HOME}/.claude.json" "${APM_INSTALL_HOME}/.claude/.claude.json"
+ln -s .claude/.claude.json "${APM_INSTALL_HOME}/.claude.json"'
 
     run bash "${SCRIPT}"
     assert_success
@@ -83,11 +83,11 @@ ln -s .claude/claude.json "${APM_INSTALL_HOME}/.claude.json"'
     assert_equal "$(cat "${FAKE_HOME}/.claude.json")" '{"mcpServers":{"deepwiki":{}}}'
 }
 
-# 2026-09-24 の事故の回帰テスト。de-link 中に ~/.claude/claude.json が(中身を持って)
+# 2026-09-24 の事故の回帰テスト。de-link 中に ~/.claude/.claude.json が(中身を持って)
 # 再出現したとき、素の `mv` はその実体を symlink で上書きして設定を丸ごと失う。
 @test "real path reappears during the window: aborts instead of clobbering it" {
     make_linked_topology
-    make_fake_apm 'printf "{\"other\":true}\n" > "${APM_INSTALL_HOME}/.claude/claude.json"'
+    make_fake_apm 'printf "{\"other\":true}\n" > "${APM_INSTALL_HOME}/.claude/.claude.json"'
 
     run bash "${SCRIPT}"
     # 70 は「人間が見るまで apply を止める」専用コード。run_onchange 側はこれだけを
@@ -98,7 +98,7 @@ ln -s .claude/claude.json "${APM_INSTALL_HOME}/.claude.json"'
     # 呼び出し前の中身がどちらのパスからも失われていないこと
     [ ! -L "${FAKE_HOME}/.claude.json" ]
     assert_equal "$(cat "${FAKE_HOME}/.claude.json")" '{"mcpServers":{"deepwiki":{}}}'
-    assert_equal "$(cat "${FAKE_HOME}/.claude/claude.json")" '{"other":true}'
+    assert_equal "$(cat "${FAKE_HOME}/.claude/.claude.json")" '{"other":true}'
 }
 
 @test "apm failure: still re-links, and propagates the exit status" {
@@ -123,12 +123,12 @@ exit 3'
     assert_output --partial 'apm CLI not found'
 
     [ -L "${FAKE_HOME}/.claude.json" ]
-    [ -f "${FAKE_HOME}/.claude/claude.json" ]
+    [ -f "${FAKE_HOME}/.claude/.claude.json" ]
 }
 
 @test "unexpected topology: does not move anything, still runs apm" {
     # symlink はあるが実体が無い(壊れた形)
-    ln -s .claude/claude.json "${FAKE_HOME}/.claude.json"
+    ln -s .claude/.claude.json "${FAKE_HOME}/.claude.json"
     make_fake_apm 'echo "apm ran"'
 
     run bash "${SCRIPT}"
@@ -137,4 +137,36 @@ exit 3'
     assert_output --partial 'apm ran'
 
     [ -L "${FAKE_HOME}/.claude.json" ]
+}
+
+# 実体の位置は nono が決め、バージョンで変わる。スクリプトは固定パスではなく link の指す先を使う
+@test "follows the link target instead of a fixed real path" {
+    printf '{"mcpServers":{"deepwiki":{}}}\n' >"${FAKE_HOME}/.claude/claude.json"
+    ln -s .claude/claude.json "${FAKE_HOME}/.claude.json"
+    make_fake_apm 'test -L "${APM_INSTALL_HOME}/.claude.json" && exit 1
+test -e "${APM_INSTALL_HOME}/.claude/claude.json" && exit 1
+echo "apm saw a regular file"'
+
+    run bash "${SCRIPT}"
+    assert_success
+    assert_output --partial 'apm saw a regular file'
+
+    [ "$(readlink "${FAKE_HOME}/.claude.json")" = '.claude/claude.json' ]
+    [ -f "${FAKE_HOME}/.claude/claude.json" ]
+    [ ! -L "${FAKE_HOME}/.claude/claude.json" ]
+    assert_equal "$(cat "${FAKE_HOME}/.claude.json")" '{"mcpServers":{"deepwiki":{}}}'
+}
+
+@test "absolute link target: de-links and restores the same absolute target" {
+    printf '{"mcpServers":{"deepwiki":{}}}\n' >"${FAKE_HOME}/.claude/.claude.json"
+    ln -s "${FAKE_HOME}/.claude/.claude.json" "${FAKE_HOME}/.claude.json"
+    make_fake_apm 'test -L "${APM_INSTALL_HOME}/.claude.json" && exit 1
+echo "apm saw a regular file"'
+
+    run bash "${SCRIPT}"
+    assert_success
+    assert_output --partial 'apm saw a regular file'
+
+    [ "$(readlink "${FAKE_HOME}/.claude.json")" = "${FAKE_HOME}/.claude/.claude.json" ]
+    [ -f "${FAKE_HOME}/.claude/.claude.json" ]
 }

@@ -3,11 +3,14 @@ set -euo pipefail
 
 # `apm install --global` を、~/.claude.json の symlink を一時的に外した状態で実行する。
 #
-# APM 0.30.0 は MCP サーバーを prune するとき、設定パスが symlink だと
+# APM(0.30.0 以降。0.33.0 で確認)は MCP サーバーを prune するとき、設定パスが symlink だと
 # `[x] Refusing to clean symlinked MCP config` で install 全体を失敗させる
-# (追加時は逆に symlink を平のファイルに潰す)。symlink を張っているのは nono
-# (0.72.0)で、`nono run --profile claude-seal` のたびに張り直すため、恒久的に
-# 平のファイルへ一本化することはできない。恒久解決は upstream(APM か nono)にある。
+# (追加時は逆に symlink を平のファイルに潰す)。prune 側は `CLAUDE_CONFIG_DIR` を見ず
+# `~/.claude.json` を固定で使うので、環境変数で実体を指しても回避できない。
+# symlink を張っているのは nono で、`nono run --profile claude-seal` のたびに張り直すため、
+# 恒久的に平のファイルへ一本化することはできない。恒久解決は upstream(APM か nono)にある。
+# 実体の位置は nono のバージョンで変わる(0.79.0 は `~/.claude/.claude.json`)ので固定せず、
+# link の指す先から求める。
 # 一次証拠・実測・事故の経緯は dot_apm/CLAUDE.md の「`~/.claude.json` symlink と APM」節。
 #
 # 使い方
@@ -30,22 +33,30 @@ apm_targets="${APM_TARGETS:-claude,codex}"
 home_dir="${APM_INSTALL_HOME:-${HOME}}"
 
 link_path="${home_dir}/.claude.json"
-real_path="${home_dir}/.claude/claude.json"
+link_target=""
+real_path=""
+if [ -L "${link_path}" ]; then
+    link_target=$(readlink "${link_path}")
+    case "${link_target}" in
+    /*) real_path="${link_target}" ;;
+    *) real_path="${home_dir}/${link_target}" ;;
+    esac
+fi
 
 if ! command -v "${apm_bin}" >/dev/null 2>&1; then
     echo "apm CLI not found, skipping apm install --global" >&2
     exit 0
 fi
 
-# 実行中の nono セッションがあると、de-link している数秒のあいだに
-# そのセッションの設定書き込みが $HOME 側へ解決してサンドボックスに落とされる。
-# Claude Code はそれを EPERM として見せず「File modified」と報告して exit 0 するので、
-# 黙って失われる。止める理由にはしない(誤検知で apply が止まるほうが困る)が、警告は出す。
+# 実行中の nono セッションは CLAUDE_CONFIG_DIR 経由で link の実体のパスへ直接書くので、
+# de-link している数秒のあいだに書き込みがあると実体が再出現し、re-link の段で exit 70 に倒れる
+# (データは守られるが、両パスを人が照合して戻す必要が出る)。止める理由にはしない
+# (誤検知で apply が止まるほうが困る)が、警告は出す。
 # パターンは実際の argv で検証済み: `nono run --profile claude-seal --allow-cwd -- <cmd>`。
 # pgrep 自体がプロセス一覧を取れない環境(サンドボックス内)では黙って何も出ないが、
 # 消えるのは警告だけで de-link の判断は変わらないので、そのままにしてある。
 if pgrep -f 'nono run --profile claude-seal' >/dev/null 2>&1; then
-    echo "WARNING: a nono claude-seal session is running; its config writes may be silently dropped while ~/.claude.json is temporarily de-linked" >&2
+    echo "WARNING: a nono claude-seal session is running; if it writes its config while ~/.claude.json is temporarily de-linked, the real file reappears and this script aborts with exit 70" >&2
 fi
 
 # de-link は「symlink があり、その実体が通常ファイル」のときだけ行う。
@@ -58,7 +69,7 @@ if [ -L "${link_path}" ]; then
         mv "${real_path}" "${link_path}"
         relink_needed=true
     else
-        echo "WARNING: ~/.claude.json is a symlink but ~/.claude/claude.json is not a regular file; leaving the topology alone" >&2
+        echo "WARNING: ~/.claude.json is a symlink but its target ${link_target} is not a regular file; leaving the topology alone" >&2
     fi
 fi
 
@@ -81,7 +92,7 @@ if [ "${relink_needed}" = true ]; then
         exit 70
     else
         mv "${link_path}" "${real_path}"
-        ln -s .claude/claude.json "${link_path}"
+        ln -s "${link_target}" "${link_path}"
     fi
 fi
 
