@@ -1,8 +1,7 @@
 # 改善ループの入口になる hook の配線の契約テスト(ADR 0011)。
 #
-# briefing と reflect トリガーのスクリプトは Guarded Path だが、配線は settings.json.tmpl にある。
-# settings.json.tmpl はループが改善してよい hook と permissions を含むので一覧に載せない。代わりに
-# このテストを一覧に載せ、ループの PR が配線を外したら CI で落ちるようにする。
+# briefing と reflect トリガーの配線を、ループの PR から外せないようにする。このテストを Guarded Path に
+# 載せる理由は scripts/guarded-paths.txt の「改善ループ自身」の節。
 #
 # 描画と chezmoi が無いときの扱いは test/settings-hooks.bats と同じく test/helpers/render.bash に任せる。
 setup_file() {

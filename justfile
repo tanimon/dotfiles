@@ -259,7 +259,7 @@ check-templates:
     LC_ALL=C pnpm exec bats test/global-instructions.bats
 
 # Needs chezmoi — fails (not skips) without it, for the same reason as above.
-# Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca) and the improvement loop entry points
+# Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca)。改善ループの入口(briefing / reflect トリガー)の配線も見る
 @test-settings-hooks:
     LC_ALL=C pnpm exec bats test/settings-hooks.bats test/harness-hook-wiring.bats
 

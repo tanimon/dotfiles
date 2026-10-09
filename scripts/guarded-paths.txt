@@ -36,7 +36,7 @@ dot_claude/scripts/lib/harness-health.bash
 # 改善の効果とループの変更の効果を区別できなくなる。ファイル単位で守るので、ループが自分の手順を改善する
 # PR も落ちる。これは改善ループ自身を Improvement Surface に含めない決定の帰結として受け入れる。
 # harness-review / harness-reflect の SKILL.md と週次ジョブの入口は、識別規約と検出器の節に載せてある。
-# 載せないもの: 振る舞いを持たない文書(.claude/rules/harness-weekly.md、docs/superpowers/ のループの設計書、
+# 載せないもの: ループの振る舞いを持たない文書(.claude/rules/harness-weekly.md、dot_claude/rules/common/harness-engineering.md、docs/superpowers/ のループの設計書、
 # CONTEXT.md のループの用語)。ループの PR がこれらを変えたら、レビューで、記述がこの一覧に載ったファイルの
 # 実際の振る舞いと食い違っていないか、ADR 0011・0012 の決定を言い換えて緩めていないかを確かめる。
 # settings.json.tmpl も載せない(ループが改善してよい hook と permissions を含む)。briefing と reflect トリガーの
