@@ -10,7 +10,7 @@
 # 項目は `## ` の見出しから、次の `## ` か `# ` の見出しまで。Verdict と Source は項目ごとに最初の行を使う。
 # 見出しと Verdict の中のタブは空白にする(それ以外の正規化はしない。title は Rule Ledger の id の材料になるため)。
 # Verdict の読み方(どれも行頭から読み、閉じ括弧の後ろに続く補足は無視する):
-#   adopted (PR <URL>)   kind adopted と pr_url(URL は空白か , か ) の手前まで)
+#   adopted (PR <URL>)   kind adopted と pr_url(最初の ) の手前まで。URL かどうかは読み手が確かめる)
 #   adopted (<それ以外>)  kind adopted と run(PR になっていない採用の印。`<branch> run <id>` と、run id の無い古い形)
 #   rejected (<理由>)    kind rejected と arg(最初の ) の手前まで)
 #   handoff (<repo>)     kind handoff と arg
@@ -51,7 +51,7 @@ entries_mode() {
             | {title: $f[0]}
             + (if ($v | test("^adopted \\([^)]*\\)")) then
                 ($v | capture("^adopted \\((?<i>[^)]*)\\)").i) as $i
-                | if ($i | startswith("PR ")) then {kind: "adopted", pr_url: ($i[3:] | capture("^(?<u>[^ ,]*)").u)}
+                | if ($i | startswith("PR ")) then {kind: "adopted", pr_url: $i[3:]}
                   else {kind: "adopted", run: $i} end
               elif ($v | test("^(rejected|handoff) \\([^)]*\\)")) then
                 ($v | capture("^(?<k>rejected|handoff) \\((?<a>[^)]*)\\)")) | {kind: .k, arg: .a}

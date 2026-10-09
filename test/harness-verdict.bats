@@ -41,14 +41,14 @@ entry() {
     assert_equal "${#lines[@]}" 6
 }
 
-@test "括弧の中が PR で始まる採用は、後ろに補足があっても run にせず pr_url だけを取る" {
+@test "括弧の中が PR で始まる採用は run にせず、閉じ括弧の手前までを pr_url にする" {
     entry 'a' "adopted (PR $URL)(allowWrite に追加)"
-    entry 'b' "adopted (PR $URL, 補足)"
-    entry 'c' "adopted (PR $URL) for (1) | handoff (x/y)"
+    entry 'b' "adopted (PR $URL) for (1) | handoff (x/y)"
+    entry 'c' "adopted (PR $URL, 補足)"
     run --separate-stderr bash "$SCRIPT" entries
     assert_success
     run jq -c '[.kind, .pr_url, .run]' <<<"$output"
-    assert_output "$(printf '["adopted","%s",null]\n' "$URL" "$URL" "$URL")"
+    assert_output "$(printf '["adopted","%s",null]\n' "$URL" "$URL" "$URL, 補足")"
 }
 
 @test "PR でも run の印でもない採用の中身は run に入れる" {

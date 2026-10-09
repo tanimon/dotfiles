@@ -218,7 +218,7 @@ record_mode() {
         fi
     fi
     entries=$(archive_entries | jq -c --arg url "$PR_URL" 'select(.kind == "adopted" and .pr_url == $url)') ||
-        fail "cannot read $ARCHIVE"
+        fail "cannot read the verdicts in $ARCHIVE through $VERDICT_CLI"
     if [[ -z "$entries" ]]; then
         printf 'harness-rule-ledger: no adopted verdict for %s in %s; nothing recorded\n' "$PR_URL" "$ARCHIVE"
         return 0
@@ -237,7 +237,7 @@ record_mode() {
 # 何度実行しても、既にある記録は上書きしない。移せないものは「skipped<TAB>理由<TAB>title」で出す
 migrate_mode() {
     local entries entry pr_url run title url pr created adopted dates="" record skipped=0 eval_json
-    entries=$(archive_entries | jq -c 'select(.kind == "adopted")') || fail "cannot read $ARCHIVE"
+    entries=$(archive_entries | jq -c 'select(.kind == "adopted")') || fail "cannot read the verdicts in $ARCHIVE through $VERDICT_CLI"
     eval_json=$(jq -n -c --arg r "$MIGRATED_REASON" '{status: "exempt", reason: $r}')
     while IFS= read -r entry; do
         [[ -n "$entry" ]] || continue
