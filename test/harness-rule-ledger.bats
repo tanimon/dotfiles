@@ -16,6 +16,8 @@ setup() {
     mkdir -p "$HDIR" "$HOME/.claude/scripts"
     SCRIPT="$HOME/.claude/scripts/harness-rule-ledger.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-rule-ledger.sh" "$SCRIPT"
+    # 判定の記録は Verdict の CLI で読むので、本物を本来の配置先に置く
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
     STUBS="$BATS_TEST_TMPDIR/bin"
     mkdir -p "$STUBS"
     export GH_LOG="$BATS_TEST_TMPDIR/gh.log"
@@ -149,6 +151,21 @@ EOF
     assert_success
     assert_output --partial 'no adopted verdict'
     assert [ ! -d "$LEDGER" ] || [ -z "$(ls -A "$LEDGER")" ]
+}
+
+@test "Verdict の CLI が無いか失敗すれば、採用が無いとは読まずに失敗する" {
+    entry '[2026-10-03] mine' "adopted (PR $URL)"
+    rm "$HOME/.claude/scripts/harness-verdict.sh"
+    run bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly
+    assert_failure
+    refute_output --partial 'no adopted verdict'
+    run bash "$SCRIPT" migrate
+    assert_failure
+    printf '#!/usr/bin/env bash\nexit 1\n' >"$HOME/.claude/scripts/harness-verdict.sh"
+    run bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly
+    assert_failure
+    refute_output --partial 'no adopted verdict'
+    assert [ ! -d "$LEDGER" ]
 }
 
 @test "既にある記録は上書きしない" {
@@ -424,6 +441,21 @@ make_worktree() {
     run bash "$SCRIPT" export --base HEAD --worktree "$WT"
     assert_failure
     assert [ ! -e "$WT/docs/harness/rule-ledger" ]
+}
+
+@test "移行は括弧の無い採用の行も、書式を読めないものとして一覧に出す" {
+    entry '[2026-07-23] bare' 'adopted'
+    entry '[2026-07-23] note' 'adopted — 手で反映した'
+    entry '[2026-07-23] unclosed' 'adopted (PR https://github.com/example/dotfiles/pull/373'
+    entry '[2026-07-23] rejected' 'rejected'
+    run bash "$SCRIPT" migrate
+    assert_success
+    assert_line "$(printf 'skipped\t採用の記録の書式を読めない\t[2026-07-23] bare')"
+    assert_line "$(printf 'skipped\t採用の記録の書式を読めない\t[2026-07-23] note')"
+    assert_line "$(printf 'skipped\t採用の記録の書式を読めない\t[2026-07-23] unclosed')"
+    refute_output --partial 'rejected'
+    assert_output --partial 'skipped 3'
+    assert [ ! -d "$LEDGER" ] || [ -z "$(ls -A "$LEDGER")" ]
 }
 
 @test "移行は Eval Case を入れた後に作った PR の採用を移さず、record で記録するよう一覧に出す" {

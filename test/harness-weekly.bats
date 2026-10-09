@@ -265,9 +265,11 @@ EOF
         "$HOME/.claude/scripts/harness-eval-plugin/.claude-plugin/plugin.json"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-eval-plugin/hooks/hooks.json" \
         "$HOME/.claude/scripts/harness-eval-plugin/hooks/hooks.json"
-    # Rule Ledger のスクリプトも本物を置く
+    # Rule Ledger のスクリプトと、それが判定の記録を読む Verdict の CLI も本物を置く
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-rule-ledger.sh" \
         "$HOME/.claude/scripts/harness-rule-ledger.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-verdict.sh" \
+        "$HOME/.claude/scripts/harness-verdict.sh"
     LEDGER="$HDIR/rule-ledger"
     LEDGER_REPO_DIR=docs/harness/rule-ledger
     export EVAL_FIXTURES="$BATS_TEST_DIRNAME/fixtures/harness-eval-cases"
@@ -2097,6 +2099,22 @@ PRE
     run weekly
     assert_failure
     assert_output --partial 'Rule Ledger script'
+    refute grep -q 'pr create' "$GH_LOG"
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "選別の claude が Verdict の CLI を書き換えたら、PR を作らずに失敗する" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'Verdict CLI'
     refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
