@@ -222,7 +222,7 @@ check-templates:
 @check-rule-ledger:
     bash dot_claude/scripts/executable_harness-rule-ledger.sh check docs/harness/rule-ledger
 
-# ルールと指示のファイルごとのサイズ上限(上限と根拠は scripts/instruction-size-limits.txt)
+# ルールと指示のファイルと skill の本文(SKILL.md)のファイルごとのサイズ上限(上限と根拠は scripts/instruction-size-limits.txt)
 @check-instruction-size:
     bash scripts/check-instruction-size.sh
 
