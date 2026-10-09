@@ -1,5 +1,5 @@
 # Evaluator のパスの一覧(ADR 0011)。自己改善ループの PR がここに載ったパスに触れると、
-# scripts/check-evaluator-guard.sh が CI で失敗させる。人の PR は判定しない。
+# scripts/check-guarded-paths.sh が CI で失敗させる。人の PR は判定しない。
 # 1 行 1 パス(リポジトリルートからの相対)。末尾が / の行はそのディレクトリ配下すべて、
 # それ以外は完全一致。+ で始まる行(末尾 / のディレクトリ)は追加だけを許し、ループの PR はそこへ新しい
 # ファイルを足せるが、既存のファイルの変更・削除・移動は落とす。# で始まる行と空行は無視する。
@@ -8,9 +8,9 @@
 # ガードは base 側の版を読むので、足した行はマージ後に効く。
 
 # ガード自身。一覧・判定・テストを書き換えられると、ガードを外せる
-scripts/evaluator-paths.txt
-scripts/check-evaluator-guard.sh
-test/check-evaluator-guard.bats
+scripts/guarded-paths.txt
+scripts/check-guarded-paths.sh
+test/check-guarded-paths.bats
 # ガードのテストが依存するもの。assert_failure などや bats の版を差し替えると、テストが空振りで緑になる
 test/helpers/setup.bash
 package.json
@@ -18,7 +18,7 @@ pnpm-lock.yaml
 
 # ガードを CI に配線しているもの。job や recipe を外す・ツールを差し替えるとガードが走らない。
 # CI は head 側の版を使うので、ここに載せても書き換えた PR でガードが走らなくなるのは防げない。
-# 保証は書き換えが差分として人のレビューに見えるところまで(check-evaluator-guard.sh のヘッダ)
+# 保証は書き換えが差分として人のレビューに見えるところまで(check-guarded-paths.sh のヘッダ)
 .github/workflows/lint.yml
 .github/actions/setup-lint/
 justfile

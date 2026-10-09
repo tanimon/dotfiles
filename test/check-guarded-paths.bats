@@ -2,14 +2,14 @@
 
 setup() {
     load 'helpers/setup'
-    SCRIPT="$BATS_TEST_DIRNAME/../scripts/check-evaluator-guard.sh"
+    SCRIPT="$BATS_TEST_DIRNAME/../scripts/check-guarded-paths.sh"
     REPO="$BATS_TEST_TMPDIR/repo"
     mkdir -p "$REPO"
     git -C "$REPO" init -q -b main
     git -C "$REPO" config user.email t@example.com
     git -C "$REPO" config user.name t
     git -C "$REPO" config commit.gpgsign false
-    put scripts/evaluator-paths.txt $'# コメント行\n\nscripts/evaluator-paths.txt\nevaluator/\nrules/fixed.md'
+    put scripts/guarded-paths.txt $'# コメント行\n\nscripts/guarded-paths.txt\nevaluator/\nrules/fixed.md'
     put evaluator/detector.sh 'echo detect'
     put rules/fixed.md 'fixed'
     put rules/other.md 'other'
@@ -49,7 +49,7 @@ guard() {
 }
 
 @test "ループの PR は追加だけ許すディレクトリに新しいファイルを足せる" {
-    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put scripts/guarded-paths.txt $'scripts/guarded-paths.txt\n+ledger/'
     put ledger/a.json '{"a":1}'
     commit base-ledger
     base="$(git -C "$REPO" rev-parse HEAD)"
@@ -61,7 +61,7 @@ guard() {
 }
 
 @test "ループの PR が追加だけ許すディレクトリの既存のファイルを変えたら落ちる" {
-    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put scripts/guarded-paths.txt $'scripts/guarded-paths.txt\n+ledger/'
     put ledger/a.json '{"a":1}'
     commit base-ledger
     base="$(git -C "$REPO" rev-parse HEAD)"
@@ -75,7 +75,7 @@ guard() {
 }
 
 @test "ループの PR が追加だけ許すディレクトリのファイルを消すか移したら落ちる" {
-    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put scripts/guarded-paths.txt $'scripts/guarded-paths.txt\n+ledger/'
     put ledger/a.json '{"a":1}'
     put ledger/b.json '{"b":1}'
     commit base-ledger
@@ -90,7 +90,7 @@ guard() {
 }
 
 @test "人の PR は追加だけ許すディレクトリの既存のファイルを変えても通る" {
-    put scripts/evaluator-paths.txt $'scripts/evaluator-paths.txt\n+ledger/'
+    put scripts/guarded-paths.txt $'scripts/guarded-paths.txt\n+ledger/'
     put ledger/a.json '{"a":1}'
     commit base-ledger
     base="$(git -C "$REPO" rev-parse HEAD)"
@@ -116,12 +116,12 @@ guard() {
 }
 
 @test "ループの PR が一覧から自分の行を消しても、base の一覧で判定して落ちる" {
-    put scripts/evaluator-paths.txt 'rules/fixed.md'
+    put scripts/guarded-paths.txt 'rules/fixed.md'
     put evaluator/detector.sh 'echo changed'
     commit shrink
     run guard harness/review-2026-10-04 "$BASE"
     assert_failure 1
-    assert_output --partial 'scripts/evaluator-paths.txt'
+    assert_output --partial 'scripts/guarded-paths.txt'
     assert_output --partial 'evaluator/detector.sh'
 }
 
@@ -134,14 +134,14 @@ guard() {
 }
 
 @test "ループの PR で base に一覧が無ければ落ちる" {
-    git -C "$REPO" rm -q scripts/evaluator-paths.txt
+    git -C "$REPO" rm -q scripts/guarded-paths.txt
     commit no-list
     NOLIST="$(git -C "$REPO" rev-parse HEAD)"
     put rules/other.md 'changed'
     commit change
     run guard harness/review-2026-10-04 "$NOLIST"
     assert_failure 2
-    assert_output --partial 'scripts/evaluator-paths.txt'
+    assert_output --partial 'scripts/guarded-paths.txt'
 }
 
 @test "ループの PR で base を解決できなければ落ちる" {
@@ -186,7 +186,7 @@ guard() {
     assert_success
 }
 
-@test "日本語を含む Evaluator のパスも捕まえる" {
+@test "日本語を含む Guarded Path も捕まえる" {
     put evaluator/失敗の類型.md 'changed'
     commit change
     run guard harness/review-2026-10-04 "$BASE"
@@ -194,7 +194,7 @@ guard() {
     assert_output --partial 'evaluator/失敗の類型.md'
 }
 
-@test "引用符やタブを含む Evaluator のパスも捕まえる" {
+@test "引用符やタブを含む Guarded Path も捕まえる" {
     put 'evaluator/a"b.md' 'changed'
     put $'evaluator/t\tab.md' 'changed'
     commit change
@@ -224,7 +224,7 @@ guard() {
         else
             [[ $tracked == "$entry" ]] || bad+=("$entry (追跡されたファイルではない。ディレクトリなら末尾に / を付ける)")
         fi
-    done <"$root/scripts/evaluator-paths.txt"
+    done <"$root/scripts/guarded-paths.txt"
     run printf '%s\n' "${bad[@]}"
     assert_output ''
 }

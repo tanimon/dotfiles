@@ -112,6 +112,10 @@ _Avoid_: 改善対象(無限定)、学習対象
 改善が効いたかを判定する仕組みと、その判定に使う基準と事例。失敗の検出と Failure Pattern への分類も含む。Improvement Surface の外に置き、自己改善ループとは別の経路でしか変更しない。
 _Avoid_: 評価(無限定)、doctor(稼働検査と混同する)
 
+**Guarded Path**:
+Improvement Surface の外にあり、自己改善ループの PR からは変更できないパス。Evaluator と改善ループ自身から成り、人の PR でだけ変更する。
+_Avoid_: Evaluator のパス(Evaluator は Guarded Path の一部にすぎない)、保護パス
+
 **Failure Pattern**:
 同じ根本原因から繰り返し起こりうる、エージェントの失敗の類型。個々の失敗事例ではなく類型で数え、harness 全体の健康度はその再発率で測る。
 _Avoid_: 失敗(無限定)、学び、エラー
