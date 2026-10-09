@@ -85,8 +85,8 @@ of caution are noise — deprecate aggressively; git history preserves them.
 
 1. Create a branch `harness/review-YYYY-MM-DD` off `main`.
    この名前は変えない。CI は prefix `harness/review-` で自己改善ループの PR を
-   見分け、`scripts/evaluator-paths.txt` のパスに触れた PR を落とす
-   (`scripts/check-evaluator-guard.sh`)。そのパスの変更が要るときは採用せず、
+   見分け、`scripts/guarded-paths.txt` のパスに触れた PR を落とす
+   (`scripts/check-guarded-paths.sh`)。そのパスの変更が要るときは採用せず、
    人が別の PR で行うものとして報告に書く。
 2. Apply all adopted changes (new rules in Japanese per
    `~/.claude/rules/common/documentation-language.md`, structured per
@@ -137,7 +137,7 @@ and say so. An empty review is a valid outcome.
    `bash ~/.claude/scripts/harness-rule-ledger.sh record --pr-url <PR の URL> --date <日付> --via manual --results ~/.claude/harness/eval-results-<日付>.json`
    (評価しなかったら `--results` は付けない)。記録の commit は、この PR がマージされた後に週次ジョブが PR を作るときに行うので、
    `docs/harness/rule-ledger/` には書かず、この PR にも入れない(ループの PR はその置き場の既存のファイルを
-   変えられない。`scripts/evaluator-paths.txt` の `+` の行)。週次ジョブでは、この手順はジョブが行う。
+   変えられない。`scripts/guarded-paths.txt` の `+` の行)。週次ジョブでは、この手順はジョブが行う。
 3. Update state (temp file + `mv`):
    `jq '.last_review_epoch = now | .last_review_epoch |= floor'` on
    `~/.claude/harness/state.json`.

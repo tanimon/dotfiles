@@ -22,8 +22,8 @@
 # ブランチ)は、EXIT trap の report_stops が GitHub Issue で知らせる。
 #
 # PR のブランチ名は `harness/review-<日付>`。CI はこの prefix で自己改善ループの PR を
-# 見分け、Evaluator のパス(scripts/evaluator-paths.txt)に触れた PR を落とす
-# (scripts/check-evaluator-guard.sh)。手動の /harness-review が使う名前も同じで、
+# 見分け、Guarded Path(scripts/guarded-paths.txt)に触れた PR を落とす
+# (scripts/check-guarded-paths.sh)。手動の /harness-review が使う名前も同じで、
 # harness-review スキルの「Implement and open ONE PR」節が指定する
 #
 # nono をこのスクリプトの中で掛けないのは、このファイルが nono の内側から書き換えられる
@@ -371,7 +371,7 @@ EVAL_PLUGIN_TEMPLATE="$HOME/.claude/scripts/harness-eval-plugin"
 EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
 EVAL_RESULTS="$HARNESS_DIR/eval-results-$REVIEW_DATE.json"
 EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
-# ループのブランチの prefix。正本は scripts/check-evaluator-guard.sh(CI はこの prefix でループの PR を見分ける)
+# ループのブランチの prefix。正本は scripts/check-guarded-paths.sh(CI はこの prefix でループの PR を見分ける)
 LOOP_BRANCH_PREFIX="harness/review-"
 BRANCH="${LOOP_BRANCH_PREFIX}${REVIEW_DATE}"
 # 選別に書かせる採用の記録。run ごとの印(選別の session id)を入れるのは、同じ日の前の run が

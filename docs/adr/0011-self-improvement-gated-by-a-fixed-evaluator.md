@@ -5,7 +5,7 @@ date: 2026-10-02
 
 # 自己改善ループの採否を Evaluator の数値で判定し、Evaluator を Improvement Surface の外に置く
 
-自己改善ループがルールを採用するには、ルールの無い側で失敗が再現する Eval Case を用意し、ルールの有無で結果を比べた効果を PR に添えることを原則とする。Eval Case を書けないルールは、理由を添えて免除できる。harness 全体の健康度は Failure Pattern の再発率で時系列に追い、ルール単位の評価は全体の悪化が見えたときと削除を判断するときに使う。Evaluator(失敗の検出器、Failure Pattern の分類器、判定の基準、Eval Case)は Improvement Surface に含めない。ループが作った PR が Evaluator のパスに触れたら CI で失敗させ、Evaluator は人が別の PR でしか変えない。
+自己改善ループがルールを採用するには、ルールの無い側で失敗が再現する Eval Case を用意し、ルールの有無で結果を比べた効果を PR に添えることを原則とする。Eval Case を書けないルールは、理由を添えて免除できる。harness 全体の健康度は Failure Pattern の再発率で時系列に追い、ルール単位の評価は全体の悪化が見えたときと削除を判断するときに使う。Evaluator(失敗の検出器、Failure Pattern の分類器、判定の基準、Eval Case)は Improvement Surface に含めない。ループが作った PR が Evaluator に触れたら CI で失敗させ、Evaluator は人が別の PR でしか変えない。
 
 これは、2026-07-06 の rebuild spec(`docs/superpowers/specs/2026-07-06-harness-engineering-rebuild-design.md`)の Decision 3(人間の PR レビューを唯一の品質ゲートにし、LLM の generator-evaluator 層を置かない)を改める決定である。人間の PR 承認は残し、自動マージはしない。ただし、承認の判断材料として数値評価を必須にする。理由は 3 つある。(1) 改善の効果を採用前にも採用後にも測っておらず、効かないルールを「効かない」という理由で削除できなかった。(2) 調べた外部の手法(ADAS、GEPA、DGM、Claude Code 公式の skill 評価)は、どれも実行して測った数値で採否を決めている。(3) DGM では、評価の改変を明示的に禁止していても、評価の仕組みを無効化して偽の成功を報告する改変が観測された。根拠は `docs/research/2026-10-02-recursive-self-improvement.md` に置く。
 
@@ -18,6 +18,6 @@ date: 2026-10-02
 ## Consequences
 
 - rebuild spec の設計原則 1「LLM を使うのは抽出(reflect)と選別(review)の 2 箇所だけ」は成り立たなくなる。Failure Pattern への分類と Eval Case の実行にも LLM を使う。ただし失敗の検出は、人の訂正と機械的な信号(ツールのエラー、hook の deny、同じ操作の繰り返し、CI の赤)だけで決定的に行い、LLM には分類だけを任せる。検出器の精度が新しい不確かさになるのを避けるためである。
-- 改善ループ自身(reflect / review / 週次ジョブ)も、当面は Improvement Surface に含めない。解禁は、全体の指標が 8 週以上連続して取れており、かつループの変更が指標を悪化させないことを Evaluator で確かめられる状態になってから改めて設計する。
+- 改善ループ自身(reflect / review / 週次ジョブ)も、当面は Improvement Surface に含めない。解禁は、全体の指標が 8 週以上連続して取れており、かつループの変更が指標を悪化させないことを Evaluator で確かめられる状態になってから改めて設計する。これもレビューに頼らず、Evaluator と同じガードで強制する。ループのファイルを Evaluator の一覧に載せると Evaluator の意味が広がってしまうため、両者を合わせて Guarded Path と呼び、一覧もその名前にする(#435)。守る単位はファイルで、ループが自分の手順を改善する PR も落ちる。これは含めないという決定の帰結として受け入れ、節単位で守る仕組みは作らない。何を載せ、何を載せずにレビューで確かめるかは、一覧(`scripts/guarded-paths.txt`)のコメントに書く。
 - 肥大を抑えるため、PR ごとに追加と削除の純増を表示し、ファイルごとのサイズ上限を CI で強制する。更新は全文の書き直しではなく差分に限る(ACE が報告した context collapse を避けるため)。
 - 採否の経緯は Rule Ledger として、仕事の文脈を含まない形で公開リポジトリに残す。記録するのは採用したルールだけで、Eval Case の目録を兼ねる。記録の置き場はループの PR にも追加だけを許し、既存の記録の変更・削除は CI で落とす(#406)。生の transcript と Eval Case の実体はローカル(`~/.claude/harness/evals/`)にだけ置くので、マシンを失えば事例も失う。これは受け入れる。
