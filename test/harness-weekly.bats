@@ -2103,6 +2103,22 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
+@test "選別の claude が Verdict の CLI を書き換えたら、PR を作らずに失敗する" {
+    seed_queue
+    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial 'Verdict CLI'
+    refute grep -q 'pr create' "$GH_LOG"
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
 @test "選別のプロンプトは Rule Ledger を書かせず、ジョブが記録することを伝える" {
     seed_queue
     run weekly

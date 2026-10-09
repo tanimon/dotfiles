@@ -443,6 +443,21 @@ make_worktree() {
     assert [ ! -e "$WT/docs/harness/rule-ledger" ]
 }
 
+@test "移行は括弧の無い採用の行も、書式を読めないものとして一覧に出す" {
+    entry '[2026-07-23] bare' 'adopted'
+    entry '[2026-07-23] note' 'adopted — 手で反映した'
+    entry '[2026-07-23] unclosed' 'adopted (PR https://github.com/example/dotfiles/pull/373'
+    entry '[2026-07-23] rejected' 'rejected'
+    run bash "$SCRIPT" migrate
+    assert_success
+    assert_line "$(printf 'skipped\t採用の記録の書式を読めない\t[2026-07-23] bare')"
+    assert_line "$(printf 'skipped\t採用の記録の書式を読めない\t[2026-07-23] note')"
+    assert_line "$(printf 'skipped\t採用の記録の書式を読めない\t[2026-07-23] unclosed')"
+    refute_output --partial 'rejected'
+    assert_output --partial 'skipped 3'
+    assert [ ! -d "$LEDGER" ] || [ -z "$(ls -A "$LEDGER")" ]
+}
+
 @test "移行は Eval Case を入れた後に作った PR の採用を移さず、record で記録するよう一覧に出す" {
     cat >"$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash

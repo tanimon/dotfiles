@@ -757,8 +757,8 @@ check_ledger_inputs() {
     local digests
     digests=$(ledger_input_digests) || return 1
     if [[ "$digests" != "$LEDGER_INPUT_DIGESTS" ]]; then
-        printf 'harness-weekly: the Rule Ledger records in %s or %s, or the Rule Ledger script %s, changed after the claude runs started (only this job and the manual review write the records; restore the script with chezmoi apply); no PR created. Before: [%s] After: [%s]\n' \
-            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
+        printf 'harness-weekly: the Rule Ledger records in %s or %s, or the Rule Ledger script %s or the Verdict CLI %s, changed after the claude runs started (only this job and the manual review write the records; restore the scripts with chezmoi apply); no PR created. Before: [%s] After: [%s]\n' \
+            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$VERDICT_CLI" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
         return 1
     fi
 }

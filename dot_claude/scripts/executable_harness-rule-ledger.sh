@@ -237,7 +237,9 @@ record_mode() {
 # 何度実行しても、既にある記録は上書きしない。移せないものは「skipped<TAB>理由<TAB>title」で出す
 migrate_mode() {
     local entries entry pr_url run title url pr created adopted dates="" record skipped=0 eval_json
-    entries=$(archive_entries | jq -c 'select(.kind == "adopted")') || fail "cannot read the verdicts in $ARCHIVE through $VERDICT_CLI"
+    # 括弧の無い adopted など、CLI が kind unknown とする採用の行も拾い、書式を読めないものとして skipped に出す
+    entries=$(archive_entries | jq -c 'select(.kind == "adopted" or (.kind == "unknown" and (.raw | startswith("adopted"))))') ||
+        fail "cannot read the verdicts in $ARCHIVE through $VERDICT_CLI"
     eval_json=$(jq -n -c --arg r "$MIGRATED_REASON" '{status: "exempt", reason: $r}')
     while IFS= read -r entry; do
         [[ -n "$entry" ]] || continue
