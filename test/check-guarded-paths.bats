@@ -32,7 +32,7 @@ guard() {
     (cd "$REPO" && bash "$SCRIPT" "$@")
 }
 
-@test "ループの PR が Evaluator のファイルに触れたら落ち、触れたパスを表示する" {
+@test "ループの PR が Guarded Path のファイルに触れたら落ち、触れたパスを表示する" {
     put evaluator/detector.sh 'echo changed'
     commit change
     run guard harness/review-2026-10-04 "$BASE"
@@ -40,7 +40,7 @@ guard() {
     assert_output --partial 'evaluator/detector.sh'
 }
 
-@test "一覧に完全一致で載ったファイルも Evaluator として扱う" {
+@test "一覧に完全一致で載ったファイルも Guarded Path として扱う" {
     put rules/fixed.md 'changed'
     commit change
     run guard harness/review-2026-10-04 "$BASE"
@@ -100,14 +100,14 @@ guard() {
     assert_success
 }
 
-@test "人の PR は Evaluator に触れても通る" {
+@test "人の PR は Guarded Path に触れても通る" {
     put evaluator/detector.sh 'echo changed'
     commit change
     run guard feature-x "$BASE"
     assert_success
 }
 
-@test "ループの PR でも Evaluator に触れなければ通る" {
+@test "ループの PR でも Guarded Path に触れなければ通る" {
     put rules/other.md 'changed'
     put rules/fixed.md.bak 'prefix は完全一致の行に効かない'
     commit change
@@ -125,7 +125,7 @@ guard() {
     assert_output --partial 'evaluator/detector.sh'
 }
 
-@test "ループの PR が Evaluator のファイルを外へ移しても、元のパスで落ちる" {
+@test "ループの PR が Guarded Path のファイルを外へ移しても、元のパスで落ちる" {
     git -C "$REPO" mv evaluator/detector.sh rules/detector.sh
     commit move
     run guard harness/review-2026-10-04 "$BASE"

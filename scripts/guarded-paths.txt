@@ -40,7 +40,10 @@ dot_claude/scripts/lib/harness-health.bash
 # CONTEXT.md のループの用語)。ループの PR がこれらを変えたら、レビューで、記述がこの一覧に載ったファイルの
 # 実際の振る舞いと食い違っていないか、ADR 0011・0012 の決定を言い換えて緩めていないかを確かめる。
 # settings.json.tmpl も載せない(ループが改善してよい hook と permissions を含む)。briefing と reflect トリガーの
-# 配線は、配線のテストを載せて守る
+# 配線は、配線のテストを載せて守る。.chezmoiignore も載せない(ループが正当に変えうる)。ただし配線のテストは
+# 配置を見ないので、ループの PR がここに載ったスクリプトを .chezmoiignore に足すと配置が止まり、hook は
+# `|| true` で黙って何もしなくなる。ループの PR が .chezmoiignore を変えたら、レビューでこの一覧のパスに
+# 当たらないかを確かめる
 dot_claude/scripts/executable_harness-reflect-trigger.sh
 dot_claude/scripts/executable_harness-briefing.sh
 dot_claude/scripts/executable_harness-doctor.sh
