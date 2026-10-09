@@ -167,6 +167,7 @@ nono 0.79.0 + Claude Code 2.1.295 で、2026-09-24 の追記 2 つの前提が�
 - **書き込みは nono 内でも永続する。** nono 内の `claude mcp add -s user` が `File modified: ~/.claude/.claude.json` と出し、sha が変わってエントリが残った(同じ手順で削除まで確認)。2026-09-24 の追記にある「再配置は目的を達していない」は 0.79.0 では成り立たない。
 - **`scripts/apm-install-global.sh` が実体を固定パスで持っていたため、何もしなくなっていた。** `~/.claude/claude.json` が無いので「leaving the topology alone」の分岐に入り、link を付けたまま apm を走らせていた。スクリプトは link の指す先(`readlink`)から実体を求める形に変えた。APM 0.33.0 のアダプタは `CLAUDE_CONFIG_DIR` を見るが、prune 側(`mcp_integrator.py` の `_clean_claude_config(Path.home() / ".claude.json", …)`)は固定パスで symlink を拒否するので、環境変数では回避できず、de-link は今も要る。
 - **`.chezmoiignore` は新しい実体を除外していなかった。** `.claude/.claude.json` を足した(偽ホームでの `chezmoi add --dry-run ~/.claude` で、除外行が無いと `dot_claude/dot_claude.json` として拾われ、あると `ignoring` になることを対比で確認)。
+- **2026-09-18 の追記の「2 パスはどちらも消せない」は、実体を `~/.claude/.claude.json` に読み替えて今も成り立つ。ただし実体側の理由は変わった。** nono 内の Claude Code は `CLAUDE_CONFIG_DIR` 経由で実体を直接読み書きするので、実体はそのものがデータになる(symlink の解決や `followAtomic` に頼る経路ではなくなった)。nono の外の Claude Code は `CLAUDE_CONFIG_DIR` を持たず、上の `Ut()` のとおり `~/.claude.json` しか見ないので、同じ実体へ届く経路は symlink だけになる。この 2 点はコードと nono 内の実測からの帰結で、nono の外での読み書きは実測していない。
 
 ## Related Issues
 
