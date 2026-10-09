@@ -129,8 +129,8 @@ _Avoid_: テストケース(bats と紛らわしい)、評価(無限定)
 _Avoid_: queue-archive(ローカルの作業記録と混同する)、履歴
 
 **Verdict**:
-選別が queue の項目に付ける判定で、adopted・rejected・handoff・merged のいずれか。判定の記録(queue-archive)に Markdown の 1 行として残り、書式を知っているのは harness-verdict.sh だけにする。
-_Avoid_: 採否(rejected 以外を取りこぼす)、判定(無限定)
+選別が queue の項目に下した結果。adopted(採用)・rejected(却下)・handoff(別リポジトリへ渡す)・merged(別の項目に統合)のどれか1つで、項目と一緒に queue から外れる。Dropped Change は Verdict を持たず、queue に残る。採用の Verdict は、その変更が PR になるまで PR と結びついていない。
+_Avoid_: 判定(Evaluator の判定と混同する)、採否
 
 **Dropped Change**:
 自己改善ループが採用したが、commit フックや lint を通せずに commit しなかった変更。失敗ではなく、queue に戻して次の選別にかけ直す。commit が1件も無く Dropped Change がある週だけを、ループの失敗として扱う(陳腐化の修正などの commit があれば PR を作り、Dropped Change はその本文に載せる)。

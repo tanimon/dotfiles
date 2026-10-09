@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verdict(選別が queue の項目に付ける判定)を扱う CLI(ADR 0017)。判定の記録(~/.claude/harness/queue-archive.md)の
+# Verdict(選別が queue の項目に下した結果。CONTEXT.md)を扱う CLI(ADR 0017)。判定の記録(~/.claude/harness/queue-archive.md)の
 # Verdict 行の書式を知っているのはこのスクリプトだけにし、Rule Ledger のスクリプトなどの読み手は子プロセスとして呼ぶ。
 #
 #   entries
