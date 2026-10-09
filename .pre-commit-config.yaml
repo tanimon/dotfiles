@@ -101,7 +101,7 @@ repos:
         name: test-settings-hooks
         entry: bash -c 'if command -v just &>/dev/null; then just test-settings-hooks; else echo "just not found, skipping"; fi' --
         language: system
-        files: '^(\.chezmoiignore|\.chezmoitemplates/orca-agent-hook|dot_claude/settings\.json\.tmpl|dot_claude/scripts/.*|test/settings-hooks\.bats|justfile)$'
+        files: '^(\.chezmoiignore|\.chezmoitemplates/orca-agent-hook|dot_claude/settings\.json\.tmpl|dot_claude/scripts/.*|test/(settings-hooks|harness-hook-wiring)\.bats|justfile)$'
         pass_filenames: false
         types: [file]
       # Not restricted to .md: a literal org path is most likely to land in a

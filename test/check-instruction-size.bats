@@ -346,3 +346,102 @@ check_rendered() {
     assert_failure 2
     assert_output --partial '同じパスの行が複数ある: render:tmpl/a.tmpl'
 }
+
+# skill の本文(SKILL.md)の既定値(skill:* の行)。行数もバイト数も * の値(3 / 20)と違う値にして、
+# どちらの既定値が当たったかを見分ける
+setup_skill() {
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40'
+}
+
+@test "SKILL.md には * ではなく skill:* の既定値が当たる" {
+    setup_skill
+    make_lines dot_claude/skills/a/SKILL.md 6
+    run check
+    assert_success
+    make_lines dot_claude/skills/a/SKILL.md 7
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md: 7 行(上限 6、+1 行)'
+}
+
+@test "SKILL.md のバイト数は skill:* の上限で判定する" {
+    setup_skill
+    put dot_claude/skills/a/SKILL.md '01234567890123456789012345678'
+    run check
+    assert_success
+    put dot_claude/skills/a/SKILL.md '012345678901234567890123456789012345678901234567890123456789'
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md: 61 バイト(上限 60、+1 バイト)'
+}
+
+@test "skill:* の行はルールと指示の判定を変えない" {
+    setup_skill
+    make_lines .claude/rules/a.md 4
+    run check
+    assert_failure 1
+    assert_output --partial '.claude/rules/a.md: 4 行(上限 3、+1 行)'
+}
+
+@test "SKILL.md があるのに skill:* の行が無ければ落ちる(* の既定値で測らない)" {
+    make_lines dot_claude/skills/a/SKILL.md 1
+    run check
+    assert_failure 2
+    assert_output --partial 'skill:*'
+}
+
+@test "SKILL.md の個別の上限は skill:* より優先される" {
+    setup_skill
+    make_lines dot_claude/skills/a/SKILL.md 8
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\ndot_claude/skills/a/SKILL.md 8 16'
+    run check
+    assert_success
+}
+
+@test "skill の補助ファイルは判定しない" {
+    setup_skill
+    make_lines dot_claude/skills/a/SKILL.md 1
+    make_lines dot_claude/skills/a/references/long.md 100
+    run check
+    assert_success
+}
+
+@test "skill:* の行が複数あれば落ちる" {
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nskill:* 600 6000'
+    run check
+    assert_failure 2
+    assert_output --partial '同じパスの行が複数ある: skill:*'
+}
+
+@test "skill:* の行数は - にできない" {
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* - 60\nCLAUDE.md 5 40'
+    run check
+    assert_failure 2
+    assert_output --partial 'skill:* - 60'
+}
+
+# 出荷する一覧の既定値で確かめる。個別の上限と render: の行は写さない(写すとそのパスが存在しないので exit 2)
+use_shipped_defaults() {
+    local defaults
+    defaults=$(grep -E '^(\*|skill:\*) ' "$BATS_TEST_DIRNAME/../scripts/instruction-size-limits.txt")
+    put scripts/instruction-size-limits.txt "$defaults"
+}
+
+@test "出荷する一覧: 500 行の SKILL.md は通り、501 行は落ちる" {
+    use_shipped_defaults
+    make_lines dot_claude/skills/a/SKILL.md 500
+    run check
+    assert_success
+    make_lines dot_claude/skills/a/SKILL.md 501
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md: 501 行(上限 500、+1 行)'
+}
+
+@test "出荷する一覧: 201 行のルールは引き続き落ちる" {
+    use_shipped_defaults
+    make_lines .claude/rules/a.md 201
+    run check
+    assert_failure 1
+    assert_output --partial '.claude/rules/a.md: 201 行(上限 200、+1 行)'
+}

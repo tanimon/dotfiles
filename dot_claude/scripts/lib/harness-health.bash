@@ -10,7 +10,7 @@
 # 黙って失われる(briefing なら黙ること自体が合図になる)。
 # heartbeat を書くのは週次ジョブで、書く側のファイル名と中身(epoch の数値)の知識はジョブにもある。
 # 一致は test/harness-weekly.bats が検査する。
-# 週次ジョブが読み込むので、この lib は Evaluator のパス(scripts/evaluator-paths.txt)に載せてある。
+# 週次ジョブが読み込むので、この lib は Guarded Path(scripts/guarded-paths.txt)に載せてある。
 #
 # Interface: harness_health_dir / harness_health_bootstrap / harness_health_weekly /
 # harness_health_heartbeat_epoch / harness_health_heartbeat_days / harness_health_missed_run_days /
@@ -137,7 +137,7 @@ harness_health_missed_run_days() {
 
 # 開いている PR の一覧(stdin。`gh pr list --json number,url,headRefName,createdAt` の配列)から、
 # ブランチ名が <prefix> で始まり、作られてから HARNESS_HEALTH_STALE_PR_DAYS 日以上経ったものを
-# `<番号>\t<URL>\t<経過日数>` で出す。prefix は引数で受ける(正本は scripts/check-evaluator-guard.sh)。
+# `<番号>\t<URL>\t<経過日数>` で出す。prefix は引数で受ける(正本は scripts/check-guarded-paths.sh)。
 # draft かどうかは見ない: draft を外したがマージもクローズもされていない PR も、承認が止まっている
 # 間はループの変更が効かない点で同じ放置だから(知らせる本文の対処は両方に合わせて書く)。
 # 一覧を読めなければ失敗を返す。

@@ -111,8 +111,8 @@ jobs:
   # setup-lint(head 側)より前に置くのは、PATH などを書き換えられる前に走らせるため。
   # base(HEAD^1)を解決できないとき(checkout の深さ不足など)も、base のガードを
   # 読めないときも、判定せずに通すことはせず失敗する。
-  evaluator-guard:
-    name: Evaluator guard
+  guarded-paths:
+    name: Guarded paths
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,16 +125,16 @@ jobs:
             echo "base (HEAD^1) を解決できないので判定できない" >&2
             exit 2
           fi
-          if ! git show 'HEAD^1:scripts/check-evaluator-guard.sh' >"$RUNNER_TEMP/check-evaluator-guard.sh"; then
-            echo "base のガード(scripts/check-evaluator-guard.sh)を読めないので判定できない" >&2
+          if ! git show 'HEAD^1:scripts/check-guarded-paths.sh' >"$RUNNER_TEMP/check-guarded-paths.sh"; then
+            echo "base のガード(scripts/check-guarded-paths.sh)を読めないので判定できない" >&2
             exit 2
           fi
-          bash "$RUNNER_TEMP/check-evaluator-guard.sh"
+          bash "$RUNNER_TEMP/check-guarded-paths.sh"
       - uses: ./.github/actions/setup-lint
-      - run: just check-evaluator-guard
+      - run: just check-guarded-paths
 
-  test-evaluator-guard:
-    name: Evaluator guard tests
+  test-guarded-paths:
+    name: Guarded paths tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,7 +143,7 @@ jobs:
       - uses: ./.github/actions/setup-lint
         with:
           pnpm: 'true'
-      - run: just test-evaluator-guard
+      - run: just test-guarded-paths
 
   rule-ledger:
     name: Rule Ledger format

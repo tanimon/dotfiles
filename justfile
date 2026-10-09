@@ -34,7 +34,7 @@ bats_jobs := `command -v parallel >/dev/null 2>&1 && echo "--jobs $(getconf _NPR
 # 依存レシピはどれもリポジトリに書き込まないので並列に走らせる。出力は混ざるが、失敗したレシピ名は just が最後に出す
 # Run all checks (mirrors CI)
 [parallel]
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-evaluator-guard test-evaluator-guard check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -209,20 +209,20 @@ check-templates:
     LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-health.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats test/harness-classify-failures.bats test/harness-failure-rates.bats test/harness-eval-cases.bats test/harness-rule-ledger.bats
 
 # 人の PR とローカルの通常のブランチでは何も判定せずに通る。CI の base は merge commit の第 1 親。
-# 自己改善ループの PR(ブランチ名 harness/review-*)が Evaluator のパスに触れていたら落とす
-@check-evaluator-guard:
-    bash scripts/check-evaluator-guard.sh
+# 自己改善ループの PR(ブランチ名 harness/review-*)が Guarded Path に触れていたら落とす
+@check-guarded-paths:
+    bash scripts/check-guarded-paths.sh
 
 # LC_ALL=C は bats-core のロケールのバグを避けるため(@test 名が日本語)。
-# check-evaluator-guard.sh のテスト
-@test-evaluator-guard:
-    LC_ALL=C pnpm exec bats test/check-evaluator-guard.bats
+# check-guarded-paths.sh のテスト
+@test-guarded-paths:
+    LC_ALL=C pnpm exec bats test/check-guarded-paths.bats
 
 # Rule Ledger(docs/harness/rule-ledger/)の記録の形を検査する(形の正本は harness-rule-ledger.sh)
 @check-rule-ledger:
     bash dot_claude/scripts/executable_harness-rule-ledger.sh check docs/harness/rule-ledger
 
-# ルールと指示のファイルごとのサイズ上限(上限と根拠は scripts/instruction-size-limits.txt)
+# ルールと指示のファイルと skill の本文(SKILL.md)のファイルごとのサイズ上限(上限と根拠は scripts/instruction-size-limits.txt)
 @check-instruction-size:
     bash scripts/check-instruction-size.sh
 
@@ -259,9 +259,9 @@ check-templates:
     LC_ALL=C pnpm exec bats test/global-instructions.bats
 
 # Needs chezmoi — fails (not skips) without it, for the same reason as above.
-# Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca)
+# Contract test for the hook wiring in the rendered ~/.claude/settings.json (guards, script paths, deny fallback, orca)。改善ループの入口(briefing / reflect トリガー)の配線も見る
 @test-settings-hooks:
-    LC_ALL=C pnpm exec bats test/settings-hooks.bats
+    LC_ALL=C pnpm exec bats test/settings-hooks.bats test/harness-hook-wiring.bats
 
 # Needs chezmoi — fails (not skips) without it, for the same reason as test-settings-hooks.
 # Contract test for the startup promises every PreToolUse guard keeps (lib / jq / stdin / HOME failures), plus the guard list vs. the rendered wiring
