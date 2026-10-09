@@ -23,8 +23,8 @@
 #
 # PR のブランチ名は `harness/review-<日付>`。CI はこの prefix で自己改善ループの PR を
 # 見分け、Guarded Path(scripts/guarded-paths.txt)に触れた PR を落とす
-# (scripts/check-guarded-paths.sh)。手動の /harness-review が使う名前も同じで、
-# harness-review スキルの「Implement and open ONE PR」節が指定する
+# (scripts/check-guarded-paths.sh)。手動の /harness-review も同じ prefix の
+# `harness/review-<日付>-manual` を使う(harness-review スキルの冒頭の節が指定する)
 #
 # nono をこのスクリプトの中で掛けないのは、このファイルが nono の内側から書き換えられる
 # (~/.claude は claude-seal で read+write)ため。境界の外で無人実行されるのは、

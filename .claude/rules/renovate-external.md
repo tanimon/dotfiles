@@ -34,13 +34,13 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 ## Existing Entries
 
-See `.chezmoiexternal.toml` for current entries: ECC(affaan-m/ECC)から選んだファイル(`ecc-code-review` コマンド・agent 4 つ・rules/typescript・rules/web)。ECC の 4 エントリは同じ SHA を指す。openai/skills の `define-goal` を `~/.claude/skills/` と `~/.codex/skills/` の 2 エントリで取り込んでおり、この 2 つも同じ SHA を指す。github/gh-stack の `gh-stack` skill も同じく `~/.claude/skills/` と `~/.codex/skills/` の 2 エントリ(同じ SHA)で取り込み、前提の `gh stack` 拡張は `dot_config/gh/extensions.txt` で入れる。ECC を plugin として丸ごと有効化しない理由は `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`。rules/typescript・rules/web は `include` にファイルを列挙しているので、upstream の追加・改名には追随しない(改名されると古いファイルが管理外のまま残り、読み込まれ続ける)。ECC の SHA を上げる PR では、`rules/{typescript,web}/` のファイル一覧が変わっていないかを確認する。gstack skills は 2026-09-24 に撤去した(利用実態が WebFetch に寄っていたため。残骸は `.chezmoiremove` で消す)。
+See `.chezmoiexternal.toml` for current entries: ECC(affaan-m/ECC)から選んだファイル(`ecc-code-review` コマンド・agent 4 つ・rules/typescript・rules/web)。ECC の 4 エントリは同じ SHA を指す。openai/skills の `define-goal` を `~/.claude/skills/` と `~/.codex/skills/` の 2 エントリで取り込んでおり、この 2 つも同じ SHA を指す。github/gh-stack の `gh-stack` skill も同じく `~/.claude/skills/` と `~/.codex/skills/` の 2 エントリ(同じ SHA)で取り込み、前提の `gh stack` 拡張は `dot_config/gh/extensions.txt` で入れる。ECC を plugin として丸ごと有効化しない理由は `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`。rules/typescript・rules/web は `include` にファイルを列挙しているので、upstream の追加・改名には追随しない(改名されると古いファイルが管理外のまま残り、読み込まれ続ける)。ECC の SHA を上げる PR では、`rules/{typescript,web}/` のファイル一覧が変わっていないかを確認する。
 
 ## ここに入れないもの — 配布元がパスを所有する外部スキル
 
 `.chezmoiexternal.toml` が使えるのは、**展開先を chezmoi が単独で所有する**外部リソースだけ。専用インストーラと更新機構を持つツールのスキルは対象外で、そのツールの方式に従う。
 
-**Orca（`stablyai/orca` の `skills/*`。2026-09-18 に判断）:** `npx skills add https://github.com/stablyai/orca --skill <name> --global`（headless なら `orca skills install --skill <name>`）を使う。理由は 2 つ:
+**Orca（`stablyai/orca` の `skills/*`）:** `npx skills add https://github.com/stablyai/orca --skill <name> --global`（headless なら `orca skills install --skill <name>`）を使う。理由は 2 つ:
 
 - **バージョン一致が壊れる。** 公開されている `SKILL.md` は 3.5KB の discovery stub で、実体のガイドは `orca skills get <name>` がインストール済み Orca バイナリのバージョンに合わせて返す。stub をバイナリと無関係に Renovate で SHA 更新すると、この設計が意図的に避けているドリフトを自分で作ることになる。
 - **所有権が衝突する。** Orca は正本を `~/.agents/skills/<name>/` に置き、`~/.claude/skills/<name>` から相対 symlink を張り、install receipt で更新・削除・ドリフトを追跡する。Orca のドキュメントは "Orca never replaces a path it does not own" と明記しており、chezmoi が置いたファイルはアプリ内アップデータから永久に Skipped / Needs attention 扱いになる（`stablyai/orca` の `docs/reference/agent-skill-provider-paths.md`）。

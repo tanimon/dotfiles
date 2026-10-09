@@ -28,9 +28,9 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 - Always include `set -e` at the top
 - Never use OS guards (`{{ if eq .chezmoi.os "darwin" }}`) that wrap the entire script — on non-matching OS the script outputs nothing and chezmoi deletes the target
 - Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`
-- For new-machine bootstrap (empty stdin), output initial data from a `.data` file
+- For new-machine bootstrap (empty stdin), seed a minimal valid document inside the script before merging (see the `Bootstrap` block in `dot_config/karabiner/modify_karabiner.json`); never emit empty output
 - See `dot_config/karabiner/modify_karabiner.json` for a well-documented example of partial JSON management
-- Never target a path that may be a symlink managed outside this repo (e.g. `~/.claude.json`, observed symlinked to `~/.claude/claude.json` since at least 2026-07-25 — verify current topology before relying on it, it has changed before; その symlink を張っているのは nono で、`nono run --profile claude-seal` のたびに復活する。2026-09-24 に nono バイナリの文字列で確定) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` **both** the symlink and the real file (前者だけでは一括 add が実体を拾う)。
+- Never target a path that may be a symlink managed outside this repo (e.g. `~/.claude.json`, which nono re-links to `~/.claude/claude.json` on every `nono run --profile claude-seal`; the topology has changed before, so check it with `ls -la` before relying on it) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` **both** the symlink and the real file (前者だけでは一括 add が実体を拾う)。
 
 ## Template Syntax
 

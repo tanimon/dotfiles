@@ -18,7 +18,7 @@ gh pr view <引数> --json number,url,title,state,baseRefName,headRefName,commit
 
 以降のコマンドの `<PR>` には、ここで得た `url` を使う。番号を渡すと `gh` は現在のディレクトリのリポジトリで PR を探すので、別のリポジトリの URL で起動したときに別の PR を読み書きしてしまう。以降の `<owner>` / `<repo>` / `<number>` も、この `url`(`https://github.com/<owner>/<repo>/pull/<number>`)から取る。
 
-編集前の本文をファイルに保存する。置き場所は `git rev-parse --absolute-git-dir` を単独で実行した出力に `/pr-body-review/<owner>-<repo>-<number>` を足したディレクトリ(以降 `<dir>`)。git リポジトリの外で起動して `git rev-parse` が失敗したときは、セッションの scratchpad ディレクトリの下に `pr-body-review/<owner>-<repo>-<number>` を作って `<dir>` にする。PR ごとに分けるのは、同じ worktree の別のセッションが別の PR を見直したときに、互いの `original.md` / `edited.md` を上書きしないため。
+編集前の本文をファイルに保存する。置き場所は `git rev-parse --absolute-git-dir` を単独で実行した出力に `/pr-body-review/<owner>-<repo>-<number>` を足したディレクトリ(以降 `<dir>`)。git リポジトリの外で起動して `git rev-parse` が失敗したとき、または sandbox が `.git` の下への書き込みを拒んで `mkdir -p <dir>` が失敗したときは、セッションの scratchpad ディレクトリの下に `pr-body-review/<owner>-<repo>-<number>` を作って `<dir>` にする。PR ごとに分けるのは、同じ worktree の別のセッションが別の PR を見直したときに、互いの `original.md` / `edited.md` を上書きしないため。
 
 ```bash
 mkdir -p <dir>

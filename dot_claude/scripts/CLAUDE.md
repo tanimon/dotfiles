@@ -1,7 +1,9 @@
 # Claude Code Hook Scripts
 
-Guidance for `dot_claude/scripts/`, narrowly scoped to this directory's hooks (notification
-delivery, worktree seeding) so it only needs to load when working here. See
+Guidance for `dot_claude/scripts/`: the hook scripts (notification delivery, worktree
+seeding, the PreToolUse command guards and their shared shell reader, the secretlint guard)
+and a pointer for the weekly harness job, scoped to this directory so it only needs to load
+when working here. See
 `.claude/rules/shell-scripts.md` for general hook-script conventions.
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` is wired to
@@ -17,7 +19,7 @@ prose in `message`; the message regex survives only as a fallback for a Claude C
 the field, and matches `approv` (not `approve`) because the product's literal is "needs your
 approval for …". Both notify entries set `"timeout": 5` so a hanging delivery backend
 (`terminal-notifier` produces no output for 120s under a Seatbelt sandbox, which the
-safehouse-wrapped `claude` imposes on hooks) degrades fast instead of holding the hook slot
+nono-wrapped `claude` imposes on hooks) degrades fast instead of holding the hook slot
 for the 60s default. The script exits silently
 when `ORCA_PANE_KEY`, `ORCA_AGENT_HOOK_PORT`, and `ORCA_AGENT_HOOK_TOKEN` are all set —
 that is the exact condition under which `~/.orca/agent-hooks/claude-hook.sh` forwards the
@@ -111,11 +113,10 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 
 実装上の要点:
 
-- **読み取り(セグメント分割・引用符の解釈・区切りの正規化)は共有 reader に移した。** 旧版の
-  「セグメント分割」「分割の前に正規化が要る」「トークンの引用符は1層だけ剥がす」の3項は、
-  `dot_claude/scripts/lib/shell-reader.bash` の性質になった(テストは `test/shell-reader.bats`、
-  概要は下の「shell command reader」節)。引用符の中の区切り(`git commit -m "a; b"`)で
-  誤って `deny` する問題も、引用符を解釈する reader に載せたことで消えた。
+- **読み取り(セグメント分割・引用符の解釈・区切りの正規化)は共有 reader が行う**
+  (`dot_claude/scripts/lib/shell-reader.bash`、テストは `test/shell-reader.bats`、概要は下の
+  「shell command reader」節)。引用符の中の区切り(`git commit -m "a; b"`)で `deny` しないのは、
+  reader が引用符を解釈するため。
 - **`$`/バッククォートの検査は push セグメントに限定する。** コマンド全体に広げると
   `git commit -m "$(date)" && git push origin x` まで `ask` になり、承認疲れの解消という目的を
   自分で潰す。一方 `F=--force; git push $F` は push セグメント側に `$` が出るので捕まる。
@@ -145,7 +146,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `$(which git) push …` は reader が `)` で segment を切り、push の segment が `push` そのものか git の
   全体オプション・リダイレクト(`-C . push …`、`2>/dev/null push …`)から始まるので、その segment が
   引用符の外の `$(`(`$` で終わる token の直後の区切り)より後ろにあり、先頭がそれらのときも `ask` に
-  する(共有 reader に載せ替える前は `()` を空白に置き換えていたので `ask` だった)。コマンド全体の `$` では
+  する。コマンド全体の `$` では
   なく `$(` の位置で絞るのは、heredoc 本文の行頭の `push` と別の行の `$HOME` を組み合わせないため。
 - **zsh の綴りも読む。** Bash ツールは利用者のシェル(このマシンでは zsh)で動くので、`=git`(EQUALS。
   PATH 上の git に展開される)の語頭の `=` を外して binary を読み、`=(…)`(zsh のプロセス置換)を
@@ -292,17 +293,15 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 
 **curl localhost guard hook** — `dot_claude/scripts/executable_curl-localhost-guard.sh` も
 `PreToolUse`(`matcher: "Bash"`)で走る。**git-push-guard と同じ向き**(`allow` を返さず、フックが
-`ask` / 無出力で判定する)にそろえてある。2026-09-30 までは `Bash(curl:*)` を `permissions.ask` に
-残したままフックが `allow` で緩める逆向きの構成だったが、Claude Code 2.1.285 ではフックの `allow` が
-マッチする ask ルールに**負ける**ことを実測したため反転した(測定は `docs/adr/0008-…`(deprecated)、
+`ask` / 無出力で判定する)にそろえてある。`allow` を返さないのは、Claude Code 2.1.285 ではフックの `allow` が
+マッチする ask ルールに**負ける**ため(測定は `docs/adr/0008-…`(deprecated)、
 決定は `docs/adr/0009-command-guard-hooks-gate-without-allow.md`)。フックの `deny` / `ask` は
 default / auto の両 mode で効く。
 
 現在の構成: `Bash(curl:*)` は `permissions.ask` に**置かない**。フックが curl を実行しうる token を
 含むコマンドのうち、宛先がすべてループバックと読み切れないものに `ask` を返し、ループバック宛だけを
 無出力(= `defaultMode: auto` のクラシファイア判定)に落とす。未配置・クラッシュでは
-無出力になり、curl の確認が**外れる**(フェイルオープン)ことに注意 — 旧構成の「フェイルクローズ」は
-ask ルールが土台だったから成り立っていた。`jq` が無いとき・stdin が JSON でないときは生の入力に `curl` があれば `ask`、
+無出力になり、curl の確認が**外れる**(フェイルオープン)ことに注意 — 下に ask ルールの床は無い。`jq` が無いとき・stdin が JSON でないときは生の入力に `curl` があれば `ask`、
 lib が読めない・壊れているときも `ask` を返す(正本は `test/guard-contract.bats`)。
 
 存在理由は `permissions` のプレフィックス照合の限界で、これも git push と同じ形: URL はフラグの
@@ -538,6 +537,6 @@ Source 上の配線は git-push-guard と同じく `just test-settings-hooks`(`t
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
 - **読み込みに失敗したとき**の扱いは各フックの起動部が持つ(git-push-guard と curl-localhost-guard はどの経路でも `ask`、ticket-guard は設計上フェイルオープンで無出力。どちらも `test/guard-contract.bats`)。
 
-**secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在せず、それを読んでいた旧インライン版は 2026-03-06 の導入以来一度も発火していなかった(2026-09-25 の prompt-audit で判明。同時に旧 format フックは削除。変数だけ直して戻すと全プロジェクトの .ts 編集ごとに `pnpm lint:fix` が走り、script の無いリポジトリでは失敗するので、戻すなら外部スクリプト + `pnpm run --if-present` ガード + bats テストにする)。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
+**secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在しない。保存時に format する PostToolUse フックは置いていない: インラインで `pnpm lint:fix` を呼ぶと全プロジェクトの .ts 編集ごとに走り、script の無いリポジトリでは失敗するので、置くなら外部スクリプト + `pnpm run --if-present` ガード + bats テストにする。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
 
 **Weekly harness job** — 週次ジョブ(`dot_claude/scripts/executable_harness-weekly.sh`)の記述は `.claude/rules/harness-weekly.md` にある。健全性の判定の正本は `lib/harness-health.bash`(briefing と doctor は表示だけ)。
