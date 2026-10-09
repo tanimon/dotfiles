@@ -107,7 +107,9 @@ it, letting the next `chezmoi apply` clean it up.
 
 Always edit the **source** file, never the target — edits to the target are
 erased on the next apply and are not version-controlled. Find the source with
-`chezmoi source-path`.
+`chezmoi source-path`. That is the checkout `chezmoi apply` deploys from, and
+adopted drift is edited there — not in a separate feature worktree, even if the
+dotfiles repo is otherwise worked on in one. Committing it is the user's call.
 
 **Regular file, adopt the whole file:** let chezmoi do it — it is exact and
 preserves file attributes:

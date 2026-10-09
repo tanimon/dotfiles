@@ -17,9 +17,13 @@ description: |
 行う)。ここを変えると両方の経路が変わる。節は見出しで参照されているので、見出しを
 変えるときはジョブのプロンプトも直す。
 
-Operate on the chezmoi source repo: `cd "$(chezmoi source-path)"` (fallback:
-`~/.local/share/chezmoi`). All rule/doc changes are made there, never on
-deployed files under `~/`.
+When run by hand, operate in a linked worktree of the chezmoi source repo, never
+in `~/.local/share/chezmoi` itself (that worktree stays on `main` because
+`chezmoi apply` deploys from it): `git -C "$(chezmoi source-path)" fetch origin main`,
+then `git -C "$(chezmoi source-path)" worktree add --no-track -b harness/review-YYYY-MM-DD <path> origin/main`
+(`--no-track` because the sandbox cannot write `.git/config`), and work in `<path>`.
+The weekly job has already prepared its worktree and branch, so it skips this.
+All rule/doc changes are made in the worktree, never on deployed files under `~/`.
 
 ## Step 1: Liveness check
 
@@ -83,7 +87,7 @@ of caution are noise — deprecate aggressively; git history preserves them.
 
 ## Step 5: Implement and open ONE PR
 
-1. Create a branch `harness/review-YYYY-MM-DD` off `main`.
+1. Work on the branch created above (`harness/review-YYYY-MM-DD`).
    この名前は変えない。CI は prefix `harness/review-` で自己改善ループの PR を
    見分け、`scripts/evaluator-paths.txt` のパスに触れた PR を落とす
    (`scripts/check-evaluator-guard.sh`)。そのパスの変更が要るときは採用せず、
