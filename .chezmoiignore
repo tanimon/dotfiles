@@ -31,13 +31,15 @@ windows/
 # run_onchange_after_pull-nono-packs.sh.tmpl, not managed by chezmoi)
 .config/nono/packages
 
-# ~/.claude.json は nono が ~/.claude/claude.json への symlink にする(起動のたびに張り直す)。
+# ~/.claude.json は nono が実体への symlink にする(起動のたびに張り直す)。実体は nono 0.79.0 で
+# ~/.claude/.claude.json、0.72.0 では ~/.claude/claude.json。旧実体の除外は残骸の一括 add を防ぐために残す。
 # chezmoi はどちらにも触れてはいけない。symlink だけを除外すると、`chezmoi add ~/.claude`
 # のような一括 add が 0600 の実ファイル(OAuth 資格情報・アカウント状態)を拾うので、
 # トポロジがどちらでも両方除外する。一次証拠は dot_apm/CLAUDE.md の
 # 「`~/.claude.json` symlink と APM」節。
 .claude.json
 .claude/claude.json
+.claude/.claude.json
 
 # ~/.claude/ auto-managed (safeguard against accidental bulk add)
 .claude/projects

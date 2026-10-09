@@ -159,6 +159,16 @@ APM 0.30.0 が symlink 越しの prune を拒否するようになったため�
 
 ガードは `[ ! -e ~/.claude/claude.json ]` の 1 行で、`scripts/apm-install-global.sh` に入れてあり `test/apm-install-global.bats` の "real path reappears during the window" が回帰テストとして押さえている。宛先が再出現していたら **マージを試みず中断する** — `~/.claude.json` は通常ファイルのまま残り、nono 外の Claude Code はそのまま読めるし、次の nono 起動が張り直す。絶対に作ってはいけないのは「両方が通常ファイル」の状態。
 
+## 追記 (2026-10-09) — nono 0.79.0 で実体の名前が変わり、書き込みも永続するようになった
+
+nono 0.79.0 + Claude Code 2.1.295 で、2026-09-24 の追記 2 つの前提が変わった。
+
+- **link 先は `~/.claude/.claude.json`(先頭がドット)。** 0.79.0 は子プロセスに `CLAUDE_CONFIG_DIR=$HOME/.claude` を渡すので(`nono run … -- /usr/bin/env` で実測)、Claude Code はグローバル設定を `$CLAUDE_CONFIG_DIR/.claude.json` として扱う。バイナリから `Failed to move ~/.claude.json to ~/.claude/claude.json:` が消え、代わりに `Cannot create Claude compatibility symlink:` がある。`~/.claude/claude.json` は存在しない。
+- **書き込みは nono 内でも永続する。** nono 内の `claude mcp add -s user` が `File modified: ~/.claude/.claude.json` と出し、sha が変わってエントリが残った(同じ手順で削除まで確認)。2026-09-24 の追記にある「再配置は目的を達していない」は 0.79.0 では成り立たない。
+- **`scripts/apm-install-global.sh` が実体を固定パスで持っていたため、何もしなくなっていた。** `~/.claude/claude.json` が無いので「leaving the topology alone」の分岐に入り、link を付けたまま apm を走らせていた。スクリプトは link の指す先(`readlink`)から実体を求める形に変えた。APM 0.33.0 のアダプタは `CLAUDE_CONFIG_DIR` を見るが、prune 側(`mcp_integrator.py` の `_clean_claude_config(Path.home() / ".claude.json", …)`)は固定パスで symlink を拒否するので、環境変数では回避できず、de-link は今も要る。
+- **`.chezmoiignore` は新しい実体を除外していなかった。** `.claude/.claude.json` を足した(偽ホームでの `chezmoi add --dry-run ~/.claude` で、除外行が無いと `dot_claude/dot_claude.json` として拾われ、あると `ignoring` になることを対比で確認)。
+- **2026-09-18 の追記の「2 パスはどちらも消せない」は、実体を `~/.claude/.claude.json` に読み替えて今も成り立つ。ただし実体側の理由は変わった。** nono 内の Claude Code は `CLAUDE_CONFIG_DIR` 経由で実体を直接読み書きするので、実体はそのものがデータになる(symlink の解決や `followAtomic` に頼る経路ではなくなった)。nono の外の Claude Code は `CLAUDE_CONFIG_DIR` を持たず、上の `Ut()` のとおり `~/.claude.json` しか見ないので、同じ実体へ届く経路は symlink だけになる。この 2 点はコードと nono 内の実測からの帰結で、nono の外での読み書きは実測していない。
+
 ## Related Issues
 
 - [`chezmoi-apply-overwrites-runtime-plugin-changes.md`](chezmoi-apply-overwrites-runtime-plugin-changes.md) — the canonical Gotchas-table doc for `modify_` script failure modes against this same file/script family. Its table does not yet cover this write-side symlink-loss case (only read-side stdin corruption/races); a future refresh should add a row for it. That doc's own "Related" section links to `/modify_dot_claude.json`, which is now a stale path — the script lives at `dot_claude/modify_claude.json` as of this fix.

@@ -625,6 +625,8 @@ granted readwrite recursively. This was **not** tested here — it mutates confi
 >    更新される = temp と rename が **`~/.claude/` 側**で起きている。`~/.claude/` は nono pack が
 >    recursive に readwrite 許可するので、この挙動が nono 下でも成り立つなら本節の EPERM は
 >    解消しているはず。**nono 内では未実測** — 再測定すべき open item。
+>
+> **追記 (2026-10-09)** — nono 0.79.0 は自分で `CLAUDE_CONFIG_DIR=$HOME/.claude` を渡し、既存の実体を `~/.claude/.claude.json` へ移したうえで link を張るので、上の「新規ファイルが生まれるだけ」は当たらなくなり、書き込みは nono 内でも永続する(実測)。詳細は [chezmoi-modify-script-symlink-target.md](chezmoi-modify-script-symlink-target.md) の 2026-10-09 の追記。
 
 ### `statsig.anthropic.com` — blocked, no observed consequence
 
@@ -765,3 +767,5 @@ usage bars appear in both, so they are a pre-existing baseline rather than a san
 | 9 | WebFetch / WebSearch | Same — these are in-session tools, not CLI entry points | Exercise both in an interactive session; WebSearch is expected to work via `api.anthropic.com`, WebFetch will be bounded by `allow_domain` |
 | 2 | `git push` (any transport) | Out of scope by instruction; never attempted | Push from a throwaway clone. Everything it depends on — the HTTPS rewrite, the `gh` credential helper, and object/ref writes — is verified, so this is expected to work |
 | — | ~~`CLAUDE_CONFIG_DIR` as a fix for the `.claude.json.tmp` gap~~ **却下 (2026-09-18)** | バンドル実測で否定。設定パス解決は `join(CLAUDE_CONFIG_DIR \|\| homedir(), ".claude.json")` なので `~/.claude` を指定すると `~/.claude/.claude.json`(ドット付き)という**新規の空ファイル**になり、既存設定から切り離される | — (閉じた。詳細は上の「`~/.claude.json` config persistence」節の追記) |
+
+> **追記 (2026-10-09)** — 「Not verified in this pass」表の `CLAUDE_CONFIG_DIR` の行は、nono 0.79.0 自身がこの方式で解決した(「`~/.claude.json` config persistence」節の 2026-10-09 の追記を参照)。
