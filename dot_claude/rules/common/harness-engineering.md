@@ -57,9 +57,11 @@ Bad rules:
 - A warning that stays for weeks is itself a harness bug: queue it.
 - Diagnostics: `bash ~/.claude/scripts/harness-doctor.sh`.
 - All monitoring is deterministic shell. LLM judgment runs inside /harness-reflect
-  and /harness-review — interactively, or unattended in the weekly launchd job,
-  which reports its own failures (missing heartbeat, GitHub Issue) instead of
-  relying on a human watching the session.
+  and /harness-review — interactively, or unattended in the weekly launchd job —
+  and, outside those skills, in the weekly job's failure classifier
+  (`harness-classify-failures.sh`) and Eval Case runs. The unattended runs report
+  their own failures (missing heartbeat, GitHub Issue) instead of relying on a
+  human watching the session.
 
 ## Anti-Patterns
 

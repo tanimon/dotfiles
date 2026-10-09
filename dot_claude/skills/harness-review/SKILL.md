@@ -19,9 +19,24 @@ description: |
 
 When run by hand, operate in a linked worktree of the chezmoi source repo, never
 in `~/.local/share/chezmoi` itself (that worktree stays on `main` because
-`chezmoi apply` deploys from it): `git -C "$(chezmoi source-path)" fetch origin main`,
-then `git -C "$(chezmoi source-path)" worktree add --no-track -b harness/review-YYYY-MM-DD <path> origin/main`
-(`--no-track` because the sandbox cannot write `.git/config`), and work in `<path>`.
+`chezmoi apply` deploys from it). Inside nono the original checkout's `.git/`
+is writable only under `objects`/`refs`/`logs`/`worktrees`, so `.git/config` and
+`.git/FETCH_HEAD` cannot be written there; fetch inside the new worktree instead,
+in the same order as the weekly job's `prepare_worktree`:
+
+```sh
+WT=~/.claude/harness/manual-review-worktree   # writable inside nono; not the weekly job's review-worktree
+git -C "$(chezmoi source-path)" worktree add --detach "$WT" HEAD
+git -C "$WT" fetch origin main
+git -C "$WT" switch --no-track -c harness/review-YYYY-MM-DD-manual FETCH_HEAD
+```
+
+The `-manual` suffix keeps the branch from colliding with the weekly job's
+`harness/review-YYYY-MM-DD` on a Saturday; the `harness/review-` prefix stays
+because CI identifies loop PRs by it. If `$WT` or the branch is left over from an
+earlier run, remove them (`git -C "$(chezmoi source-path)" worktree remove --force "$WT"`,
+then `git -C "$(chezmoi source-path)" branch -D <branch>` once its PR exists or it is
+abandoned) before starting. Work in `$WT`.
 The weekly job has already prepared its worktree and branch, so it skips this.
 All rule/doc changes are made in the worktree, never on deployed files under `~/`.
 
@@ -87,8 +102,9 @@ of caution are noise — deprecate aggressively; git history preserves them.
 
 ## Step 5: Implement and open ONE PR
 
-1. Work on the branch created above (`harness/review-YYYY-MM-DD`).
-   この名前は変えない。CI は prefix `harness/review-` で自己改善ループの PR を
+1. Work on the branch created above (`harness/review-YYYY-MM-DD`, or
+   `harness/review-YYYY-MM-DD-manual` when run by hand).
+   prefix は変えない。CI は prefix `harness/review-` で自己改善ループの PR を
    見分け、`scripts/evaluator-paths.txt` のパスに触れた PR を落とす
    (`scripts/check-evaluator-guard.sh`)。そのパスの変更が要るときは採用せず、
    人が別の PR で行うものとして報告に書く。

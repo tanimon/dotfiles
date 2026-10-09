@@ -136,7 +136,7 @@ classify() {
     add_session err1 tool-error
     STUB_CLASSIFY=text_only run classify
     assert_failure
-    assert_output --partial 'invalid'
+    assert_output --partial 'no structured_output'
     assert [ ! -s "$RECORDS" ]
 }
 

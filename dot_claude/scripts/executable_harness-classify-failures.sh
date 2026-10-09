@@ -193,6 +193,8 @@ result=$(claude -p \
 if [[ "$status" -ne 0 ]] || ! jq -e '.is_error == false' >/dev/null 2>&1 <<<"$result"; then
     fail "claude failed (exit $status) or reported an error; nothing recorded"
 fi
+jq -e '.structured_output | type == "object"' >/dev/null 2>&1 <<<"$result" ||
+    fail "claude returned no structured_output (the CLI ignored --json-schema); nothing recorded"
 answer=$(jq -c '.structured_output.classifications' <<<"$result")
 jq -e --argjson ids "$ids" --argjson allowed "$ALLOWED" '
     type == "array"
