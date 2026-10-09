@@ -204,9 +204,9 @@ check-templates:
 
 # LC_ALL=C for the same bats-core locale bug as test-scripts: the weekly-job
 # tests in briefing / doctor / weekly have Japanese @test names.
-# Smoke test harness loop scripts (reflect-trigger, health lib, briefing, doctor, weekly job, failure detector, pending selection, failure classifier, failure rates, eval cases, rule ledger)
+# Smoke test harness loop scripts (reflect-trigger, health lib, briefing, doctor, weekly job, failure detector, pending selection, failure classifier, failure rates, eval cases, rule ledger, verdict CLI)
 @test-harness-scripts:
-    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-health.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats test/harness-classify-failures.bats test/harness-failure-rates.bats test/harness-eval-cases.bats test/harness-rule-ledger.bats
+    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-health.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats test/harness-classify-failures.bats test/harness-failure-rates.bats test/harness-eval-cases.bats test/harness-rule-ledger.bats test/harness-verdict.bats
 
 # 人の PR とローカルの通常のブランチでは何も判定せずに通る。CI の base は merge commit の第 1 親。
 # 自己改善ループの PR(ブランチ名 harness/review-*)が Guarded Path に触れていたら落とす

@@ -55,6 +55,7 @@ set -euo pipefail
 
 HARNESS_DIR="$HOME/.claude/harness"
 ARCHIVE="$HARNESS_DIR/queue-archive.md"
+VERDICT_CLI="$HOME/.claude/scripts/harness-verdict.sh"
 CLASSIFICATIONS="$HARNESS_DIR/classifications.jsonl"
 LOCAL_LEDGER_DIR="$HARNESS_DIR/rule-ledger"
 EXPORTED_DIR="$LOCAL_LEDGER_DIR/exported"
@@ -109,22 +110,16 @@ def record_valid:
     and (.eval | eval_valid);
 '
 
-# 判定の記録の項目を 1 行 1 件の JSON {"title", "verdict", "sources"} で出す。項目は `## ` の見出しから
-# 次の見出しまでで、Verdict と Source は最初の行を使う。Source の行から session id を拾う
+# 判定の記録の項目を 1 行 1 件の JSON で出す。書式の解釈は Verdict の CLI が持つ(形は harness-verdict.sh の
+# ヘッダ)。CLI が無いか失敗したら失敗する(採用が無いとは読まない)
 archive_entries() {
-    [[ -f "$ARCHIVE" ]] || return 0
-    awk '
-        function flush() {
-            if (title != "") print title "\t" verdict "\t" sources
-            title = ""; verdict = ""; sources = ""
-        }
-        /^## / { flush(); title = substr($0, 4); gsub(/\t/, " ", title); next }
-        /^# / { flush(); next }
-        title != "" && verdict == "" && /^- \*\*Verdict:\*\* / { verdict = substr($0, 16); gsub(/\t/, " ", verdict); next }
-        title != "" && sources == "" && /^- \*\*Source:\*\* / { sources = $0; gsub(/\t/, " ", sources); next }
-        END { flush() }' "$ARCHIVE" |
-        jq -R -c 'split("\t") | {title: .[0], verdict: (.[1] // ""),
-            sources: [(.[2] // "") | scan("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")]}'
+    local entries
+    [[ -f "$VERDICT_CLI" ]] || {
+        printf 'harness-rule-ledger: %s not found\n' "$VERDICT_CLI" >&2
+        return 1
+    }
+    entries=$(bash "$VERDICT_CLI" entries) || return 1
+    [[ -z "$entries" ]] || printf '%s\n' "$entries"
 }
 
 # 出典のセッションの失敗を分類した Failure Pattern の id(重複なし)を JSON の配列で出す
@@ -222,7 +217,7 @@ record_mode() {
                 "$RESULTS" >&2
         fi
     fi
-    entries=$(archive_entries | jq -c --arg mark "adopted (PR $PR_URL)" 'select(.verdict | contains($mark))') ||
+    entries=$(archive_entries | jq -c --arg url "$PR_URL" 'select(.kind == "adopted" and .pr_url == $url)') ||
         fail "cannot read $ARCHIVE"
     if [[ -z "$entries" ]]; then
         printf 'harness-rule-ledger: no adopted verdict for %s in %s; nothing recorded\n' "$PR_URL" "$ARCHIVE"
@@ -241,17 +236,18 @@ record_mode() {
 # 移すのは EVAL_CASES_SINCE より前に作った PR の採用だけで、免除の理由を「仕組みを入れる前」とする。
 # 何度実行しても、既にある記録は上書きしない。移せないものは「skipped<TAB>理由<TAB>title」で出す
 migrate_mode() {
-    local entries entry verdict title url pr created adopted dates="" record skipped=0 eval_json
-    entries=$(archive_entries | jq -c 'select(.verdict | startswith("adopted"))') || fail "cannot read $ARCHIVE"
+    local entries entry pr_url run title url pr created adopted dates="" record skipped=0 eval_json
+    entries=$(archive_entries | jq -c 'select(.kind == "adopted")') || fail "cannot read $ARCHIVE"
     eval_json=$(jq -n -c --arg r "$MIGRATED_REASON" '{status: "exempt", reason: $r}')
     while IFS= read -r entry; do
         [[ -n "$entry" ]] || continue
-        verdict=$(jq -r '.verdict' <<<"$entry")
+        pr_url=$(jq -r '.pr_url // ""' <<<"$entry")
+        run=$(jq -r '.run // ""' <<<"$entry")
         title=$(jq -r '.title' <<<"$entry")
-        if [[ "$verdict" =~ ^adopted\ \(PR\ (https://github\.com/[^/\ ]+/[^/\ ]+/pull/([0-9]+))\) ]]; then
-            url=${BASH_REMATCH[1]}
-            pr=$((10#${BASH_REMATCH[2]}))
-        elif [[ "$verdict" == 'adopted (harness/review-'* ]]; then
+        if [[ "$pr_url" =~ ^https://github\.com/[^/\ ]+/[^/\ ]+/pull/([0-9]+)$ ]]; then
+            url=$pr_url
+            pr=$((10#${BASH_REMATCH[1]}))
+        elif [[ "$run" == harness/review-* ]]; then
             printf 'skipped\tPR にならなかった週次の run の採用(手で publish するか queue に戻すまで移さない)\t%s\n' "$title"
             skipped=$((skipped + 1))
             continue

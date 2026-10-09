@@ -265,9 +265,11 @@ EOF
         "$HOME/.claude/scripts/harness-eval-plugin/.claude-plugin/plugin.json"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/harness-eval-plugin/hooks/hooks.json" \
         "$HOME/.claude/scripts/harness-eval-plugin/hooks/hooks.json"
-    # Rule Ledger のスクリプトも本物を置く
+    # Rule Ledger のスクリプトと、それが判定の記録を読む Verdict の CLI も本物を置く
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-rule-ledger.sh" \
         "$HOME/.claude/scripts/harness-rule-ledger.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-verdict.sh" \
+        "$HOME/.claude/scripts/harness-verdict.sh"
     LEDGER="$HDIR/rule-ledger"
     LEDGER_REPO_DIR=docs/harness/rule-ledger
     export EVAL_FIXTURES="$BATS_TEST_DIRNAME/fixtures/harness-eval-cases"

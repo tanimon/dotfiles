@@ -105,4 +105,8 @@ test/fixtures/harness-eval-cases/
 # 触れたら週次ジョブが PR を作らずに失敗する(harness-weekly.sh の publish_review)
 dot_claude/scripts/executable_harness-rule-ledger.sh
 test/harness-rule-ledger.bats
+# Verdict の CLI(ADR 0017)。判定の記録の読み方を書き換えると、Rule Ledger が記録する採用を選び替えられる。
+# 週次ジョブも Rule Ledger の入力として claude の起動前後のハッシュを比べる
+dot_claude/scripts/executable_harness-verdict.sh
+test/harness-verdict.bats
 +docs/harness/rule-ledger/

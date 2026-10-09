@@ -128,6 +128,10 @@ _Avoid_: テストケース(bats と紛らわしい)、評価(無限定)
 自己改善ループが採用したルールごとの記録で、Eval Case の目録を兼ねる。Failure Pattern、Eval Case、効果、採用の経緯を、仕事の文脈を含まない形で公開リポジトリに残す。生の証拠はローカルにだけ置く。
 _Avoid_: queue-archive(ローカルの作業記録と混同する)、履歴
 
+**Verdict**:
+選別が queue の項目に付ける判定で、adopted・rejected・handoff・merged のいずれか。判定の記録(queue-archive)に Markdown の 1 行として残り、書式を知っているのは harness-verdict.sh だけにする。
+_Avoid_: 採否(rejected 以外を取りこぼす)、判定(無限定)
+
 **Dropped Change**:
 自己改善ループが採用したが、commit フックや lint を通せずに commit しなかった変更。失敗ではなく、queue に戻して次の選別にかけ直す。commit が1件も無く Dropped Change がある週だけを、ループの失敗として扱う(陳腐化の修正などの commit があれば PR を作り、Dropped Change はその本文に載せる)。
 _Avoid_: 却下(採否の判定と混同する)、失敗した採用
