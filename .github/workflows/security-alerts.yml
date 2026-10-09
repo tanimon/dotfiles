@@ -153,26 +153,9 @@ jobs:
           prompt: |
             Run a sweep of all open security alerts in this repository. Process alert type: ${{ steps.scope.outputs.alert_type }}
 
-            ## Instructions
+            The open alerts are pre-fetched in `/tmp/security-alerts.json` (`dependabot`, `code_scanning`, and `secret_scanning` arrays). Find the existing PRs and issues with `gh pr list --search "security" --json number,title --limit 50` and `gh issue list --label security --state open --json number,title --limit 50`.
 
-            1. Read pre-fetched alert data from `/tmp/security-alerts.json`:
-               ```bash
-               cat /tmp/security-alerts.json
-               ```
-               This file contains JSON with `dependabot`, `code_scanning`, and `secret_scanning` arrays of open alerts.
-
-            2. Check which alerts already have associated PRs or issues:
-               ```bash
-               gh pr list --search "security" --json number,title --limit 50
-               gh issue list --label security --state open --json number,title --limit 50
-               ```
-
-            3. For each unhandled alert:
-               - **Dependabot**: Check for Renovate PRs, attempt fix or create issue
-               - **Code scanning**: Analyze and fix if low-risk, create issue if high-risk
-               - **Secret scanning**: Always create high-priority issue
-
-            4. Write a summary of actions taken.
+            For the rest: a Dependabot alert that no Renovate PR covers gets a fix, or an issue when a fix is not low-risk; a code scanning alert gets a fix when low-risk and an issue when high-risk; a secret scanning alert gets a high-priority issue. End with a summary of the actions taken.
 
             ## Rules
             - Skip alerts that already have associated PRs or issues
