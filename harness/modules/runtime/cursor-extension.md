@@ -10,5 +10,5 @@
 
 ## Cursor 固有の制約
 
-- MCP サーバはこの rule では設定しない。このリポジトリの MCP 宣言(`dot_apm/apm.yml` の `dependencies.mcp`)は Claude Code と Codex に配布され、Cursor は配布先に含まれない(`docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md`)。Cursor への配布とスコープの扱いは #312 の担当。
+- MCP サーバはこの rule では設定しない。このリポジトリの MCP 宣言(`dot_apm/apm.yml` の `dependencies.mcp`)は Claude Code と Codex に配布され、Cursor は配布先に含まれない(`docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md`)。
 - User Rules(Customize → Rules)はこのリポジトリからは一切触らない。非公開のストレージを書き換える手段しか無いため、意図的に対象外にしている(#308)。
