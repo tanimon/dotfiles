@@ -422,7 +422,9 @@ setup_skill() {
 
 # 出荷する一覧の既定値で確かめる。個別の上限と render: の行は写さない(写すとそのパスが存在しないので exit 2)
 use_shipped_defaults() {
-    put scripts/instruction-size-limits.txt "$(grep -E '^(\*|skill:\*) ' "$BATS_TEST_DIRNAME/../scripts/instruction-size-limits.txt")"
+    local defaults
+    defaults=$(grep -E '^(\*|skill:\*) ' "$BATS_TEST_DIRNAME/../scripts/instruction-size-limits.txt")
+    put scripts/instruction-size-limits.txt "$defaults"
 }
 
 @test "出荷する一覧: 500 行の SKILL.md は通り、501 行は落ちる" {

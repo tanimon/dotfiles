@@ -12,7 +12,7 @@
 #   check-instruction-size.sh --rendered <名前> <ファイル>
 #       <ファイル>(<名前> のテンプレートを描画した出力)を、その render: の行の上限で測る。
 #       描画はこのスクリプトでは行わない(test/rendered-instruction-size.bats が受け持つ)。
-# どの使い方でも一覧全体を読み、読めない行があれば exit 2 にする。
+# どの使い方でも一覧全体を読み、読めない行があるか、SKILL.md があるのに skill:* の行が無ければ exit 2 にする。
 #
 # 終了コード: 0 = すべて上限内、1 = 上限を超えたファイルがある、2 = 上限の一覧か引数を読めない。
 set -euo pipefail
