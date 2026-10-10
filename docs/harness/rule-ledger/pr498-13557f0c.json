@@ -1,0 +1,12 @@
+{
+  "id": "pr498-13557f0c",
+  "adopted": "2026-10-10",
+  "title": "[2026-10-10] zsh の `=` 展開での失敗を、文書ルールではなく決定的な仕組みで止める",
+  "failure_patterns": ["sandbox-boundary", "stale-environment", "tool-contract", "unclassified"],
+  "eval": {
+    "status": "exempt",
+    "reason": "採用した変更の本体はルール本文ではなく ~/.zshrc の setopt no_equals(シェルの挙動)で、Eval Case はルール本文を注入して応答を比べる仕組みのため効果を測れない。bash-tool.md への追記は注記だけで、元のクォートの指示は既存のルールのまま変えていない"
+  },
+  "pr": 498,
+  "via": "weekly"
+}
