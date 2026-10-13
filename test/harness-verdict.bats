@@ -216,6 +216,14 @@ assert_rejected() {
     assert_output "{\"title\":\"other (2)\",\"kind\":\"merged\",\"arg\":\"glob は \`(N)\` ではなく\",\"raw\":\"merged into glob は \`(N)\` ではなく\",\"sources\":[\"$S1\"]}"
 }
 
+@test "見出しを変えずに同じ見出しへ merged すると、見出しを変える手順を添えて exit 2" {
+    printf '## x\n\n- **What happened:** earlier\n- **Verdict:** rejected (why)\n' >"$ARCHIVE"
+    queue_entry 'x' 'later'
+    run --separate-stderr bash "$SCRIPT" settle --title 'x' merged 'x'
+    assert_failure 2
+    assert_equal "$stderr" "harness-verdict: an entry cannot be merged into itself. To merge it into an earlier entry with the same title in $ARCHIVE, rename only its '## ' line in $QUEUE (e.g. append the date) and settle it under the new title with merged 'x'; nothing written"
+}
+
 @test "merged の統合先は archive にあってもよい" {
     printf '## done\n- **Verdict:** rejected (x)\n' >"$ARCHIVE"
     queue_entry 'later'
@@ -301,7 +309,7 @@ assert_rejected() {
 }
 
 # 書き戻す直前の比較(cmp)の前に、並行する /harness-reflect の追記を再現する偽の cmp を置く。
-# 最初の STUB_CMP_SKIP 回(既定 0)の後、呼ばれるたびに queue に 1 項目足し(STUB_CMP_TIMES 回まで)、本物の cmp を呼ぶ
+# 最初の STUB_CMP_SKIP 回(既定 0)の後、呼ばれるたびに STUB_CMP_TARGET(既定 queue)に 1 項目足し(STUB_CMP_TIMES 回まで)、本物の cmp を呼ぶ
 install_racing_cmp() {
     local real_cmp
     real_cmp=$(command -v cmp)
@@ -312,7 +320,7 @@ count=\$(cat "$BATS_TEST_TMPDIR/cmp.count" 2>/dev/null || echo 0)
 printf '%s\n' \$((count + 1)) >"$BATS_TEST_TMPDIR/cmp.count"
 added=\$((count - \${STUB_CMP_SKIP:-0}))
 if [[ "\$added" -ge 0 && "\$added" -lt "\$STUB_CMP_TIMES" ]]; then
-    printf '## reflected %s\n\n- **What happened:** y\n\n' "\$added" >>"$QUEUE"
+    printf '## reflected %s\n\n- **What happened:** y\n\n' "\$added" >>"\${STUB_CMP_TARGET:-$QUEUE}"
 fi
 exec "$real_cmp" "\$@"
 STUB
@@ -342,6 +350,19 @@ STUB
     assert_output "$(printf '## x\n## reflected 0\n## reflected 1\n## reflected 2')"
     run head -c "$(wc -c <"$BATS_TEST_TMPDIR/queue.before")" "$QUEUE"
     assert_output "$(cat "$BATS_TEST_TMPDIR/queue.before")"
+}
+
+@test "判定の記録が 3 回続けて変わっていたら、判定の記録が変わったと伝えて何も書かずに exit 1" {
+    queue_entry 'x'
+    printf '## old\n- **Verdict:** rejected (x)\n' >"$ARCHIVE"
+    install_racing_cmp
+    cp "$QUEUE" "$BATS_TEST_TMPDIR/queue.before"
+    STUB_CMP_TARGET="$ARCHIVE" STUB_CMP_TIMES=99 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run --separate-stderr bash "$SCRIPT" settle --title 'x' rejected 'why'
+    assert_failure 1
+    assert_equal "$stderr" "harness-verdict: $ARCHIVE kept changing while settling '## x' (3 times); nothing written"
+    cmp "$QUEUE" "$BATS_TEST_TMPDIR/queue.before"
+    run grep -c '^## x$' "$ARCHIVE"
+    assert_output '0'
 }
 
 @test "判定の記録への追記の後に queue が変わっていたら、作り直して queue からの削除だけを行う" {

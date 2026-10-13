@@ -211,7 +211,7 @@ settle_mode() {
     SETTLE_TMP_FILES="$queue_copy $archive_copy $new_queue $new_archive"
     export SETTLE_HEADING="$title"
 
-    local archive_existed headings block archived expected
+    local archive_existed headings block archived expected changed=$QUEUE
     for _ in 1 2 3; do
         cp "$QUEUE" "$queue_copy" || fail "cannot read $QUEUE"
         archive_existed=0
@@ -227,7 +227,8 @@ settle_mode() {
             headings=$(SETTLE_HEADING="$arg" count_headings "$queue_copy") || fail "cannot read $QUEUE"
             [[ "$headings" -gt 0 ]] || headings=$(SETTLE_HEADING="$arg" count_headings "$archive_copy") || fail "cannot read $ARCHIVE"
             [[ "$headings" -gt 0 ]] || reject "the merge target '## $arg' is in neither $QUEUE nor $ARCHIVE"
-            [[ "$arg" != "$title" ]] || reject 'an entry cannot be merged into itself'
+            [[ "$arg" != "$title" ]] ||
+                reject "an entry cannot be merged into itself. To merge it into an earlier entry with the same title in $ARCHIVE, rename only its '## ' line in $QUEUE (e.g. append the date) and settle it under the new title with merged '$title'"
         fi
         block=$(last_entry "$queue_copy") || fail "cannot read $QUEUE"
         expected=$(printf '%s\n- **Verdict:** %s' "$block" "$verdict")
@@ -245,7 +246,9 @@ settle_mode() {
             fi
             { archive_with_separator "$archive_copy" && printf '%s\n' "$expected"; } >"$new_archive" ||
                 fail "cannot write $new_archive"
+            changed=$QUEUE
             cmp -s "$QUEUE" "$queue_copy" || continue
+            changed=$ARCHIVE
             if [[ "$archive_existed" -eq 1 ]]; then
                 cmp -s "$ARCHIVE" "$archive_copy" || continue
             else
@@ -258,6 +261,7 @@ settle_mode() {
             # それ以外は、前に選別した別の項目と見出しが同じ。引数を直しても通らないので、見出しを変える手順を伝える
             reject "$ARCHIVE already has an entry titled '## $title' with a different verdict or body. If this is a rerun, pass the same verdict as before. Otherwise the queue entry is a different one with the same title: rename only its '## ' line in $QUEUE (e.g. append the date) and settle it under the new title"
         fi
+        changed=$QUEUE
         cmp -s "$QUEUE" "$queue_copy" || continue
         mv "$new_queue" "$QUEUE" || fail "cannot write $QUEUE"
         return 0
@@ -265,7 +269,8 @@ settle_mode() {
     if [[ "$SETTLE_APPENDED" -eq 1 ]]; then
         fail "$QUEUE kept changing while settling '## $title'; it was appended to $ARCHIVE but is still in $QUEUE (run the same settle again to remove it)"
     fi
-    fail "$QUEUE kept changing while settling '## $title' (3 times); nothing written"
+    # 最後に変わっていたファイルを伝える(判定の記録が変わっても同じ枠を使う)
+    fail "$changed kept changing while settling '## $title' (3 times); nothing written"
 }
 
 [[ $# -ge 1 ]] || usage

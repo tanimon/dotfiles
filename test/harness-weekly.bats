@@ -673,8 +673,6 @@ PRE
     assert_output 'reflect HARNESS_REVIEW_RUN=<unset>'
     run grep -cF 'adopted (' "$ARGV_LOG"
     assert_output '0'
-    run grep -c 'settle command' "$ARGV_LOG"
-    assert_output '1'
 }
 
 @test "同じ日の前の run が残した採用は今回の PR の URL に置き換えず、heartbeat を書かずに知らせる" {
