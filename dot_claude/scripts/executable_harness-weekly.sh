@@ -375,10 +375,12 @@ EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
 # ループのブランチの prefix。正本は scripts/check-guarded-paths.sh(CI はこの prefix でループの PR を見分ける)
 LOOP_BRANCH_PREFIX="harness/review-"
 BRANCH="${LOOP_BRANCH_PREFIX}${REVIEW_DATE}"
-# 選別に書かせる採用の記録。run ごとの印(選別の session id)を入れるのは、同じ日の前の run が
-# 失敗して残した adopted (<ブランチ> …) を、今回の PR の URL で上書きしないため(record_pr_url)。
+# 選別の採用の印。選別の claude に環境変数 HARNESS_REVIEW_RUN で渡し、Verdict の CLI の settle が
+# adopted (<その値>) と記録する(ADR 0017。prompt には書かない)。run ごとの印(選別の session id)を入れるのは、
+# 同じ日の前の run が失敗して残した adopted (<ブランチ> …) を、今回の PR の URL で上書きしないため(record_pr_url)。
 # 前の run の記録は残り、finish_run が知らせる
-ADOPTED_MARK="adopted ($BRANCH run $REVIEW_SESSION_ID)"
+REVIEW_RUN="$BRANCH run $REVIEW_SESSION_ID"
+ADOPTED_MARK="adopted ($REVIEW_RUN)"
 
 # 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)は健全性の lib にある。
 # 読めなければ失敗する。失敗の Issue は EXIT trap が lib に依らずに作る(report_stops)。
@@ -1408,11 +1410,13 @@ Use the harness-review skill, following its rules, with these changes:
 - Always write the result file ${REVIEW_RESULT} before you finish, even if nothing happened: a JSON object {\"dropped\": [...], \"deploy_only\": [...]} whose elements are one-line strings (in Japanese). In \"dropped\", put each dropped change with its queue title and the failing hook or lint check; in \"deploy_only\", each deploy-only fix with what to apply and why. Use empty arrays when there are none. This job decides whether the run failed from this file, not from the PR body.
 - Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection and rate records, the evaluation and the result file. Never change files under ${RATES_REPO_DIR} or ${LEDGER_REPO_DIR}, or the local Rule Ledger in ${LOCAL_LEDGER_DIR}; this job commits them. If nothing is adopted and nothing is stale, make no commits.
 - For every adopted change, write an Eval Case request to ${EVAL_REQUESTS} as described in the skill's \"Eval Case requests\" section (Write tool only; this job runs the evaluation and appends the effect to the PR body). Do not run the evaluation yourself.
-- In \"Bookkeeping\", record each adopted verdict as \"${ADOPTED_MARK}\" exactly; this job replaces it with the PR URL. Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.
+- In \"Bookkeeping\", record every verdict with the skill's settle command (a command with single-quoted arguments, not text you compose). HARNESS_REVIEW_RUN is set, so never pass --pr-url: this job records the PR URL after it opens the PR. Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
 - Finish with a one-line summary: entries adopted, rejected, handed off."
-(cd "$WORKTREE" && run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || {
+# HARNESS_REVIEW_RUN は選別の claude にだけ渡す(抽出・分類・評価には渡さない)
+(cd "$WORKTREE" && export HARNESS_REVIEW_RUN="$REVIEW_RUN" &&
+    run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || {
     report_failed_review "$REVIEW_BASE"
     exit 1
 }

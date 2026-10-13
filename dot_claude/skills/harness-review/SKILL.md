@@ -62,10 +62,10 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
 
 1. **Dedup:** search existing rules (`.claude/rules/`, `dot_claude/rules/`),
    `CLAUDE.md` Known Pitfalls, and `docs/solutions/` for the same guidance.
-   Already covered → verdict `rejected (duplicate of <path>)`.
+   Already covered → verdict rejected, reason `duplicate of <path>`.
 2. **Value test:** would this rule have prevented the original failure? Is it
    specific, actionable, and likely to recur? Vague or one-off → verdict
-   `rejected (<reason>)`.
+   rejected with the reason.
 3. **Placement:**
    - cross-project behavior → `dot_claude/rules/common/`
    - Claude Code-only mechanics (the Agent tool, the Bash tool,
@@ -79,10 +79,10 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
    - incident record → `docs/solutions/`
 
    Scope `project:<other-repo>` → verdict
-   `handoff (belongs in <repo>)`; tell the user what to add there — do not
+   handoff to `<repo>`; tell the user what to add there — do not
    modify other repos from this review.
-4. Related queue entries may be merged into one change; record
-   `merged into <title>` on the absorbed entries.
+4. Related queue entries may be merged into one change; the absorbed entries
+   get the verdict merged, pointing at the entry they were merged into.
 
 ## Step 4: Staleness scan
 
@@ -153,9 +153,31 @@ and say so. An empty review is a valid outcome.
 
 ## Step 6: Bookkeeping
 
-1. Move every processed entry from `queue.md` to
-   `~/.claude/harness/queue-archive.md`, appending a verdict line to each:
-   `- **Verdict:** adopted (PR <url>) | rejected (<reason>) | handoff (<repo>) | merged into <title>`
+1. 処理した項目ごとに Verdict の CLI の `settle` を 1 回呼び、`queue.md` から判定の記録
+   (`~/.claude/harness/queue-archive.md`)へ移す。`settle` が項目の移動と Verdict 行の付与を 1 回で行うので、
+   どちらのファイルも Edit や Write で書き換えない(Verdict の書式は CLI だけが持つ。ADR 0017)。
+   `--title` には queue の見出しの `## ` より後ろをそのまま渡す:
+
+   ```sh
+   bash ~/.claude/scripts/harness-verdict.sh settle --title '<見出し>' adopted --pr-url '<PR の URL>'
+   bash ~/.claude/scripts/harness-verdict.sh settle --title '<見出し>' rejected '<理由>'
+   bash ~/.claude/scripts/harness-verdict.sh settle --title '<見出し>' handoff '<repo>'
+   bash ~/.claude/scripts/harness-verdict.sh settle --title '<見出し>' merged '<統合先の見出し>'
+   ```
+
+   - Dropped Change(commit フックか `just lint` が通らずに落とした変更)は `settle` を呼ばず、queue に残す
+     (原因が環境にあることもあるので、後の review が選別し直す)。
+   - 環境変数 `HARNESS_REVIEW_RUN` が設定されているとき(週次ジョブ)は、adopted に `--pr-url` を付けない。
+     CLI がその値から採用の印を書き、ジョブが PR を作った後に PR の URL に置き換える。設定されていないとき
+     (手動の review)だけ、Step 5 で開いた PR の URL を `--pr-url` で渡す。
+   - 見出しや理由にはバッククォートがよく入るので、引数はシングルクォートで囲む(値の中の `'` は `'\''` と書く)。
+     理由と repo には `)` と改行を入れられない。
+   - exit 2 は引数の誤りで、何も書き換えていない。メッセージを読んで直して呼び直す。exit 1 で、判定の記録には
+     足したが queue に残ったと出たときは、同じ `settle` をもう一度実行する(queue からの削除だけが行われる)。
+   - 例外: 判定の記録に同じ見出しの項目が既にある(`already has an entry titled`)と出たときは、引数を直しても通らない。
+     前に選別した別の項目と見出しが同じなので、queue のその項目の `## ` の行だけを Edit で書き換えて見出しを変え
+     (末尾に日付を足すなど)、新しい見出しで `settle` を呼ぶ。同じ学びの再抽出なら、`merged '<既存の見出し>'` にする。
+     queue に対する Edit はこの見出しの書き換えだけに限る。
 2. 採用があれば、Rule Ledger(採用したルールごとの記録。ADR 0011)をローカルに作る:
    `bash ~/.claude/scripts/harness-rule-ledger.sh record --pr-url <PR の URL> --date <日付> --via manual --results ~/.claude/harness/eval-results-<日付>.json`
    (評価しなかったら `--results` は付けない)。記録の commit は、この PR がマージされた後に週次ジョブが PR を作るときに行うので、
