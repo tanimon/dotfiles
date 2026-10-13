@@ -259,7 +259,7 @@ home_relative() {
 # 本文の `…` は Markdown のコードスパンで、~ と $(id -u) は人が貼り付けて実行するコマンドの一部なので展開しない
 # shellcheck disable=SC2016,SC2088
 report_stops() { # <この run の終了コード>
-    local status=$1 failed=0 reported_failure=0 failed_issue="" log remedy prs stale number url days branches branch count pr_count repo cutoff
+    local status=$1 failed=0 reported_failure=0 failed_issue="" log remedy prs stale number url days branches branch count pr_count repo cutoff marks
     log='~/Library/Logs/harness-weekly.log'
     remedy='launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
     if [[ "$status" -ne 0 ]]; then
@@ -311,9 +311,13 @@ report_stops() { # <この run の終了コード>
         repo=$(home_relative "$REPO")
         while IFS=$'\t' read -r branch count; do
             [[ -n "$branch" ]] || continue
-            # 採用の記録が残るブランチは finish_run がジョブを失敗させ、失敗の Issue が知らせる
-            # (記録の形は finish_run と同じ。PR の URL で置き換わる前の adopted (<ブランチ> …))
-            if [[ -f "$ARCHIVE" ]] && grep -qF -e "adopted ($branch)" -e "adopted ($branch run " "$ARCHIVE"; then
+            # PR になっていない採用が残るブランチは finish_run がジョブを失敗させ、失敗の Issue が知らせる
+            if ! marks=$(bash "$VERDICT_CLI" unpublished --branch "$branch"); then
+                printf 'harness-weekly: WARN could not read the unpublished verdicts of %s from %s\n' "$branch" "$ARCHIVE" >&2
+                failed=1
+                continue
+            fi
+            if [[ -n "$marks" ]]; then
                 printf 'harness-weekly: %s has an adopted verdict in %s; the failure issue reports it\n' "$branch" "$ARCHIVE"
                 continue
             fi
@@ -375,12 +379,11 @@ EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
 # ループのブランチの prefix。正本は scripts/check-guarded-paths.sh(CI はこの prefix でループの PR を見分ける)
 LOOP_BRANCH_PREFIX="harness/review-"
 BRANCH="${LOOP_BRANCH_PREFIX}${REVIEW_DATE}"
-# 選別の採用の印。選別の claude に環境変数 HARNESS_REVIEW_RUN で渡し、Verdict の CLI の settle が
-# adopted (<その値>) と記録する(ADR 0017。prompt には書かない)。run ごとの印(選別の session id)を入れるのは、
-# 同じ日の前の run が失敗して残した adopted (<ブランチ> …) を、今回の PR の URL で上書きしないため(record_pr_url)。
-# 前の run の記録は残り、finish_run が知らせる
+# 選別の採用の印。選別の claude に環境変数 HARNESS_REVIEW_RUN で渡し、Verdict の CLI の settle が採用に付ける
+# (ADR 0017。prompt には書かない)。印の書式は CLI だけが持ち、このスクリプトは印の値で CLI を呼ぶ。
+# run ごとの印(選別の session id)を入れるのは、同じ日の前の run が失敗して残した採用を、今回の PR の URL で
+# 上書きしないため(record_pr_url)。前の run の記録は残り、finish_run が知らせる
 REVIEW_RUN="$BRANCH run $REVIEW_SESSION_ID"
-ADOPTED_MARK="adopted ($REVIEW_RUN)"
 
 # 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)は健全性の lib にある。
 # 読めなければ失敗する。失敗の Issue は EXIT trap が lib に依らずに作る(report_stops)。
@@ -547,33 +550,20 @@ net_change_section() {
         }'
 }
 
-# 判定の記録で、この run の選別が書いた $ADOPTED_MARK を PR の URL に置き換える。
-# 置き換えが 0 件になるのは、陳腐化の修正だけの PR(正常)か、選別が決めた書式で記録
-# しなかったときで、ここでは区別できないので、両方の読み方を添えて知らせる
+# 判定の記録で、この run の選別の採用($REVIEW_RUN の印)を PR の URL に置き換える(Verdict の CLI の publish)。
+# 置き換えが 0 件になるのは、陳腐化の修正だけの PR(正常)か、選別が settle で記録しなかったときで、
+# ここでは区別できないので、両方の読み方を添えて知らせる。失敗しても WARN だけにする(残った印は finish_run が捕まえる)
 record_pr_url() {
-    local from="$ADOPTED_MARK" to="adopted (PR $1)" count=0 tmp
-    if [[ -f "$ARCHIVE" ]]; then
-        count=$(grep -cF -- "$from" "$ARCHIVE" || true)
-    fi
-    if [[ "$count" -eq 0 ]]; then
-        printf 'harness-weekly: no "%s" verdict in %s; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts in the expected form)\n' \
-            "$from" "$ARCHIVE" >&2
-        return 0
-    fi
-    tmp=$(mktemp "$HARNESS_DIR/.queue-archive.XXXXXX")
-    awk -v from="$from" -v to="$to" '{
-        out = ""
-        while ((i = index($0, from)) > 0) {
-            out = out substr($0, 1, i - 1) to
-            $0 = substr($0, i + length(from))
-        }
-        print out $0
-    }' "$ARCHIVE" >"$tmp" || {
-        rm -f "$tmp"
-        printf 'harness-weekly: WARN failed to rewrite %s; PR URL not recorded\n' "$ARCHIVE" >&2
+    local count
+    count=$(bash "$VERDICT_CLI" publish --run "$REVIEW_RUN" --pr-url "$1") || {
+        printf 'harness-weekly: WARN failed to record the PR URL in %s; finish_run reports the unpublished verdicts\n' "$ARCHIVE" >&2
         return 0
     }
-    mv "$tmp" "$ARCHIVE"
+    if [[ "$count" == 0 ]]; then
+        printf 'harness-weekly: no verdict adopted in run "%s" in %s; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts with the settle command)\n' \
+            "$REVIEW_RUN" "$ARCHIVE" >&2
+        return 0
+    fi
     printf 'harness-weekly: recorded the PR URL on %s verdict(s)\n' "$count"
 }
 
@@ -775,11 +765,15 @@ append_rates_section() {
     fi
 }
 
-# 判定の記録のうち、この run の選別が採用した($ADOPTED_MARK を持つ)項目の見出し(`## ` より後ろ)を 1 行ずつ出す。
+# 判定の記録のうち、この run の選別が採用した項目の見出しを 1 行ずつ出す(Verdict の CLI の adopted)。
 # record_pr_url が印を PR の URL に置き換える前に読む
 adopted_titles() {
-    [[ -f "$ARCHIVE" ]] || return 0
-    awk -v mark="$ADOPTED_MARK" '/^## / { title = substr($0, 4) } index($0, mark) > 0 && title != "" { print title; title = "" }' "$ARCHIVE"
+    bash "$VERDICT_CLI" adopted --run "$REVIEW_RUN"
+}
+
+# 印 <run> の採用を PR の URL で記録する手順を、ログにそのまま貼れる 1 行のコマンドで出す(印は空白を含む)
+publish_command() { # <run>
+    printf "bash ~/.claude/scripts/harness-verdict.sh publish --run '%s' --pr-url <PR URL>" "$1"
 }
 
 # 評価のスクリプトと eval 専用 plugin の雛形の「パス ハッシュ」を 1 行ずつ出す。抽出と選別の claude は
@@ -930,7 +924,7 @@ commit_ledger_records() { # <base> [この run の PR の番号]
 # 含む)をこのスクリプトの commit で足して push し直す。PR 番号は PR を作るまで決まらないので、PR を作る前の
 # commit には入れられない。どこで失敗しても PR と採用の公開は止めない: 記録はローカルに残り、この PR が
 # マージされた後に PR を作る run が足す。記録そのもの(record)に失敗したときは、判定の記録の
-# adopted (PR <url>) から手で作り直せる
+# PR の URL を持つ採用から手で作り直せる
 record_and_publish_ledger() { # <base> <PR の URL>
     local base=$1 url=$2 pushed results=()
     pushed=$(git -C "$WORKTREE" rev-parse HEAD) || return 0
@@ -1075,7 +1069,7 @@ publish_metrics_if_due() {
 # 落としたのに "dropped": [] と書いた週を、成功として扱わないため。
 #   - harness-review は処理した項目をすべて archive に移すので、queue に残ってよいのは落とした
 #     変更だけ。残数が dropped の件数より多ければ、申告しなかった項目がある
-#   - archive にこの run の $ADOPTED_MARK があるのに commit が 0 件なら、採用を commit していない。
+#   - archive にこの run の採用(adopted_titles)があるのに commit が 0 件なら、採用を commit していない。
 #     陳腐化の修正には印が付かないので、採用と区別できる。record_pr_url が印を置き換える前に呼ぶ
 # 項目はタイトルではなく件数で比べる(commit の件名に queue のタイトルがそのまま入る保証は無い)。
 # そのため、採用の一部だけを commit せず陳腐化の修正の commit で件数が埋まる週は見分けられない。
@@ -1085,7 +1079,7 @@ publish_metrics_if_due() {
 # 選別の最中に対話セッションの /harness-reflect が queue に足した項目も残数に数えるので、その週は
 # 誤って失敗する(成功を偽るより安全なので受け入れる)
 check_review_claims() { # <commit の件数> <dropped の件数>
-    local commits=$1 dropped_count=$2 remaining marks=0 status=0
+    local commits=$1 dropped_count=$2 remaining titles marks
     remaining=$(count_queue) || return 1
     # count_queue は grep の失敗も || true で通すので、読めない queue は空の出力になる(空は 0 と比べられる)
     if [[ ! "$remaining" =~ ^[0-9]+$ ]]; then
@@ -1097,15 +1091,15 @@ check_review_claims() { # <commit の件数> <dropped の件数>
             "$remaining" "$QUEUE" "$dropped_count" "$REVIEW_RESULT" "$ARCHIVE" >&2
         return 1
     fi
-    [[ "$commits" -eq 0 && -f "$ARCHIVE" ]] || return 0
-    marks=$(grep -cF -- "$ADOPTED_MARK" "$ARCHIVE") || status=$?
-    if [[ "$status" -gt 1 ]]; then
-        printf 'harness-weekly: failed to read %s (grep exit %s); no PR created\n' "$ARCHIVE" "$status" >&2
+    [[ "$commits" -eq 0 ]] || return 0
+    titles=$(adopted_titles) || {
+        printf 'harness-weekly: failed to read the adopted verdicts from %s; no PR created\n' "$ARCHIVE" >&2
         return 1
-    fi
-    if [[ "$marks" -gt 0 ]]; then
-        printf 'harness-weekly: %s has %s verdict(s) marked %s but the review committed nothing (an adopted change was not committed and not reported as dropped); no PR created\n' \
-            "$ARCHIVE" "$marks" "$ADOPTED_MARK" >&2
+    }
+    if [[ -n "$titles" ]]; then
+        marks=$(printf '%s\n' "$titles" | wc -l | tr -d ' ')
+        printf 'harness-weekly: %s has %s verdict(s) adopted in run "%s" but the review committed nothing (an adopted change was not committed and not reported as dropped); no PR created\n' \
+            "$ARCHIVE" "$marks" "$REVIEW_RUN" >&2
         return 1
     fi
 }
@@ -1131,7 +1125,7 @@ check_review_claims() { # <commit の件数> <dropped の件数>
 # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
 # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
-    local base=$1 commits url dropped_count dropped_items touched commit_status=0
+    local base=$1 commits url dropped_count dropped_items touched commit_status=0 titles
     if ! review_result_valid; then
         printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
             "$REVIEW_RESULT" >&2
@@ -1193,7 +1187,10 @@ publish_review() {
     net_change_section "$base" >>"$PR_BODY" || return 1
     # Rule Ledger の記録は PR 番号が要るので、PR を作った後の commit で足す(record_and_publish_ledger)。
     # 足せなかったことは本文では知らせられないので、ログの WARN と、PR の commit に記録が無いことで分かる
-    if [[ -n "$(adopted_titles)" ]]; then
+    # 採用を読めなければ節を省く(評価の節と同じく、PR の公開は止めない)
+    if ! titles=$(adopted_titles); then
+        printf 'harness-weekly: WARN could not read the adopted verdicts from %s; left the Rule Ledger section out of %s\n' "$ARCHIVE" "$PR_BODY" >&2
+    elif [[ -n "$titles" ]]; then
         printf '\n## Rule Ledger\n\n採用したルールの記録(%s)は、この PR を作った後に週次ジョブが「harness: Rule Ledger の記録を足す」の commit で足す。その commit が無ければ、記録はローカルに残っていて、この PR がマージされた後の PR に載る(マージせずに閉じたら載らない)。\n' \
             "$LEDGER_REPO_DIR" >>"$PR_BODY"
     fi
@@ -1219,8 +1216,8 @@ publish_review() {
     }
     url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
         --title "harness: 週次レビュー $REVIEW_DATE" --body-file "$PR_BODY") || {
-        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand with gh pr create --draft --base main --head %s --body-file %s (verdicts in %s still say %s)\n' \
-            "$BRANCH" "$BRANCH" "$PR_BODY" "$ARCHIVE" "$ADOPTED_MARK" >&2
+        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand with gh pr create --draft --base main --head %s --body-file %s, then record its URL with %s\n' \
+            "$BRANCH" "$BRANCH" "$PR_BODY" "$(publish_command "$REVIEW_RUN")" >&2
         return 1
     }
     url=${url##*$'\n'}
@@ -1262,30 +1259,30 @@ report_failed_review() {
     fi
     append_detection_section
     append_rates_section
-    printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts in %s may already say %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
-        "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$ADOPTED_MARK" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
+    printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts adopted in this run may already be in %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s, then %s\n' \
+        "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" "$(publish_command "$REVIEW_RUN")" >&2
 }
 
 # 成功した run の締め。前の run が採用を記録したまま PR にできなかった(push・PR の作成・
 # 選別の claude のどれかが失敗した)ことを、次の週の run が見落とさないよう、heartbeat を
-# 書く前に判定の記録を確かめる。選別は採用を adopted (<ループのブランチ> run <id>) と記録し、PR を
-# 作れた run だけが自分の記録を PR の URL に置き換える(record_pr_url)。手動の /harness-review は最初から
-# adopted (PR <url>) と書くので一致しない。ローカルの harness/review-* ブランチの有無で
+# 書く前に判定の記録を確かめる(Verdict の CLI の unpublished)。選別は採用に run の印を付けて記録し、PR を
+# 作れた run だけが自分の印を PR の URL に置き換える(record_pr_url)。手動の /harness-review は最初から
+# PR の URL で記録するので当たらない。ローカルの harness/review-* ブランチの有無で
 # 判定しないのは、手動の手順もローカルにブランチを残すため。
 # 残っていれば heartbeat を書かずに失敗し、briefing の古さの警告で人に知らせる。その週の抽出と
 # 選別は済ませてから確かめる(失敗させても週の処理は止めない)
 finish_run() {
-    local leftovers="" status=0
-    if [[ -f "$ARCHIVE" ]]; then
-        leftovers=$(grep -oE 'adopted \(harness/review-[^)]*\)' "$ARCHIVE") || status=$?
-        if [[ "$status" -gt 1 ]]; then
-            printf 'harness-weekly: failed to read %s (grep exit %s); heartbeat not updated\n' "$ARCHIVE" "$status" >&2
-            return 1
-        fi
-    fi
+    local leftovers run commands=""
+    leftovers=$(bash "$VERDICT_CLI" unpublished) || {
+        printf 'harness-weekly: failed to read the unpublished verdicts from %s; heartbeat not updated\n' "$ARCHIVE" >&2
+        return 1
+    }
     if [[ -n "$leftovers" ]]; then
-        printf 'harness-weekly: %s still has verdicts that never became a PR: %s. Publish each branch from %s by hand (git push origin <branch>, then gh pr create --draft --base main --head <branch>) and replace the verdict with "adopted (PR <url>)", or move the entries back to queue.md; heartbeat not updated\n' \
-            "$ARCHIVE" "$(printf '%s\n' "$leftovers" | sort -u | tr '\n' ' ')" "$REPO" >&2
+        while IFS= read -r run; do
+            commands+="${commands:+; }$(publish_command "$run")"
+        done <<<"$leftovers"
+        printf 'harness-weekly: %s still has verdicts that never became a PR. Publish each branch from %s by hand (git push origin <branch>, then gh pr create --draft --base main --head <branch>) and record the PR URL with: %s. Or move the entries back to queue.md; heartbeat not updated\n' \
+            "$ARCHIVE" "$REPO" "$commands" >&2
         return 1
     fi
     if [[ -n "$RATE_RECORD_ERROR" ]]; then
