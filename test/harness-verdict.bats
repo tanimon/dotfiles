@@ -243,6 +243,7 @@ assert_rejected() {
     assert_rejected --title "$nl" rejected x
     assert_rejected --title one merged nowhere
     assert_rejected --title one merged "$nl"
+    assert_rejected --title one merged one
     assert_rejected --title one adopted
     assert_rejected --title one adopted --pr-url ''
     assert_rejected --title one adopted --pr-url 'https://x/1)'
@@ -300,7 +301,7 @@ assert_rejected() {
 }
 
 # 書き戻す直前の比較(cmp)の前に、並行する /harness-reflect の追記を再現する偽の cmp を置く。
-# 呼ばれるたびに queue に 1 項目足し(STUB_CMP_TIMES 回まで)、本物の cmp を呼ぶ
+# 最初の STUB_CMP_SKIP 回(既定 0)の後、呼ばれるたびに queue に 1 項目足し(STUB_CMP_TIMES 回まで)、本物の cmp を呼ぶ
 install_racing_cmp() {
     local real_cmp
     real_cmp=$(command -v cmp)
@@ -308,9 +309,10 @@ install_racing_cmp() {
     cat >"$BATS_TEST_TMPDIR/bin/cmp" <<STUB
 #!/usr/bin/env bash
 count=\$(cat "$BATS_TEST_TMPDIR/cmp.count" 2>/dev/null || echo 0)
-if [[ "\$count" -lt "\$STUB_CMP_TIMES" ]]; then
-    printf '%s\n' \$((count + 1)) >"$BATS_TEST_TMPDIR/cmp.count"
-    printf '## reflected %s\n\n- **What happened:** y\n\n' "\$count" >>"$QUEUE"
+printf '%s\n' \$((count + 1)) >"$BATS_TEST_TMPDIR/cmp.count"
+added=\$((count - \${STUB_CMP_SKIP:-0}))
+if [[ "\$added" -ge 0 && "\$added" -lt "\$STUB_CMP_TIMES" ]]; then
+    printf '## reflected %s\n\n- **What happened:** y\n\n' "\$added" >>"$QUEUE"
 fi
 exec "$real_cmp" "\$@"
 STUB
@@ -340,4 +342,39 @@ STUB
     assert_output "$(printf '## x\n## reflected 0\n## reflected 1\n## reflected 2')"
     run head -c "$(wc -c <"$BATS_TEST_TMPDIR/queue.before")" "$QUEUE"
     assert_output "$(cat "$BATS_TEST_TMPDIR/queue.before")"
+}
+
+@test "判定の記録への追記の後に queue が変わっていたら、作り直して queue からの削除だけを行う" {
+    queue_entry 'x'
+    install_racing_cmp
+    # 1 回目の比較(追記の前)は通し、2 回目(queue からの削除の前)で追記を起こす
+    STUB_CMP_SKIP=1 STUB_CMP_TIMES=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run --separate-stderr bash "$SCRIPT" settle --title 'x' rejected 'why'
+    assert_success
+    run grep '^## ' "$QUEUE"
+    assert_output '## reflected 0'
+    run grep -c '^## x$' "$ARCHIVE"
+    assert_output '1'
+}
+
+@test "判定の記録への追記の後に queue が変わり続けたら、追記済みで queue に残ったと伝えて exit 1" {
+    queue_entry 'x'
+    install_racing_cmp
+    STUB_CMP_SKIP=1 STUB_CMP_TIMES=3 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run --separate-stderr bash "$SCRIPT" settle --title 'x' rejected 'why'
+    assert_failure 1
+    assert_equal "$stderr" "harness-verdict: $QUEUE kept changing while settling '## x'; it was appended to $ARCHIVE but is still in $QUEUE (run the same settle again to remove it)"
+    run grep -c '^## x$' "$ARCHIVE"
+    assert_output '1'
+    run grep '^## ' "$QUEUE"
+    assert_output "$(printf '## x\n## reflected 0\n## reflected 1\n## reflected 2')"
+}
+
+@test "settle は置き換える queue と判定の記録の mode を保つ" {
+    queue_entry 'x'
+    printf '## old\n- **Verdict:** rejected (x)\n' >"$ARCHIVE"
+    chmod 644 "$QUEUE" "$ARCHIVE"
+    settle --title 'x' rejected 'why'
+    assert_success
+    run ls -l "$QUEUE" "$ARCHIVE"
+    assert_line --index 0 --regexp '^-rw-r--r--'
+    assert_line --index 1 --regexp '^-rw-r--r--'
 }

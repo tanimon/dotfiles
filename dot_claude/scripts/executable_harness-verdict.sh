@@ -17,6 +17,7 @@
 # 誤り(見出しが無いか複数、kind が enum に無い、引数の欠落・空・余り、統合先が無い)は、何も書き換えずに exit 2 にする。
 # 書き込みは判定の記録への追記 → queue からの削除の順で、どちらも一時ファイルから mv する。間で止まった項目は両方に残り、
 # 再実行は判定の記録の同じ見出しの最後の項目が今回の追記と同じ内容なら queue からの削除だけを行う(違えば exit 2)。
+# Verdict だけでなく本文も比べるのは、同じ見出しの別の項目(前に選別した項目)を再実行と取り違えて queue から消さないため。
 # 書き戻す直前に、queue と判定の記録を読み取り時の写しと比べ(cmp)、変わっていれば読み直して作り直す。対話セッションの
 # /harness-reflect が LLM の Write/Edit で queue に追記しうるため(lock を守らせられない)。3 回続けて変われば、その回は何も書かずに exit 1。
 # 比べてから mv するまでの区間で入った追記は失われうる(LLM の Edit と同じリスクとして受け入れる)。
@@ -53,7 +54,12 @@ fail() {
     exit 1
 }
 
+# settle の誤り。再試行の前の回で判定の記録に追記を済ませていれば、何も書いていないとは言わずに exit 1 にする
+SETTLE_APPENDED=0
 reject() {
+    if [[ "$SETTLE_APPENDED" -eq 1 ]]; then
+        fail "$1; the entry was already appended to $ARCHIVE in an earlier attempt"
+    fi
     printf 'harness-verdict: %s; nothing written\n' "$1" >&2
     exit 2
 }
@@ -196,7 +202,7 @@ settle_mode() {
     SETTLE_TMP_FILES="$queue_copy $archive_copy $new_queue $new_archive"
     export SETTLE_HEADING="$title"
 
-    local archive_existed headings block archived expected appended=0
+    local archive_existed headings block archived expected
     for _ in 1 2 3; do
         cp "$QUEUE" "$queue_copy" || fail "cannot read $QUEUE"
         archive_existed=0
@@ -212,13 +218,17 @@ settle_mode() {
             headings=$(SETTLE_HEADING="$arg" count_headings "$queue_copy") || fail "cannot read $QUEUE"
             [[ "$headings" -gt 0 ]] || headings=$(SETTLE_HEADING="$arg" count_headings "$archive_copy") || fail "cannot read $ARCHIVE"
             [[ "$headings" -gt 0 ]] || reject "the merge target '## $arg' is in neither $QUEUE nor $ARCHIVE"
+            [[ "$arg" != "$title" ]] || reject 'an entry cannot be merged into itself'
         fi
         block=$(last_entry "$queue_copy") || fail "cannot read $QUEUE"
         expected=$(printf '%s\n- **Verdict:** %s' "$block" "$verdict")
         archived=$(last_entry "$archive_copy") || fail "cannot read $ARCHIVE"
+        # 置き換えるファイルの mode を保つため、元のファイルを写してから中身を書く(mktemp の 0600 にしない)
+        cp -p "$QUEUE" "$new_queue" || fail "cannot write $new_queue"
         without_entry "$queue_copy" >"$new_queue" || fail "cannot write $new_queue"
 
         if [[ -z "$archived" ]]; then
+            [[ "$archive_existed" -eq 0 ]] || cp -p "$ARCHIVE" "$new_archive" || fail "cannot write $new_archive"
             { archive_with_separator "$archive_copy" && printf '%s\n' "$expected"; } >"$new_archive" ||
                 fail "cannot write $new_archive"
             cmp -s "$QUEUE" "$queue_copy" || continue
@@ -228,7 +238,7 @@ settle_mode() {
                 [[ ! -e "$ARCHIVE" ]] || continue
             fi
             mv "$new_archive" "$ARCHIVE" || fail "cannot write $ARCHIVE"
-            appended=1
+            SETTLE_APPENDED=1
         elif [[ "$archived" != "$expected" ]]; then
             # 再実行(前回の追記の後に queue から外せなかった)なら、同じ内容の項目が判定の記録の最後にある
             reject "$ARCHIVE already has an entry titled '## $title' with a different verdict or body"
@@ -237,7 +247,7 @@ settle_mode() {
         mv "$new_queue" "$QUEUE" || fail "cannot write $QUEUE"
         return 0
     done
-    if [[ "$appended" -eq 1 ]]; then
+    if [[ "$SETTLE_APPENDED" -eq 1 ]]; then
         fail "$QUEUE kept changing while settling '## $title'; it was appended to $ARCHIVE but is still in $QUEUE (run the same settle again to remove it)"
     fi
     fail "$QUEUE kept changing while settling '## $title' (3 times); nothing written"
