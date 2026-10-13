@@ -174,6 +174,10 @@ and say so. An empty review is a valid outcome.
      理由と repo には `)` と改行を入れられない。
    - exit 2 は引数の誤りで、何も書き換えていない。メッセージを読んで直して呼び直す。exit 1 で、判定の記録には
      足したが queue に残ったと出たときは、同じ `settle` をもう一度実行する(queue からの削除だけが行われる)。
+   - 例外: 判定の記録に同じ見出しの項目が既にある(`already has an entry titled`)と出たときは、引数を直しても通らない。
+     前に選別した別の項目と見出しが同じなので、queue のその項目の `## ` の行だけを Edit で書き換えて見出しを変え
+     (末尾に日付を足すなど)、新しい見出しで `settle` を呼ぶ。同じ学びの再抽出なら、`merged '<既存の見出し>'` にする。
+     queue に対する Edit はこの見出しの書き換えだけに限る。
 2. 採用があれば、Rule Ledger(採用したルールごとの記録。ADR 0011)をローカルに作る:
    `bash ~/.claude/scripts/harness-rule-ledger.sh record --pr-url <PR の URL> --date <日付> --via manual --results ~/.claude/harness/eval-results-<日付>.json`
    (評価しなかったら `--results` は付けない)。記録の commit は、この PR がマージされた後に週次ジョブが PR を作るときに行うので、

@@ -6,7 +6,7 @@
 #   entries
 #   settle --title <見出し> adopted [--pr-url <URL>] | rejected <理由> | handoff <repo> | merged <統合先の見出し>
 #
-# settle は queue(~/.claude/harness/queue.md)の見出し `## <見出し>` の項目(次の `## ` か `# ` の見出しまで)を queue から外し、
+# settle は queue(~/.claude/harness/queue.md)の見出し `## <見出し>` の項目(区切りは entries と同じ)を queue から外し、
 # 末尾の空行を落として Verdict 行を 1 行付け、判定の記録の末尾に前の項目と空行で区切って足す。書く Verdict 行:
 #   adopted   環境変数 HARNESS_REVIEW_RUN(週次ジョブが `<branch> run <id>` を渡す)があれば `adopted (<その値>)`、
 #             無ければ --pr-url が要り `adopted (PR <URL>)`。両方ある・両方とも無い・値が空は誤り
@@ -25,7 +25,10 @@
 # entries は判定の記録の項目ごとに 1 行の JSON を出す:
 #   {"title": "<見出し>", "kind": "adopted"|"rejected"|"handoff"|"merged"|"unknown",
 #    "pr_url"?: "<URL>", "run"?: "<印>", "arg"?: "<引数>", "raw": "<Verdict 行の中身>", "sources": [<session id>]}
-# 項目は `## ` の見出しから、次の `## ` か `# ` の見出しまで。Verdict と Source は項目ごとに最初の行を使う。
+# 項目は `## ` の見出しから、次の `## ` か `# ` の見出しまで。コードフェンス(行頭の ``` か ~~~)の中の行は `# ` の見出しとも
+# Verdict 行・Source 行とも読まない(シェルのコメントで項目が切れないため)。`## ` だけはフェンスの中でも見出しとして読み、
+# 開いたままのフェンスもそこで閉じる(閉じ忘れたフェンスが後ろの項目をすべて飲み込まないため)。
+# Verdict と Source は項目ごとに最初の行を使う。
 # 見出しと Verdict の中のタブは空白にする(それ以外の正規化はしない。title は Rule Ledger の id の材料になるため)。
 # Verdict の読み方(どれも行頭から読み、閉じ括弧の後ろに続く補足は無視する):
 #   adopted (PR <URL>)   kind adopted と pr_url(最初の ) の手前まで。URL かどうかは読み手が確かめる)
@@ -72,7 +75,9 @@ entries_mode() {
             if (title != "") print title "\t" verdict "\t" sources
             title = ""; verdict = ""; sources = ""
         }
-        /^## / { flush(); title = substr($0, 4); gsub(/\t/, " ", title); next }
+        /^## / { flush(); fence = 0; title = substr($0, 4); gsub(/\t/, " ", title); next }
+        /^ ? ? ?(```|~~~)/ { fence = !fence; next }
+        fence { next }
         /^# / { flush(); next }
         title != "" && verdict == "" && /^- \*\*Verdict:\*\* / { verdict = substr($0, 16); gsub(/\t/, " ", verdict); next }
         title != "" && sources == "" && /^- \*\*Source:\*\* / { sources = $0; gsub(/\t/, " ", sources); next }
@@ -108,19 +113,23 @@ count_headings() { # <ファイル>
 }
 
 # 見出しが $SETTLE_HEADING の項目のうち最後のものを、末尾の空行を落として出す(無ければ何も出さない)。
-# 項目は次の `## ` か `# ` の見出しまで(entries と同じ区切り)
+# 項目の区切りは entries と同じ(フェンスの中の `# ` では切らない)
 last_entry() { # <ファイル>
     awk 'BEGIN { h = "## " ENVIRON["SETTLE_HEADING"] }
-        /^## / || /^# / { inside = ($0 == h); if (inside) { n = 0; last = 0 } }
+        /^## / { fence = 0; inside = ($0 == h); if (inside) { n = 0; last = 0 } }
+        !fence && /^# / { inside = 0 }
         inside { buf[++n] = $0; if ($0 !~ /^[ \t\r]*$/) last = n }
+        /^ ? ? ?(```|~~~)/ { fence = !fence }
         END { for (i = 1; i <= last; i++) print buf[i] }' "$1"
 }
 
 # 見出しが $SETTLE_HEADING の項目を除いた queue を出す
 without_entry() { # <ファイル>
     awk 'BEGIN { h = "## " ENVIRON["SETTLE_HEADING"] }
-        /^## / || /^# / { inside = ($0 == h) }
-        !inside { print }' "$1"
+        /^## / { fence = 0; inside = ($0 == h) }
+        !fence && /^# / { inside = 0 }
+        !inside { print }
+        /^ ? ? ?(```|~~~)/ { fence = !fence }' "$1"
 }
 
 # 判定の記録を写し、空でなければ最後の行が空行になるよう区切りの空行を足す(末尾に改行が無ければ足す)
@@ -228,7 +237,12 @@ settle_mode() {
         without_entry "$queue_copy" >"$new_queue" || fail "cannot write $new_queue"
 
         if [[ -z "$archived" ]]; then
-            [[ "$archive_existed" -eq 0 ]] || cp -p "$ARCHIVE" "$new_archive" || fail "cannot write $new_archive"
+            if [[ "$archive_existed" -eq 1 ]]; then
+                cp -p "$ARCHIVE" "$new_archive" || fail "cannot write $new_archive"
+            else
+                # 新しく作る判定の記録は mktemp の 0600 ではなく、ふつうに作ったファイルと同じ umask どおりの mode にする
+                chmod "$(printf '%o' $((0666 & ~$(umask))))" "$new_archive" || fail "cannot write $new_archive"
+            fi
             { archive_with_separator "$archive_copy" && printf '%s\n' "$expected"; } >"$new_archive" ||
                 fail "cannot write $new_archive"
             cmp -s "$QUEUE" "$queue_copy" || continue
@@ -241,7 +255,8 @@ settle_mode() {
             SETTLE_APPENDED=1
         elif [[ "$archived" != "$expected" ]]; then
             # 再実行(前回の追記の後に queue から外せなかった)なら、同じ内容の項目が判定の記録の最後にある
-            reject "$ARCHIVE already has an entry titled '## $title' with a different verdict or body"
+            # それ以外は、前に選別した別の項目と見出しが同じ。引数を直しても通らないので、見出しを変える手順を伝える
+            reject "$ARCHIVE already has an entry titled '## $title' with a different verdict or body. If this is a rerun, pass the same verdict as before. Otherwise the queue entry is a different one with the same title: rename only its '## ' line in $QUEUE (e.g. append the date) and settle it under the new title"
         fi
         cmp -s "$QUEUE" "$queue_copy" || continue
         mv "$new_queue" "$QUEUE" || fail "cannot write $QUEUE"

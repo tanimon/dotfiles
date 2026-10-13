@@ -378,3 +378,44 @@ STUB
     assert_line --index 0 --regexp '^-rw-r--r--'
     assert_line --index 1 --regexp '^-rw-r--r--'
 }
+
+@test "判定の記録を新しく作るときは、umask どおりの mode にする" {
+    queue_entry 'x'
+    umask 022
+    settle --title 'x' rejected 'why'
+    assert_success
+    run ls -l "$ARCHIVE"
+    assert_output --regexp '^-rw-r--r--'
+}
+
+@test "同じ見出しの別の項目で止まったときは、queue の見出しを変える手順を伝える" {
+    printf '## x\n\n- **What happened:** earlier\n- **Verdict:** rejected (why)\n' >"$ARCHIVE"
+    queue_entry 'x' 'later'
+    settle --title 'x' rejected 'why'
+    assert_failure 2
+    [[ "$stderr" == *"rename only its '## ' line in $QUEUE"* ]] || fail "no recovery hint: $stderr"
+}
+
+@test "コードフェンスの中の # の行では項目を切らず、Verdict 行とも読まない" {
+    queue_entry 'before'
+    printf '## fenced\n\n- **What happened:** x\n\n```sh\n# comment\n- **Verdict:** rejected (example)\n```\n\n- **Source:** session %s\n\n' "$S1" >>"$QUEUE"
+    queue_entry 'after'
+    settle --title 'fenced' rejected 'why'
+    assert_success
+    run grep -c 'comment' "$QUEUE"
+    assert_output '0'
+    run grep '^## ' "$QUEUE"
+    assert_output "$(printf '## before\n## after')"
+    run --separate-stderr bash "$SCRIPT" entries
+    assert_success
+    assert_output "{\"title\":\"fenced\",\"kind\":\"rejected\",\"arg\":\"why\",\"raw\":\"rejected (why)\",\"sources\":[\"$S1\"]}"
+}
+
+@test "閉じ忘れたコードフェンスは次の ## の見出しで閉じ、後ろの項目を飲み込まない" {
+    printf '## open\n\n```sh\n# comment\n- **Verdict:** rejected (inside)\n\n## next\n- **Verdict:** handoff (a/b)\n\n# 2026-10\n\n- **Verdict:** adopted (PR %s)\n' "$URL" >"$ARCHIVE"
+    run --separate-stderr bash "$SCRIPT" entries
+    assert_success
+    assert_equal "${lines[0]}" '{"title":"open","kind":"unknown","raw":"","sources":[]}'
+    assert_equal "${lines[1]}" '{"title":"next","kind":"handoff","arg":"a/b","raw":"handoff (a/b)","sources":[]}'
+    assert_equal "${#lines[@]}" 2
+}
