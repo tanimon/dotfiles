@@ -75,7 +75,8 @@ fail() {
     exit 1
 }
 
-# settle の誤り。再試行の前の回で判定の記録に追記を済ませていれば、何も書いていないとは言わずに exit 1 にする
+# 引数の誤り(どのサブコマンドでも何も書く前に判定する)。settle が再試行の前の回で判定の記録に追記を済ませていれば、
+# 何も書いていないとは言わずに exit 1 にする
 SETTLE_APPENDED=0
 reject() {
     if [[ "$SETTLE_APPENDED" -eq 1 ]]; then
@@ -115,7 +116,7 @@ entries_mode() {
         fail "cannot read $ARCHIVE"
 }
 
-# settle の値の検査。空・改行を含む値は誤り。括弧で囲む値(第 3 引数が paren)は ) も誤り
+# 引数の値の検査。空・改行を含む値は誤り。括弧で囲む値(第 3 引数が paren)は ) も誤り
 check_value() { # <名前> <値> [paren]
     [[ -n "$2" ]] || reject "$1 is empty"
     case $2 in *$'\n'* | *$'\r'*) reject "$1 contains a line break" ;; esac
@@ -325,11 +326,14 @@ adopted_mode() {
 }
 
 unpublished_mode() {
-    local listed
+    local listed all=true
     read_options '--branch' "$@"
-    [[ "$OPT_GIVEN" != *' --branch '* ]] || check_value --branch "$OPT_BRANCH" paren
+    if [[ "$OPT_GIVEN" == *' --branch '* ]]; then
+        check_value --branch "$OPT_BRANCH" paren
+        all=false
+    fi
     listed=$(entries_mode) || exit 1
-    jq -r --arg branch "$OPT_BRANCH" --argjson all "$([[ "$OPT_GIVEN" == *' --branch '* ]] && echo false || echo true)" '
+    jq -r --arg branch "$OPT_BRANCH" --argjson all "$all" '
         select(.kind == "adopted" and has("run")) | .run
         | select($all or . == $branch or startswith($branch + " run "))' <<<"$listed" |
         awk '!seen[$0]++' || fail "cannot read $ARCHIVE"
@@ -339,7 +343,7 @@ unpublished_mode() {
 # 項目と Verdict 行の決め方は entries と同じ(フェンスの中は読まない。`## ` はフェンスを閉じる。項目ごとに最初の Verdict 行)
 publish_rewrite() { # <ファイル>
     awk 'BEGIN { from = "- **Verdict:** adopted (" ENVIRON["PUBLISH_RUN"] ")"; to = "- **Verdict:** adopted (PR " ENVIRON["PUBLISH_URL"] ")"; out = ENVIRON["PUBLISH_OUT"] }
-        /^## / { fence = 0; inside = 1; seen = 0; print > out; next }
+        /^## / { fence = 0; inside = (length($0) > 3); seen = 0; print > out; next }
         /^ ? ? ?(```|~~~)/ { fence = !fence; print > out; next }
         fence { print > out; next }
         /^# / { inside = 0; print > out; next }
