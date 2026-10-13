@@ -20,4 +20,6 @@ date: 2026-10-09
 - 過去の手書きの行のうち読めないものは `kind: "unknown"` として出し、移行はしない。
 - 読み手は `kind` と `pr_url` / `run` / `arg` で選び、Verdict 行を文字列で照合しない。CLI が無いか失敗したとき、読み手は「Verdict が無い」とは読まずに失敗する。
 - 括弧の中が `PR ` で始まる採用は常に `pr_url` として読み、`run` には入れない(未公開の採用とみなさない)。`pr_url` は閉じ括弧の手前までをそのまま返すので、URL の後ろに補足を書いた採用(`adopted (PR <URL>, 補足)`)は Rule Ledger の照合にも URL の検査にも当たらない。括弧の無い `adopted` は unknown になり、採用として扱われない。
-- CLI へは読み手と書き手を 1 つずつ移す。週次ジョブの印の書き込みと照合、harness-review skill の Bookkeeping は、`settle` などのサブコマンドに移すまで CLI の外にも書式を持つ(移す範囲は #490)。
+- CLI へは読み手と書き手を 1 つずつ移す。書き手(harness-review skill の Bookkeeping と、週次ジョブの印の書き込み)は `settle` に移した。週次ジョブの印の照合(PR の URL への置き換え・採用した見出しの列挙・選別の申告の検査・停止の通知・run の締め)は、サブコマンドに移すまで CLI の外にも書式を持つ(移す範囲は #490)。
+- `settle` は見出しと統合先(merged)に `)` を許す。実際の queue の見出しに `(N)` などが含まれ、`merged into` は行末まで読むので読み手が誤読しないため。`)` を拒むのは括弧で囲む値(理由・repo・URL・`HARNESS_REVIEW_RUN`)だけ。
+- 引数はコマンド行に載るので、見出しや理由にコマンドの綴り(バッククォートで囲んだ `curl …` や `git push --force` など)があると、PreToolUse の guard が `ask` を返しうる。headless の週次ジョブでは拒否になり、項目が queue に残って run が失敗する(黙っては消えない)。2026-10-09 時点の判定の記録 78 項目の見出しと Verdict では、どちらの guard も `ask` を返さなかった。

@@ -8,7 +8,10 @@ setup() {
     export HOME="$BATS_TEST_TMPDIR/home"
     HDIR="$HOME/.claude/harness"
     ARCHIVE="$HDIR/queue-archive.md"
+    QUEUE="$HDIR/queue.md"
     mkdir -p "$HDIR"
+    # settle が読む環境変数を、このマシンのシェルから漏らさない
+    unset HARNESS_REVIEW_RUN
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-verdict.sh"
     S1=11111111-1111-4111-8111-111111111111
     S2=22222222-2222-4222-8222-222222222222
@@ -128,4 +131,213 @@ EOF
     assert_failure 2
     run --separate-stderr bash "$SCRIPT" entries extra
     assert_failure 2
+}
+
+# --- settle ---
+
+# queue に項目を置く。queue_entry <見出し> [What happened の中身]
+queue_entry() {
+    [[ -f "$QUEUE" ]] || printf '# Harness improvement queue\n\nAppended by /harness-reflect.\n\n' >"$QUEUE"
+    printf '## %s\n\n- **What happened:** %s\n- **Source:** session %s\n\n' "$1" "${2:-x}" "$S1" >>"$QUEUE"
+}
+
+settle() {
+    run --separate-stderr bash "$SCRIPT" settle "$@"
+}
+
+# 書き換えが無いことを、実行前に取った写しとの byte 単位の比較で確かめる
+snapshot() {
+    cp "$QUEUE" "$BATS_TEST_TMPDIR/queue.before"
+    rm -f "$BATS_TEST_TMPDIR/archive.before"
+    [[ ! -f "$ARCHIVE" ]] || cp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
+}
+
+assert_unchanged() {
+    cmp "$QUEUE" "$BATS_TEST_TMPDIR/queue.before"
+    if [[ -f "$BATS_TEST_TMPDIR/archive.before" ]]; then
+        cmp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
+    else
+        assert [ ! -e "$ARCHIVE" ]
+    fi
+}
+
+# settle が exit 2 で止まり、queue も archive も書き換えないことを確かめる
+assert_rejected() {
+    run --separate-stderr bash "$SCRIPT" settle "$@"
+    [[ "$status" -eq 2 ]] || fail "expected exit 2 for settle $* (got $status: $stderr)"
+    assert_unchanged
+}
+
+@test "settle は 4 つの kind それぞれで項目を queue から archive の末尾へ移し、Verdict 行を付ける" {
+    queue_entry 'a1'
+    queue_entry 'a2'
+    queue_entry 'r'
+    queue_entry 'h'
+    queue_entry 'm'
+    queue_entry 'keep'
+    HARNESS_REVIEW_RUN='harness/review-2026-10-10 run abc' settle --title 'a1' adopted
+    assert_success
+    settle --title 'a2' adopted --pr-url "$URL"
+    assert_success
+    settle --title 'r' rejected 'duplicate of rules/x.md'
+    assert_success
+    settle --title 'h' handoff 'example/other'
+    assert_success
+    settle --title 'm' merged 'a1'
+    assert_success
+    run --separate-stderr bash "$SCRIPT" entries
+    assert_success
+    run jq -r '[.title, .raw] | @tsv' <<<"$output"
+    assert_output "$(printf '%s\t%s\n' a1 'adopted (harness/review-2026-10-10 run abc)' a2 "adopted (PR $URL)" \
+        r 'rejected (duplicate of rules/x.md)' h 'handoff (example/other)' m 'merged into a1')"
+    run grep '^## ' "$QUEUE"
+    assert_output '## keep'
+}
+
+@test "settle は項目の本文をそのまま移し、末尾の空行の代わりに Verdict 行を付けて前の項目と空行で区切る" {
+    printf '## old\n- **Verdict:** rejected (x)\n' >"$ARCHIVE"
+    queue_entry 'new' 'what'
+    queue_entry 'next'
+    settle --title 'new' rejected 'why'
+    assert_success
+    assert_output ''
+    run cat "$ARCHIVE"
+    assert_output "$(printf '## old\n- **Verdict:** rejected (x)\n\n## new\n\n- **What happened:** what\n- **Source:** session %s\n- **Verdict:** rejected (why)' "$S1")"
+    run cat "$QUEUE"
+    assert_output "$(printf '# Harness improvement queue\n\nAppended by /harness-reflect.\n\n## next\n\n- **What happened:** x\n- **Source:** session %s' "$S1")"
+}
+
+@test "見出しと merged の統合先は ) を含んでよい(merged into は行末まで読む)" {
+    queue_entry 'glob は `(N)` ではなく'
+    queue_entry 'other (2)'
+    settle --title 'other (2)' merged 'glob は `(N)` ではなく'
+    assert_success
+    run --separate-stderr bash "$SCRIPT" entries
+    assert_output "{\"title\":\"other (2)\",\"kind\":\"merged\",\"arg\":\"glob は \`(N)\` ではなく\",\"raw\":\"merged into glob は \`(N)\` ではなく\",\"sources\":[\"$S1\"]}"
+}
+
+@test "merged の統合先は archive にあってもよい" {
+    printf '## done\n- **Verdict:** rejected (x)\n' >"$ARCHIVE"
+    queue_entry 'later'
+    settle --title 'later' merged 'done'
+    assert_success
+    run grep -c '^## later$' "$ARCHIVE"
+    assert_output '1'
+}
+
+@test "settle は書き込みの前に誤りを見つけたら、queue も archive も書き換えずに exit 2 で止まる" {
+    queue_entry 'dup'
+    queue_entry 'dup'
+    queue_entry 'one'
+    printf '## old\n- **Verdict:** rejected (x)\n' >"$ARCHIVE"
+    snapshot
+    local nl=$'a\nb'
+    assert_rejected --title missing rejected x
+    assert_rejected --title dup rejected x
+    assert_rejected --title one nope x
+    assert_rejected --title one rejected
+    assert_rejected --title one rejected ''
+    assert_rejected --title one rejected 'a)b'
+    assert_rejected --title one handoff 'a)b'
+    assert_rejected --title one rejected "$nl"
+    assert_rejected --title "$nl" rejected x
+    assert_rejected --title one merged nowhere
+    assert_rejected --title one merged "$nl"
+    assert_rejected --title one adopted
+    assert_rejected --title one adopted --pr-url ''
+    assert_rejected --title one adopted --pr-url 'https://x/1)'
+    assert_rejected --title one adopted extra --pr-url "$URL"
+    assert_rejected --title one rejected x --pr-url "$URL"
+    assert_rejected --title one rejected x y
+    assert_rejected --title '' rejected x
+    assert_rejected one rejected x
+    assert_rejected --title one
+    assert_rejected --title
+    # adopted の印は環境変数か --pr-url のどちらか 1 つだけで、空や ) を含む値は使わない
+    export HARNESS_REVIEW_RUN='b run 1'
+    assert_rejected --title one adopted --pr-url "$URL"
+    export HARNESS_REVIEW_RUN=''
+    assert_rejected --title one adopted --pr-url "$URL"
+    assert_rejected --title one adopted
+    export HARNESS_REVIEW_RUN='b run 1)'
+    assert_rejected --title one adopted
+}
+
+@test "archive への追記の後に止まった項目は、再実行で queue からの削除だけを行う" {
+    queue_entry 'x'
+    queue_entry 'y'
+    cp "$QUEUE" "$BATS_TEST_TMPDIR/queue.orig"
+    settle --title 'x' rejected 'why'
+    assert_success
+    # queue からの削除の前に止まった状態(archive にはあり、queue にも残っている)
+    cp "$BATS_TEST_TMPDIR/queue.orig" "$QUEUE"
+    cp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.once"
+    settle --title 'x' rejected 'why'
+    assert_success
+    cmp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.once"
+    run grep -c '^## x$' "$ARCHIVE"
+    assert_output '1'
+    run grep '^## ' "$QUEUE"
+    assert_output '## y'
+}
+
+@test "再実行で Verdict が前回と違えば、何も書き換えずに exit 2" {
+    queue_entry 'x'
+    cp "$QUEUE" "$BATS_TEST_TMPDIR/queue.orig"
+    settle --title 'x' rejected 'why'
+    assert_success
+    cp "$BATS_TEST_TMPDIR/queue.orig" "$QUEUE"
+    snapshot
+    assert_rejected --title 'x' rejected 'other reason'
+    assert_rejected --title 'x' adopted --pr-url "$URL"
+}
+
+@test "同じ見出しの別の項目が archive にあれば、再実行とは読まずに exit 2" {
+    printf '## x\n\n- **What happened:** earlier\n- **Verdict:** rejected (why)\n' >"$ARCHIVE"
+    queue_entry 'x' 'later'
+    snapshot
+    assert_rejected --title 'x' rejected 'why'
+}
+
+# 書き戻す直前の比較(cmp)の前に、並行する /harness-reflect の追記を再現する偽の cmp を置く。
+# 呼ばれるたびに queue に 1 項目足し(STUB_CMP_TIMES 回まで)、本物の cmp を呼ぶ
+install_racing_cmp() {
+    local real_cmp
+    real_cmp=$(command -v cmp)
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    cat >"$BATS_TEST_TMPDIR/bin/cmp" <<STUB
+#!/usr/bin/env bash
+count=\$(cat "$BATS_TEST_TMPDIR/cmp.count" 2>/dev/null || echo 0)
+if [[ "\$count" -lt "\$STUB_CMP_TIMES" ]]; then
+    printf '%s\n' \$((count + 1)) >"$BATS_TEST_TMPDIR/cmp.count"
+    printf '## reflected %s\n\n- **What happened:** y\n\n' "\$count" >>"$QUEUE"
+fi
+exec "$real_cmp" "\$@"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/cmp"
+}
+
+@test "書き戻す直前に queue が変わっていたら作り直し、並行する追記を失わない" {
+    queue_entry 'x'
+    install_racing_cmp
+    STUB_CMP_TIMES=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run --separate-stderr bash "$SCRIPT" settle --title 'x' rejected 'why'
+    assert_success
+    run grep '^## ' "$QUEUE"
+    assert_output '## reflected 0'
+    run grep -c '^## x$' "$ARCHIVE"
+    assert_output '1'
+}
+
+@test "queue が 3 回続けて変わっていたら、何も書かずに exit 1" {
+    queue_entry 'x'
+    install_racing_cmp
+    snapshot
+    STUB_CMP_TIMES=3 PATH="$BATS_TEST_TMPDIR/bin:$PATH" run --separate-stderr bash "$SCRIPT" settle --title 'x' rejected 'why'
+    assert_failure 1
+    assert [ ! -e "$ARCHIVE" ]
+    # queue は並行する追記が足されただけで、x は残る
+    run grep '^## ' "$QUEUE"
+    assert_output "$(printf '## x\n## reflected 0\n## reflected 1\n## reflected 2')"
+    run head -c "$(wc -c <"$BATS_TEST_TMPDIR/queue.before")" "$QUEUE"
+    assert_output "$(cat "$BATS_TEST_TMPDIR/queue.before")"
 }

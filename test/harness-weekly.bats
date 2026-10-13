@@ -9,7 +9,9 @@
 # 成否は STUB_CLAUDE_MODE(success / is_error / exit1)で切り替える。
 #
 # 選別の工程(プロンプトが harness-review を指すもの)では、claude のスタブが
-# cwd(ジョブが用意した worktree)で STUB_REVIEW_MODE に応じた変更と commit を行う。
+# cwd(ジョブが用意した worktree)で STUB_REVIEW_MODE に応じた変更と commit を行い、
+# queue の項目の Verdict を本物の Verdict の CLI(settle)で記録する。採用の印は、ジョブが
+# 環境変数 HARNESS_REVIEW_RUN で渡したものを CLI が付ける(スタブは prompt から読まない)。
 # git は実物を使い、origin は使い捨ての bare リポジトリにする。GIT_CONFIG_GLOBAL /
 # GIT_CONFIG_SYSTEM を潰すのは、このマシンの署名や push の設定を持ち込まないため。
 # gh と pnpm はスタブで、gh は呼ばれた引数と --body-file の中身を記録する。
@@ -37,6 +39,7 @@ setup() {
     export ALERT_LOG="$BATS_TEST_TMPDIR/alert.log"
     export ALERT_BODIES="$BATS_TEST_TMPDIR/alert-bodies.md"
     export PNPM_LOG="$BATS_TEST_TMPDIR/pnpm.log"
+    export REVIEW_RUN_LOG="$BATS_TEST_TMPDIR/review-run.log"
 
     export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
     export GIT_CONFIG_SYSTEM=/dev/null
@@ -75,6 +78,13 @@ printf '\n' >>"$ARGV_LOG"
 printf 'HARNESS_DISABLE=%s\n' "${HARNESS_DISABLE:-}" >>"$ENV_LOG"
 pwd >>"$CWD_LOG"
 all_args="$*"
+case "$all_args" in
+'plugin eval '*) stage=eval ;;
+*'--no-session-persistence'*) stage=classify ;;
+*'harness-review skill'*) stage=review ;;
+*) stage=reflect ;;
+esac
+printf '%s HARNESS_REVIEW_RUN=%s\n' "$stage" "${HARNESS_REVIEW_RUN-<unset>}" >>"$REVIEW_RUN_LOG"
 sid=""
 while [[ $# -gt 0 ]]; do
     [[ "$1" == "--session-id" ]] && sid="$2"
@@ -105,20 +115,25 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
     missing) ;;
     *) printf '%s\n' "$STUB_RESULT" >"$result" ;;
     esac
-    archive="$HOME/.claude/harness/queue-archive.md"
-    branch=$(git branch --show-current)
     adopt() {
         mkdir -p rules && printf 'a\nb\nc\n' >rules/new.md && printf 'keep\n' >README.md
         git add -A && git commit -qm 'harness: add rule'
+    }
+    # queue の項目すべての Verdict を Verdict の CLI で記録する(harness-review の Bookkeeping)。
+    # STUB_KEEP_QUEUE があれば記録せず queue に残す(落とした変更を残した run、または採用か却下した項目を残した run の再現)
+    settle_all() { # <kind> [引数]
+        [[ -z "${STUB_KEEP_QUEUE:-}" ]] || return 0
+        local titles title
+        titles=$(grep '^## ' "$HOME/.claude/harness/queue.md" | cut -c4-) || return 0
+        while IFS= read -r title; do
+            bash "$HOME/.claude/scripts/harness-verdict.sh" settle --title "$title" "$@" || exit 1
+        done <<<"$titles"
     }
     case "${STUB_REVIEW_MODE:-adopt}" in
     adopt)
         adopt
         printf '## 採用した変更\n\n- 理由: 同じ失敗の再発を防ぐため\n' >"$body"
-        # 記録の書式はプロンプトが指定したものをそのまま使う(run ごとの印を含む)
-        verdict=$(grep -oE 'adopted \(harness/review-[^)]*\)' <<<"$all_args" | head -n 1)
-        [[ -z "${STUB_ARCHIVE_TITLE:-}" ]] || printf '## %s\n\n' "$STUB_ARCHIVE_TITLE" >>"$archive"
-        printf -- '- **Verdict:** %s\n' "$verdict" >>"$archive"
+        settle_all adopted
         # 評価される側が評価の仕組みを書き換える run の再現
         [[ -z "${STUB_TAMPER_EVAL:-}" ]] || printf 'exit 0\n' >>"$HOME/.claude/scripts/harness-eval-cases.sh"
         # Eval Case の依頼(プロンプトが指定したパス)。STUB_EVAL_REQUEST があればそのまま書く
@@ -127,13 +142,16 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         fi
         ;;
     no_verdict)
+        # 陳腐化の修正だけの run(採用の印が無い)の再現
         adopt
         printf 'reason\n' >"$body"
+        settle_all rejected 'stub'
         ;;
     binary_pipe)
         printf 'a\0b' >blob.bin && printf 'x\n' >'a|b.md'
         git add -A && git commit -qm 'harness: binary and pipe'
         printf 'reason\n' >"$body"
+        settle_all rejected 'stub'
         ;;
     two_changes)
         # 採用 2 件が同じファイルに触れる(ファイルごとの表では変更ごとの純増が読めない形)
@@ -142,20 +160,26 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         printf 'a\nb\nc\nd\ne\n' >rules/shared.md && printf 'keep\n' >README.md
         git add -A && git commit -qm 'harness: second entry'
         printf 'reason\n' >"$body"
+        settle_all rejected 'stub'
         ;;
-    no_body) adopt ;;
+    no_body)
+        adopt
+        settle_all rejected 'stub'
+        ;;
     adopt_uncommitted)
         # 採用を判定の記録に書いたのに commit しなかった run の再現
-        verdict=$(grep -oE 'adopted \(harness/review-[^)]*\)' <<<"$all_args" | head -n 1)
-        printf -- '- **Verdict:** %s\n' "$verdict" >>"$archive"
+        settle_all adopted
         ;;
-    body_only) printf 'reason\n' >"$body" ;;
-    dirty) printf 'x\n' >stray.md ;;
-    none) ;;
+    body_only)
+        printf 'reason\n' >"$body"
+        settle_all rejected 'stub'
+        ;;
+    dirty)
+        printf 'x\n' >stray.md
+        settle_all rejected 'stub'
+        ;;
+    none) settle_all rejected 'stub' ;;
     esac
-    # 処理した項目は queue から外す(harness-review の手順)。STUB_KEEP_QUEUE があれば
-    # 外さない(採用か却下した項目を queue に残した run、または落とした変更を残した run の再現)
-    [[ -n "${STUB_KEEP_QUEUE:-}" ]] || printf '# Harness improvement queue\n' >"$HOME/.claude/harness/queue.md"
     [[ -z "${STUB_QUEUE_UNREADABLE:-}" ]] || chmod 000 "$HOME/.claude/harness/queue.md"
 else
     printf 'reflect\n' >>"$STAGE_LOG"
@@ -631,8 +655,25 @@ PRE
     seed_queue
     run weekly
     assert_success
-    run cat "$HDIR/queue-archive.md"
-    assert_output '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/42)'
+    run bash "$HOME/.claude/scripts/harness-verdict.sh" entries
+    assert_success
+    run jq -r '[.title, .raw] | @tsv' <<<"$output"
+    assert_output "$(printf '[2026-10-03] entry\tadopted (PR https://github.com/example/dotfiles/pull/42)')"
+}
+
+@test "選別の claude にだけ採用の印を HARNESS_REVIEW_RUN で渡し、prompt には印を書かない" {
+    seed_queue
+    run weekly
+    assert_success
+    run grep '^review ' "$REVIEW_RUN_LOG"
+    assert_output "review HARNESS_REVIEW_RUN=${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001"
+    # 抽出の claude には渡さない(このスクリプトの環境に残さない)
+    run grep '^reflect ' "$REVIEW_RUN_LOG"
+    assert_output 'reflect HARNESS_REVIEW_RUN=<unset>'
+    run grep -cF 'adopted (' "$ARGV_LOG"
+    assert_output '0'
+    run grep -c 'settle command' "$ARGV_LOG"
+    assert_output '1'
 }
 
 @test "同じ日の前の run が残した採用は今回の PR の URL に置き換えず、heartbeat を書かずに知らせる" {
@@ -1727,9 +1768,8 @@ commit_on_main() {
     commit_on_main 2026-09-19
     run weekly
     assert_success
-    run git -C "$ORIGIN" log --format=%s "$BRANCH"
-    assert_line --index 0 'harness: Failure Pattern の再発率の週の記録を足す'
-    assert_line --index 1 'harness: add rule'
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_output "$(printf '%s\n' 'harness: Rule Ledger の記録を足す' 'harness: Failure Pattern の再発率の週の記録を足す' 'harness: add rule')"
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
     assert_output "$(printf '%s\n' "$RATES_REPO_DIR/2026-09-26.json" "$RATES_REPO_DIR/$TODAY.json")"
     run cat "$GH_BODY"
@@ -1890,7 +1930,6 @@ PRE
     sid=11111111-1111-4111-8111-111111111111
     mkdir -p "$HOME/.claude/projects/-work-repo"
     cp "$BATS_TEST_DIRNAME/fixtures/harness-detect-failures/negation.jsonl" "$HOME/.claude/projects/-work-repo/$sid.jsonl"
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     export STUB_EVAL_REQUEST="{\"cases\":[{\"title\":\"[2026-10-03] entry\",\"rule\":\"r\",\"source_session\":\"$sid\",\"prompt\":\"p\",\"graders\":[{\"name\":\"g\",\"type\":\"regex\",\"pattern\":\"x\"}]}]}"
     run weekly
     assert_success
@@ -1908,7 +1947,6 @@ PRE
 
 @test "選別が Eval Case の依頼を書かなかった採用は、評価も免除の理由も無いとして本文に名前が出る" {
     seed_queue
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     run weekly
     assert_success
     refute grep -q '^eval$' "$STAGE_LOG"
@@ -1920,7 +1958,6 @@ PRE
 @test "評価の工程が失敗しても PR は作り、本文に効果を測っていないことを書く" {
     seed_queue
     rm "$HOME/.claude/scripts/harness-eval-plugin/hooks/hooks.json"
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     export STUB_EVAL_REQUEST='{"cases":[]}'
     run weekly
     assert_success
@@ -1931,7 +1968,6 @@ PRE
 
 @test "選別の claude が評価のスクリプトを書き換えた run は、評価も PR の作成もせずに失敗する" {
     seed_queue
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     export STUB_EVAL_REQUEST='{"cases":[]}'
     export STUB_TAMPER_EVAL=1
     run weekly
@@ -1957,7 +1993,6 @@ ledger_record() {
     sid=11111111-1111-4111-8111-111111111111
     mkdir -p "$HOME/.claude/projects/-work-repo"
     cp "$BATS_TEST_DIRNAME/fixtures/harness-detect-failures/negation.jsonl" "$HOME/.claude/projects/-work-repo/$sid.jsonl"
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     export STUB_EVAL_REQUEST="{\"cases\":[{\"title\":\"[2026-10-03] entry\",\"rule\":\"r\",\"source_session\":\"$sid\",\"prompt\":\"p\",\"graders\":[{\"name\":\"g\",\"type\":\"regex\",\"pattern\":\"x\"}]}]}"
     carried=$(ledger_record 30 '[2026-09-20] carried over')
     # マージされずに閉じた PR の記録は採用ではないので載せない
@@ -1988,7 +2023,6 @@ ledger_record() {
 
 @test "Rule Ledger の記録の push に失敗しても、PR と heartbeat は残し、記録はローカルに持ち越す" {
     seed_queue
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     cat >"$ORIGIN/hooks/pre-receive" <<'HOOK'
 #!/usr/bin/env bash
 while read -r old new ref; do
@@ -2068,7 +2102,6 @@ PRE
 
 @test "選別の claude が置いた偽の評価の結果は Rule Ledger に記録せず、測っていないと記録する" {
     seed_queue
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     # 形の違う依頼で評価の工程を失敗させ、得点を偽った結果のファイルを置く
     export STUB_EVAL_REQUEST='{}'
     cat >"$STUBS/claude-pre" <<PRE
@@ -2089,7 +2122,6 @@ PRE
 
 @test "選別の claude が Rule Ledger のスクリプトを書き換えたら、PR を作らずに失敗する" {
     seed_queue
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     cat >"$STUBS/claude-pre" <<PRE
 if [[ "\$*" == *'harness-review skill'* ]]; then
     printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
@@ -2105,7 +2137,6 @@ PRE
 
 @test "選別の claude が Verdict の CLI を書き換えたら、PR を作らずに失敗する" {
     seed_queue
-    export STUB_ARCHIVE_TITLE='[2026-10-03] entry'
     cat >"$STUBS/claude-pre" <<PRE
 if [[ "\$*" == *'harness-review skill'* ]]; then
     printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
