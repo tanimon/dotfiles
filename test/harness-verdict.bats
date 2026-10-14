@@ -519,8 +519,9 @@ RUN='harness/review-2026-10-10 run aaaa'
     chmod 640 "$ARCHIVE"
     run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
     assert_success
-    run stat -f '%Lp' "$ARCHIVE" 2>/dev/null || run stat -c '%a' "$ARCHIVE"
-    assert_output '640'
+    # stat の書式は BSD と GNU で違う(GNU の -f はファイルシステムの情報を出して成功する)ので ls で見る
+    run ls -l "$ARCHIVE"
+    assert_output --regexp '^-rw-r-----'
 }
 
 @test "publish と adopted の引数の誤りは、判定の記録を書き換えずに exit 2" {
