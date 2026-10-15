@@ -676,11 +676,12 @@ PRE
 }
 
 @test "同じ日の前の run が残した採用は今回の PR の URL に置き換えず、heartbeat を書かずに知らせる" {
-    printf -- '- **Verdict:** adopted (%s)\n' "$BRANCH" >"$HDIR/queue-archive.md"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (%s)\n' "$BRANCH" >"$HDIR/queue-archive.md"
     seed_queue
     run weekly
     assert_failure
-    assert_output --partial "never became a PR: adopted (${BRANCH})"
+    assert_output --partial "never became a PR"
+    assert_output --partial "bash ~/.claude/scripts/harness-verdict.sh publish --run '${BRANCH}' --pr-url <PR URL>"
     run grep -cF "adopted (${BRANCH})" "$HDIR/queue-archive.md"
     assert_output '1'
     run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
@@ -987,7 +988,7 @@ PRE
     seed_queue
     STUB_REVIEW_MODE=adopt_uncommitted run weekly
     assert_failure
-    assert_output --partial "has 1 verdict(s) marked adopted (${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001) but the review committed nothing"
+    assert_output --partial "has 1 verdict(s) adopted in run \"${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001\" but the review committed nothing"
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
@@ -1005,7 +1006,7 @@ PRE
 
 @test "PR の URL に置き換え済みの採用は、commit が無い週の失敗に数えない" {
     seed_queue
-    printf -- '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
     STUB_REVIEW_MODE=none run weekly
     assert_success
     assert_output --partial 'review committed no changes; no PR created'
@@ -1014,12 +1015,13 @@ PRE
 
 @test "前の run が残した別の run の採用の印は、この run の commit が無いことの失敗に数えない" {
     seed_queue
-    printf -- '- **Verdict:** adopted (%s run old)\n' "$BRANCH" >"$HDIR/queue-archive.md"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (%s run old)\n' "$BRANCH" >"$HDIR/queue-archive.md"
     STUB_REVIEW_MODE=none run weekly
     # 前の run の印は finish_run が知らせる(この run の publish_review は成功する)
     assert_failure
     assert_output --partial 'review committed no changes; no PR created'
-    assert_output --partial "never became a PR: adopted (${BRANCH} run old)"
+    assert_output --partial "never became a PR"
+    assert_output --partial "bash ~/.claude/scripts/harness-verdict.sh publish --run '${BRANCH} run old' --pr-url <PR URL>"
     refute_output --partial 'but the review committed nothing'
 }
 
@@ -1099,7 +1101,7 @@ PRE
     STUB_GH_FAIL=1 run weekly
     assert_failure
     assert_output --partial "pushed ${BRANCH} but gh pr create failed"
-    assert_output --partial "still say adopted (${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001)"
+    assert_output --partial "then record its URL with bash ~/.claude/scripts/harness-verdict.sh publish --run '${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001' --pr-url <PR URL>"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
@@ -1144,22 +1146,44 @@ EOF
 }
 
 @test "前の run の採用が PR にならないまま判定の記録に残っていれば、heartbeat を書かずに失敗する" {
-    printf -- '- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
     run weekly
     assert_failure
-    assert_output --partial 'never became a PR: adopted (harness/review-2026-01-01)'
+    assert_output --partial "never became a PR"
+    assert_output --partial "bash ~/.claude/scripts/harness-verdict.sh publish --run 'harness/review-2026-01-01' --pr-url <PR URL>"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    # 案内どおりに publish で URL を記録すれば、次の run は heartbeat を書く
+    run bash "$HOME/.claude/scripts/harness-verdict.sh" publish --run 'harness/review-2026-01-01' --pr-url https://github.com/example/dotfiles/pull/7
+    assert_output '1'
+    run weekly
+    assert_success
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "手書きの印が ' を含んでも、復旧の案内の publish のコマンドは貼り付けて動く" {
+    printf -- "## [2026-01-01] old\n\n- **Verdict:** adopted (Bob's fix)\n" >"$HDIR/queue-archive.md"
+    run weekly
+    assert_failure
+    assert_output --partial "a mark written by hand has no branch to push"
+    local command
+    command=$(printf '%s\n' "$output" | grep -o "bash ~/.claude/scripts/harness-verdict.sh publish --run '.*' --pr-url <PR URL>")
+    command=${command/<PR URL>/https:\/\/github.com\/example\/dotfiles\/pull\/7}
+    run eval "$command"
+    assert_success
+    assert_output '1'
+    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/7)' "$HDIR/queue-archive.md"
+    assert_output '1'
 }
 
 @test "判定の記録の採用がすべて PR の URL になっていれば heartbeat を書く" {
-    printf -- '- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
     run weekly
     assert_success
     assert [ -f "$HDIR/weekly-heartbeat" ]
 }
 
 @test "前の run の採用の残りは、その週の選別と PR の作成を済ませてから知らせる" {
-    printf -- '- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
     seed_queue
     run weekly
     assert_failure
@@ -1586,7 +1610,7 @@ leftover_branch() { # <ブランチ>
 
 @test "採用の記録が残るループのブランチは、失敗の Issue が知らせるのでブランチの Issue にしない" {
     leftover_branch harness/review-2026-09-01
-    printf -- '- **Verdict:** adopted (harness/review-2026-09-01 run old)\n' >"$HDIR/queue-archive.md"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-09-01 run old)\n' >"$HDIR/queue-archive.md"
     run weekly
     assert_failure
     assert_output --partial 'harness/review-2026-09-01 has an adopted verdict'

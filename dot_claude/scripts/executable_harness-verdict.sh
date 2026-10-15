@@ -1,10 +1,27 @@
 #!/usr/bin/env bash
 # Verdict(選別が queue の項目に下した結果。CONTEXT.md)を扱う CLI(ADR 0017)。判定の記録(~/.claude/harness/queue-archive.md)の
 # Verdict 行の書式を知っているのはこのスクリプトだけにする。選別(harness-review skill の Bookkeeping)と Rule Ledger のスクリプトは
-# 子プロセスとして呼ぶ。週次ジョブの印の照合(PR の URL への置き換えなど)は、サブコマンドに移すまでこのスクリプトの外にも書式を持つ(ADR 0017)。
+# 子プロセスとして呼ぶ。週次ジョブも採用の印を publish・adopted・unpublished で扱い、印の書式を持たない。
 #
 #   entries
 #   settle --title <見出し> adopted [--pr-url <URL>] | rejected <理由> | handoff <repo> | merged <統合先の見出し>
+#   publish --run <印> --pr-url <URL>
+#   adopted --run <印>
+#   unpublished [--branch <ブランチ>]
+#
+# publish・adopted・unpublished の「印」は、PR になっていない採用の Verdict 行 `adopted (<印>)` の括弧の中
+# (entries の run。週次ジョブの印は HARNESS_REVIEW_RUN の値)。どれも entries と同じ読み方で、項目ごとに最初の
+# Verdict 行だけを見る(本文やコードフェンスの中の同じ文字列は印として読まない)。
+#   publish      印が <印> と一致する採用の Verdict 行を `adopted (PR <URL>)` に置き換え(括弧の後ろの補足は残す)、
+#                置き換えた件数を出す。0 件(陳腐化の修正だけの PR)でも exit 0 で、判定の記録は書き換えない。
+#                書き戻し方(一時ファイルからの mv、mode を保つ、直前の cmp と 3 回までの作り直し)は settle と同じ
+#   adopted      印が <印> と一致する採用の見出しを 1 行ずつ出す
+#   unpublished  PR になっていない採用の印を、重複を除いて記録の順に 1 行ずつ出す。週次ジョブが書く印は
+#                publish の --run にそのまま渡せる。手書きの印のうち空のもの(`adopted ()`)は空行になり、
+#                タブを含むものは entries と同じくタブを空白にして出すので、どちらも publish では置き換わらない。
+#                --branch を付けると、印が <ブランチ> そのもの(run id を付けていなかった頃の形)か
+#                `<ブランチ> run ` で始まるものに絞る(名前が <ブランチ> で始まる別のブランチは含めない)
+# 値の誤り(欠落・空・改行や ) を含む・余分な引数、`PR ` で始まる --run)は exit 2。判定の記録が無ければ、何も出さない(publish は 0 を出す)。
 #
 # settle は queue(~/.claude/harness/queue.md)の見出し `## <見出し>` の項目(区切りは entries と同じ)を queue から外し、
 # 末尾の空行を落として Verdict 行を 1 行付け、判定の記録の末尾に前の項目と空行で区切って足す。書く Verdict 行:
@@ -49,6 +66,9 @@ QUEUE="$HARNESS_DIR/queue.md"
 usage() {
     printf 'usage: harness-verdict.sh entries\n' >&2
     printf '       harness-verdict.sh settle --title <title> adopted [--pr-url <url>] | rejected <reason> | handoff <repo> | merged <title>\n' >&2
+    printf '       harness-verdict.sh publish --run <mark> --pr-url <url>\n' >&2
+    printf '       harness-verdict.sh adopted --run <mark>\n' >&2
+    printf '       harness-verdict.sh unpublished [--branch <branch>]\n' >&2
     exit 2
 }
 
@@ -57,7 +77,8 @@ fail() {
     exit 1
 }
 
-# settle の誤り。再試行の前の回で判定の記録に追記を済ませていれば、何も書いていないとは言わずに exit 1 にする
+# 引数の誤り(どのサブコマンドでも何も書く前に判定する)。settle が再試行の前の回で判定の記録に追記を済ませていれば、
+# 何も書いていないとは言わずに exit 1 にする
 SETTLE_APPENDED=0
 reject() {
     if [[ "$SETTLE_APPENDED" -eq 1 ]]; then
@@ -97,7 +118,7 @@ entries_mode() {
         fail "cannot read $ARCHIVE"
 }
 
-# settle の値の検査。空・改行を含む値は誤り。括弧で囲む値(第 3 引数が paren)は ) も誤り
+# 引数の値の検査。空・改行を含む値は誤り。括弧で囲む値(第 3 引数が paren)は ) も誤り
 check_value() { # <名前> <値> [paren]
     [[ -n "$2" ]] || reject "$1 is empty"
     case $2 in *$'\n'* | *$'\r'*) reject "$1 contains a line break" ;; esac
@@ -137,10 +158,10 @@ archive_with_separator() { # <ファイル>
     awk '{ print; last = $0 } END { if (NR > 0 && last !~ /^[ \t\r]*$/) print "" }' "$1"
 }
 
-SETTLE_TMP_FILES=""
-cleanup_settle() {
+TMP_FILES=""
+cleanup_tmp_files() {
     # shellcheck disable=SC2086 # 空白を含まない mktemp のパスを並べたもの
-    [[ -z "$SETTLE_TMP_FILES" ]] || rm -f $SETTLE_TMP_FILES
+    [[ -z "$TMP_FILES" ]] || rm -f $TMP_FILES
 }
 
 settle_mode() {
@@ -202,13 +223,13 @@ settle_mode() {
     [[ ! -e "$ARCHIVE" && ! -L "$ARCHIVE" ]] || [[ -f "$ARCHIVE" && -r "$ARCHIVE" ]] || fail "cannot read $ARCHIVE"
 
     local queue_copy archive_copy new_queue new_archive
-    trap cleanup_settle EXIT
+    trap cleanup_tmp_files EXIT
     queue_copy=$(mktemp "$HARNESS_DIR/.settle-queue.XXXXXX") || fail "cannot create a temp file in $HARNESS_DIR"
-    SETTLE_TMP_FILES=$queue_copy
+    TMP_FILES=$queue_copy
     archive_copy=$(mktemp "$HARNESS_DIR/.settle-archive.XXXXXX") || fail "cannot create a temp file in $HARNESS_DIR"
     new_queue=$(mktemp "$HARNESS_DIR/.settle-new-queue.XXXXXX") || fail "cannot create a temp file in $HARNESS_DIR"
     new_archive=$(mktemp "$HARNESS_DIR/.settle-new-archive.XXXXXX") || fail "cannot create a temp file in $HARNESS_DIR"
-    SETTLE_TMP_FILES="$queue_copy $archive_copy $new_queue $new_archive"
+    TMP_FILES="$queue_copy $archive_copy $new_queue $new_archive"
     export SETTLE_HEADING="$title"
 
     local archive_existed headings block archived expected changed=$QUEUE
@@ -273,6 +294,107 @@ settle_mode() {
     fail "$changed kept changing while settling '## $title' (3 times); nothing written"
 }
 
+# publish・adopted・unpublished の名前付きの値を読む。OPT_RUN・OPT_PR_URL・OPT_BRANCH に入れ、
+# 渡されたものを OPT_GIVEN に「 名前 」の形で並べる。許す名前のほかの引数は exit 2
+OPT_RUN='' OPT_PR_URL='' OPT_BRANCH='' OPT_GIVEN=' '
+read_options() { # <許す名前(空白区切り)> <引数…>
+    local allowed=" $1 "
+    shift
+    while [[ $# -gt 0 ]]; do
+        [[ "$allowed" == *" $1 "* ]] || reject "unexpected argument '$1'"
+        [[ $# -ge 2 ]] || reject "$1 needs a value"
+        case $1 in
+        --run) OPT_RUN=$2 ;;
+        --pr-url) OPT_PR_URL=$2 ;;
+        --branch) OPT_BRANCH=$2 ;;
+        esac
+        OPT_GIVEN+="$1 "
+        shift 2
+    done
+}
+
+require_option() { # <名前> <値>
+    [[ "$OPT_GIVEN" == *" $1 "* ]] || reject "$1 is required"
+    check_value "$1" "$2" paren
+    # 印は PR になっていない採用の括弧の中なので、`PR ` で始まる値は印ではない(entries はそれを pr_url として読む)
+    if [[ "$1" == --run && "$2" == 'PR '* ]]; then
+        reject "--run '$2' is a PR URL verdict, not a mark (marks are the run values listed by unpublished)"
+    fi
+    return 0
+}
+
+adopted_mode() {
+    local listed
+    read_options '--run' "$@"
+    require_option --run "$OPT_RUN"
+    listed=$(entries_mode) || exit 1
+    jq -r --arg run "$OPT_RUN" 'select(.kind == "adopted" and .run == $run) | .title' <<<"$listed" ||
+        fail "cannot read $ARCHIVE"
+}
+
+unpublished_mode() {
+    local listed all=true
+    read_options '--branch' "$@"
+    if [[ "$OPT_GIVEN" == *' --branch '* ]]; then
+        check_value --branch "$OPT_BRANCH" paren
+        all=false
+    fi
+    listed=$(entries_mode) || exit 1
+    jq -r --arg branch "$OPT_BRANCH" --argjson all "$all" '
+        select(.kind == "adopted" and has("run")) | .run
+        | select($all or . == $branch or startswith($branch + " run "))' <<<"$listed" |
+        awk '!seen[$0]++' || fail "cannot read $ARCHIVE"
+}
+
+# 判定の記録を写し、印が $PUBLISH_RUN の採用の Verdict 行を置き換えて $PUBLISH_OUT に書き、置き換えた件数を出す。
+# 項目と Verdict 行の決め方は entries と同じ(フェンスの中は読まない。`## ` はフェンスを閉じる。項目ごとに最初の Verdict 行)
+publish_rewrite() { # <ファイル>
+    awk 'BEGIN { from = "- **Verdict:** adopted (" ENVIRON["PUBLISH_RUN"] ")"; to = "- **Verdict:** adopted (PR " ENVIRON["PUBLISH_URL"] ")"; out = ENVIRON["PUBLISH_OUT"] }
+        /^## / { fence = 0; inside = (length($0) > 3); seen = 0; print > out; next }
+        /^ ? ? ?(```|~~~)/ { fence = !fence; print > out; next }
+        fence { print > out; next }
+        /^# / { inside = 0; print > out; next }
+        inside && !seen && /^- \*\*Verdict:\*\* / {
+            seen = 1
+            if (substr($0, 1, length(from)) == from) { $0 = to substr($0, length(from) + 1); n++ }
+        }
+        { print > out }
+        END { print n + 0 }' "$1"
+}
+
+publish_mode() {
+    local copy new count
+    read_options '--run --pr-url' "$@"
+    require_option --run "$OPT_RUN"
+    require_option --pr-url "$OPT_PR_URL"
+    if [[ ! -e "$ARCHIVE" && ! -L "$ARCHIVE" ]]; then
+        printf '0\n'
+        return 0
+    fi
+    [[ -f "$ARCHIVE" && -r "$ARCHIVE" ]] || fail "cannot read $ARCHIVE"
+    trap cleanup_tmp_files EXIT
+    copy=$(mktemp "$HARNESS_DIR/.publish-archive.XXXXXX") || fail "cannot create a temp file in $HARNESS_DIR"
+    TMP_FILES=$copy
+    new=$(mktemp "$HARNESS_DIR/.publish-new-archive.XXXXXX") || fail "cannot create a temp file in $HARNESS_DIR"
+    TMP_FILES="$copy $new"
+    export PUBLISH_RUN="$OPT_RUN" PUBLISH_URL="$OPT_PR_URL" PUBLISH_OUT="$new"
+    for _ in 1 2 3; do
+        cp "$ARCHIVE" "$copy" || fail "cannot read $ARCHIVE"
+        # 置き換えるファイルの mode を保つため、元のファイルを写してから中身を書く
+        cp -p "$ARCHIVE" "$new" || fail "cannot write $new"
+        count=$(publish_rewrite "$copy") || fail "cannot rewrite $ARCHIVE"
+        if [[ "$count" -eq 0 ]]; then
+            printf '0\n'
+            return 0
+        fi
+        cmp -s "$ARCHIVE" "$copy" || continue
+        mv "$new" "$ARCHIVE" || fail "cannot write $ARCHIVE"
+        printf '%s\n' "$count"
+        return 0
+    done
+    fail "$ARCHIVE kept changing while publishing '$OPT_RUN' (3 times); nothing written"
+}
+
 [[ $# -ge 1 ]] || usage
 case $1 in
 entries)
@@ -283,6 +405,16 @@ entries)
 settle)
     shift
     settle_mode "$@"
+    ;;
+publish)
+    shift
+    publish_mode "$@"
+    ;;
+adopted | unpublished)
+    command -v jq >/dev/null 2>&1 || fail 'jq not found'
+    mode=$1
+    shift
+    "${mode}_mode" "$@"
     ;;
 *) usage ;;
 esac

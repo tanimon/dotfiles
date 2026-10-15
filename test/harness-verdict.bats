@@ -440,3 +440,179 @@ STUB
     assert_equal "${lines[1]}" '{"title":"next","kind":"handoff","arg":"a/b","raw":"handoff (a/b)","sources":[]}'
     assert_equal "${#lines[@]}" 2
 }
+
+# --- publish / adopted / unpublished ---
+
+RUN='harness/review-2026-10-10 run aaaa'
+
+@test "adopted はその run の印を持つ項目の見出しだけを出す" {
+    entry 'mine 1' "adopted ($RUN)"
+    entry 'other run' 'adopted (harness/review-2026-10-10 run bbbb)'
+    entry 'published' "adopted (PR $URL)"
+    entry 'no' 'rejected (x)'
+    entry 'mine 2' "adopted ($RUN) → rules/x.md"
+    entry 'old mark' 'adopted (harness/review-2026-10-10)'
+    run --separate-stderr bash "$SCRIPT" adopted --run "$RUN"
+    assert_success
+    assert_output "$(printf 'mine 1\nmine 2')"
+}
+
+@test "adopted は判定の記録が無ければ何も出さずに成功する" {
+    run --separate-stderr bash "$SCRIPT" adopted --run "$RUN"
+    assert_success
+    assert_output ''
+}
+
+@test "publish はその run の印だけを PR の URL に置き換え、件数を出す" {
+    entry 'mine 1' "adopted ($RUN)"
+    entry 'other run' 'adopted (harness/review-2026-10-10 run bbbb)'
+    entry 'published' 'adopted (PR https://github.com/example/dotfiles/pull/1)'
+    entry 'mine 2' "adopted ($RUN) → rules/x.md"
+    run --separate-stderr bash "$SCRIPT" adopted --run "$RUN"
+    assert_output "$(printf 'mine 1\nmine 2')"
+    run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_success
+    assert_output '2'
+    run --separate-stderr bash "$SCRIPT" entries
+    run jq -r '[.title, .kind, (.pr_url // "-"), (.run // "-"), .raw] | join("|")' <<<"$output"
+    assert_output "$(printf '%s\n' \
+        "mine 1|adopted|$URL|-|adopted (PR $URL)" \
+        'other run|adopted|-|harness/review-2026-10-10 run bbbb|adopted (harness/review-2026-10-10 run bbbb)' \
+        'published|adopted|https://github.com/example/dotfiles/pull/1|-|adopted (PR https://github.com/example/dotfiles/pull/1)' \
+        "mine 2|adopted|$URL|-|adopted (PR $URL) → rules/x.md")"
+    run --separate-stderr bash "$SCRIPT" adopted --run "$RUN"
+    assert_output ''
+}
+
+@test "publish は Verdict 行だけを書き換え、本文やコードフェンスの中の同じ文字列は残す" {
+    {
+        printf '## a\n\n- **What happened:** wrote adopted (%s) by hand\n' "$RUN"
+        printf '```\n- **Verdict:** adopted (%s)\n```\n' "$RUN"
+        printf -- '- **Verdict:** adopted (%s)\n- **Verdict:** adopted (%s)\n' "$RUN" "$RUN"
+    } >"$ARCHIVE"
+    run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_success
+    assert_output '1'
+    run cat "$ARCHIVE"
+    assert_output "$(printf '%s\n' '## a' '' \
+        "- **What happened:** wrote adopted ($RUN) by hand" \
+        '```' "- **Verdict:** adopted ($RUN)" '```' \
+        "- **Verdict:** adopted (PR $URL)" "- **Verdict:** adopted ($RUN)")"
+}
+
+@test "publish は置き換える印が無ければ 0 を出して成功し、判定の記録を書き換えない" {
+    entry 'a' "adopted (PR $URL)"
+    cp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
+    run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_success
+    assert_output '0'
+    cmp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
+    rm "$ARCHIVE"
+    run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_success
+    assert_output '0'
+    assert [ ! -e "$ARCHIVE" ]
+}
+
+@test "publish は判定の記録の mode を保つ" {
+    entry 'a' "adopted ($RUN)"
+    chmod 640 "$ARCHIVE"
+    run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_success
+    # stat の書式は BSD と GNU で違う(GNU の -f はファイルシステムの情報を出して成功する)ので ls で見る
+    run ls -l "$ARCHIVE"
+    assert_output --regexp '^-rw-r-----'
+}
+
+@test "publish と adopted の引数の誤りは、判定の記録を書き換えずに exit 2" {
+    entry 'a' "adopted ($RUN)"
+    entry 'published' "adopted (PR $URL)"
+    cp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
+    local args
+    for args in \
+        "publish|--pr-url|$URL" \
+        "publish|--run|$RUN" \
+        "publish|--run||--pr-url|$URL" \
+        "publish|--run|$RUN|--pr-url|" \
+        "publish|--run|$RUN|--pr-url|$URL)" \
+        "publish|--run|a)b|--pr-url|$URL" \
+        "publish|--run|$RUN|--pr-url|$URL|extra" \
+        "publish|--run" \
+        'adopted' \
+        'adopted|--run|' \
+        'adopted|--run|a)b' \
+        "publish|--run|PR $URL|--pr-url|$URL/2" \
+        "adopted|--run|PR $URL" \
+        "adopted|--run|$RUN|extra" \
+        'unpublished|--branch|' \
+        'unpublished|--branch|a)b' \
+        'unpublished|extra'; do
+        IFS='|' read -r -a argv <<<"$args"
+        run --separate-stderr bash "$SCRIPT" "${argv[@]}"
+        [[ "$status" -eq 2 ]] || fail "expected exit 2 for $args (got $status)"
+        cmp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
+    done
+    run --separate-stderr bash "$SCRIPT" publish --run "$(printf 'a\nb')" --pr-url "$URL"
+    assert_failure 2
+    cmp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
+}
+
+@test "unpublished は PR になっていない採用の印を、重複を除いて出す" {
+    entry 'a' "adopted ($RUN)"
+    entry 'b' "adopted ($RUN)"
+    entry 'old mark' 'adopted (harness/review-2026-09-27)'
+    entry 'published' "adopted (PR $URL)"
+    entry 'no' 'rejected (x)'
+    entry 'odd' 'adopted (by hand)'
+    run --separate-stderr bash "$SCRIPT" unpublished
+    assert_success
+    assert_output "$(printf '%s\n' "$RUN" 'harness/review-2026-09-27' 'by hand')"
+}
+
+@test "unpublished --branch は新旧 2 つの形の印だけに絞り、名前がそのブランチで始まる別のブランチは含めない" {
+    entry 'new' 'adopted (harness/review-2026-10-04 run abc)'
+    entry 'old' 'adopted (harness/review-2026-10-04)'
+    entry 'manual' 'adopted (harness/review-2026-10-04-manual run x)'
+    entry 'manual old' 'adopted (harness/review-2026-10-04-manual)'
+    entry 'other' 'adopted (harness/review-2026-10-11 run abc)'
+    entry 'published' "adopted (PR $URL)"
+    run --separate-stderr bash "$SCRIPT" unpublished --branch harness/review-2026-10-04
+    assert_success
+    assert_output "$(printf '%s\n' 'harness/review-2026-10-04 run abc' 'harness/review-2026-10-04')"
+    run --separate-stderr bash "$SCRIPT" unpublished --branch harness/review-2026-10-25
+    assert_success
+    assert_output ''
+}
+
+@test "unpublished は判定の記録が無ければ何も出さずに成功し、読めなければ失敗する" {
+    run --separate-stderr bash "$SCRIPT" unpublished
+    assert_success
+    assert_output ''
+    ln -s "$BATS_TEST_TMPDIR/missing" "$ARCHIVE"
+    run --separate-stderr bash "$SCRIPT" unpublished
+    assert_failure 1
+    run --separate-stderr bash "$SCRIPT" adopted --run "$RUN"
+    assert_failure 1
+    run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_failure 1
+}
+
+@test "publish は書き戻す直前に判定の記録が変わっていたら作り直し、3 回続けば何も書かずに exit 1" {
+    entry 'a' "adopted ($RUN)"
+    install_racing_cmp
+    STUB_CMP_TARGET="$ARCHIVE" STUB_CMP_TIMES=1 PATH="$BATS_TEST_TMPDIR/bin:$PATH" \
+        run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_success
+    assert_output '1'
+    run grep -c -e '^## reflected 0$' -e "^- \*\*Verdict:\*\* adopted (PR $URL)\$" "$ARCHIVE"
+    assert_output '2'
+
+    rm -f "$BATS_TEST_TMPDIR/cmp.count"
+    entry 'b' "adopted ($RUN)"
+    STUB_CMP_TARGET="$ARCHIVE" STUB_CMP_TIMES=3 PATH="$BATS_TEST_TMPDIR/bin:$PATH" \
+        run --separate-stderr bash "$SCRIPT" publish --run "$RUN" --pr-url "$URL"
+    assert_failure 1
+    assert_equal "$stderr" "harness-verdict: $ARCHIVE kept changing while publishing '$RUN' (3 times); nothing written"
+    run grep -c "^- \*\*Verdict:\*\* adopted ($RUN)\$" "$ARCHIVE"
+    assert_output '1'
+}
