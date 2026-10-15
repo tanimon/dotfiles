@@ -771,9 +771,11 @@ adopted_titles() {
     bash "$VERDICT_CLI" adopted --run "$REVIEW_RUN"
 }
 
-# 印 <run> の採用を PR の URL で記録する手順を、ログにそのまま貼れる 1 行のコマンドで出す(印は空白を含む)
+# 印 <run> の採用を PR の URL で記録する手順を、ログにそのまま貼れる 1 行のコマンドで出す。印は空白を含むので
+# シングルクォートで囲み、手書きの印に入りうる ' は '\'' に置き換える
 publish_command() { # <run>
-    printf "bash ~/.claude/scripts/harness-verdict.sh publish --run '%s' --pr-url <PR URL>" "$1"
+    local quote="'\\''"
+    printf "bash ~/.claude/scripts/harness-verdict.sh publish --run '%s' --pr-url <PR URL>" "${1//\'/$quote}"
 }
 
 # 評価のスクリプトと eval 専用 plugin の雛形の「パス ハッシュ」を 1 行ずつ出す。抽出と選別の claude は
@@ -1267,7 +1269,9 @@ report_failed_review() {
 # 選別の claude のどれかが失敗した)ことを、次の週の run が見落とさないよう、heartbeat を
 # 書く前に判定の記録を確かめる(Verdict の CLI の unpublished)。選別は採用に run の印を付けて記録し、PR を
 # 作れた run だけが自分の印を PR の URL に置き換える(record_pr_url)。手動の /harness-review は最初から
-# PR の URL で記録するので当たらない。ローカルの harness/review-* ブランチの有無で
+# PR の URL で記録するので当たらない。ブランチで絞らないので、ループ以外の印(手で書いた `adopted (by hand)` など)
+# も PR になっていない採用として止まる。そうした印には push するブランチが無いので、案内の publish で記録するか
+# queue に戻す。ローカルの harness/review-* ブランチの有無で
 # 判定しないのは、手動の手順もローカルにブランチを残すため。
 # 残っていれば heartbeat を書かずに失敗し、briefing の古さの警告で人に知らせる。その週の抽出と
 # 選別は済ませてから確かめる(失敗させても週の処理は止めない)
@@ -1281,7 +1285,7 @@ finish_run() {
         while IFS= read -r run; do
             commands+="${commands:+; }$(publish_command "$run")"
         done <<<"$leftovers"
-        printf 'harness-weekly: %s still has verdicts that never became a PR. Publish each branch from %s by hand (git push origin <branch>, then gh pr create --draft --base main --head <branch>) and record the PR URL with: %s. Or move the entries back to queue.md; heartbeat not updated\n' \
+        printf 'harness-weekly: %s still has verdicts that never became a PR. For a loop mark (<branch> or <branch> run <id>), publish that branch from %s by hand (git push origin <branch>, then gh pr create --draft --base main --head <branch>); a mark written by hand has no branch to push and needs only the PR URL. Record the PR URL with: %s. Or move the entries back to queue.md; heartbeat not updated\n' \
             "$ARCHIVE" "$REPO" "$commands" >&2
         return 1
     fi

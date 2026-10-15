@@ -1160,6 +1160,21 @@ EOF
     assert [ -f "$HDIR/weekly-heartbeat" ]
 }
 
+@test "手書きの印が ' を含んでも、復旧の案内の publish のコマンドは貼り付けて動く" {
+    printf -- "## [2026-01-01] old\n\n- **Verdict:** adopted (Bob's fix)\n" >"$HDIR/queue-archive.md"
+    run weekly
+    assert_failure
+    assert_output --partial "a mark written by hand has no branch to push"
+    local command
+    command=$(printf '%s\n' "$output" | grep -o "bash ~/.claude/scripts/harness-verdict.sh publish --run '.*' --pr-url <PR URL>")
+    command=${command/<PR URL>/https:\/\/github.com\/example\/dotfiles\/pull\/7}
+    run eval "$command"
+    assert_success
+    assert_output '1'
+    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/7)' "$HDIR/queue-archive.md"
+    assert_output '1'
+}
+
 @test "判定の記録の採用がすべて PR の URL になっていれば heartbeat を書く" {
     printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
     run weekly

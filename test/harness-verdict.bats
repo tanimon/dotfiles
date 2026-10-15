@@ -526,6 +526,7 @@ RUN='harness/review-2026-10-10 run aaaa'
 
 @test "publish と adopted の引数の誤りは、判定の記録を書き換えずに exit 2" {
     entry 'a' "adopted ($RUN)"
+    entry 'published' "adopted (PR $URL)"
     cp "$ARCHIVE" "$BATS_TEST_TMPDIR/archive.before"
     local args
     for args in \
@@ -540,6 +541,8 @@ RUN='harness/review-2026-10-10 run aaaa'
         'adopted' \
         'adopted|--run|' \
         'adopted|--run|a)b' \
+        "publish|--run|PR $URL|--pr-url|$URL/2" \
+        "adopted|--run|PR $URL" \
         "adopted|--run|$RUN|extra" \
         'unpublished|--branch|' \
         'unpublished|--branch|a)b' \

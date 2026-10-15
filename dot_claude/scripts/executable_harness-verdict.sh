@@ -19,7 +19,7 @@
 #   unpublished  PR になっていない採用の印を、重複を除いて記録の順に 1 行ずつ出す(publish の --run にそのまま渡せる)。
 #                --branch を付けると、印が <ブランチ> そのもの(run id を付けていなかった頃の形)か
 #                `<ブランチ> run ` で始まるものに絞る(名前が <ブランチ> で始まる別のブランチは含めない)
-# 値の誤り(欠落・空・改行や ) を含む・余分な引数)は exit 2。判定の記録が無ければ、何も出さない(publish は 0 を出す)。
+# 値の誤り(欠落・空・改行や ) を含む・余分な引数、`PR ` で始まる --run)は exit 2。判定の記録が無ければ、何も出さない(publish は 0 を出す)。
 #
 # settle は queue(~/.claude/harness/queue.md)の見出し `## <見出し>` の項目(区切りは entries と同じ)を queue から外し、
 # 末尾の空行を落として Verdict 行を 1 行付け、判定の記録の末尾に前の項目と空行で区切って足す。書く Verdict 行:
@@ -314,6 +314,11 @@ read_options() { # <許す名前(空白区切り)> <引数…>
 require_option() { # <名前> <値>
     [[ "$OPT_GIVEN" == *" $1 "* ]] || reject "$1 is required"
     check_value "$1" "$2" paren
+    # 印は PR になっていない採用の括弧の中なので、`PR ` で始まる値は印ではない(entries はそれを pr_url として読む)
+    if [[ "$1" == --run && "$2" == 'PR '* ]]; then
+        reject "--run '$2' is a PR URL verdict, not a mark (marks are the run values listed by unpublished)"
+    fi
+    return 0
 }
 
 adopted_mode() {
