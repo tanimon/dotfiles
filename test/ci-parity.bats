@@ -53,10 +53,11 @@ require_no_body() {
 }
 
 # 期待($1)と実際($2)の集合(1 行 1 件、ソート済み)を両方向に比べ、差があれば $3(期待にだけある)・
-# $4(実際にだけある)の見出しで出して非ゼロで返る。期待が空なら読み取りの失敗とみなして落とす。
+# $4(実際にだけある)の見出しで出して非ゼロで返る。期待が空なら $5 を出して落とす(空の集合どうしの
+# 比較は何も検査しないので、通さない)。
 compare_sets() {
     if [ -z "$1" ]; then
-        echo "lint: の依存が空(justfile の読み取りに失敗した可能性)" >&2
+        echo "$5" >&2
         return 1
     fi
     local missing extra
@@ -113,7 +114,8 @@ check_parity() {
     actual=$(ci_recipes "$workflow") || return 1
     compare_sets "$expected" "$actual" \
         'CI が回していない lint: のレシピ' \
-        'lint: に無い(または local-only の)レシピを CI が回している'
+        'lint: に無い(または local-only の)レシピを CI が回している' \
+        'lint: の依存が空(justfile の読み取りに失敗した可能性)'
 }
 
 # `lint-fast:` は手元の既定の検証で、`lint:` の依存から `[group('slow')]`(Slow Suite)を除いた残りに
@@ -148,7 +150,8 @@ check_fast_parity() {
     actual=$(jq -r '.recipes["lint-fast"].dependencies[].recipe' <<<"$dump" | sort -u)
     compare_sets "$expected" "$actual" \
         'lint-fast: に無い lint: のレシピ(slow 以外)' \
-        'lint: に無い(または slow の)レシピを lint-fast: が回している'
+        'lint: に無い(または slow の)レシピを lint-fast: が回している' \
+        'lint: の依存に slow でないレシピが無い(すべて slow か、justfile の読み取りに失敗した可能性)'
 }
 
 # --- fixture ---------------------------------------------------------------
@@ -225,6 +228,21 @@ EOF
     run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
     assert_failure
     assert_output --partial "beta"
+}
+
+@test "fixture: lint: の依存がすべて slow なら、読み取りの失敗ではなくその旨で落ちる" {
+    cat >"$BATS_TEST_TMPDIR/justfile" <<'EOF'
+lint: beta
+
+lint-fast:
+
+[group('slow')]
+beta:
+    true
+EOF
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "slow でないレシピが無い"
 }
 
 @test "fixture: lint: に無いレシピを lint-fast: が回すと落ちる" {
