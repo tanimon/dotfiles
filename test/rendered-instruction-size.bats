@@ -1,11 +1,15 @@
 #!/usr/bin/env bats
-# 合成後のグローバル指示(~/.codex/AGENTS.md など)のサイズ上限(ADR 0011 の肥大の歯止め)。
-# 測る対象と上限は scripts/instruction-size-limits.txt の render: の行が正本で、ここには書かない。
-# このファイルは描画だけを受け持つ: --list-rendered の各テンプレートを test/fixtures/chezmoi-*.toml の
-# すべての profile で描画し、scripts/check-instruction-size.sh --rendered で測る。
+# 描画してから測るテンプレートのサイズ上限(ADR 0011 の肥大の歯止め)。対象は 2 種類で、どちらも
+# scripts/check-instruction-size.sh が列挙し、上限もそちらが決める(ここには書かない):
+# - --list-rendered: 合成後のグローバル指示(~/.codex/AGENTS.md など)。scripts/instruction-size-limits.txt の
+#   render: の行が正本
+# - --list-templates: 配置先が判定の対象のテンプレート(SKILL.md.tmpl など)
+# このファイルは描画だけを受け持つ: 各テンプレートを test/fixtures/chezmoi-*.toml のすべての profile で描画し、
+# scripts/check-instruction-size.sh --rendered で測る。
 #
-# 描画の失敗は「描画が exit 0 で終わり、出力が空でない」ことで捕まえる。サイズの下限で捕まえないのは、
-# 目安の下限が実際の出力の縮小と区別できないため。
+# render: の行の描画の失敗は「描画が exit 0 で終わり、出力が空でない」ことで捕まえる。サイズの下限で捕まえないのは、
+# 目安の下限が実際の出力の縮小と区別できないため。--list-templates のテンプレートは、出力が空の profile では
+# 配置されない(chezmoi は空の配置先を作らない)ので測らずに通す。描画の失敗はどちらも落ちる。
 # chezmoi が無いときは test/helpers/render.bash の読み込みで失敗する(skip しない)。
 
 setup() {
@@ -28,16 +32,43 @@ measure_rendered() {
     (cd "$RENDER_REPO" && bash "$SCRIPT" --rendered "$1" "$out")
 }
 
-@test "合成後の出力はすべての profile で上限に収まる" {
-    local templates profiles=() config template profile count=0
-    templates=$(cd "$RENDER_REPO" && bash "$SCRIPT" --list-rendered)
-    [ -n "$templates" ] || fail "render: の行が 1 件も無い"
+# load_profiles: test/fixtures/chezmoi-*.toml の profile の名前を profiles に入れる
+load_profiles() {
+    local config profile
+    profiles=()
     for config in "$RENDER_REPO"/test/fixtures/chezmoi-*.toml; do
         [ -f "$config" ] || continue
         profile=${config##*/chezmoi-}
         profiles+=("${profile%.toml}")
     done
     [ "${#profiles[@]}" -gt 0 ] || fail "profile の fixture が 1 件も無い"
+}
+
+# measure_templates REPO: REPO の --list-templates の各テンプレートをすべての profile で描画し、REPO の上限の一覧で測る。
+# 描画は RENDER_REPO を source にする(REPO のテンプレートが RENDER_REPO の .chezmoitemplates を取り込んでも描画できる)
+measure_templates() {
+    local repo=$1 templates template profile out profiles
+    templates=$(cd "$repo" && bash "$SCRIPT" --list-templates) || return
+    load_profiles
+    while IFS= read -r template; do
+        [ -n "$template" ] || continue
+        for profile in "${profiles[@]}"; do
+            out="$BATS_TEST_TMPDIR/template-$profile.out"
+            render_template "$profile" "$repo/$template" >"$out" || {
+                echo "$template を profile $profile で描画できない" >&2
+                return 1
+            }
+            [ -s "$out" ] || continue
+            (cd "$repo" && bash "$SCRIPT" --rendered "$template" "$out") || return
+        done
+    done <<<"$templates"
+}
+
+@test "合成後の出力はすべての profile で上限に収まる" {
+    local templates profiles template profile count=0
+    templates=$(cd "$RENDER_REPO" && bash "$SCRIPT" --list-rendered)
+    [ -n "$templates" ] || fail "render: の行が 1 件も無い"
+    load_profiles
     while IFS= read -r template; do
         for profile in "${profiles[@]}"; do
             run measure_rendered "$template" "$profile" "$RENDER_REPO/$template"
@@ -73,4 +104,50 @@ measure_rendered() {
     run measure_rendered dot_codex/AGENTS.md.tmpl personal "$template"
     assert_failure
     assert_output --partial '出力が空'
+}
+
+# 配置先が判定の対象のテンプレート。実リポジトリには 1 件も無くてよい(0 件でも落とさない)ので、
+# 同じ measure_templates を一時リポジトリに当てて、落ちるべきときに落ちることを確かめる
+@test "配置先が判定の対象のテンプレートはすべての profile で上限に収まる" {
+    run measure_templates "$RENDER_REPO"
+    assert_success
+}
+
+# 既定値は 3 行 / 20 バイト、skill:* は 6 行 / 60 バイト
+setup_template_repo() {
+    REPO="$BATS_TEST_TMPDIR/repo"
+    mkdir -p "$REPO/scripts" "$REPO/dot_claude/skills/a"
+    git -C "$REPO" init -q -b main
+    printf '* 3 20\nskill:* 6 60\n' >"$REPO/scripts/instruction-size-limits.txt"
+}
+
+@test "SKILL.md のテンプレートは描画後の内容を skill:* で測る" {
+    setup_template_repo
+    printf '{{ repeat 6 "x\\n" }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    run measure_templates "$REPO"
+    assert_success
+    printf '{{ repeat 7 "x\\n" }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    run measure_templates "$REPO"
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl: 7 行(上限 6、+1 行)'
+}
+
+@test "テンプレートの描画に失敗したら落ちる" {
+    setup_template_repo
+    printf '{{ template "no-such-template" }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    run measure_templates "$REPO"
+    assert_failure
+    assert_output --partial '描画できない'
+}
+
+@test "テンプレートは profile ごとに測り、出力が空の profile では通す" {
+    setup_template_repo
+    # personal では空(配置されない)、work では上限を超える
+    printf '{{ if eq .profile "work" }}{{ repeat 7 "x\\n" }}{{ end }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    run render_template personal "$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    assert_success
+    assert_output ''
+    run measure_templates "$REPO"
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl: 7 行(上限 6、+1 行)'
 }
