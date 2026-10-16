@@ -125,9 +125,9 @@ assert_guard_wired() {
 }
 
 # orca の agent-hook ディスパッチャは live の ~/.claude/settings.json から verbatim に
-# 取り込んだもの(#339)。orca は PostCompact にだけ別の snippet を書くので、実体は
-# .chezmoitemplates/orca-agent-hook(PostCompact 以外)と orca-agent-hook-post-compact の 2 つ。
-# PostCompact 以外の event は前者を参照するので、そのコピー同士の食い違いは構造上起きない。
+# 取り込んだもの(#339)。実体は .chezmoitemplates/orca-agent-hook と orca-agent-hook-post-compact
+# の 2 つ(PostCompact だけ別にする理由は後者の冒頭)。PostCompact 以外の event は前者を参照するので、
+# そのコピー同士の食い違いは構造上起きない。
 # ここで見るのは partial では守れない契約(どの event が持つか・matcher・PostCompact だけが別物)と、
 # 誰かが inline のコピーに戻したときの食い違い。
 # Notification に無いのは live ファイルの状態で、orca 側の意図かどうかは確かめていない。

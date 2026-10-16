@@ -1,8 +1,8 @@
 {{- /*
 orca agent-hooks integration の hook エントリ(type / command / timeout)。
 settings.json.tmpl の hooks で、orca が dispatcher を差し込む PostCompact 以外の全 event から
-`{{ template "orca-agent-hook" . }}` で参照する。orca は PostCompact にだけ別の snippet を
-書くので、PostCompact は orca-agent-hook-post-compact を参照する。
+`{{ template "orca-agent-hook" . }}` で参照する。PostCompact が除かれる理由は
+orca-agent-hook-post-compact の冒頭にある。
 
 orca は claude-hook の dispatcher を自分が扱う hook event(PostCompact と SessionEnd を含む。Notification は含まない)に差し込む。
 command は dispatcher を実行時に $HOME から解決する — Unix では .orca/agent-hooks/claude-hook.sh、

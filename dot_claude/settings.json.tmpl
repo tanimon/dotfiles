@@ -332,7 +332,7 @@
   },
   {{/* advisorModel: サーバーサイド advisor tool の助言役モデル（指定可能なエイリアスは fable / opus / sonnet）。advisor は executor（メインモデル）と同等以上の能力でないと attach されない（公式ドキュメント https://code.claude.com/docs/en/advisor の「at least as capable as the main model」。同一モデル同士も可）ため、上の "model" と対になって初めて機能する。現在の組み合わせは executor=opus[1m] / advisor=opus で、Opus 5.5 main は Opus 5 以降の advisor を受け付けるので main セッションでも発動する。/model で fable に切り替えたセッションでは Opus advisor は rejected となり main では発動せず（サブエージェントでは発動しうる）、起動時通知でその旨が出る。"model" の [1m] はメインモデルの 1M コンテキスト指定で、advisorModel はエイリアスかフル ID しか受け付けない（[1m] の記載なし。未認識のモデルだと advisor は attach されない）ため、両者を同じ表記に揃えないこと。会話が advisor 側のコンテキスト窓を超えると advisor 呼び出しだけが prompt_too_long で失敗する（セッションは継続）。トークン消費は増える。/advisor ダイアログが書き込む先は ~/.claude/settings.json だが、そのファイルはこの tmpl が全面所有しているため apply で消える。恒久設定はここに書くこと。 */ -}}
   "advisorModel": "opus",
-  {{/* orca agent-hooks integration: orca が dispatcher を差し込む全 event のエントリは .chezmoitemplates/orca-agent-hook から参照する。ただし orca は PostCompact にだけ別の snippet を書くので、PostCompact は .chezmoitemplates/orca-agent-hook-post-compact を参照する。仕組みと live からの再同期手順はそれぞれのファイルの冒頭にある。 */ -}}
+  {{/* orca agent-hooks integration: orca が dispatcher を差し込む event のエントリは .chezmoitemplates/orca-agent-hook(PostCompact は orca-agent-hook-post-compact)から参照する。仕組み・PostCompact だけ別にする理由・live からの再同期手順はそれぞれのファイルの冒頭にある。 */ -}}
   "hooks": {
     "SessionStart": [
       {
