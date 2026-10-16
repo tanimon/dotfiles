@@ -125,11 +125,13 @@ assert_guard_wired() {
 }
 
 # orca の agent-hook ディスパッチャは live の ~/.claude/settings.json から verbatim に
-# 取り込んだもの(#339)。実体は .chezmoitemplates/orca-agent-hook の 1 つで、各 event は
-# それを参照するので、コピー同士の食い違いは構造上起きない。ここで見るのは partial では
-# 守れない契約(どの event が持つか・matcher)と、誰かが inline のコピーに戻したときの食い違い。
+# 取り込んだもの(#339)。実体は .chezmoitemplates/orca-agent-hook と orca-agent-hook-post-compact
+# の 2 つ(PostCompact だけ別にする理由は後者の冒頭)。PostCompact 以外の event は前者を参照するので、
+# そのコピー同士の食い違いは構造上起きない。
+# ここで見るのは partial では守れない契約(どの event が持つか・matcher・PostCompact だけが別物)と、
+# 誰かが inline のコピーに戻したときの食い違い。
 # Notification に無いのは live ファイルの状態で、orca 側の意図かどうかは確かめていない。
-@test "orca の agent-hook は Notification を除く全 event に同一のものが 1 つずつある" {
+@test "orca の agent-hook は Notification を除く全 event に 1 つずつあり、PostCompact 以外は同一" {
     # 描画結果に現れた event だけを数えると、event ブロックごと消えたときに素通りする。
     # 期待する event を literal で持ち、orca hook を持つ event の集合と完全一致を見る
     local expected=(PermissionRequest PostCompact PostToolUse PostToolUseFailure PreToolUse Stop StopFailure SubagentStart SubagentStop TeammateIdle UserPromptSubmit SessionStart SessionEnd)
@@ -138,9 +140,15 @@ assert_guard_wired() {
         | .key] | sort | join(" ")' "$SETTINGS"
     assert_success
     assert_output "$(printf '%s\n' "${expected[@]}" | sort | paste -sd ' ' -)"
-    # 2 つ以上持つ event と、1 文字でも違うコピーを捕まえる
-    run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] | "\(length) \(unique | length)"' "$SETTINGS"
-    assert_output "${#expected[@]} 1"
+    # 2 つ以上持つ event と、PostCompact 以外で 1 文字でも違うコピーを捕まえる
+    run jq -r '[.hooks | to_entries[] | select(.key != "PostCompact") | .value[].hooks[]
+        | select((.command // "") | test("orca/agent-hooks")) | .command] | "\(length) \(unique | length)"' "$SETTINGS"
+    assert_output "$((${#expected[@]} - 1)) 1"
+    # PostCompact を共通の partial に戻すと、orca が書く PostCompact 専用の形と食い違ってドリフトになる
+    run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] as $all
+        | [.hooks.PostCompact[].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command] as $pc
+        | "\($all | unique | length) \($pc | length)"' "$SETTINGS"
+    assert_output "2 1"
     # partial の type / timeout が崩れても command の照合は通るので、別に見る(timeout は文字列化を捕まえる)
     run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks"))
         | "\(.type) \(.timeout | type)"] | unique | join(",")' "$SETTINGS"
