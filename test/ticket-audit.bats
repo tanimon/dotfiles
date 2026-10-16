@@ -182,6 +182,14 @@ open_issue() {
     assert_output $'parent-all-children-closed\t490\tsub-issue 1 件がすべて close 済み'
 }
 
+@test "open-after-merge で出した issue には parent-all-children-closed を重ねない" {
+    jq -n '[{number:490, body:"spec", subIssuesSummary:{total:1, completed:1, percentCompleted:100}}]' >"$GH_FIXTURES/open.json"
+    printf '[{"number":10,"closingIssuesReferences":[{"number":490,"url":"https://github.com/tanimon/sample/issues/490"}]}]' >"$GH_FIXTURES/merged.json"
+    run bash "$SCRIPT"
+    assert_success
+    assert_output $'open-after-merge\t490\tPR #10'
+}
+
 # --- open-after-merge ---
 
 @test "マージ済み PR が close するはずの issue が open なら open-after-merge" {
@@ -189,6 +197,14 @@ open_issue() {
     printf '[{"number":10,"closingIssuesReferences":[{"number":5,"url":"https://github.com/tanimon/sample/issues/5"}]}]' >"$GH_FIXTURES/merged.json"
     run bash "$SCRIPT"
     assert_output $'open-after-merge\t5\tPR #10'
+}
+
+@test "同じ issue を close するはずのマージ済み PR が複数あれば PR ごとに open-after-merge" {
+    open_issue 5 'body'
+    printf '[{"number":10,"closingIssuesReferences":[{"number":5,"url":"https://github.com/tanimon/sample/issues/5"}]},{"number":11,"closingIssuesReferences":[{"number":5,"url":"https://github.com/tanimon/sample/issues/5"}]}]' >"$GH_FIXTURES/merged.json"
+    run bash "$SCRIPT"
+    assert_success
+    assert_output $'open-after-merge\t5\tPR #10\nopen-after-merge\t5\tPR #11'
 }
 
 @test "close するはずの issue が close 済みなら何も出さない" {
