@@ -2173,6 +2173,51 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
+# 推移の節は選別の claude の後に harness-failure-rates.sh trend が Failure Pattern の一覧を読んで作る
+review_tampers_with_trend_input() { # <~/.claude/scripts の下のファイル名>
+    seed_queue
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    printf '\n' >>"$HOME/.claude/scripts/$1"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial "$HOME/.claude/scripts/$1"
+    assert_output --partial 'changed after the claude runs started'
+    refute grep -q 'pr create' "$GH_LOG"
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "選別の claude が再発率のスクリプトを書き換えたら、PR を作らずに失敗する" {
+    review_tampers_with_trend_input harness-failure-rates.sh
+}
+
+@test "選別の claude が Failure Pattern の一覧を書き換えたら、PR を作らずに失敗する" {
+    review_tampers_with_trend_input harness-failure-patterns.json
+}
+
+@test "commit の無い選別が Verdict の CLI に採用を隠させたら、PR を作らない成功ではなく書き換えとして失敗する" {
+    seed_queue
+    # 採用したのに commit しなかった run で、採用の列挙(adopted)だけが空を返すようにする。
+    # 選別の stub 自身が settle を呼ぶので、settle は元の CLI に渡す
+    cli="$HOME/.claude/scripts/harness-verdict.sh"
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    cp "$cli" "$cli.orig"
+    printf '#!/usr/bin/env bash\n[[ "\$1" == adopted ]] && exit 0\nexec bash "%s" "\$@"\n' "$cli.orig" >"$cli"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    STUB_REVIEW_MODE=adopt_uncommitted run weekly
+    assert_failure
+    assert_output --partial 'changed after the claude runs started'
+    refute_output --partial 'committed no changes'
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
 @test "選別のプロンプトは Rule Ledger を書かせず、ジョブが記録することを伝える" {
     seed_queue
     run weekly

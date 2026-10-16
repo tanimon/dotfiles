@@ -103,6 +103,8 @@ DETECTIONS="$HARNESS_DIR/detections.jsonl"
 # 失敗を Failure Pattern に分類するスクリプトと、週の再発率を記録して推移の節を作るスクリプト
 CLASSIFY_FAILURES="$HOME/.claude/scripts/harness-classify-failures.sh"
 FAILURE_RATES="$HOME/.claude/scripts/harness-failure-rates.sh"
+# FAILURE_RATES が読む Failure Pattern の一覧(推移の節にも使う)
+FAILURE_PATTERNS="$HOME/.claude/scripts/harness-failure-patterns.json"
 # 週の再発率の記録(1 週 1 ファイル)。ローカルに全週を持ち、PR を作る run がリポジトリの
 # RATES_REPO_DIR に無い週の分をこのスクリプトの commit で足す(commit_rate_records)。
 # 1 つのファイルに追記しないのは、記録を含む PR が 2 本開いたときに同じ行の追記どうしで
@@ -725,10 +727,11 @@ RATE_RECORD_DIGESTS=""
 # 比べて書き換えを見つける(check_ledger_inputs)。分類の記録は claude の起動前に分類器が書き終えている。
 # harness-rule-ledger.sh は Evaluator の一部(ADR 0011)で、~/.claude に書ける claude が書き換えると伏せ字や
 # 評価値を偽れるので、評価のスクリプト(evaluator_digests)と同じく比べる。Verdict の CLI も、書き換えると採用を
-# 選び替えられるので同じく比べる。無ければ「missing」として比べる
+# 選び替えられるので同じく比べる。再発率のスクリプトと Failure Pattern の一覧も、claude の後に推移の節を作るのに
+# 使い(append_rates_section)、書き換えると本文の推移を偽れるので同じく比べる。無ければ「missing」として比べる
 ledger_input_digests() {
     local file digest
-    for file in "$RULE_LEDGER" "$VERDICT_CLI"; do
+    for file in "$RULE_LEDGER" "$VERDICT_CLI" "$FAILURE_RATES" "$FAILURE_PATTERNS"; do
         if [[ -f "$file" ]]; then
             digest=$(git hash-object -- "$file") || return 1
             printf '%s %s\n' "$file" "$digest"
@@ -744,13 +747,14 @@ ledger_input_digests() {
 }
 LEDGER_INPUT_DIGESTS=""
 
-# claude の起動後に Rule Ledger の入力が変わっていれば、記録を作らず PR も作らないよう 1 を返す
+# claude の起動後に Rule Ledger の入力か、claude の後に使うスクリプトが変わっていれば、記録を作らず PR も作らないよう
+# 1 を返す。それらのスクリプトを呼ぶ前(Verdict の CLI なら check_review_claims より前)に呼ぶこと
 check_ledger_inputs() {
     local digests
     digests=$(ledger_input_digests) || return 1
     if [[ "$digests" != "$LEDGER_INPUT_DIGESTS" ]]; then
-        printf 'harness-weekly: the Rule Ledger records in %s or %s, or the Rule Ledger script %s or the Verdict CLI %s, changed after the claude runs started (only this job and the manual review write the records; restore the scripts with chezmoi apply); no PR created. Before: [%s] After: [%s]\n' \
-            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$VERDICT_CLI" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
+        printf 'harness-weekly: the Rule Ledger records in %s or %s, or the Rule Ledger script %s, the Verdict CLI %s, the failure rate script %s or the Failure Pattern list %s, changed after the claude runs started (only this job and the manual review write the records; restore the scripts with chezmoi apply); no PR created. Before: [%s] After: [%s]\n' \
+            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$VERDICT_CLI" "$FAILURE_RATES" "$FAILURE_PATTERNS" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
         return 1
     fi
 }
@@ -1149,6 +1153,8 @@ publish_review() {
             "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
         return 1
     fi
+    # check_review_claims は Verdict の CLI で採用を読むので、その前に CLI の書き換えを確かめる
+    check_ledger_inputs || return 1
     check_review_claims "$commits" "$dropped_count" || return 1
     if [[ "$commits" -eq 0 ]]; then
         if metrics_only_due "$base"; then
@@ -1177,7 +1183,6 @@ publish_review() {
             "$LEDGER_REPO_DIR" >&2
         return 1
     fi
-    check_ledger_inputs || return 1
     result_sections >>"$PR_BODY" || return 1
     append_detection_section
     append_rates_section
