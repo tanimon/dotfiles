@@ -9,10 +9,9 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
 
 ## Bash ツールは zsh で動く
 
-- **`=` で始まる語をクォートする。** `echo === x` は zsh の `=cmd` 展開で `== not found` になり、
-  コマンド全体が exit 1 で出力ごと失われる。区切り線は `echo '==='` か `echo ---` にする。
-  dotfiles の `~/.zshrc` は Claude Code のシェルで `setopt no_equals` を立てるが、スナップショットに
-  入らない環境(別マシン・`.zshrc` を読まない起動経路)では効かないので、クォートは続ける。
+- **`=cmd` 展開は `~/.zshrc` の `setopt no_equals` で切ってある。** 切れていないと `echo === x` が
+  `== not found` になり、コマンド全体が exit 1 で出力ごと失われる。それでも `== not found` が出たら、
+  最新の `~/.claude/shell-snapshots/*.sh` に `noequals` が写っているかを確かめる。
 - **glob を含む引数はクォートする。** zsh は一致しない glob でコマンド全体を `no matches found` で止める。
   `grep -r --include='*.vue'` のようにオプション値の `*` も対象。`no matches found` の後に出た件数(`0` など)は無効。
   展開させたい glob(`for f in dir/*.md` のループ対象など)が空になりうるときは、コマンドの先頭に `setopt nullglob;` を置く。

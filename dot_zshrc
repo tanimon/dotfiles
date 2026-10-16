@@ -47,11 +47,10 @@ ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 setopt nolistbeep
 
 
-# Claude Code の Bash ツールでは `=cmd` 展開を切る。`echo ===` のような区切り線が
-# `== not found` でコマンド全体ごと失敗するため。Bash ツールは起動時のシェルスナップショットに
-# setopt の状態を写して使うので、ここで立てた option がスナップショット経由で効く。
-# 人の対話シェルでは `=cmd` 展開を残す
-[[ -n $CLAUDECODE ]] && setopt no_equals
+# Claude Code の Bash ツールでだけ `=cmd` 展開を切る。理由は ~/.claude/rules/claude-code/bash-tool.md の
+# `=cmd` 展開の項。Bash ツールは起動時のシェルスナップショットに setopt の状態を写して使うので、
+# ここで立てた option がスナップショット経由で効く。人の対話シェルでは `=cmd` 展開を残す
+[[ -n "${CLAUDECODE:-}" ]] && setopt no_equals
 
 
 # Enable zmv
