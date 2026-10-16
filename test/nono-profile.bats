@@ -127,3 +127,54 @@ why() {
     assert_success
     assert_output --partial "DENIED"
 }
+
+# --- web-verify の個人設定 ---------------------------------------------------
+# web-verify skill は ~/.config/web-verify/config.json の default を検証資産の既定の
+# 保存場所として読む。読めないと「設定が無い」と区別できず、nono の内側では毎回
+# 質問するか blocked で止まる。書き込みは許さない(エージェントが自分の既定値を変えられないように)。
+# nono は存在しないパスの grant を評価しない(grant があっても path_not_granted。実測)ので、
+# 実在の ~/.config/web-verify の有無に左右されないよう、XDG_CONFIG_HOME を一時ディレクトリに
+# 差し替えて判定する。一時ディレクトリは grant の外に置く必要がある($TMPDIR は pack が許可しているので、
+# そこに置くと grant を外しても ALLOWED になり対照にならない)ため $HOME 直下に作る。Claude Code の
+# Bash サンドボックスの内側では $HOME に書けないので、そのときは skip する。nono は pack を
+# $XDG_CONFIG_HOME/nono から解決するので、実物への symlink を置く。
+
+web_verify_probe_home() {
+    WEB_VERIFY_XDG="$(mktemp -d "$HOME/.nono-web-verify-probe.XXXXXX" 2>/dev/null)" ||
+        skip "\$HOME に一時ディレクトリを作れない(Bash サンドボックスの内側)。素のターミナルで実行すること"
+    mkdir -p "$WEB_VERIFY_XDG/web-verify"
+    : >"$WEB_VERIFY_XDG/web-verify/config.json"
+    ln -s "${XDG_CONFIG_HOME:-$HOME/.config}/nono" "$WEB_VERIFY_XDG/nono"
+}
+
+teardown() {
+    if [[ -n "${WEB_VERIFY_XDG:-}" ]]; then
+        rm -rf "$WEB_VERIFY_XDG"
+    fi
+}
+
+web_verify_why() {
+    XDG_CONFIG_HOME="$WEB_VERIFY_XDG" nono why -s --path "$WEB_VERIFY_XDG/web-verify/config.json" --op "$1" --profile "$2"
+}
+
+@test "claude-seal profile allows read on the web-verify personal config" {
+    web_verify_probe_home
+    run web_verify_why read "$PROFILE"
+    assert_success
+    assert_output --partial "ALLOWED"
+}
+
+@test "claude-seal profile denies read on the web-verify personal config without the grant (contrast pair)" {
+    web_verify_probe_home
+    jq '.filesystem.read -= ["$XDG_CONFIG_HOME/web-verify"]' "$PROFILE" >"$BATS_TEST_TMPDIR/no-grant.json"
+    run web_verify_why read "$BATS_TEST_TMPDIR/no-grant.json"
+    assert_success
+    assert_output --partial "DENIED"
+}
+
+@test "claude-seal profile denies write on the web-verify personal config" {
+    web_verify_probe_home
+    run web_verify_why write "$PROFILE"
+    assert_success
+    assert_output --partial "DENIED"
+}

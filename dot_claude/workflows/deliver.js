@@ -27,6 +27,7 @@ const ARG_KEYS = [
   "baseRef",
   "checkCommands",
   "verifySkill",
+  "verifyArgs",
   "maxReviewRounds",
   "maxVerifyRetries",
 ];
@@ -61,6 +62,7 @@ const STOP_REASONS = {
   "fixer-failed": "修正エージェントが結果を返さなかった",
   "requirements-breaking": "要件文書どおりに作ると壊れる Requirements Concern が出た",
   "verify-unfixed": "動作確認の失敗を修正エージェントが直せなかったため、再確認しなかった",
+  "verify-blocked": "動作確認がブランチのコードの外にある原因で実施できなかった",
   budget: "トークン予算の残りが下限を割ったため、次の段階に進まなかった",
   error: "エージェントの実行中に例外が発生した",
 };
@@ -188,7 +190,12 @@ const VERDICT_SCHEMA = {
 
 const VERIFY_SCHEMA = {
   type: "object",
-  properties: { passed: { type: "boolean" }, summary: { type: "string" }, observations: STRINGS },
+  properties: {
+    passed: { type: "boolean" },
+    blocked: { type: "boolean" },
+    summary: { type: "string" },
+    observations: STRINGS,
+  },
   required: ["passed", "summary"],
 };
 
@@ -225,6 +232,9 @@ function validateArgs(input) {
   );
   if (invalid.length > 0) {
     throw new Error(`deliver: 0 以上の整数が必要です: ${invalid.join(", ")}`);
+  }
+  if (a.verifyArgs !== undefined && typeof a.verifyArgs !== "string") {
+    throw new Error("deliver: verifyArgs は文字列で渡してください");
   }
   // 知らないキーは黙って受け取らずに拒否する。綴りを誤った上限や、どの機能にも使われない引数(ADR 0015 の prBase など)を、
   // 効くと思ったまま走らせないため。
@@ -452,9 +462,14 @@ function deferPrompt(item, reason, config) {
 要件文書は ${config.requirementsPath}、差分は「${config.baseRef}...HEAD」。コードと要件文書を自分で読み、見送りが妥当か判断せよ。妥当なのは、指摘が偽陽性であるか、要件文書の範囲外である場合だけ。判断に迷うなら agree=false とする。${unstartedScope(config, "その項目が差分で本当に未着手であることを自分で確かめ、そのうえでその項目を実装しないと解消しない指摘に限り、要件文書の範囲外として見送ってよい。")}`;
 }
 
+// verifyArgs は入口 skill が人間に確かめた、動作確認 skill への起動時の明示指定(web-verify の保存場所など)。
+// パスにユーザー名や組織名が入りうるので、統計には入れない。
 function verifyPrompt(config) {
-  return `Skill ツールで「${config.verifySkill}」を読み込み、その手順に従って、要件文書 ${config.requirementsPath} に書かれた意図どおりに変更が動くことを確認せよ。
+  const given = config.verifyArgs ? `\n- 起動時の明示指定: ${config.verifyArgs}` : "";
+  return `Skill ツールで「${config.verifySkill}」を読み込み、その手順に従って、要件文書 ${config.requirementsPath} に書かれた意図どおりに変更が動くことを確認せよ。${given}
+- この実行中は人間に質問できない。skill の手順が質問を求める箇所は、手順に質問できない場合の扱いが書かれていればそれに従い、書かれておらず明示指定と設定でも決められなければ確認に進まない。
 - 確認した操作と観察した結果を summary に書き、意図どおりに動けば passed=true にする。
+- ブランチのコードの外にある原因(保存場所が決まらない、書き込みが拒否された、資格情報が無い、ポートを別のプロセスが握っているなど)で確認できなかったときは、passed=false・blocked=true にし、原因と人間が取るべき手順を summary に書く。ブランチのコードが原因でアプリが起動しない場合は blocked にしない。
 - コードは修正しない。範囲外で気づいた問題は observations に書く。${unstartedScope(config, "確認するのはこのブランチの差分が実装した範囲だけで、未着手の項目が動かないことを失敗にしない。")}`;
 }
 
@@ -540,7 +555,9 @@ function renderReport(state) {
     else if (state.verification.length === 0) lines.push("未実施(停止したため)");
     else
       state.verification.forEach((v, i) =>
-        lines.push(`- 試行 ${i + 1}: ${v.passed ? "成功" : "失敗"} — ${v.summary}`),
+        lines.push(
+          `- 試行 ${i + 1}: ${v.passed ? "成功" : v.blocked ? "検証できず" : "失敗"} — ${v.summary}`,
+        ),
       );
     lines.push("");
   };
@@ -985,6 +1002,11 @@ async function verify(state) {
       result || { passed: false, summary: "動作確認エージェントが結果を返さなかった" },
     );
     if (result && result.passed) return;
+    // コードの外の原因は修正エージェントでは直らず、直そうとするとブランチを無関係に書き換える。
+    if (result && result.blocked) {
+      state.stopReason = "verify-blocked";
+      return;
+    }
     if (attempt > config.maxVerifyRetries) return;
     if (budgetExhausted(state, `動作確認の失敗の修正 ${attempt} 回目`)) return;
     const fixLabel = `fix-verify:${attempt}`;

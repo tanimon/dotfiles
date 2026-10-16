@@ -727,6 +727,42 @@ test("verifySkill が none なら動作確認をせず、その旨を報告す�
   assert.match(section(result.report, "動作確認"), /指定なし/);
 });
 
+test("動作確認がコード外の原因で blocked なら、修正エージェントに回さずに停止して先頭に出す", async () => {
+  const { result, labels } = await runWorkflow({
+    respond: scenario({
+      verifies: [{ passed: false, blocked: true, summary: "保存場所が決まっていない" }],
+    }),
+  });
+  assert.deepEqual(
+    labels.filter((l) => l.startsWith("verify:")),
+    ["verify:1"],
+  );
+  assert.ok(!labels.some((l) => l.startsWith("fix-verify:")));
+  assert.equal(result.stopReason, "verify-blocked");
+  assert.ok(result.report.indexOf("## 動作確認") < result.report.indexOf("## Unresolved Finding"));
+  assert.match(section(result.report, "動作確認"), /検証できず — 保存場所が決まっていない/);
+});
+
+test("verifyArgs は動作確認の prompt に入り、統計には入らない", async () => {
+  const { result, calls } = await runWorkflow({
+    args: { verifyArgs: "検証資産の保存場所: <home>/verify-someone/app" },
+  });
+  const prompt = calls.find((c) => c.label === "verify:1").prompt;
+  assert.match(prompt, /検証資産の保存場所: <home>\/verify-someone\/app/);
+  assert.doesNotMatch(result.stats, /someone/);
+});
+
+test("動作確認の prompt は、質問できないことと blocked の範囲を伝える", async () => {
+  const { calls } = await runWorkflow();
+  const prompt = calls.find((c) => c.label === "verify:1").prompt;
+  assert.match(prompt, /質問できない/);
+  assert.match(prompt, /blocked=true/);
+});
+
+test("verifyArgs が文字列でなければ拒否する", async () => {
+  await assert.rejects(runWorkflow({ args: { verifyArgs: ["x"] } }), /verifyArgs は文字列/);
+});
+
 test("実装タスクが blocked ならレビューに進まずに停止して公開する", async () => {
   const { result, labels } = await runWorkflow({
     respond: scenario({

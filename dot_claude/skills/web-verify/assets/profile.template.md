@@ -3,7 +3,15 @@
 web-verify skill が動作確認の再実行時に読む、プロジェクト固有知識の置き場。
 初回 scaffold 時に調査・確定した内容を記録し、変わったら更新する。
 
+## 対象リポジトリ
+
+- リポジトリ: (main worktree のディレクトリ名)
+- このスイートの位置: (リポジトリの中 / 外。外なら実行時に `VERIFY_REPO_DIR` が必須)
+- 機能の slug とスイートの構成: README.md の「実行方法」「構成」
+
 ## アプリの起動・停止
+
+コマンドは検証対象の worktree(`VERIFY_REPO_DIR`)で実行する。
 
 - 起動コマンド: (例: `docker compose up -d` / `npm run dev`)
 - 停止コマンド:
@@ -23,8 +31,8 @@ web-verify skill が動作確認の再実行時に読む、プロジェクト固
 
 ## データ準備の手段
 
-- 利用可能な手段: (seeder コマンド / API / SQL など。`seed/setup.ts` が使う)
-- クリーンアップの手段: (`seed/cleanup.ts` が使う)
+- 利用可能な手段: (seeder コマンド / API / SQL など。`seed/common.ts` と `seed/features/*.ts` が使う)
+- クリーンアップの手段: (`seed/common.ts` と `seed/features/*.ts` の `cleanup()` が使う)
 
 ## 既知の制約
 

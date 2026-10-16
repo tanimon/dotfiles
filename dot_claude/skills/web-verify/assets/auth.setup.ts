@@ -1,4 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { test as setup } from "@playwright/test";
+import { storageStatePath } from "../support/run";
 
 // ログイン操作を各シナリオから分離し、認証済み状態(storageState)を生成する。
 // この setup は playwright.config.ts の auth-setup プロジェクトで実行され、
@@ -17,5 +20,6 @@ setup("ログインして認証状態を保存する", async ({ page }) => {
   await page.getByRole("button", { name: "ログイン" }).click();
   // ログイン成功の観測可能な証拠(遷移先URL)を待ってから保存する
   await page.waitForURL("**/dashboard");
-  await page.context().storageState({ path: ".auth/user.json" });
+  fs.mkdirSync(path.dirname(storageStatePath), { recursive: true });
+  await page.context().storageState({ path: storageStatePath });
 });
