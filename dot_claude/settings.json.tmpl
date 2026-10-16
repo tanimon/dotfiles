@@ -266,7 +266,8 @@
     "skill-creator@claude-plugins-official": false,
     "sentry@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
-    "compound-engineering@compound-engineering-plugin": true,
+    {{/* compound-engineering は /doctor(2026-10-16)で無効化した。skill 一覧に 36 項目・約 8.1k 文字を載せる最大の項目で、一覧が予算を超えて他の skill の説明文が切り落とされていた一方、直近 14 日の利用は ce-handoff の 3 回だけだった(handoff は mattpocock-skills:handoff で代替できる)。再度使いたくなったら true に戻すだけでよい。 */ -}}
+    "compound-engineering@compound-engineering-plugin": false,
     {{/* ecc@ecc: 2026-09-24 に plugin 丸ごとの有効化をやめ、使っているファイルだけを .chezmoiexternal.toml で取り込むようにした(docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md)。キーを消すだけだと、installed_plugins.json に残った install が有効扱いされるかどうかが実測できていないので、false を明示して確定させる。 */ -}}
     "ecc@ecc": false,
     "cclens@cclens": true,
@@ -277,7 +278,9 @@
     "show-me@skills": true
   },
   {{/* /doctor(2026-10-03)で skillUsage の通算 0 回・直近 30 日の transcript でも呼び出し 0 件と判定して無効化した skill。sentry-cli は ~/.claude/skills/sentry-cli(chezmoi 管理外)で、plugin 版 sentry-cli:sentry-cli と説明文が同一の重複。仕事リポジトリから symlink している QA 依頼用の skill も通算 0 回だったが、利用の意思があるため意図的に残している — 再度落とさないこと。戻すときはエントリを消すだけでよい。 */ -}}
+  {{/* define-goal(~/.claude/skills/define-goal。chezmoi 管理外)は /doctor(2026-10-16)で追加した。2026-10-02 の導入以降、skillUsage・transcript とも呼び出し 0 件だった。 */ -}}
   "skillOverrides": {
+    "define-goal": "off",
     "node-typescript-mts-esm": "off",
     "orchestration": "off",
     "sentry-cli": "off"
