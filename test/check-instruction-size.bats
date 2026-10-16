@@ -445,3 +445,210 @@ use_shipped_defaults() {
     assert_failure 1
     assert_output --partial '.claude/rules/a.md: 201 行(上限 200、+1 行)'
 }
+
+# chezmoi の source 名(属性の接頭辞・.literal)。判定の対象は source のファイル名ではなく、配置先のパスで決まる
+@test "ファイル名の属性の接頭辞を付けた SKILL.md も skill:* で判定する" {
+    setup_skill
+    make_lines dot_claude/skills/b/private_SKILL.md 6
+    run check
+    assert_success
+    make_lines dot_claude/skills/b/private_SKILL.md 7
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/b/private_SKILL.md: 7 行(上限 6、+1 行)'
+}
+
+@test "ディレクトリの属性の接頭辞の下のルールも判定する" {
+    make_lines dot_claude/exact_rules/common/x.md 3
+    run check
+    assert_success
+    make_lines dot_claude/exact_rules/common/x.md 4
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/exact_rules/common/x.md: 4 行(上限 3、+1 行)'
+}
+
+@test "属性の接頭辞を付けた CLAUDE.md も判定する" {
+    make_lines dot_claude/private_CLAUDE.md 3
+    run check
+    assert_success
+    make_lines dot_claude/private_CLAUDE.md 4
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/private_CLAUDE.md: 4 行(上限 3、+1 行)'
+}
+
+@test ".literal を付けた SKILL.md も skill:* で判定する" {
+    setup_skill
+    make_lines dot_claude/skills/c/readonly_SKILL.md.literal 6
+    run check
+    assert_success
+    make_lines dot_claude/skills/c/readonly_SKILL.md.literal 7
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/c/readonly_SKILL.md.literal: 7 行(上限 6、+1 行)'
+}
+
+@test "配置先が判定の対象でない source は、名前に SKILL.md を含んでも判定しない" {
+    setup_skill
+    # .tmpl.literal は SKILL.md.tmpl に、literal_ は private_SKILL.md に配置される。. で始まるディレクトリと
+    # run_ のスクリプトは配置されない
+    make_lines dot_claude/skills/x/SKILL.md.tmpl.literal 100
+    make_lines dot_claude/skills/z/literal_private_SKILL.md 100
+    make_lines dot_claude/skills/.hidden/private_SKILL.md 100
+    make_lines dot_claude/skills/r/run_SKILL.md 100
+    run check
+    assert_success
+}
+
+@test "属性の接頭辞を付けたファイルにも個別の上限を source のパスで登録できる" {
+    setup_skill
+    make_lines dot_claude/skills/b/private_SKILL.md 8
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\ndot_claude/skills/b/private_SKILL.md 8 16'
+    run check
+    assert_success
+}
+
+@test "配置先が判定の対象なのに中身を測れない source があれば落ちる" {
+    setup_skill
+    local source
+    for source in dot_claude/skills/m/modify_SKILL.md dot_claude/skills/s/symlink_SKILL.md \
+        dot_claude/skills/e/encrypted_private_SKILL.md.age dot_claude/rules/common/modify_x.md; do
+        make_lines "$source" 1
+        run check
+        assert_failure 2
+        assert_output --partial "$source"
+        git -C "$REPO" rm -q -f -- "$source"
+    done
+    run check
+    assert_success
+}
+
+@test "rules の祖先か配下に置いた symlink は、配置先が .md で終わらなくても落ちる" {
+    # リンク先の . で始まるディレクトリは判定の対象の形に一致しないので、symlink を通すとそこに置いた rules が測られない
+    make_lines .extra/big.md 8
+    local source
+    for source in dot_claude/rules/symlink_extra dot_claude/symlink_rules symlink_dot_claude; do
+        put "$source" '{{ .chezmoi.sourceDir }}/.extra'
+        run check
+        assert_failure 2
+        assert_output --partial "$source"
+        git -C "$REPO" rm -q -f -- "$source"
+    done
+    # rules と関係しない場所の symlink と、rules の下の .md でないふつうのファイルは判定しない
+    put dot_config/symlink_extra '{{ .chezmoi.sourceDir }}/.extra'
+    make_lines dot_claude/rules/README 8
+    run check
+    assert_success
+}
+
+@test "判定の対象は .chezmoiignore の内容に左右されない" {
+    setup_skill
+    put .chezmoiignore $'.claude/skills/b/SKILL.md\n{{ if eq .profile "work" }}\n.claude/**\n{{ end }}'
+    make_lines dot_claude/skills/b/private_SKILL.md 7
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/b/private_SKILL.md: 7 行'
+}
+
+# 配置先が判定の対象のテンプレート。描画は test/rendered-instruction-size.bats が受け持つので、ここでは
+# 一覧に出ることと、描画した出力を当たる上限で測ることだけを見る
+list_templates() {
+    (cd "$REPO" && bash "$SCRIPT" --list-templates)
+}
+
+@test "--list-templates は配置先が判定の対象のテンプレートを出す" {
+    setup_skill
+    put dot_claude/skills/a/SKILL.md.tmpl 'a'
+    put dot_claude/rules/common/foo.md.tmpl 'b'
+    put dot_claude/skills/y/SKILL.md.literal.tmpl 'c'
+    put dot_config/other.md.tmpl 'd'
+    run --separate-stderr list_templates
+    assert_success
+    assert_output $'dot_claude/rules/common/foo.md.tmpl\ndot_claude/skills/a/SKILL.md.tmpl\ndot_claude/skills/y/SKILL.md.literal.tmpl'
+}
+
+@test "通常の実行はテンプレートのソースを測らない" {
+    setup_skill
+    make_lines dot_claude/skills/a/SKILL.md.tmpl 100
+    run check
+    assert_success
+}
+
+@test "--list-templates は render: の行のテンプレートを出さない" {
+    put dot_claude/skills/a/SKILL.md.tmpl 'a'
+    put dot_claude/CLAUDE.md.tmpl 'b'
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl 4 30'
+    run --separate-stderr list_templates
+    assert_success
+    assert_output 'dot_claude/CLAUDE.md.tmpl'
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl 4 30\nrender:dot_claude/CLAUDE.md.tmpl 4 30'
+    run --separate-stderr list_templates
+    assert_success
+    assert_output ''
+    # INSTRUCTION_PATHSPECS に一致するテンプレートは、render: の行があってもソースを既定値で測る
+    make_lines dot_claude/CLAUDE.md.tmpl 4
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/CLAUDE.md.tmpl: 4 行(上限 3、+1 行)'
+}
+
+@test "--rendered は SKILL.md のテンプレートの出力を skill:* で測る" {
+    setup_skill
+    put dot_claude/skills/a/SKILL.md.tmpl 'a'
+    make_lines out.txt 6
+    run check_rendered dot_claude/skills/a/SKILL.md.tmpl "$REPO/out.txt"
+    assert_success
+    make_lines out.txt 7
+    run check_rendered dot_claude/skills/a/SKILL.md.tmpl "$REPO/out.txt"
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl: 7 行(上限 6、+1 行)'
+}
+
+@test "--rendered はルールのテンプレートの出力を * で測り、個別の上限の行があればそれで測る" {
+    setup_skill
+    put dot_claude/rules/common/foo.md.tmpl 'a'
+    make_lines out.txt 4
+    run check_rendered dot_claude/rules/common/foo.md.tmpl "$REPO/out.txt"
+    assert_failure 1
+    assert_output --partial 'dot_claude/rules/common/foo.md.tmpl: 4 行(上限 3、+1 行)'
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\ndot_claude/rules/common/foo.md.tmpl 4 8'
+    run check_rendered dot_claude/rules/common/foo.md.tmpl "$REPO/out.txt"
+    assert_success
+}
+
+@test "--rendered は render: の行のテンプレートをその行だけで測る" {
+    put dot_claude/skills/a/SKILL.md.tmpl 'a'
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl - 30'
+    # 10 行 / 20 バイト: 行数は skill:* も * も超えるが、render: の行は行数を縛らない
+    make_lines out.txt 10
+    run check_rendered dot_claude/skills/a/SKILL.md.tmpl "$REPO/out.txt"
+    assert_success
+}
+
+@test "テンプレートの SKILL.md があるのに skill:* の行が無ければ落ちる" {
+    put dot_claude/skills/a/SKILL.md.tmpl 'a'
+    run check
+    assert_failure 2
+    assert_output --partial 'skill:*'
+}
+
+@test "create_・empty_ を付けた SKILL.md と、external_ のディレクトリの中の SKILL.md も判定する" {
+    setup_skill
+    local source
+    # external_ の中は名前を対応づけずにそのまま配置されるので、. で始まるディレクトリの中も配置される
+    for source in dot_claude/skills/v/create_empty_SKILL.md external_ex/.h/SKILL.md; do
+        make_lines "$source" 6
+        run check
+        assert_success
+        make_lines "$source" 7
+        run check
+        assert_failure 1
+        assert_output --partial "$source: 7 行(上限 6、+1 行)"
+        git -C "$REPO" rm -q -f -- "$source"
+    done
+    # external_ の中の private_SKILL.md は private_SKILL.md のまま配置される
+    make_lines external_ex/private_SKILL.md 100
+    run check
+    assert_success
+}
