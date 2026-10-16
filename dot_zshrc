@@ -53,11 +53,16 @@ alias zmv='noglob zmv -W'
 
 
 # Aliases
-alias ls='eza'
-alias ll='eza -l'
-alias la='eza -la'
+# Claude Code の Bash ツールは、セッション開始時にこのファイルを読んだシェルの alias を再生する。eza と difft は
+# ls / diff と引数も終了コードも違い(eza の -t は値を取り、difft は差分があっても 0 で終わる)、`ls -t` や
+# `diff a b && echo same` が黙って誤るので、Claude Code の内側(CLAUDECODE が立つ)では置き換えない。
+if [[ -z "${CLAUDECODE:-}" ]]; then
+    alias ls='eza'
+    alias ll='eza -l'
+    alias la='eza -la'
 
-alias diff='difft --display side-by-side-show-both'
+    alias diff='difft --display side-by-side-show-both'
+fi
 
 
 # Tool initializations
