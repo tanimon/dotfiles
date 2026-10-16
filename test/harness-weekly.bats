@@ -2184,8 +2184,10 @@ PRE
     sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
     run weekly
     assert_failure
-    assert_output --partial "$HOME/.claude/scripts/$1"
     assert_output --partial 'changed after the claude runs started'
+    # エラー文はパスを常に全部並べるので、書き換えた後の digest が After に出ることで、そのファイルを照合したと確かめる
+    digest=$(git hash-object -- "$HOME/.claude/scripts/$1")
+    assert_output --partial "$HOME/.claude/scripts/$1 $digest"
     refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }

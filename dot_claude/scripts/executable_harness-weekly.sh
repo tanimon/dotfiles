@@ -1324,7 +1324,8 @@ RATE_RECORD_DIGESTS=$(rate_record_digests) || {
     exit 1
 }
 LEDGER_INPUT_DIGESTS=$(ledger_input_digests) || {
-    printf 'harness-weekly: failed to hash the Rule Ledger records in %s\n' "$LOCAL_LEDGER_DIR" >&2
+    printf 'harness-weekly: failed to hash the Rule Ledger records in %s or %s, or the Rule Ledger script %s, the Verdict CLI %s, the failure rate script %s or the Failure Pattern list %s\n' \
+        "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$VERDICT_CLI" "$FAILURE_RATES" "$FAILURE_PATTERNS" >&2
     exit 1
 }
 if [[ "$(count_pending)" -eq 0 ]]; then
