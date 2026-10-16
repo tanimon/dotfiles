@@ -6,7 +6,7 @@
 #   parent-mismatch     本文の Parent 節の先頭の親と、API に設定済みの別の親が食い違う(根拠は API 側の親。別リポジトリの親なら owner/repo#N)
 #   blocked-by-missing  本文の Blocked by 節にある blocker が、API の dependencies に無い
 #   parent-all-children-closed  open の issue の native の sub-issue がすべて close 済み(親を close する PR は無いので、
-#                       子の PR の Closes では閉じない。not planned で閉じた子も close 済みに数える)
+#                       子の PR の Closes では閉じない。判定は subIssuesSummary の completed == total)
 #   open-after-merge    マージ済み PR の closingIssuesReferences にある issue が open のまま
 #   ac-unchecked        マージ済みの PR で close された issue の AC 節に [ ] が残る(1 項目 1 行。根拠はマージ済みの PR だけ)
 #   mentioned-by-merged open の issue に同じリポジトリのマージ済み PR からの言及がある(Closes の書き忘れの候補。
