@@ -66,8 +66,8 @@
 * 200 32768
 skill:* 500 15000
 
-AGENTS.md 215 46640
-CLAUDE.md 230 45190
+AGENTS.md 215 46628
+CLAUDE.md 230 45122
 .claude/rules/shell-scripts.md 221 11866
 dot_claude/scripts/CLAUDE.md 548 60046
 dot_config/nono/CLAUDE.md 53 41775

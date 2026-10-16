@@ -7,7 +7,7 @@ date: 2026-10-16
 
 グローバル指示(`~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md`)の合成の説明は、グローバル指示のテンプレートとその bats を扱うときにしか要らないのに、共有モジュール Key Patterns の一部として全セッションで常時ロードされていた(#497)。そこで本文を `.claude/rules/global-agent-instructions.md`(frontmatter の `paths` で対象を絞る手書きの rule)に移し、Key Patterns には 1 文の参照だけを残す。正本は rule ファイルの 1 箇所で、`harness/modules/` には写しを置かない。
 
-**Codex はこの内容を読めなくなるが、移す前から読めていなかった。** ルートの `AGENTS.md` は Key Patterns を末尾に置き、Codex の `project_doc_max_bytes`(既定 32 KiB。このリポジトリの Codex 設定に上書きは無い)による切り捨てがそのモジュールの内側で起きる並びになっている。移す前の測定では、この節は `AGENTS.md` の 42,530 バイト目から始まっており、切り捨てられる範囲にあった。移しても Codex から失われるものは無い。
+**Codex はこの内容を読めなくなるが、移す前から読めていなかった。** ルートの `AGENTS.md` は Key Patterns を末尾に置き、Codex の `project_doc_max_bytes`(既定 32 KiB。このリポジトリの Codex 設定に上書きは無い)による切り捨てがそのモジュールの内側で起きる並びになっている。移す前の測定では、この節は `AGENTS.md` の 45,678 バイト目から始まっており、切り捨てられる範囲にあった。移しても Codex から失われるものは無い。
 
 ## Considered Options
 

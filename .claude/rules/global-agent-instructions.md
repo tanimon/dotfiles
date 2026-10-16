@@ -12,7 +12,7 @@ paths:
 
 # Global agent instructions(`~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md`)
 
-リポジトリ内の指示(ルートの `CLAUDE.md` の Key Patterns「Generated agent instructions」)とは合成の機構が違う。**グローバル指示は `harness/` を通らず、chezmoi テンプレートだけで合成する**(ADR 0005。`harness/manifest.json` の `targets` は空のまま)。この節がルートの `CLAUDE.md` ではなく `paths` 指定の rule にある理由は ADR 0018。
+リポジトリ内の指示(ルートの `CLAUDE.md` の Key Patterns「Generated agent instructions」)とは合成の機構が違う。**グローバル指示は `harness/` を通らず、chezmoi テンプレートだけで合成する**(ADR 0005。`harness/manifest.json` の `targets` は空のまま)。この内容がルートの `CLAUDE.md` ではなくこの rule にある理由は ADR 0018。
 
 ## 合成の構成
 
