@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Capability Probe: runtime の存在・バージョン・必須 capability を実際の挙動で確かめる。
-# harness.sh から source される。依存: report.bash、manifest.bash
+# harness.sh から source される(set は呼び出し側に従う)。依存: report.bash、manifest.bash
 #
 # バージョン文字列だけでは機能の有無が分からないので、capability は
 # `bin args` の出力を pattern(ERE)で照合する(spec「決定事項サマリ」Capability Probe)。

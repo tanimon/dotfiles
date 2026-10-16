@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Harness Manifest(JSON)の読み込み・検証・問い合わせ。harness.sh から source される。
+# Harness Manifest(JSON)の読み込み・検証・問い合わせ。harness.sh から source される(set は呼び出し側に従う)。
 # 依存: report.bash(die)、path.bash、jq、HARNESS_HOME(harness/ の絶対パス)
 #
 # スキーマは docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md
