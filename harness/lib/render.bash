@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runtime Adapter の実行・staging・置換・drift 比較。harness.sh から source される。
+# Runtime Adapter の実行・staging・置換・drift 比較。harness.sh から source される(set は呼び出し側に従う)。
 # 依存: report.bash、manifest.bash(HARNESS_TARGET_*)、export 済みの HARNESS_ROOT / HARNESS_SOURCE_DIR / HARNESS_MANIFEST
 #
 # Atomic Sync(spec「sync の手順」): 全 target を staging に render し、全体検証に通ってから

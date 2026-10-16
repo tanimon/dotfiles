@@ -13,7 +13,7 @@ A chezmoi-managed dotfiles repository for macOS. Source directory is `~/.local/s
 `chezmoi --help` covers the everyday subcommands (`apply`, `diff`, `add`, `edit`, `managed`, `data`). The ones below are not guessable from a tool's own help:
 
 ```sh
-# Linting (mirrors CI — also runs on commit via prek; requires `just`, installed via darwin/Brewfile)
+# Linting (mirrors CI — a subset of these checks also runs on commit via prek, see .pre-commit-config.yaml; requires `just`, installed via darwin/Brewfile)
 just lint                      # Run all checks; `just --list` shows the individual recipes
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
@@ -72,7 +72,7 @@ Only directories whose contents carry a contract an `ls` would not reveal are li
 
 **(2) 識別子そのもの** — 散文中の言及(「<org> の worktree では…」)は形が無いので (1) では捕まらない。**リポジトリには書かず**、スキャン時にマシンから解決する: work org は `chezmoi data` の `.ghOrg`、アカウント名は `id -un`。それぞれ `SENSITIVE_WORK_ORG` / `SENSITIVE_LOCAL_USER` で上書き可(set-but-empty で無効化)。`id -un` が CI runner やコンテナの汎用アカウント名(`runner`/`node`/`root` 等)を返した場合は**識別子として扱わない** — これらは repo 内に普通の単語として頻出し、狩ると CI が無意味に赤くなる(実測で 14 行以上)。明示的な上書きは常に優先されるので、この除外が本当に守りたい名前を隠すことはない。マシンから引けない文字列(改名前のアカウント名や、システムが保持していない実名など)は gitignore 済みの `scripts/sensitive-patterns.local.txt` に書く — **その文字列はここに書けない**(書けば漏洩そのもの)ので、この CLAUDE.md も含め commit されるファイルには具体例を残さない。**このファイルは自己ブートストラップできない**(seed のために commit したら、それがまさに防ぎたい漏洩)ので、新しいマシンでは手で作り直す。
 
-**出力の作法。** パターンは行頭 `@redact ` で出力モードを切り替える。redact は `file:line` だけを出力する — public リポの Actions ログにマッチ行を出すと、ガードが守っている文字列をガード自身が公開してしまうため。redaction は*マッチ内容*に対するもので、commit 済みパターン自体は既に公開なので**パターン名は出す** — これが「1行に2ガードが当たった」のか「別々の2件」なのかの区別になる。形を表すパターンは既定の show のまま(マッチ行が見えないと修正できない)。識別子が解決できないときは黙って exit 0 せず、**どの resolver がなぜ skip されたかを名前で**出す — 静かな pass は「clean」に見えるうえ、resolver が複数ある状態で「何かが skip された」だけでは片方だけ解決した実行を誤って説明してしまう。
+**出力の作法。** パターンは行頭 `@redact ` で出力モードを切り替える。redact は `file:line` だけを出力する — public リポの Actions ログにマッチ行を出すと、ガードが守っている文字列をガード自身が公開してしまうため。redaction は*マッチ内容*に対するもので、commit 済みパターン自体は既に公開なので**パターン名は出す** — これが「1行に2ガードが当たった」のか「別々の2件」なのかの区別になる。形を表すパターンでも、マッチ行に識別子そのものが出るもの((1) の 2 つ)は redact にする。それ以外の形のパターンは既定の show のまま(マッチ行が見えないと修正できない)。識別子が解決できないときは黙って exit 0 せず、**どの resolver がなぜ skip されたかを名前で**出す — 静かな pass は「clean」に見えるうえ、resolver が複数ある状態で「何かが skip された」だけでは片方だけ解決した実行を誤って説明してしまう。
 
 **強制点。** CI は (1) だけを強制する(chezmoi 設定も実ユーザー名も無い)。(2) の強制点はローカルの pre-commit フックと `just lint`。意図的に公開している情報(公開済みの commit identity・SSH 公開鍵・このリポの公開アカウント名)は `scripts/sensitive-allowlist.txt` に `<path-suffix or *>:<regex>` 形式で例外登録する。識別子そのものはこのファイルに書けない(書けば漏洩そのもの)ことが設計上の制約。
 

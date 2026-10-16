@@ -90,7 +90,8 @@ this; the review skill parses `^## ` headers and `- **Key:**` fields):
 
 Write entry bodies in Japanese, per `~/.claude/rules/common/documentation-language.md`.
 Keep the field labels above (`## [date] title`, `- **What happened:**` …) verbatim — the
-review skill parses them.
+review skill parses them. Verdict の CLI(`~/.claude/scripts/harness-verdict.sh`)も `## ` の見出しで項目を区切り、
+`- **Source:**` 行から session id を読む(Rule Ledger が Failure Pattern を引く材料)。
 
 ## Bookkeeping (after appending)
 
