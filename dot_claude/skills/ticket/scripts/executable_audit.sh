@@ -5,6 +5,8 @@
 #                       create-issue.sh も先頭だけを張る)
 #   parent-mismatch     本文の Parent 節の先頭の親と、API に設定済みの別の親が食い違う(根拠は API 側の親。別リポジトリの親なら owner/repo#N)
 #   blocked-by-missing  本文の Blocked by 節にある blocker が、API の dependencies に無い
+#   parent-all-children-closed  open の issue の native の sub-issue がすべて close 済み(親を close する PR は無いので、
+#                       子の PR の Closes では閉じない。not planned で閉じた子も close 済みに数える)
 #   open-after-merge    マージ済み PR の closingIssuesReferences にある issue が open のまま
 #   ac-unchecked        マージ済みの PR で close された issue の AC 節に [ ] が残る(1 項目 1 行。根拠はマージ済みの PR だけ)
 #   mentioned-by-merged open の issue に同じリポジトリのマージ済み PR からの言及がある(Closes の書き忘れの候補。
@@ -35,7 +37,7 @@ warn_if_limit_reached() {
 }
 
 repo=$(gh repo view --json nameWithOwner | jq -r .nameWithOwner)
-open_json=$(gh issue list --state open --limit "$LIMIT" --json number,body)
+open_json=$(gh issue list --state open --limit "$LIMIT" --json number,body,subIssuesSummary)
 warn_if_limit_reached "open の issue" "$(printf '%s' "$open_json" | jq 'length')"
 open_numbers=$(printf '%s' "$open_json" | jq -r '.[].number')
 
@@ -79,6 +81,19 @@ while IFS= read -r item; do
     fi
 done <<<"$items"
 
+# close の候補として出した issue。mentioned-by-merged を重ねない(同じ issue に close の修正案が 2 つ並ぶため)。
+closable=''
+
+# parent-all-children-closed
+all_children_closed=$(printf '%s' "$open_json" |
+    jq -r '.[] | select((.subIssuesSummary.total // 0) > 0 and .subIssuesSummary.completed == .subIssuesSummary.total)
+        | "\(.number)\t\(.subIssuesSummary.total)"')
+while IFS=$'\t' read -r issue total; do
+    [[ -n "$issue" ]] || continue
+    printf 'parent-all-children-closed\t%s\tsub-issue %s 件がすべて close 済み\n' "$issue" "$total"
+    closable+="$issue"$'\n'
+done <<<"$all_children_closed"
+
 # open-after-merge
 merged_json=$(gh pr list --state merged --limit "$LIMIT" --json number,closingIssuesReferences)
 warn_if_limit_reached "マージ済みの PR" "$(printf '%s' "$merged_json" | jq 'length')"
@@ -86,18 +101,17 @@ references=$(printf '%s' "$merged_json" |
     jq -r --arg repo "$repo" '.[] | .number as $pr | .closingIssuesReferences[]
         | select((.url | split("/")[3:5] | join("/")) == $repo)
         | "\(.number)\t\($pr)"')
-after_merge=''
 while IFS=$'\t' read -r issue pr; do
     [[ -n "$issue" ]] || continue
     if printf '%s\n' "$open_numbers" | grep -qx "$issue"; then
         printf 'open-after-merge\t%s\tPR #%s\n' "$issue" "$pr"
-        after_merge+="$issue"$'\n'
+        closable+="$issue"$'\n'
     fi
 done <<<"$references"
 
 # mentioned-by-merged
 for number in $open_numbers; do
-    if printf '%s' "$after_merge" | grep -qx "$number"; then
+    if printf '%s' "$closable" | grep -qx "$number"; then
         continue
     fi
     if ! mentions=$(gh api "repos/$repo/issues/$number/timeline" --paginate |

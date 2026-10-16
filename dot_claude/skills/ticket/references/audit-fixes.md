@@ -4,6 +4,7 @@
 
 - `parent-missing` / `blocked-by-missing`: native に張る。
 - `parent-mismatch`: 本文と API で親が違う。どちらが正しいかは人が決める。本文が正しければ親の付け替えのコマンドで直し、API が正しければ本文の Parent 節を直す。
+- `parent-all-children-closed`: 子の一覧を `gh api repos/<owner>/<repo>/issues/<issue>/sub_issues --paginate` で引き、各子の `state_reason` と close した PR(`gh issue view <子> --json closedByPullRequestsReferences`)を確かめる。すべて completed なら、子と PR を列挙したコメント付きの `gh issue close <issue> --reason completed --comment "$(cat <scratchpad>/close-<issue>.md)"` を提案する(`gh issue close` にはファイルから読むオプションが無い)。not planned の子があれば、親の範囲が残っていないかは人が決めるので、操作は提案せずにその子を報告に載せる。
 - `open-after-merge`: `gh issue close <issue> --reason completed --comment "PR #<n> のマージで解決済み(Closes による自動 close が効かなかった)"`。
 - `mentioned-by-merged`: Closes を書き忘れた PR の候補にすぎない。PR の本文と差分(`gh pr view <n> --json body,files`)と issue の AC を読み、解決したと言える場合だけ close の候補にする。言えなければ「言及のみ」として報告に載せ、操作は提案しない。
 - `ac-unchecked`: 根拠のマージ済み PR(複数あればすべて)の本文(`gh pr view <n> --json body`)の AC 対応表で、その項目を満たしたと書いてあるものだけを `[x]` にする候補にする。対応表に無い項目や、理由を書いて意図的に `[ ]` のまま残した項目は触らず、報告に載せる。
