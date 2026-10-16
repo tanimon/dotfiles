@@ -28,6 +28,9 @@ references はこのパスで参照し、`~/.claude/skills/` などの配置場�
   修正は別タスクとしてユーザーに委ねる
 - **資格情報を commit しない・録画に映さない。** 資格情報は `.env`(gitignored)
   のみに置き、ログインは録画を切った auth setup に分離する
+- **検証はローカル環境に対して行う。** このスイートはデータを変更する。共有環境へ
+  向けるのはユーザーの明示的な承認がある場合のみで、その承認は `VERIFY_ALLOW_REMOTE=1`
+  として記録する(エージェントの判断で設定しない)
 
 ## 保存場所の決め方
 
@@ -126,7 +129,8 @@ VERIFY_REPO_DIR="<対象 worktree の絶対パス>" VERIFY_FEATURE=<feature> npx
    (全機能に共通するものは `seed/common.ts`)
 7. **シナリオ実装**: 観点ごとに探索 → `scenarios/<feature>/` に spec 化 → 単体実行で安定化
    → references/scenario-authoring.md
-8. **実行**: `VERIFY_FEATURE=<feature>` を付けて `npx playwright test`(録画・trace・HTML レポート生成)
+8. **実行**: `VERIFY_FEATURE=<feature>` を付けて `npx playwright test`(録画・trace・HTML レポート生成)。
+   ブラウザを起動するコマンドはエージェントのサンドボックス外で実行する → references/troubleshooting.md
 9. **報告**: 下記「報告」
 
 ### 既存スイートへの追加(保存場所にスイートがある)

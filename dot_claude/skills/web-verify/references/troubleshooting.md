@@ -24,6 +24,18 @@ fail は必ず次の 3 分類のどれかに切り分けてから報告する。
 
 ## 症状別
 
+- **`Check failed: kr == KERN_SUCCESS. bootstrap_check_in ...: Permission denied (1100)` で
+  Chromium が起動しない(`browserType.launch: Target page, context or browser has been closed`
+  を伴う)**
+  → エージェントのサンドボックス内では Chromium が Mach port を確保できず FATAL 終了する。
+  ブラウザを起動するコマンド(`npx playwright test`)はサンドボックスの外で実行する。
+  外で実行するのにユーザーの許可が要るなら、環境問題として止めて報告する
+- **`Error: VERIFY_BASE_URL がローカル以外(...)を向いています`**
+  → 向き先ガード(seed/modules.ts。データ準備と片付けの両方を止める)。`.env` や実行時に渡した `VERIFY_BASE_URL` を取り違えていないか確認する。
+  共有環境に対して実行する意図が**ユーザーの承認済み**である場合のみ
+  `VERIFY_ALLOW_REMOTE=1` を設定する。エージェントの判断で外さない
+- **`Error: VERIFY_BASE_URL が URL として解釈できません`**
+  → スキームが欠けている(`127.0.0.1:8080` や `localhost:8080` ではなく `http://127.0.0.1:8080` と書く)
 - **`Error: VERIFY_BASE_URL を .env に設定するか、実行時に渡してください` /
   `Error: VERIFY_LOGIN_ID / VERIFY_LOGIN_PASSWORD を .env に設定してください`**
   → `.env.example` をコピーして `.env` を作り値を埋める(ユーザーに依頼する)。

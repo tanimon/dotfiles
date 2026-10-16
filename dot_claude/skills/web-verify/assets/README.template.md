@@ -23,6 +23,8 @@ skill がなくても以下の手順だけで再実行できる。
 - `VERIFY_REPO_DIR` は、このスイートが対象リポジトリの中にあれば省略できる(`playwright.config.ts` の
   `REPO_DIR_FROM_SUITE`)。外にある場合は必須
 - worktree ごとにアプリのポートが違う場合は `VERIFY_BASE_URL=...` も渡す(`.env` の値より優先される)
+- `VERIFY_BASE_URL` がローカル以外を向いていると停止する(このスイートはデータを変更するため)。
+  共有環境に対して実行する意図があるときだけ `VERIFY_ALLOW_REMOTE=1` を設定する
 - 特定シナリオのみ: `VERIFY_FEATURE=<機能> npx playwright test scenarios/<機能>/<ファイル名>`
 
 ## 観点一覧

@@ -24,6 +24,9 @@ profile.md に書く項目を対象リポから調査する。読む場所の優
 - ログイン成功の観測条件(遷移先URL等)
 - データ準備の手段(seeder / API / SQL のどれが使えるか)
 - 触ってはいけないデータ・環境の有無
+- 検証先がローカルか共有環境か。共有環境しかない場合は、データを変更する検証を
+  そこで走らせてよいかをユーザーに確認する(`VERIFY_ALLOW_REMOTE=1` はその承認の記録であり、
+  エージェントの判断で設定しない)
 
 質問できない状況(deliver のサブエージェントなど)でこれらが確定できなければ、推測で埋めて
 先へ進まず、確定できなかった項目を挙げて止める。これは troubleshooting.md の「環境問題」に当たり、
@@ -52,6 +55,11 @@ npm install -D @playwright/test dotenv @types/node
 npx playwright install chromium
 ```
 
+**ブラウザを起動するコマンド(`npx playwright test`)はエージェントのサンドボックスの外で
+実行する。** サンドボックス内では Chromium が Mach port を確保できず
+`bootstrap_check_in ... Permission denied (1100)` で FATAL 終了する
+(`playwright install` はサンドボックス内でも通るため、起動段階まで気づけない)。
+
 機能ごとの seed `seed/features/<feature>.ts` は、その機能のシナリオを書くときに
 `module.template.ts` をコピーして作る(scaffold 時には作らない)。
 
@@ -70,7 +78,8 @@ npx playwright install chromium
   `projects` を `scenarios` プロジェクトだけ(`dependencies` と `storageState` なし)に書き換える
   (`VERIFY_BASE_URL` の未設定検出は seed/setup.ts 側にあるため削除しても失われない)
 - `seed/common.ts` — profile.md のデータ準備手段で、全機能共通の前提データを実装。
-  seed/setup.ts の `VERIFY_BASE_URL` / `VERIFY_REPO_DIR` のガードはスイート唯一の前提チェックなので残す
+  seed/setup.ts の `VERIFY_BASE_URL` / `VERIFY_REPO_DIR` のガードと、seed/modules.ts の向き先ガード
+  (ローカル以外の拒否)はスイート唯一の前提チェック・安全装置なので残す
 - `.env` — エージェントは資格情報の値を扱わない。ユーザー自身に `.env.example` を
   コピーして直接編集してもらう
 
