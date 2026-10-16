@@ -28,6 +28,9 @@ references はこのパスで参照し、`~/.claude/skills/` などの配置場�
   修正は別タスクとしてユーザーに委ねる
 - **資格情報を commit しない・録画に映さない。** 資格情報は `.env`(gitignored)
   のみに置き、ログインは録画を切った auth setup に分離する
+- **検証はローカル環境に対して行う。** このスイートはデータを変更する。共有環境へ
+  向けるのはユーザーの明示的な承認がある場合のみで、その承認は `VERIFY_ALLOW_REMOTE=1`
+  として記録する(エージェントの判断で設定しない)
 
 ## 保存場所の決め方
 
@@ -107,6 +110,10 @@ VERIFY_REPO_DIR="<対象 worktree の絶対パス>" VERIFY_FEATURE=<feature> npx
 - worktree ごとにポートが違えば `VERIFY_BASE_URL` も渡す(`.env` より優先される)
 
 ## パイプライン
+
+ブラウザを起動するコマンド(`npx playwright test`。単体実行・`--headed --debug`・再確認を含み、
+`--list` は含まない)は、どのステップでもエージェントのサンドボックスの外で実行する。外で実行するのに
+ユーザーの許可が要るなら、環境問題として止めて報告する → references/troubleshooting.md
 
 ### 0. 保存場所と機能を決める
 
