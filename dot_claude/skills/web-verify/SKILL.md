@@ -111,6 +111,10 @@ VERIFY_REPO_DIR="<対象 worktree の絶対パス>" VERIFY_FEATURE=<feature> npx
 
 ## パイプライン
 
+ブラウザを起動するコマンド(`npx playwright test`。単体実行・`--headed --debug`・再確認を含み、
+`--list` は含まない)は、どのステップでもエージェントのサンドボックスの外で実行する。外で実行するのに
+ユーザーの許可が要るなら、環境問題として止めて報告する → references/troubleshooting.md
+
 ### 0. 保存場所と機能を決める
 
 上の「保存場所の決め方」で `<dir>` を決め、ブランチ名から `<feature>` を作る。
@@ -129,8 +133,7 @@ VERIFY_REPO_DIR="<対象 worktree の絶対パス>" VERIFY_FEATURE=<feature> npx
    (全機能に共通するものは `seed/common.ts`)
 7. **シナリオ実装**: 観点ごとに探索 → `scenarios/<feature>/` に spec 化 → 単体実行で安定化
    → references/scenario-authoring.md
-8. **実行**: `VERIFY_FEATURE=<feature>` を付けて `npx playwright test`(録画・trace・HTML レポート生成)。
-   ブラウザを起動するコマンドはエージェントのサンドボックス外で実行する → references/troubleshooting.md
+8. **実行**: `VERIFY_FEATURE=<feature>` を付けて `npx playwright test`(録画・trace・HTML レポート生成)
 9. **報告**: 下記「報告」
 
 ### 既存スイートへの追加(保存場所にスイートがある)

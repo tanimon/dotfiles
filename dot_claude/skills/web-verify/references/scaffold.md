@@ -55,10 +55,9 @@ npm install -D @playwright/test dotenv @types/node
 npx playwright install chromium
 ```
 
-**ブラウザを起動するコマンド(`npx playwright test`)はエージェントのサンドボックスの外で
-実行する。** サンドボックス内では Chromium が Mach port を確保できず
-`bootstrap_check_in ... Permission denied (1100)` で FATAL 終了する
-(`playwright install` はサンドボックス内でも通るため、起動段階まで気づけない)。
+`playwright install` はサンドボックス内でも通るが、ブラウザの起動はサンドボックス内では失敗する。
+起動段階まで気づけないので、以降の `npx playwright test` は SKILL.md の「パイプライン」冒頭の
+とおりサンドボックスの外で実行する(症状と対処は references/troubleshooting.md の症状別)。
 
 機能ごとの seed `seed/features/<feature>.ts` は、その機能のシナリオを書くときに
 `module.template.ts` をコピーして作る(scaffold 時には作らない)。
@@ -79,7 +78,7 @@ npx playwright install chromium
   (`VERIFY_BASE_URL` の未設定検出は seed/setup.ts 側にあるため削除しても失われない)
 - `seed/common.ts` — profile.md のデータ準備手段で、全機能共通の前提データを実装。
   seed/setup.ts の `VERIFY_BASE_URL` / `VERIFY_REPO_DIR` のガードと、seed/modules.ts の向き先ガード
-  (ローカル以外の拒否)はスイート唯一の前提チェック・安全装置なので残す
+  (ローカル以外の拒否)はスイートの前提チェックと安全装置なので残す
 - `.env` — エージェントは資格情報の値を扱わない。ユーザー自身に `.env.example` を
   コピーして直接編集してもらう
 
