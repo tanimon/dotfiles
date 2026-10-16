@@ -227,8 +227,7 @@ check-templates:
     bash scripts/check-instruction-size.sh
 
 # LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合の回避。
-# check-instruction-size.sh のテストと、描画してから測るテンプレート(合成後のグローバル指示と、配置先が判定の対象の
-# テンプレート)のサイズ上限(chezmoi が要る)
+# check-instruction-size.sh のテストと、描画してから測るテンプレートのサイズ上限(chezmoi が要る)
 @test-instruction-size:
     LC_ALL=C pnpm exec bats test/check-instruction-size.bats test/rendered-instruction-size.bats
 

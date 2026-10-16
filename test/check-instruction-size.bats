@@ -524,6 +524,24 @@ use_shipped_defaults() {
     assert_success
 }
 
+@test "rules の祖先か配下に置いた symlink は、配置先が .md で終わらなくても落ちる" {
+    # リンク先の . で始まるディレクトリは判定の対象の形に一致しないので、symlink を通すとそこに置いた rules が測られない
+    make_lines .extra/big.md 8
+    local source
+    for source in dot_claude/rules/symlink_extra dot_claude/symlink_rules symlink_dot_claude; do
+        put "$source" '{{ .chezmoi.sourceDir }}/.extra'
+        run check
+        assert_failure 2
+        assert_output --partial "$source"
+        git -C "$REPO" rm -q -f -- "$source"
+    done
+    # rules と関係しない場所の symlink と、rules の下の .md でないふつうのファイルは判定しない
+    put dot_config/symlink_extra '{{ .chezmoi.sourceDir }}/.extra'
+    make_lines dot_claude/rules/README 8
+    run check
+    assert_success
+}
+
 @test "判定の対象は .chezmoiignore の内容に左右されない" {
     setup_skill
     put .chezmoiignore $'.claude/skills/b/SKILL.md\n{{ if eq .profile "work" }}\n.claude/**\n{{ end }}'

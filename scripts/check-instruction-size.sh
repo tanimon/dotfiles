@@ -19,8 +19,8 @@
 #       <ファイル>(<名前> のテンプレートを描画した出力)を測る。render: の行があればその行の上限で、
 #       --list-templates のテンプレートなら個別の上限の行か配置先の種類の既定値で測る。
 #       描画はこのスクリプトでは行わない(test/rendered-instruction-size.bats が受け持つ)。
-# どの使い方でも一覧全体を読み、読めない行があるか、SKILL.md があるのに skill:* の行が無いか、配置先が判定の対象なのに
-# 中身をソースから測れない source(modify_・symlink_・encrypted_)があれば exit 2 にする。
+# どの使い方でも一覧全体を読み、読めない行があるか、SKILL.md があるのに skill:* の行が無いか、配置先が判定の対象か
+# .claude/rules の祖先か配下なのに中身をソースから測れない source(modify_・symlink_・encrypted_)があれば exit 2 にする。
 #
 # 終了コード: 0 = すべて上限内、1 = 上限を超えたファイルがある、2 = 上限の一覧か引数を読めない。
 set -euo pipefail
@@ -92,8 +92,16 @@ is_instruction_destination() {
     [[ $1 == .cursor/rules/*.mdc && $1 != .cursor/rules/*/* ]]
 }
 
+# may_hold_rules DEST: 配置先のパス DEST が .claude/rules の祖先か自身か配下か。そこに置いた symlink が
+# ディレクトリを指すと、リンク先の .md が名前を問わず rules として読み込まれる(Claude Code は .claude/rules/ の
+# 下の symlink を、ファイルでもディレクトリでも辿る)。リンク先を . で始まるディレクトリのような判定の対象の形に
+# 一致しない場所に置けば、配置先が .md で終わらなくても上限を逃れられる
+may_hold_rules() {
+    [[ .claude/rules/ == "$1"/* || $1 == .claude/rules/* ]]
+}
+
 # chezmoi_destination SOURCE: リポジトリのルートを chezmoi の source とみなし、SOURCE が配置される先のパスを
-# destination に、配置される中身の種類を content に入れる。content は file(source の中身がそのまま配置される)、
+# destination に、配置される中身の種類を content_kind に入れる。content_kind は file(source の中身がそのまま配置される)、
 # template(描画した出力が配置される)、opaque(中身が source から決まらない)、空(何も配置されない)のどれか。
 # 名前の対応づけは chezmoi の source state attributes の規則で、接頭辞は決まった順にだけ外す
 # (private_encrypted_x は encrypted_x に配置される)。chezmoi は呼ばない: chezmoi target-path は run_ や
@@ -102,7 +110,7 @@ is_instruction_destination() {
 chezmoi_destination() {
     local rest=$1 component name verbatim='' encrypted='' prefix
     destination=''
-    content=''
+    content_kind=''
     while [[ $rest == */* ]]; do
         component=${rest%%/*}
         rest=${rest#*/}
@@ -125,24 +133,25 @@ chezmoi_destination() {
     name=$rest
     if [[ -n $verbatim ]]; then
         destination+=$name
-        content='file'
+        content_kind='file'
         return 0
     fi
-    [[ $name == .* ]] && return 0
-    content='file'
+    case $name in
+    .* | remove_* | run_*) return 0 ;;
+    esac
+    content_kind='file'
     # ファイルの種類ごとに付けられる属性の接頭辞(付ける順)
     local prefixes='encrypted_ private_ readonly_ empty_ executable_'
     case $name in
-    remove_* | run_*) return 0 ;;
     create_*) name=${name#create_} ;;
     symlink_*)
         name=${name#symlink_}
-        content='opaque'
+        content_kind='opaque'
         prefixes=''
         ;;
     modify_*)
         name=${name#modify_}
-        content='opaque'
+        content_kind='opaque'
         prefixes='encrypted_ private_ readonly_ executable_'
         ;;
     esac
@@ -155,7 +164,7 @@ chezmoi_destination() {
     literal_*) name=${name#literal_} ;;
     esac
     if [[ -n $encrypted ]]; then
-        content='opaque'
+        content_kind='opaque'
         # 拡張子は暗号化の設定で決まる。どちらも外しておけば、配置先が判定の対象なのに見逃すことはない
         name=${name%.age}
         name=${name%.asc}
@@ -165,7 +174,7 @@ chezmoi_destination() {
     *.tmpl)
         name=${name%.tmpl}
         name=${name%.literal}
-        [[ $content == file ]] && content='template'
+        [[ $content_kind == file ]] && content_kind='template'
         ;;
     esac
     destination+=$name
@@ -203,11 +212,11 @@ while IFS= read -r -d '' file; do
 done <"$pathspec_file"
 
 # targets はソースをそのまま測るファイル、templates は配置先が判定の対象のテンプレート(描画は
-# test/rendered-instruction-size.bats)。*_names はそれぞれの配置先のパス(配置されないものは source のパス)で、当てる既定値を決める
+# test/rendered-instruction-size.bats)。*_destinations はそれぞれの配置先のパス(配置されないものは source のパス)で、当てる既定値を決める
 targets=()
-target_names=()
+target_destinations=()
 templates=()
-template_names=()
+template_destinations=()
 opaque_found=''
 while IFS= read -r -d '' file; do
     # --cached と --others は重ならないので重複は出ない
@@ -215,24 +224,24 @@ while IFS= read -r -d '' file; do
     by_pathspec=''
     [[ $pathspec_matched == *$'\n'"$file"$'\n'* ]] && by_pathspec=1
     chezmoi_destination "$file"
-    if [[ -n $content ]] && is_instruction_destination "$destination"; then
-        if [[ $content == opaque ]]; then
-            # このスクリプトは読めない入力を exit 2 にする。黙って通すと、名前を変えるだけで上限を逃れられる
-            echo "instruction-size: 配置先が判定の対象なのに中身をソースから測れない: $file($destination に配置される)" >&2
-            opaque_found=1
-            continue
-        fi
-        if [[ $content == template ]]; then
+    if [[ $content_kind == opaque ]] && { is_instruction_destination "$destination" || may_hold_rules "$destination"; }; then
+        # このスクリプトは読めない入力を exit 2 にする。黙って通すと、名前を変えるだけで上限を逃れられる
+        echo "instruction-size: 判定の対象になりうる配置先の中身をソースから測れない: $file($destination に配置される)" >&2
+        opaque_found=1
+        continue
+    fi
+    if [[ -n $content_kind ]] && is_instruction_destination "$destination"; then
+        if [[ $content_kind == template ]]; then
             templates+=("$file")
-            template_names+=("$destination")
+            template_destinations+=("$destination")
             # INSTRUCTION_PATHSPECS に一致するテンプレートは、描画した出力に加えてソースもそのまま測る
             [[ -n $by_pathspec ]] || continue
         fi
         targets+=("$file")
-        target_names+=("$destination")
+        target_destinations+=("$destination")
     elif [[ -n $by_pathspec ]]; then
         targets+=("$file")
-        target_names+=("$file")
+        target_destinations+=("$file")
     fi
 done <"$listed_file"
 [[ -z $opaque_found ]] || exit 2
@@ -335,16 +344,16 @@ fi
 
 # skill の本文に * の既定値を当てると、根拠(起動時に読み込まれるファイル向けの値)の違う上限で測ることになる
 if [[ -z $skill_default_lines ]]; then
-    for name in ${target_names[@]+"${target_names[@]}"} ${template_names[@]+"${template_names[@]}"}; do
-        if is_skill "$name"; then
-            echo "instruction-size: $LIMITS_FILE に skill の既定値の行(skill:* <行数> <バイト数>)が無い: $name" >&2
+    for destination in ${target_destinations[@]+"${target_destinations[@]}"} ${template_destinations[@]+"${template_destinations[@]}"}; do
+        if is_skill "$destination"; then
+            echo "instruction-size: $LIMITS_FILE に skill の既定値の行(skill:* <行数> <バイト数>)が無い: $destination" >&2
             exit 2
         fi
     done
 fi
 
-# limit_for SOURCE NAME: SOURCE に当てる上限を limit_lines と limit_bytes に入れる。個別の上限の行が優先し、
-# 無ければ配置先のパス NAME の種類の既定値
+# limit_for SOURCE DEST: SOURCE に当てる上限を limit_lines と limit_bytes に入れる。個別の上限の行が優先し、
+# 無ければ配置先のパス DEST の種類の既定値
 limit_for() {
     limit_lines=$default_lines
     limit_bytes=$default_bytes
@@ -410,12 +419,12 @@ if [[ $mode == rendered ]]; then
     if [[ -n $found ]]; then
         report "${RENDER_PREFIX}${rendered_name}" "$rendered_file" "${rendered_lines[$found]}" "${rendered_bytes[$found]}"
     else
-        limit_for "$rendered_name" "${template_names[$template_found]}"
+        limit_for "$rendered_name" "${template_destinations[$template_found]}"
         report "$rendered_name" "$rendered_file" "$limit_lines" "$limit_bytes"
     fi
 else
     for i in ${targets[@]+"${!targets[@]}"}; do
-        limit_for "${targets[$i]}" "${target_names[$i]}"
+        limit_for "${targets[$i]}" "${target_destinations[$i]}"
         report "${targets[$i]}" "${targets[$i]}" "$limit_lines" "$limit_bytes"
     done
 fi
