@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# justfile の `lint:` と .github/workflows/lint.yml が同じ suite 集合を回していることの検査。
+# justfile の `lint:` と .github/workflows/lint.yml が同じ suite 集合を回し、`lint-fast:` が `lint:` から slow を除いた集合であることの検査。
 #
 # 正本は justfile の `lint:` の依存列。CI で回せないレシピは `[group('local-only')]` で
 # 印を付ける。lint.yml の job は static なまま残すので(ADR 0013)、その写しが正本と
@@ -43,14 +43,36 @@ require_yq() {
     esac
 }
 
+# `just --dump` の JSON($1)で、レシピ $2 が本体を持たないことを確かめる。本体から呼ぶレシピは
+# 依存列に現れないので、集合の検査から見えなくなる。
+require_no_body() {
+    if [ "$(jq --arg r "$2" '.recipes[$r].body | length' <<<"$1")" != 0 ]; then
+        echo "$2: が本体を持っている(依存列だけにすること)" >&2
+        return 1
+    fi
+}
+
+# 期待($1)と実際($2)の集合(1 行 1 件、ソート済み)を両方向に比べ、差があれば $3(期待にだけある)・
+# $4(実際にだけある)の見出しで出して非ゼロで返る。期待が空なら $5 を出して落とす(空の集合どうしの
+# 比較は何も検査しないので、通さない)。
+compare_sets() {
+    if [ -z "$1" ]; then
+        echo "$5" >&2
+        return 1
+    fi
+    local missing extra
+    missing=$(comm -23 <(echo "$1") <(echo "$2"))
+    extra=$(comm -13 <(echo "$1") <(echo "$2"))
+    [ -z "$missing" ] || printf '%s:\n%s\n' "$3" "$missing" >&2
+    [ -z "$extra" ] || printf '%s:\n%s\n' "$4" "$extra" >&2
+    [ -z "$missing" ] && [ -z "$extra" ]
+}
+
 # justfile の `lint:` の依存から local-only を除いた集合(1 行 1 recipe、ソート済み)。
 expected_recipes() {
     local dump
     dump=$(just --justfile "$1" --dump --dump-format json) || return 1
-    if [ "$(jq '.recipes.lint.body | length' <<<"$dump")" != 0 ]; then
-        echo "lint: が本体を持っている(依存列だけにすること)" >&2
-        return 1
-    fi
+    require_no_body "$dump" lint || return 1
     jq -r '.recipes as $r
         | .recipes.lint.dependencies[].recipe
         | select([$r[.].attributes[]? | objects | .group?] | index("local-only") | not)' <<<"$dump" |
@@ -90,18 +112,46 @@ check_parity() {
     require_yq || return 1
     expected=$(expected_recipes "$justfile") || return 1
     actual=$(ci_recipes "$workflow") || return 1
-    if [ -z "$expected" ]; then
-        echo "lint: の依存が空(justfile の読み取りに失敗した可能性)" >&2
+    compare_sets "$expected" "$actual" \
+        'CI が回していない lint: のレシピ' \
+        'lint: に無い(または local-only の)レシピを CI が回している' \
+        'lint: の依存が空(justfile の読み取りに失敗した可能性)'
+}
+
+# `lint-fast:` は手元の既定の検証で、`lint:` の依存から `[group('slow')]`(Slow Suite)を除いた残りに
+# 双方向で一致させる。lint: に足して lint-fast: に足し忘れたレシピは、手元の既定から黙って抜け落ちる。
+# slow と local-only の両方の印を持つレシピは手元の既定でも CI でも流れないので落とす。
+# slow の印は lint: の依存にだけ付ける(lint: に無いレシピの slow は、どこで流れるかを約束しない)。
+check_fast_parity() {
+    local dump expected actual
+    dump=$(just --justfile "$1" --dump --dump-format json) || return 1
+    if [ "$(jq '.recipes["lint-fast"] // empty | length' <<<"$dump")" = "" ]; then
+        echo "lint-fast: が無い" >&2
         return 1
     fi
-    local missing extra
-    missing=$(comm -23 <(echo "$expected") <(echo "$actual"))
-    extra=$(comm -13 <(echo "$expected") <(echo "$actual"))
-    if [ -n "$missing" ] || [ -n "$extra" ]; then
-        [ -z "$missing" ] || printf 'CI が回していない lint: のレシピ:\n%s\n' "$missing" >&2
-        [ -z "$extra" ] || printf 'lint: に無い(または local-only の)レシピを CI が回している:\n%s\n' "$extra" >&2
+    require_no_body "$dump" lint-fast || return 1
+    local groups='def groups($r): [$r.attributes[]? | objects | .group?];'
+    local both
+    both=$(jq -r "$groups"' .recipes | to_entries[]
+        | select(groups(.value) | (index("slow") and index("local-only"))) | .key' <<<"$dump")
+    if [ -n "$both" ]; then
+        printf 'slow と local-only の両方の印を持つレシピ(どこでも流れない):\n%s\n' "$both" >&2
         return 1
     fi
+    local stray
+    stray=$(jq -r "$groups"' [.recipes.lint.dependencies[].recipe] as $lint | .recipes | to_entries[]
+        | select((groups(.value) | index("slow")) and (.key | IN($lint[]) | not)) | .key' <<<"$dump")
+    if [ -n "$stray" ]; then
+        printf 'lint: に無いのに slow の印を持つレシピ:\n%s\n' "$stray" >&2
+        return 1
+    fi
+    expected=$(jq -r "$groups"' .recipes as $r | .recipes.lint.dependencies[].recipe
+        | select(groups($r[.]) | index("slow") | not)' <<<"$dump" | sort -u)
+    actual=$(jq -r '.recipes["lint-fast"].dependencies[].recipe' <<<"$dump" | sort -u)
+    compare_sets "$expected" "$actual" \
+        'lint-fast: に無い lint: のレシピ(slow 以外)' \
+        'lint: に無い(または slow の)レシピを lint-fast: が回している' \
+        'lint: の依存に slow でないレシピが無い(すべて slow か、justfile の読み取りに失敗した可能性)'
 }
 
 # --- fixture ---------------------------------------------------------------
@@ -131,6 +181,136 @@ write_workflow() {
 @test "実際の justfile と lint.yml は一致する" {
     run check_parity "$REPO/justfile" "$REPO/.github/workflows/lint.yml"
     assert_success
+}
+
+@test "実際の justfile の lint-fast: は lint: から slow を除いた集合に一致する" {
+    run check_fast_parity "$REPO/justfile"
+    assert_success
+}
+
+# --- lint-fast: の検査(fixture) ---------------------------------------------
+
+write_fast_justfile() {
+    cat >"$BATS_TEST_TMPDIR/justfile" <<EOF
+lint: alpha beta gamma
+
+lint-fast: $1
+
+alpha:
+    true
+
+[group('slow')]
+beta:
+    true
+
+[group('local-only')]
+gamma:
+    true
+EOF
+}
+
+@test "fixture: lint-fast: が lint: から slow を除いた集合なら通る" {
+    write_fast_justfile 'alpha gamma'
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_success
+}
+
+@test "fixture: lint-fast: への入れ忘れは落ちる" {
+    write_fast_justfile 'alpha'
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "lint-fast: に無い"
+    assert_output --partial "gamma"
+}
+
+@test "fixture: slow のレシピを lint-fast: が回すと落ちる" {
+    write_fast_justfile 'alpha beta gamma'
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "beta"
+}
+
+@test "fixture: lint: の依存がすべて slow なら、読み取りの失敗ではなくその旨で落ちる" {
+    cat >"$BATS_TEST_TMPDIR/justfile" <<'EOF'
+lint: beta
+
+lint-fast:
+
+[group('slow')]
+beta:
+    true
+EOF
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "slow でないレシピが無い"
+}
+
+@test "fixture: lint: に無いレシピを lint-fast: が回すと落ちる" {
+    write_fast_justfile 'alpha gamma delta'
+    cat >>"$BATS_TEST_TMPDIR/justfile" <<'EOF'
+
+delta:
+    true
+EOF
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "delta"
+}
+
+@test "fixture: lint-fast: が無いと落ちる" {
+    write_justfile
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "lint-fast: が無い"
+}
+
+@test "fixture: lint-fast: が本体を持つと落ちる" {
+    cat >"$BATS_TEST_TMPDIR/justfile" <<'EOF'
+lint: alpha
+
+lint-fast: alpha
+    just alpha
+
+alpha:
+    true
+EOF
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "本体"
+}
+
+@test "fixture: slow と local-only の両方の印を持つレシピは落ちる" {
+    cat >"$BATS_TEST_TMPDIR/justfile" <<'EOF'
+lint: alpha beta
+
+lint-fast: alpha
+
+alpha:
+    true
+
+[group('slow')]
+[group('local-only')]
+beta:
+    true
+EOF
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "両方の印"
+    assert_output --partial "beta"
+}
+
+@test "fixture: lint: に無いレシピの slow の印は落ちる" {
+    write_fast_justfile 'alpha gamma'
+    cat >>"$BATS_TEST_TMPDIR/justfile" <<'EOF'
+
+[group('slow')]
+delta:
+    true
+EOF
+    run check_fast_parity "$BATS_TEST_TMPDIR/justfile"
+    assert_failure
+    assert_output --partial "lint: に無いのに slow"
+    assert_output --partial "delta"
 }
 
 # --- 検査そのものの挙動(fixture) ------------------------------------------

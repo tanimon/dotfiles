@@ -92,7 +92,7 @@ These rules are enforced automatically — not just advisory:
 
 - **CI** (`.github/workflows/lint.yml`): Each CI job calls `justfile` recipes directly — local and CI run the exact same commands
 - **Pre-commit** (`.pre-commit-config.yaml`): Runs shellcheck, shfmt, and secretlint automatically before each commit via prek
-- **Local** (`justfile`): `just lint` runs all checks. Individual recipes: `just shellcheck`, `just shfmt`, `just secretlint`, `just test-modify`, `just test-scripts`, `just check-templates`
+- **Local** (`justfile`): `just lint` runs all checks(手元の既定は Slow Suite を除いた `just lint-fast`). Individual recipes: `just shellcheck`, `just shfmt`, `just secretlint`, `just test-modify`, `just test-scripts`, `just check-templates`
 
 `.tmpl` files are excluded from shell linting because Go template syntax is incompatible with shell linters.
 

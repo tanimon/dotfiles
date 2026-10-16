@@ -31,7 +31,7 @@ shell variables do not survive between separate Bash tool calls:
 git -C "$(chezmoi source-path)" worktree add --detach ~/.claude/harness/manual-review-worktree HEAD
 git -C ~/.claude/harness/manual-review-worktree fetch origin main
 git -C ~/.claude/harness/manual-review-worktree switch --no-track -c harness/review-YYYY-MM-DD-manual FETCH_HEAD
-(cd ~/.claude/harness/manual-review-worktree && pnpm install --frozen-lockfile --prefer-offline)   # the commit hook (prek) and `just lint` need node_modules
+(cd ~/.claude/harness/manual-review-worktree && pnpm install --frozen-lockfile --prefer-offline)   # the commit hook (prek) and `just lint-fast` need node_modules
 ```
 
 The `-manual` suffix keeps the branch from colliding with the weekly job's
@@ -114,7 +114,8 @@ of caution are noise — deprecate aggressively; git history preserves them.
 2. Apply all adopted changes (new rules in Japanese per
    `~/.claude/rules/common/documentation-language.md`, structured per
    `~/.claude/rules/common/harness-engineering.md` writing guidelines).
-3. Run `just lint` and fix findings.
+3. Run `just lint-fast`, plus each `[slow]` recipe (`just --list`) whose targets
+   you changed, and fix findings.
 4. Open one PR (body in Japanese) listing: adopted entries with their queue
    titles, rejected/handoff counts, staleness findings. Do NOT merge it.
 
@@ -165,7 +166,7 @@ and say so. An empty review is a valid outcome.
    bash ~/.claude/scripts/harness-verdict.sh settle --title '<見出し>' merged '<統合先の見出し>'
    ```
 
-   - Dropped Change(commit フックか `just lint` が通らずに落とした変更)は `settle` を呼ばず、queue に残す
+   - Dropped Change(commit フックか手順 3 の検証が通らずに落とした変更)は `settle` を呼ばず、queue に残す
      (原因が環境にあることもあるので、後の review が選別し直す)。
    - 環境変数 `HARNESS_REVIEW_RUN` が設定されているとき(週次ジョブ)は、adopted に `--pr-url` を付けない。
      CLI がその値から採用の印を書き、ジョブが PR を作った後に PR の URL に置き換える。設定されていないとき

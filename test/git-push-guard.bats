@@ -18,6 +18,25 @@ decision() {
     printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // empty'
 }
 
+# 計算量の退行は、フックが使った CPU 時間(user + sys。子プロセスを含む)で測る。壁時計で測ると、
+# 並列の `just lint` の下では CPU の順番待ちで 10 倍以上に膨らみ(負荷なしで 0.7 秒の入力が 20 秒を越える)、
+# 退行していなくても落ちる。`run` の内側は 2>&1 なので、time の出力だけがファイルに入る。
+run_hook_timed() {
+    local TIMEFORMAT='%3U %3S'
+    { time run hook "$1"; } 2>"$BATS_TEST_TMPDIR/cpu-time"
+}
+
+# run_hook_timed の CPU 時間が $1 秒未満なら成功する。time の出力が読めないときは 0 秒と見なさずに失敗する。
+assert_cpu_seconds_below() {
+    awk -v limit="$1" '
+        NF == 2 && $1 ~ /^[0-9]+\.[0-9]+$/ && $2 ~ /^[0-9]+\.[0-9]+$/ { read = 1; total = $1 + $2 }
+        END {
+            if (!read) { print "time の出力を読めない"; exit 2 }
+            printf "cpu=%.3fs limit=%ss\n", total, limit
+            exit !(total < limit)
+        }' "$BATS_TEST_TMPDIR/cpu-time"
+}
+
 # --- the contrast half: everyday pushes must stay prompt-free -----------------
 # Without these, a guard that denies unconditionally would pass every test
 # below and still make the setting unusable.
@@ -667,14 +686,12 @@ ${body} --force は使わない\""
 # push の segment ごとにコマンド全体の token を走査していたので、segment の多い 8 KB 近い入力で
 # 5 秒(フックの timeout)を越え、判定なし = フェイルオープンになっていた。
 @test "a force push followed by many push segments is denied well within the hook timeout" {
-    local command='git push origin main --force' start elapsed
+    local command='git push origin main --force'
     while [[ ${#command} -lt 8180 ]]; do command+=';git push'; done
-    start=$SECONDS
-    run hook "$command"
-    elapsed=$((SECONDS - start))
+    run_hook_timed "$command"
     assert_success
     assert_equal "$(decision "$output")" deny
-    [[ $elapsed -lt 3 ]]
+    assert_cpu_seconds_below 3
 }
 
 # `>|` は noclobber を無視する redirect で、パイプではない。`--force` は git の引数のまま。
@@ -1027,33 +1044,29 @@ EOF"
 # `{` を 1 byte ごとに並べると、同じ index の印が 1 件ずつ増え、push の segment ごとに全件を
 # 走査していたので二乗になった(8 KB で 8 秒。フックの timeout は 5 秒 = 判定なし)。
 @test "a force push followed by push segments and a brace flood is denied within the timeout" {
-    local command='git push origin main --force;' start elapsed
+    local command='git push origin main --force;'
     local index
     for ((index = 0; index < 450; index++)); do command+='git push;'; done
     command+='echo '
     while [[ ${#command} -lt 8190 ]]; do command+='{{{{{{{{{{'; done
     command=${command:0:8192}
-    start=$SECONDS
-    run hook "$command"
-    elapsed=$((SECONDS - start))
+    run_hook_timed "$command"
     assert_success
     assert_equal "$(decision "$output")" deny
-    [[ $elapsed -lt 3 ]]
+    assert_cpu_seconds_below 3
 }
 
 @test "a force push followed by push segments and a glob flood is denied within the timeout" {
-    local command='git push origin main --force;' start elapsed
+    local command='git push origin main --force;'
     local index
     for ((index = 0; index < 450; index++)); do command+='git push;'; done
     command+='echo'
     while [[ ${#command} -lt 8190 ]]; do command+=' *'; done
     command=${command:0:8192}
-    start=$SECONDS
-    run hook "$command"
-    elapsed=$((SECONDS - start))
+    run_hook_timed "$command"
     assert_success
     assert_equal "$(decision "$output")" deny
-    [[ $elapsed -lt 3 ]]
+    assert_cpu_seconds_below 3
 }
 
 # 床の短オプションは、token の判定(`-*` のうち f か d を含むもの)と同じ綴りに一致させる。
