@@ -759,6 +759,12 @@ test("動作確認の prompt は、質問できないことと blocked の範囲
   assert.match(prompt, /blocked=true/);
 });
 
+test("動作確認の prompt は、質問できずに確認に進めないときも blocked=true にさせる", async () => {
+  const { calls } = await runWorkflow();
+  const prompt = calls.find((c) => c.label === "verify:1").prompt;
+  assert.match(prompt, /確認に進まず、passed=false・blocked=true/);
+});
+
 test("verifyArgs が文字列でなければ拒否する", async () => {
   await assert.rejects(runWorkflow({ args: { verifyArgs: ["x"] } }), /verifyArgs は文字列/);
 });

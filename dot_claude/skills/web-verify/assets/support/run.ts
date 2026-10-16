@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 // 実行ごとに変わる値を 1 か所で決める。config・auth.setup・seed はここから読む。
@@ -5,9 +6,31 @@ import path from "node:path";
 const feature = process.env.VERIFY_FEATURE ?? "";
 // パスの一部に使うので、ディレクトリを抜け出せる値は拒否する
 if (feature !== "" && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(feature)) {
-  throw new Error(`VERIFY_FEATURE には英数字・"."・"_"・"-" だけを使ってください: ${feature}`);
+  throw new Error(
+    `VERIFY_FEATURE には英数字で始まり英数字・"."・"_"・"-" だけからなる slug を使ってください(README.md の「実行方法」): ${feature}`,
+  );
 }
 const allFeatures = feature === "";
+
+export const suiteDir = path.resolve(__dirname, "..");
+
+// 機能を指定したのにその機能の spec が 1 件も無いと、常に収集される auth-setup だけが走って
+// 「1 passed」・exit 0 になり、シナリオを実行しないまま成功に見える。slug の誤りやブランチの
+// リネームをここで止める。拡張子の条件は Playwright の既定の testMatch に合わせている
+const specPattern = /\.(spec|test)\.[cm]?[jt]sx?$/;
+if (!allFeatures) {
+  const featureDir = path.join(suiteDir, "scenarios", feature);
+  const hasSpec =
+    fs.existsSync(featureDir) &&
+    fs
+      .readdirSync(featureDir, { recursive: true, encoding: "utf8" })
+      .some((file) => specPattern.test(file));
+  if (!hasSpec) {
+    throw new Error(
+      `VERIFY_FEATURE=${feature} のシナリオ(scenarios/${feature}/ の *.spec.ts)がありません。slug がブランチ名から作ったもの(README.md の「実行方法」)と合っているか確かめてください`,
+    );
+  }
+}
 
 // playwright.config.ts の scenarios プロジェクトの testDir
 export const scenarioTestDir = allFeatures ? "./scenarios" : `./scenarios/${feature}`;
@@ -21,5 +44,4 @@ export function selectFeatures(available: string[]): string[] {
 // 別の機能の実行結果・ログイン状態を消さないよう、生成物は実行ごとのサブディレクトリに置く
 export const runName = allFeatures ? "_all" : feature;
 
-export const suiteDir = path.resolve(__dirname, "..");
 export const storageStatePath = path.join(suiteDir, ".auth", runName, "user.json");

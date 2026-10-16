@@ -22,8 +22,10 @@
 
 - **スイートがある**: `playwright.config.ts` と `profile.md` がそろっている → 既存スイートへの追加
   (`support/run.ts` が無ければ旧レイアウト。references/scaffold.md の「旧レイアウトの更新」を先に行う)
-- **空、または存在しない** → 新規 scaffold
-- **それ以外** → 上書きせずに止める。`.DS_Store` と `.web-verify-write-probe` 以外のファイルがあるのに「スイートがある」「空」のどちらにも当たらない場合で、
+- **空、または存在しない** → 新規 scaffold。`.DS_Store`・`.web-verify-write-probe`・`.env`・`.env.example` だけがある場所も空とみなす。
+  `.env` は SKILL.md の「起動前に人間が確かめる事項」でユーザーが scaffold 前に置くことがあり、
+  scaffold は `.env` に触れない(`.env.example` はテンプレートのコピーで置き換わる)
+- **それ以外** → 上書きせずに止める。空とみなすファイル以外があるのに「スイートがある」「空」のどちらにも当たらない場合で、
   ファイル名が scaffold と衝突しなくても、片方だけそろった中断の残骸でも止める。対話中なら、別の場所
   (そのサブディレクトリ・別の空ディレクトリ・`.claude/verify/`)を `AskUserQuestion` で提案してよい。
   ユーザーが明示した場所でも同じ。質問できなければ blocked として報告する

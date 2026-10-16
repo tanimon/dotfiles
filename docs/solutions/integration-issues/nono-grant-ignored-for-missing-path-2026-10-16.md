@@ -41,8 +41,8 @@ nono セッションでだけ効く。
 
 ## 解決
 
-- grant はそのまま入れる。web-verify の SKILL.md は、個人設定の読み取りが
-  `Operation not permitted` で拒否されたら「設定なし」と扱わず止めて報告する
+- grant はそのまま入れる。読み取りが拒否されたときの skill の扱い(「設定なし」とは扱わない)は
+  web-verify の SKILL.md の「保存場所の決め方」にある
 - 回帰テスト(`test/nono-profile.bats` の `web_verify_why`)は、`XDG_CONFIG_HOME` を一時ディレクトリに
   差し替え、その中に `web-verify/config.json` を作ってから判定する。nono は pack を
   `$XDG_CONFIG_HOME/nono` から解決するので、実物への symlink を置く

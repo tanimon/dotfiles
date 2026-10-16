@@ -467,7 +467,7 @@ function deferPrompt(item, reason, config) {
 function verifyPrompt(config) {
   const given = config.verifyArgs ? `\n- 起動時の明示指定: ${config.verifyArgs}` : "";
   return `Skill ツールで「${config.verifySkill}」を読み込み、その手順に従って、要件文書 ${config.requirementsPath} に書かれた意図どおりに変更が動くことを確認せよ。${given}
-- この実行中は人間に質問できない。skill の手順が質問を求める箇所は、手順に質問できない場合の扱いが書かれていればそれに従い、書かれておらず明示指定と設定でも決められなければ確認に進まない。
+- この実行中は人間に質問できない。skill の手順が質問を求める箇所は、手順に質問できない場合の扱いが書かれていればそれに従い、書かれておらず明示指定と設定でも決められなければ確認に進まず、passed=false・blocked=true にして、決められなかった事項を summary に書く。
 - 確認した操作と観察した結果を summary に書き、意図どおりに動けば passed=true にする。
 - ブランチのコードの外にある原因(保存場所が決まらない、書き込みが拒否された、資格情報が無い、ポートを別のプロセスが握っているなど)で確認できなかったときは、passed=false・blocked=true にし、原因と人間が取るべき手順を summary に書く。ブランチのコードが原因でアプリが起動しない場合は blocked にしない。
 - コードは修正しない。範囲外で気づいた問題は observations に書く。${unstartedScope(config, "確認するのはこのブランチの差分が実装した範囲だけで、未着手の項目が動かないことを失敗にしない。")}`;
