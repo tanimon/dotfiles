@@ -27,4 +27,4 @@ Web の取得は組込みの WebFetch / WebSearch を使う(専用のブラウ�
 
 ### Global configuration
 
-Claude Code also loads `~/.claude/CLAUDE.md` and `~/.claude/rules/**` (deployed from `dot_claude/`). Those are user-global, not repository-specific; how they are composed is described under "Global agent instructions" above.
+Claude Code also loads `~/.claude/CLAUDE.md` and `~/.claude/rules/**` (deployed from `dot_claude/`). Those are user-global, not repository-specific. 合成の仕組みは `.claude/rules/global-agent-instructions.md` にある。
