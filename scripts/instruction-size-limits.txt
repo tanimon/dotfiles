@@ -66,11 +66,11 @@
 * 200 32768
 skill:* 500 15000
 
-AGENTS.md 219 53266
-CLAUDE.md 237 52243
+AGENTS.md 215 49724
+CLAUDE.md 230 48214
 .claude/rules/shell-scripts.md 221 11866
 dot_claude/scripts/CLAUDE.md 548 60046
-dot_config/nono/CLAUDE.md 42 39472
+dot_config/nono/CLAUDE.md 53 41775
 
 render:dot_codex/AGENTS.md.tmpl - 32768
 render:dot_claude/CLAUDE.md.tmpl 200 32768
