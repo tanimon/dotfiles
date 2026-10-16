@@ -1,0 +1,12 @@
+{{- /*
+orca agent-hooks integration の PostCompact 用 hook エントリ。
+settings.json.tmpl の PostCompact だけがこれを参照し、他の event は orca-agent-hook を参照する。
+
+orca は PostCompact にだけ別の snippet を書く(Unix の場合。Windows では他の event と同じ形)。
+$HOME が未設定か dispatcher が無いときは stdin を読み捨てるだけで、printf '{}' を出さない。
+toJson の escape と live からの再同期手順は orca-agent-hook の冒頭と同じで、取り出す jq は次の 1 行:
+
+  jq -r '.hooks.PostCompact[].hooks[] | select((.command // "") | test("orca/agent-hooks")) | .command' ~/.claude/settings.json
+*/ -}}
+{{- $command := `if [ -n "${HOME-}" ] && [ -f "${HOME-}/.orca/agent-hooks/claude-hook.sh" ] && [ -r "${HOME-}/.orca/agent-hooks/claude-hook.sh" ] && [ -x "${HOME-}/.orca/agent-hooks/claude-hook.sh" ]; then ORCA_HOOK_AGENT_PID="${PPID:-}"; export ORCA_HOOK_AGENT_PID; /bin/sh "${HOME-}/.orca/agent-hooks/claude-hook.sh"; else { command -p cat 2>/dev/null || cat; } >/dev/null 2>&1 || :; fi` -}}
+{"type": "command", "command": {{ $command | toJson | replace "\\u0026" "&" | replace "\\u003c" "<" | replace "\\u003e" ">" }}, "timeout": 10}
