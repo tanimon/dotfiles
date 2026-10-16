@@ -36,6 +36,14 @@ bats_jobs := `command -v parallel >/dev/null 2>&1 && echo "--jobs $(getconf _NPR
 [parallel]
 lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
 
+# 手元の既定の検証。lint: から [group('slow')](Slow Suite)を除いた残りで、一致は test-ci-parity が検査する。
+# slow の印は、lint 全体の CPU 時間の大半を占める suite に付ける(`just --list` の [slow] が一覧)。
+# slow のレシピも CI では lint.yml が必ず回すので、Slow Suite の関門は PR の CI。手元でも `just lint` か個別のレシピで流せ、
+# Slow Suite が検査する対象を変えたときは CI を待たずにそのレシピも手元で流す。
+# Run all checks except the slow suites (the default local check; CI runs them all)
+[parallel]
+lint-fast: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-deliver test-ci-parity
+
 # Scan for leaked secrets
 @secretlint:
     pnpm exec secretlint '**/*'
@@ -127,6 +135,7 @@ zizmor:
 # register under a different name than they're looked up by, causing spurious
 # "unknown test name" failures (notify.bats: 23 -> 16 executed). See .claude/rules/shell-scripts.md.
 # Smoke test hook scripts(ネイティブサンドボックス smoke test の driver / probe も偽の claude で検査する)
+[group('slow')]
 @test-scripts:
     LC_ALL=C pnpm exec bats {{ bats_jobs }} test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats test/ticket-scope.bats test/ticket-guard.bats test/ticket-audit.bats test/ticket-create-issue.bats
 
@@ -198,13 +207,14 @@ check-templates:
     node --test test/deliver-workflow.test.mjs
 
 # Needs mikefarah yq v4 — fails (not skips) without it, so CI cannot pass vacuously.
-# Check that lint.yml runs exactly the lint: recipes minus the local-only group
+# Check that lint.yml runs exactly the lint: recipes minus local-only, and lint-fast: is lint: minus slow
 @test-ci-parity:
     LC_ALL=C pnpm exec bats test/ci-parity.bats
 
 # LC_ALL=C for the same bats-core locale bug as test-scripts: the weekly-job
 # tests in briefing / doctor / weekly have Japanese @test names.
 # Smoke test harness loop scripts (reflect-trigger, health lib, briefing, doctor, weekly job, failure detector, pending selection, failure classifier, failure rates, eval cases, rule ledger, verdict CLI)
+[group('slow')]
 @test-harness-scripts:
     LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-health.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats test/harness-classify-failures.bats test/harness-failure-rates.bats test/harness-eval-cases.bats test/harness-rule-ledger.bats test/harness-verdict.bats
 
