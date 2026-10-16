@@ -1,18 +1,20 @@
-import "dotenv/config";
+import fs from "node:fs";
+import { loadSeedModules } from "./modules";
 
-// データ準備(globalSetup)。全シナリオ共通の前提データをここで投入する。
-// 規約:
-// - 冪等に書く: 既に存在するデータは作り直さず再利用する(再実行のたびに増殖させない)
-// - 手段は profile.md の「データ準備」に従う(プロジェクトの seeder コマンド・API・SQL など)
-// - シナリオ固有のデータも固定の識別子(名前・UUID)で作り、シナリオ間の実行順依存を作らない
+// データ準備(globalSetup)。データを作る処理はここに書かず、seed/common.ts と
+// seed/features/<feature>.ts の setup() に書く(seed/modules.ts が順に呼ぶ)。
 export default async function globalSetup(): Promise<void> {
-  // スイート全体の .env 前提チェック。auth.setup.ts は認証不要プロジェクトでは削除されるため、
-  // 常に実行される globalSetup に置く(データ準備を実装するときもこのガードは残すこと)。
+  // スイート全体の前提チェック。auth.setup.ts は認証不要プロジェクトでは削除されるため、
+  // 常に実行される globalSetup に置く。
   // 未設定だと goto() が "Cannot navigate to invalid URL" という分かりにくいエラーになるため先に検出する
   if (!process.env.VERIFY_BASE_URL) {
-    throw new Error("VERIFY_BASE_URL を .env に設定してください");
+    throw new Error("VERIFY_BASE_URL を .env に設定するか、実行時に渡してください");
   }
-  // 例: プロジェクトの seeder を呼ぶ場合(profile.md に合わせて書き換える)
-  // const { execSync } = await import('node:child_process')
-  // execSync('npm run db:seed -- --class=VerifySeeder', { stdio: 'inherit', cwd: '../..' })
+  const repoDir = process.env.VERIFY_REPO_DIR;
+  if (!repoDir || !fs.statSync(repoDir, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error(
+      `VERIFY_REPO_DIR に検証対象の worktree のパスを渡してください(例: VERIFY_REPO_DIR="$(git -C <worktree> rev-parse --show-toplevel)")。現在値: ${repoDir ?? "未設定"}`,
+    );
+  }
+  for (const seed of await loadSeedModules()) await seed.setup?.();
 }

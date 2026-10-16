@@ -50,6 +50,7 @@
       "$XDG_CONFIG_HOME/zellij",
       "$XDG_CONFIG_HOME/zsh",
       "$XDG_CONFIG_HOME/nono",
+      "$XDG_CONFIG_HOME/web-verify",
       "$HOME/orca/workspaces/chezmoi"
     ],
     "write": [

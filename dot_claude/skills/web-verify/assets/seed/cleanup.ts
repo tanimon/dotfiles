@@ -1,10 +1,15 @@
-import "dotenv/config";
+import { loadSeedModules } from "./modules";
 
-// クリーンアップ(globalTeardown)。シナリオが作成・変更したデータを片付ける。
-// 規約:
-// - setup が「再利用」した既存データは消さない(消してよいのはこのスイートが作ったものだけ)
-// - 固定の識別子(setup.ts と同じ名前・UUID)を目印に削除する
-// - 失敗しても throw で全体を fail させない(片付け漏れは警告として報告する)
+// クリーンアップ(globalTeardown)。片付ける処理は seed/common.ts と seed/features/<feature>.ts の
+// cleanup() に書く。作った順の逆(機能 → common)に呼ぶ。
+// 失敗しても throw で全体を fail させない(片付け漏れは警告として報告する)
 export default async function globalTeardown(): Promise<void> {
-  // 例: profile.md のクリーンアップ手段に合わせて書き換える
+  const seeds = (await loadSeedModules()).reverse();
+  for (const seed of seeds) {
+    try {
+      await seed.cleanup?.();
+    } catch (error) {
+      console.warn("クリーンアップに失敗しました:", error);
+    }
+  }
 }

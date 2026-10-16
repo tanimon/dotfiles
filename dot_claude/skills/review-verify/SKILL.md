@@ -16,7 +16,7 @@ Workflow は実装も push も PR の作成もしない。修正エージェン�
 2. **要件文書を確認する。** 引数の文書パスを絶対パスにし、ファイルが存在することを確認する。plan でも spec でもよく、タスク分解は要らない。文書が渡されていなければ中止し、意図を書いた文書を渡すよう伝える(レビュー・修正の見送り・動作確認は、すべてこの文書を意図の正本として判断する)。
 3. **差分の基点を決める。** 引数 `base=` があればそれを使う。無ければ `origin/HEAD` が指すブランチ(`git symbolic-ref --short refs/remotes/origin/HEAD`。`origin/main` の形で出る)を使う。`refs/remotes/origin/HEAD` は clone の仕方によってはローカルに無く、このコマンドが失敗する。その場合は推測せず `AskUserQuestion` で基点を聞く。プロジェクトの規約で別のブランチと比較するもの(例: hotfix 以外は `development` と比較する)があれば、その規約に従う。`git rev-list --count <基点>..HEAD` が 0 なら、レビューする差分が無いことを伝えて中止する。
 4. **テスト/lint のコマンドを決める。** プロジェクトの CLAUDE.md が示す検証コマンド(例: `just lint`、`bash scripts/lint/git-diff-lint.sh`、`npm test`)を列挙する。特定できない、または候補が複数あって選べない場合は、`AskUserQuestion` で選んでもらう。1件以上が必要。落ちているコマンドがあっても、Workflow がレビューの前に直そうとする(直らなければ止まる。要件文書のうちブランチが未着手の項目を検査するテストは、実装せずに止まる)ので、起動前に走らせて止める必要はない。
-5. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。
+5. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。`verify=` で渡された場合も含め、動作確認 skill が起動時に人間に確かめる事項があれば、ここで確かめて `verifyArgs` に1つの文字列で入れる(Workflow の動作確認エージェントは質問できない)。`web-verify` なら、確かめる事項・順序・`verifyArgs` の形は web-verify の SKILL.md の「起動前に人間が確かめる事項」に従う。その SKILL.md は Skill ツールで起動せずファイルとして読む(起動すると、ここで動作確認そのものが始まる)。場所はまずこの skill と同じ skills ディレクトリの `web-verify/SKILL.md` を見て、無ければ `~/.claude/skills`・プロジェクトの `.claude/skills`・`~/.claude/plugins` の配下から `web-verify/SKILL.md` を探す。見つからなければ保存場所だけを聞き、`検証資産の保存場所: <絶対パス>(質問)` の形で渡す。確かめる事項が無ければ省略する。
 6. **上限回数を決める。** 引数 `rounds=` があれば `maxReviewRounds` に使い、無ければ省略する(既定は 3)。引数 `stats-issue=` があれば、`https://github.com/<owner>/<repo>/issues/<番号>` の形の URL であることを確かめて控える(手順9で使う)。番号だけ(`426` や `#426`)なら中止し、URL で渡し直すよう伝える。番号だけでは、`gh` がカレントのリポジトリの同じ番号の Issue に投稿する。
 7. **起動する。** Workflow ツールを次の形で呼ぶ。`args` は JSON の値として渡し、文字列化しない。`~/.claude/workflows/deliver.js` は名前付きワークフローとして `name` で起動する。`scriptPath` で渡すと、作業ディレクトリの外のファイルとして拒否される。
 
@@ -29,6 +29,7 @@ Workflow は実装も push も PR の作成もしない。修正エージェン�
        baseRef: "<手順3>",
        checkCommands: ["<手順4>", ...],
        verifySkill: "<手順5>",
+       verifyArgs: "<手順5。確かめた事項があるときだけ>",
        maxReviewRounds: <手順6。指定があるときだけ>
      }
    })

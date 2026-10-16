@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 //   (テンプレート由来の空白・改行が DOM に残ることがあるため)
 // - 動画は証跡であって判定の代替ではない
 test("商品を新規登録すると一覧に表示され件数が1増える", async ({ page }) => {
-  // 前提: seed/setup.ts が投入した商品「動作確認用商品0」とカテゴリ「動作確認用カテゴリ」が存在する
+  // 前提: seed/features/<feature>.ts が投入した商品「動作確認用商品0」とカテゴリ「動作確認用カテゴリ」が存在する
   await page.goto("/items");
   const rows = page.getByRole("row");
   // count() は expect と違い auto-wait しない。一覧が非同期描画されるアプリで描画前の過小な件数を
