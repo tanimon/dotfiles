@@ -1,4 +1,7 @@
 #!/usr/bin/env bats
+
+bats_require_minimum_version 1.5.0
+
 # 描画してから測るテンプレートのサイズ上限(ADR 0011 の肥大の歯止め)。対象は 2 種類で、どちらも
 # scripts/check-instruction-size.sh が列挙し、上限もそちらが決める(ここには書かない):
 # - --list-rendered: 合成後のグローバル指示(~/.codex/AGENTS.md など)。scripts/instruction-size-limits.txt の
@@ -8,8 +11,8 @@
 # scripts/check-instruction-size.sh --rendered で測る。
 #
 # render: の行の描画の失敗は「描画が exit 0 で終わり、出力が空でない」ことで捕まえる。サイズの下限で捕まえないのは、
-# 目安の下限が実際の出力の縮小と区別できないため。--list-templates のテンプレートは、出力が空の profile では
-# 配置されない(chezmoi は空の配置先を作らない)ので測らずに通す。描画の失敗はどちらも落ちる。
+# 目安の下限が実際の出力の縮小と区別できないため。--list-templates のテンプレートは出力が空でも落とさない
+# (その profile では配置されない。chezmoi は空の配置先を作らない)。描画の失敗はどちらも落ちる。
 # chezmoi が無いときは test/helpers/render.bash の読み込みで失敗する(skip しない)。
 
 setup() {
@@ -58,7 +61,6 @@ measure_templates() {
                 echo "$template を profile $profile で描画できない" >&2
                 return 1
             }
-            [ -s "$out" ] || continue
             (cd "$repo" && bash "$SCRIPT" --rendered "$template" "$out") || return
         done
     done <<<"$templates"
@@ -147,6 +149,10 @@ setup_template_repo() {
     run render_template personal "$REPO/dot_claude/skills/a/SKILL.md.tmpl"
     assert_success
     assert_output ''
+    # 判定の対象は profile に依存しない: personal で配置されないテンプレートも一覧に出る
+    run --separate-stderr bash -c 'cd "$1" && bash "$2" --list-templates' _ "$REPO" "$SCRIPT"
+    assert_success
+    assert_output 'dot_claude/skills/a/SKILL.md.tmpl'
     run measure_templates "$REPO"
     assert_failure 1
     assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl: 7 行(上限 6、+1 行)'

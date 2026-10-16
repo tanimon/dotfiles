@@ -557,14 +557,18 @@ list_templates() {
     assert_success
 }
 
-@test "--list-templates は render: の行のテンプレートと、ソースを測るテンプレートを出さない" {
+@test "--list-templates は render: の行のテンプレートを出さない" {
     put dot_claude/skills/a/SKILL.md.tmpl 'a'
     put dot_claude/CLAUDE.md.tmpl 'b'
     put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl 4 30'
     run --separate-stderr list_templates
     assert_success
+    assert_output 'dot_claude/CLAUDE.md.tmpl'
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl 4 30\nrender:dot_claude/CLAUDE.md.tmpl 4 30'
+    run --separate-stderr list_templates
+    assert_success
     assert_output ''
-    # dot_claude/CLAUDE.md.tmpl は今までどおりソースを既定値で測る
+    # INSTRUCTION_PATHSPECS に一致するテンプレートは、render: の行があってもソースを既定値で測る
     make_lines dot_claude/CLAUDE.md.tmpl 4
     run check
     assert_failure 1
@@ -609,4 +613,24 @@ list_templates() {
     run check
     assert_failure 2
     assert_output --partial 'skill:*'
+}
+
+@test "create_・empty_ を付けた SKILL.md と、external_ のディレクトリの中の SKILL.md も判定する" {
+    setup_skill
+    local source
+    # external_ の中は名前を対応づけずにそのまま配置されるので、. で始まるディレクトリの中も配置される
+    for source in dot_claude/skills/v/create_empty_SKILL.md external_ex/.h/SKILL.md; do
+        make_lines "$source" 6
+        run check
+        assert_success
+        make_lines "$source" 7
+        run check
+        assert_failure 1
+        assert_output --partial "$source: 7 行(上限 6、+1 行)"
+        git -C "$REPO" rm -q -f -- "$source"
+    done
+    # external_ の中の private_SKILL.md は private_SKILL.md のまま配置される
+    make_lines external_ex/private_SKILL.md 100
+    run check
+    assert_success
 }

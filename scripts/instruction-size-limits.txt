@@ -19,7 +19,8 @@
 # 描画は test/rendered-instruction-size.bats が test/fixtures/chezmoi-*.toml のすべての profile で行い、
 # scripts/check-instruction-size.sh --rendered で測る。合成後の出力を測る対象を増やすときはここに 1 行足す。
 # render: の行を持つテンプレートの出力は、配置先が判定の対象でもこの行だけで測り、既定値で重ねて測らない
-# (~/.codex/AGENTS.md は rules を連結して 200 行を超える)。テンプレートのソースそのものを測る判定(後述)は別物で、残る。
+# (~/.codex/AGENTS.md の行数は、連結した rules で既定値の 200 行を超える)。テンプレートのソースそのものを
+# 測る判定は別物で、render: の行があっても行う(「上限はファイルごとに測るので」の段落)。
 #
 # 既定値の根拠:
 # - 200 行: Claude Code 公式ドキュメント(https://code.claude.com/docs/en/memory)が CLAUDE.md の目安を

@@ -5,15 +5,16 @@
 #
 # 使い方(どれもリポジトリのルートで実行する):
 #   check-instruction-size.sh
-#       判定の対象のファイルのうちテンプレートでないものをファイルごとに測る。判定の対象は、作業ツリーにある
+#       判定の対象のファイルのうち、ソースのまま測るものをファイルごとに測る(配置先が判定の対象のテンプレートは
+#       INSTRUCTION_PATHSPECS に一致するものだけをソースのまま測る)。判定の対象は、作業ツリーにある
 #       ファイル(git に追加していない新しいファイルも含む。.gitignore で無視されるものは含まない)のうち、
 #       INSTRUCTION_PATHSPECS に一致するものと、chezmoi が配置する先のパスがその形に一致するもの
 #       (chezmoi_destination。private_SKILL.md、exact_rules/ など)。
 #   check-instruction-size.sh --list-rendered
 #       一覧の render: の行のテンプレートを 1 行 1 件で出す。出した名前はそのまま --rendered に渡せる。
 #   check-instruction-size.sh --list-templates
-#       配置先が判定の対象のテンプレート(SKILL.md.tmpl など)のうち、render: の行が無く、ソースを
-#       INSTRUCTION_PATHSPECS で測るものでもないものを 1 行 1 件で出す。出した名前はそのまま --rendered に渡せる。
+#       配置先が判定の対象のテンプレート(SKILL.md.tmpl など)のうち、render: の行が無いものを 1 行 1 件で出す。
+#       出した名前はそのまま --rendered に渡せる。
 #   check-instruction-size.sh --rendered <名前> <ファイル>
 #       <ファイル>(<名前> のテンプレートを描画した出力)を測る。render: の行があればその行の上限で、
 #       --list-templates のテンプレートなら個別の上限の行か配置先の種類の既定値で測る。
@@ -201,8 +202,8 @@ while IFS= read -r -d '' file; do
     pathspec_matched+=$file$'\n'
 done <"$pathspec_file"
 
-# targets はソースをそのまま測るファイル、templates は描画してから測るテンプレート(test/rendered-instruction-size.bats が
-# 描画する)。*_names はそれぞれの配置先のパス(配置されないものは source のパス)で、当てる既定値を決める
+# targets はソースをそのまま測るファイル、templates は配置先が判定の対象のテンプレート(描画は
+# test/rendered-instruction-size.bats)。*_names はそれぞれの配置先のパス(配置されないものは source のパス)で、当てる既定値を決める
 targets=()
 target_names=()
 templates=()
@@ -221,10 +222,11 @@ while IFS= read -r -d '' file; do
             opaque_found=1
             continue
         fi
-        if [[ $content == template && -z $by_pathspec ]]; then
+        if [[ $content == template ]]; then
             templates+=("$file")
             template_names+=("$destination")
-            continue
+            # INSTRUCTION_PATHSPECS に一致するテンプレートは、描画した出力に加えてソースもそのまま測る
+            [[ -n $by_pathspec ]] || continue
         fi
         targets+=("$file")
         target_names+=("$destination")
@@ -360,7 +362,7 @@ limit_for() {
 }
 
 # has_render_line TEMPLATE: TEMPLATE に render: の行があるか。あれば描画後の出力はその行だけで測る
-# (dot_codex/AGENTS.md.tmpl の描画後は rules を連結して 200 行を超えるので、既定値で重ねて測ると落ちる)
+# (理由は scripts/instruction-size-limits.txt の render: の行の説明)
 has_render_line() {
     local template
     for template in ${rendered_templates[@]+"${rendered_templates[@]}"}; do
