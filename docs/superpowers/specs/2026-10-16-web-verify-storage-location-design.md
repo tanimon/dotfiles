@@ -21,7 +21,7 @@
 | 既存の `.claude/verify/` | 保存場所の決定に使わない。個人設定が無ければ、既存スイートがあっても対話では毎回聞き、deliver 経由では止める(既存スイートの自動検出を提案したうえでユーザーが選んだ) |
 | 個人設定の書式 | `{"default": "<path>"}`。リポごとの上書きは持たない。chezmoi では管理しない |
 | パスの解決 | 明示指定・個人設定・自由入力のどれにも同じ規則。相対パスは対象 worktree のルート基準(リポ内ならブランチごとのコピーになり git が分ける)。`{repo}` は main worktree のディレクトリ名(bare リポジトリなら git common dir の名前から `.git` を除く)。org 違いの同名リポは同じ `{repo}` になるので、必要ならユーザーが設定のパスで分ける |
-| 保存場所の分類 | スイートあり(`playwright.config.ts` と `profile.md`)/ 空 / それ以外。それ以外(`.DS_Store` と書き込み確認用の `.web-verify-write-probe` を除くファイルがある・片方だけの中断の残骸)は上書きせずに止める |
+| 保存場所の分類 | スイートあり(`playwright.config.ts` と `profile.md`)/ 空 / それ以外。それ以外(`.DS_Store`・書き込み確認用の `.web-verify-write-probe`・scaffold 前にユーザーが置く `.env` / `.env.example` を除くファイルがある・片方だけの中断の残骸)は上書きせずに止める |
 | nono の境界 | `claude-seal.json` の `filesystem.read` に `$XDG_CONFIG_HOME/web-verify` を足す(書き込みは許さない)。nono は存在しないパスの grant を評価しないので、ディレクトリを作った後に起動したセッションで効く。読み取りの拒否は黙って「設定なし」と扱わない。対話なら読めなかったことを伝えてから質問に進み、質問できなければ止める(未作成のまま起動したセッションでも対話を止めないため) |
 | スイートの単位 | 1 リポジトリ 1 スイート。シナリオは `scenarios/<feature>/`、seed は `seed/common.ts` + `seed/features/<feature>.ts` |
 | 実行時の切り替え | `VERIFY_FEATURE`(シナリオ・seed・生成物の置き場所)/ `VERIFY_REPO_DIR`(対象 worktree)/ `VERIFY_BASE_URL`(`.env` を上書き) |
