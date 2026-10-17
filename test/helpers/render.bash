@@ -26,7 +26,7 @@ RENDER_CHEZMOI="$(command -v chezmoi)" || {
 }
 
 # 写しは bats の実行 1 回につき 1 つ作り、suite と test のあいだで共有する。
-# 並列の test が同時に作っても、symlink を張れた 1 つだけが使われる(ln -s は既存の名前に張れない)
+# 並列の test が同時に作っても、symlink を張れた 1 つだけが使われる(-n で既存の symlink の先を辿らないので、2 つ目の ln -sn は失敗する)
 RENDER_SOURCE="$BATS_RUN_TMPDIR/chezmoi-source"
 if [ ! -d "$RENDER_SOURCE" ]; then
     render_snapshot=$(mktemp -d "$BATS_RUN_TMPDIR/chezmoi-source.XXXXXX") || return 1
@@ -34,7 +34,7 @@ if [ ! -d "$RENDER_SOURCE" ]; then
         echo "render: source の写しを作れない" >&2
         return 1
     }
-    ln -s "$render_snapshot" "$RENDER_SOURCE" 2>/dev/null || rm -rf "$render_snapshot"
+    ln -sn "$render_snapshot" "$RENDER_SOURCE" 2>/dev/null || rm -rf "$render_snapshot"
 fi
 RENDER_SOURCE="$(cd "$RENDER_SOURCE" && pwd -P)" || return 1
 export RENDER_REPO RENDER_SOURCE RENDER_CHEZMOI

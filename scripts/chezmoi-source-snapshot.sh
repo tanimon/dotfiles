@@ -26,7 +26,7 @@ cd "$repo"
 
 # bsdtar は拡張属性と macOS のメタデータを既定で読み、その読み取りで写しが数倍遅くなる(実測)。描画には要らない
 tar_opts=()
-if tar --version 2>/dev/null | grep -q bsdtar; then
+if [[ $(tar --version 2>/dev/null) == *bsdtar* ]]; then
     tar_opts=(--no-mac-metadata --no-xattrs)
 fi
 
