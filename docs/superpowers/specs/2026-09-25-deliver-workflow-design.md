@@ -8,6 +8,8 @@ plan を受け取り、実装、レビュー修正ループ、動作確認を経
 
 > **注記(2026-10-03)**: レビューループの手順 4「それ以外は参考扱いとし、報告にだけ載せる」と「報告」節の一覧は、[ADR 0014](../../adr/0014-advisory-findings-go-to-the-fixer.md) で上書きした。参考指摘(Advisory Finding)も修正エージェントに渡し、報告の節も増えている。現行の挙動は `docs/superpowers/specs/2026-10-03-review-advisory-fix-design.md` を参照。
 
+> **注記(2026-10-17)**: Deliver(plan からの実装の段と `/deliver`)は [ADR 0019](../../adr/0019-retire-deliver-keep-only-review-verify.md) で廃止した。Workflow は `dot_claude/workflows/review-verify.js` に改名し、現行なのはレビューループと動作確認の段だけである。用語は `GLOSSARY.md` の「Autonomous review」節を参照。
+
 ## 適用範囲
 
 - 対象は個人リポジトリと仕事リポジトリの両方。リポジトリごとに違うもの(動作確認 skill、テスト/lint コマンド)は起動時の引数で受け取る。
