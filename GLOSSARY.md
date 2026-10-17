@@ -148,6 +148,14 @@ _Avoid_: 却下(採否の判定と混同する)、失敗した採用
 リポジトリへの commit では直らず、人が適用して初めて効く修正。PR の有無にかかわらず、人が適用し終えるまで知らせ続ける。
 _Avoid_: 手動修正、apply 待ち
 
+**Loop PR**:
+自己改善ループの選別か週次ジョブが作る PR。人の承認を経てだけマージされる。選別が採用した変更を載せるものと、Metrics-only PR の 2 種類がある。手動の選別が作る PR もこれに含む。
+_Avoid_: 週次 PR(手動の選別の PR を含まない)、ハーネスの PR
+
+**Metrics-only PR**:
+採用した変更を含まず、job が持つ記録(週ごとの Failure Pattern の再発率と、まだ載っていない Rule Ledger の記録)だけを載せる Loop PR。採用の無い週が続いて記録がたまり、開いている Loop PR が無いときにだけ作る。
+_Avoid_: 指標の PR、記録 PR
+
 ### Profiles
 
 **Machine Profile**:
