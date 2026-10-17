@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verdict(選別が queue の項目に下した結果。CONTEXT.md)を扱う CLI(ADR 0017)。判定の記録(~/.claude/harness/queue-archive.md)の
+# Verdict(選別が queue の項目に下した結果。GLOSSARY.md)を扱う CLI(ADR 0017)。判定の記録(~/.claude/harness/queue-archive.md)の
 # Verdict 行の書式を知っているのはこのスクリプトだけにする。選別(harness-review skill の Bookkeeping)と Rule Ledger のスクリプトは
 # 子プロセスとして呼ぶ。週次ジョブも採用の印を publish・adopted・unpublished で扱い、印の書式を持たない。
 #

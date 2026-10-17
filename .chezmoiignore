@@ -2,9 +2,9 @@ LICENSE
 README.md
 CLAUDE.md
 AGENTS.md
-# CONTEXT.md は glossary の正典（mattpocock-skills の /domain-modeling 系が読み書きする）。
+# GLOSSARY.md は glossary の正典（mattpocock-skills の /domain-modeling 系が読み書きする）。
 # CONCEPTS.md はその前身で deprecated — どちらも repo-only（docs/agents/domain.md 参照）
-CONTEXT.md
+GLOSSARY.md
 CONCEPTS.md
 
 # harness/ は repo-only の同期・検証ツール(docs/superpowers/specs/2026-09-11-harness-sync-seam-design.md)。

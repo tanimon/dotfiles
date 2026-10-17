@@ -15,7 +15,7 @@ date: 2026-10-01
 
 ## Consequences
 
-- 入力は plan と spec のどちらも受け付けるため、`plan` を前提にした語と識別子を Requirements Document / Requirements Concern(`CONTEXT.md`)に改名した(タスク分解を持つ plan を前提にする Deliver 専用の `planPrompt` や停止理由 `plan-unreadable` は plan のままにする)。旧名の別名は残さない(`planPath` を呼ぶのは入口 skill だけで、ledger からの再開は未実装のため読み手がいない)。
+- 入力は plan と spec のどちらも受け付けるため、`plan` を前提にした語と識別子を Requirements Document / Requirements Concern(`GLOSSARY.md`)に改名した(タスク分解を持つ plan を前提にする Deliver 専用の `planPrompt` や停止理由 `plan-unreadable` は plan のままにする)。旧名の別名は残さない(`planPath` を呼ぶのは入口 skill だけで、ledger からの再開は未実装のため読み手がいない)。
 - `mode` は必須で既定値を置かない。既定を `deliver` にすると、入口が `mode` を渡し忘れた Review-Verify が黙って Deliver として走り、人間のブランチの上で実装まで進む([ADR 0015](0015-deliver-does-not-publish.md) より前は push・draft PR の作成まで進んだ)。両方の入口 skill が `mode` を明示的に渡すので、必須にしても呼び出し側の負担は増えない。
 - Review-Verify は push も PR の作成もしない。修正のコミットはローカルに残り、報告(`report.md` / `ledger.json`)は Deliver の結果を上書きしないよう別のディレクトリに書き出す。Deliver も [ADR 0015](0015-deliver-does-not-publish.md) で公開しなくなり、両者の違いは実装から始めるかどうかだけになった。
 - テスト/lint が最初から落ちているブランチも、Deliver と同じ扱いにする。各レビューラウンドの最初で checks エージェントが落ちたテスト/lint を直してコミットし、直らなければ `checks-failing` で止まる。この修正の上限(3回)はプロンプトで指示しているだけでコードでは強制していない。これは Deliver にも既にある残存リスクで、Review-Verify のために新しく作る経路ではない。人間が書いたブランチでは、このエージェントがレビューより先にコードを変えうる。

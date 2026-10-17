@@ -4,11 +4,11 @@ engineering 系 skill がコードベースを探索するとき、このリポ�
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`**（リポジトリルート）— glossary の正典。形式は `domain-modeling/CONTEXT-FORMAT.md` に準拠（`**Term**:` + 1〜2文 + `_Avoid_:`）。
+- **`GLOSSARY.md`**（リポジトリルート）— glossary の正典。形式は `domain-modeling/GLOSSARY-FORMAT.md` に準拠（`**Term**:` + 1〜2文 + `_Avoid_:`）。
 - **`docs/adr/`** — Architecture Decision Record。これから触る領域に関わる ADR を読む。
 - **`docs/solutions/`** — ADR **ではない**。過去に踏んだ問題とその解決の記録（学びのアーカイブ）で、「何を決めたか」ではなく「何が壊れてどう直したか」が書かれている。決定の根拠として引くのではなく、同じ罠を踏み直さないために読む。
 - **`CLAUDE.md`** の "Known Pitfalls" — `docs/solutions/` の要約版。短時間で当たるならこちらが先。
-- **`CONCEPTS.md`** — **deprecated**。`CONTEXT.md` の前身だが、`CONTEXT-FORMAT.md` の「定義は1〜2文」に収まらなかった安全側の caveat がここにしか無い。**次の判断を下す前には、該当する節を先に読む**（一覧は下記「[`CONCEPTS.md` の扱い](#conceptsmd-の扱い)」）:
+- **`CONCEPTS.md`** — **deprecated**。`GLOSSARY.md` の前身だが、`GLOSSARY-FORMAT.md` の「定義は1〜2文」に収まらなかった安全側の caveat がここにしか無い。**次の判断を下す前には、該当する節を先に読む**（一覧は下記「[`CONCEPTS.md` の扱い](#conceptsmd-の扱い)」）:
   - パーミッションルールの追加・緩和 → `Risk Tier` / `Approval Gate`
   - Isolation Boundary の許可や Boundary Exclusion の追加 → `Isolation Boundary` / `Boundary Exclusion`
   - 「効いていること」を確かめる検証の設計 → `Contrast Pair`
@@ -22,7 +22,7 @@ single-context リポジトリ（このリポジトリ）:
 
 ```
 /
-├── CONTEXT.md           ← glossary（正典）
+├── GLOSSARY.md           ← glossary（正典）
 ├── CONCEPTS.md          ← 前身。deprecated、読み取り専用アーカイブ
 ├── docs/adr/            ← Architecture Decision Record
 ├── docs/solutions/      ← 過去の問題解決の記録（ADR ではない）
@@ -30,28 +30,28 @@ single-context リポジトリ（このリポジトリ）:
 └── dot_*/ darwin/ ...   ← chezmoi source
 ```
 
-`CONTEXT-MAP.md` は無く、multi-context 構成は取らない。
+`GLOSSARY-MAP.md` は無く、multi-context 構成は取らない。
 
 ## `CONCEPTS.md` の扱い
 
-glossary の書き手は歴史的に2系統あった: `ce-compound` / `ce-compound-refresh` が `CONCEPTS.md` に、mattpocock 系 skill（`/domain-modeling` 等）が `CONTEXT.md` に書く。**ce-* 系は retire 検討中で新規追記の想定がないため、一本化ではなく世代交代で解決している**（一時的に symlink による SSoT を試したが、mattpocock のデフォルト構成を素直に採る方針に切り替えた）。
+glossary の書き手は歴史的に2系統あった: `ce-compound` / `ce-compound-refresh` が `CONCEPTS.md` に、mattpocock 系 skill（`/domain-modeling` 等）が `GLOSSARY.md` に書く。**ce-* 系は retire 検討中で新規追記の想定がないため、一本化ではなく世代交代で解決している**（一時的に symlink による SSoT を試したが、mattpocock のデフォルト構成を素直に採る方針に切り替えた）。
 
-- **書き込みは `CONTEXT.md` のみ。** 新しい用語・定義・`_Avoid_` を `CONCEPTS.md` に追加しない。
-- **`CONCEPTS.md` は消さない。** `CONTEXT-FORMAT.md` の「定義は1〜2文」制約に収まらない詳細な段落がそこにしか無い形で残っている。`CONTEXT.md` に対応物が無い load-bearing な段落は以下:
+- **書き込みは `GLOSSARY.md` のみ。** 新しい用語・定義・`_Avoid_` を `CONCEPTS.md` に追加しない。
+- **`CONCEPTS.md` は消さない。** `GLOSSARY-FORMAT.md` の「定義は1〜2文」制約に収まらない詳細な段落がそこにしか無い形で残っている。`GLOSSARY.md` に対応物が無い load-bearing な段落は以下:
 
   | 用語 | `CONCEPTS.md` にしか無い caveat |
   |---|---|
   | `Risk Tier` | Tier 1 は append-only であるだけでなく、**パーミッションルール構文で強制可能**でなければならない（概念で分類して guardrail を静かに外した実例がある） |
-  | `Approval Gate` | ゲートは一致範囲の広さに関係なく一括許可より先に発火する。緩めるには一括許可側を狭めるのではなくゲート自身を狭める必要がある（`CONTEXT.md` に対応記述なし） |
+  | `Approval Gate` | ゲートは一致範囲の広さに関係なく一括許可より先に発火する。緩めるには一括許可側を狭めるのではなくゲート自身を狭める必要がある（`GLOSSARY.md` に対応記述なし） |
   | `Isolation Boundary` | 境界は **fail open** し得るため、1 回の成功実行は許可が効いた証拠にならない |
   | `Boundary Exclusion` | 危険なのは除外そのものではなく**除外 × 未ゲート**の積。さらに除外はリテラルな直接起動にしか効かず、サブシェル・ラッパー経由では境界の内側に戻る |
   | `Contrast Pair` | 両側が同じ誤った解決パスを通る場合、反転を観測しても機能の証明にならない |
   | `Target` | 部分所有（`modify_`）は観測した状態から毎回ファイル全体を再導出するため観測が空なら未管理部分を失う。symlink 等の「中身以外の性質」も write-back で失われる。動的に生成される値の再適用は tracked input の変化に gate せず毎回走らせる必要がある |
 
-- 誤って `CONCEPTS.md` に追記された内容を見つけたら、`CONTEXT.md` へ 1〜2文に圧縮して移し、背景段落は `CONCEPTS.md` に残す。
+- 誤って `CONCEPTS.md` に追記された内容を見つけたら、`GLOSSARY.md` へ 1〜2文に圧縮して移し、背景段落は `CONCEPTS.md` に残す。
 - ce-* 系 skill を実際に retire した時点で、`CONCEPTS.md` の残存段落を `docs/adr/` と `docs/solutions/` へ振り分けてファイルを削除できる。それまでは deprecated のまま置く。
 
-## 形式は `CONTEXT-FORMAT.md` に従う
+## 形式は `GLOSSARY-FORMAT.md` に従う
 
 ```md
 **Term**:
@@ -66,13 +66,13 @@ _Avoid_: 避ける同義語, 別の避ける語
 
 ## 新しくルート直下にファイルを作るとき
 
-このリポジトリは chezmoi source なので、**ルートに置いたファイルは `.chezmoiignore` に登録しない限り `~/` へ deploy される**。`CONTEXT.md` / `CONCEPTS.md` / `docs/` は登録済みだが、新設ファイルは登録漏れがそのまま home ディレクトリ汚染になる。
+このリポジトリは chezmoi source なので、**ルートに置いたファイルは `.chezmoiignore` に登録しない限り `~/` へ deploy される**。`GLOSSARY.md` / `CONCEPTS.md` / `docs/` は登録済みだが、新設ファイルは登録漏れがそのまま home ディレクトリ汚染になる。
 
-新しい root-level ドキュメント（`CONTEXT-MAP.md` 等）を作る場合は、同じ変更で `.chezmoiignore` に追記し、`chezmoi managed --source "$(pwd)" | grep <name>` が空であることを確認する。
+新しい root-level ドキュメント（`GLOSSARY-MAP.md` 等）を作る場合は、同じ変更で `.chezmoiignore` に追記し、`chezmoi managed --source "$(pwd)" | grep <name>` が空であることを確認する。
 
 ## Use the glossary's vocabulary
 
-出力が domain concept に言及するとき（issue のタイトル、リファクタ提案、仮説、テスト名）は、`CONTEXT.md` で定義された用語をそのまま使う。`_Avoid_` に挙がっている同義語へ流れない。
+出力が domain concept に言及するとき（issue のタイトル、リファクタ提案、仮説、テスト名）は、`GLOSSARY.md` で定義された用語をそのまま使う。`_Avoid_` に挙がっている同義語へ流れない。
 
 必要な概念が glossary に無いなら、それはシグナル: プロジェクトが使っていない語彙を発明しているか（考え直す）、本当のギャップがあるか（`/domain-modeling` 用に記録する）。
 

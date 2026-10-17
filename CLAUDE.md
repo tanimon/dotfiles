@@ -46,8 +46,8 @@ Only directories whose contents carry a contract an `ls` would not reveal are li
 | `dot_apm/` | APM (microsoft/apm) global manifest `apm.yml` — declares MCP servers only, deployed to `~/.apm/apm.yml`. Operating contract in `dot_apm/CLAUDE.md` |
 | `dot_config/nono/` | nono sandbox policy: `profiles/claude-seal.json` (the boundary), `packs.txt` (declarative pack list) |
 | `.cursor/rules/` | 生成される Cursor の Project Rule(`.mdc`)。chezmoi からは不可視(source 直下の `.` 始まりは `.chezmoi*` を除き source state に入らない)なので `.chezmoiignore` の記載は不要 |
-| `CONTEXT.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts. Glossary format per mattpocock-skills' `CONTEXT-FORMAT.md`; see `docs/agents/domain.md` |
-| `CONCEPTS.md` | **Deprecated** predecessor of `CONTEXT.md`. Read-only archive: keeps the longer background paragraphs that don't fit `CONTEXT-FORMAT.md`'s one-to-two-sentence limit — **read the relevant section before deciding on permission rules, boundary exclusions, verification design, or `modify_` partial ownership** (inventory in `docs/agents/domain.md`). Never add new terms here |
+| `GLOSSARY.md` | Shared domain vocabulary (entities, named processes, status concepts) — relevant when orienting to the codebase or discussing domain concepts. Format per mattpocock-skills' `GLOSSARY-FORMAT.md`; see `docs/agents/domain.md` |
+| `CONCEPTS.md` | **Deprecated** predecessor of `GLOSSARY.md`. Read-only archive: keeps the longer background paragraphs that don't fit `GLOSSARY-FORMAT.md`'s one-to-two-sentence limit — **read the relevant section before deciding on permission rules, boundary exclusions, verification design, or `modify_` partial ownership** (inventory in `docs/agents/domain.md`). Never add new terms here |
 
 ### Key Patterns
 
@@ -196,7 +196,7 @@ The five canonical triage roles, each label string equal to its name. `triage` d
 
 ### Domain docs
 
-Single-context, on mattpocock-skills' default layout: the glossary is `CONTEXT.md` (`CONCEPTS.md` is its deprecated predecessor, kept as a read-only archive) and ADRs live in `docs/adr/` — distinct from `docs/solutions/`, which records past breakages rather than decisions. See `docs/agents/domain.md`.
+Single-context, on mattpocock-skills' default layout: the glossary is `GLOSSARY.md` (`CONCEPTS.md` is its deprecated predecessor, kept as a read-only archive) and ADRs live in `docs/adr/` — distinct from `docs/solutions/`, which records past breakages rather than decisions. See `docs/agents/domain.md`.
 
 ## Claude Code specifics
 
