@@ -184,6 +184,8 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
     [[ -z "${STUB_QUEUE_UNREADABLE:-}" ]] || chmod 000 "$HOME/.claude/harness/queue.md"
 else
     printf 'reflect\n' >>"$STAGE_LOG"
+    # 実行中の入口スクリプトを抽出の claude が書き換える run の再現
+    [[ -z "${STUB_TAMPER_SELF:-}" ]] || "$STUB_TAMPER_SELF"
 fi
 [[ -n "${STUB_SKIP_PENDING:-}" ]] ||
     printf '{"session_id":"%s","transcript_path":"/tmp/t","cwd":"/tmp","recorded_epoch":1}\n' "$sid" \
@@ -517,6 +519,63 @@ PRE
     assert_output --partial '"session_id":"seed"'
     assert [ ! -f "$ARGV_LOG" ]
     assert [ ! -d "$HDIR/weekly.lock" ]
+}
+
+# 抽出の claude の実行中に、入口スクリプト自身を同じ inode のまま書き換える run(#515)。bash は
+# スクリプトを実行しながら読むので、包まない形では書き換えた内容がその run の残りに効く。
+# リポジトリのファイルを書き換えないよう、入口スクリプトは隣の lib/ と一緒に複製して起動する。
+# append は末尾への追記、overwrite は最後の行の直前に 1 行入れた全体での上書き
+# (読み取り位置より後ろに命令が来るように。短い内容での上書きは EOF になるだけで検査にならない)。
+# 呼ぶ側は queue に項目を置いて選別の経路を通す。queue が空の経路は finish_run の後に exit 0 があり、
+# 末尾まで読みに行かないので、包まない形でも書き足した命令が実行されず検査にならない
+prepare_self_tamper() { # <append | overwrite>
+    local dir="$BATS_TEST_TMPDIR/selfmod"
+    mkdir -p "$dir/lib"
+    cp "$SCRIPT" "$dir/harness-weekly.sh"
+    cp "$SCRIPT" "$dir/original.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" "$dir/lib/"
+    export TAMPER_TARGET="$dir/harness-weekly.sh" TAMPER_ORIGINAL="$dir/original.sh" \
+        TAMPER_MARKER="$BATS_TEST_TMPDIR/tampered" TAMPER_MODE="$1"
+    export STUB_TAMPER_SELF="$BATS_TEST_TMPDIR/tamper"
+    install_exec "$STUB_TAMPER_SELF" <<'EOF'
+#!/usr/bin/env bash
+line="printf 'tampered\n' >>'$TAMPER_MARKER'"
+case "$TAMPER_MODE" in
+append) printf '%s\n' "$line" >>"$TAMPER_TARGET" ;;
+overwrite) { sed '$d' "$TAMPER_ORIGINAL"; printf '%s\n' "$line"; tail -n 1 "$TAMPER_ORIGINAL"; } >"$TAMPER_TARGET" ;;
+esac
+EOF
+    INODE_BEFORE=$(ls -i "$TAMPER_TARGET" | awk '{print $1}')
+}
+
+assert_tamper_not_run() {
+    # 書き換えは同じ inode で起き、書き足した命令はファイルに入っている(検査が空振りしていない)
+    assert_equal "$(ls -i "$TAMPER_TARGET" | awk '{print $1}')" "$INODE_BEFORE"
+    run grep -c tampered "$TAMPER_TARGET"
+    assert_output 1
+    assert [ ! -e "$TAMPER_MARKER" ]
+    # run は元の内容で最後まで動いた
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "抽出の実行中に入口スクリプトの末尾へ追記されても、その run は追記した命令を実行しない" {
+    seed_queue
+    prepare_self_tamper append
+    STUB_REVIEW_MODE=none run bash "$TAMPER_TARGET"
+    assert_success
+    assert_output --partial 'review committed no changes; no PR created'
+    assert_line --regexp '^harness-weekly: end .* exit=0 '
+    assert_tamper_not_run
+}
+
+@test "抽出の実行中に入口スクリプトが同じ inode で上書きされても、その run は元の内容で最後まで動く" {
+    seed_queue
+    prepare_self_tamper overwrite
+    STUB_REVIEW_MODE=none run bash "$TAMPER_TARGET"
+    assert_success
+    assert_output --partial 'review committed no changes; no PR created'
+    assert_line --regexp '^harness-weekly: end .* exit=0 '
+    assert_tamper_not_run
 }
 
 @test "実行が終われば lock を残さない" {
