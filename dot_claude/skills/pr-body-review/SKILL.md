@@ -6,7 +6,7 @@ argument-hint: "[<PR 番号 | PR の URL>]"
 
 # pr-body-review
 
-PR 本文を現在の差分と照らし、Stale PR Body なら食い違う箇所だけを直す(PR Body Review。用語は chezmoi リポジトリの `CONTEXT.md`)。新しいコミットが積まれただけでは直さない。直すのは、差分と食い違う記述があるときだけ。
+PR 本文を現在の差分と照らし、Stale PR Body なら食い違う箇所だけを直す(PR Body Review。用語は chezmoi リポジトリの `GLOSSARY.md`)。新しいコミットが積まれただけでは直さない。直すのは、差分と食い違う記述があるときだけ。
 
 ## 1. 対象の PR を決める
 
