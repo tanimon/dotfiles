@@ -534,7 +534,8 @@ prepare_self_tamper() { # <append | overwrite | overwrite_middle>
     mkdir -p "$dir/lib"
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$SCRIPT" "$dir/original.sh"
-    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" "$dir/lib/"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" "$dir/lib/"
     export TAMPER_TARGET="$dir/harness-weekly.sh" TAMPER_ORIGINAL="$dir/original.sh" \
         TAMPER_MARKER="$BATS_TEST_TMPDIR/tampered" TAMPER_MODE="$1"
     export STUB_TAMPER_SELF="$BATS_TEST_TMPDIR/tamper"
@@ -1499,21 +1500,20 @@ PRE
     assert_line '| 合計 | 1 |'
 }
 
-@test "検出件数の節を組み立てられなくても PR は作り、節を省く" {
+@test "検出件数の記録を読めなければ、照合できないとして claude を起動せずに失敗し、PR を作らない" {
     : >"$HDIR/pending.jsonl"
     seed_queue
-    # pending が空なので選別は記録を読まず、節の組み立てと週の再発率の記録が読み取りに失敗する。
-    # 週の記録が欠けるので run は失敗にするが(heartbeat を書かない)、PR は作る
+    # 検出件数の記録は PR の本文の材料なので Integrity Snapshot のデータに入る。読めなければスナップショットを取れない
     printf '{}\n' >"$HDIR/detections.jsonl"
     chmod 000 "$HDIR/detections.jsonl"
     run weekly
     chmod 644 "$HDIR/detections.jsonl"
     assert_failure
-    assert_output --partial 'failed to build the detection counts'
-    assert_output --partial 'opened draft PR'
-    assert_output --partial 'this week has no failure rate record'
-    run cat "$GH_BODY"
-    refute_output --partial '## 失敗の検出'
+    assert_output --partial "could not hash $HDIR/detections.jsonl"
+    assert_output --partial 'failed to take the integrity snapshot'
+    assert [ ! -f "$ARGV_LOG" ]
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
 @test "抽出を省いた週の PR の本文にも 0 件の検出の節を載せる" {
@@ -2069,7 +2069,8 @@ PRE
     export STUB_TAMPER_EVAL=1
     run weekly
     assert_failure
-    assert_output --partial 'the eval script or plugin template changed after the claude runs started'
+    assert_output --partial 'changed after the claude runs started'
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-eval-cases.sh"
     assert [ ! -e "$HDIR/eval-results-$TODAY.json" ]
     refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -e "$HDIR/weekly-heartbeat" ]
@@ -2192,7 +2193,7 @@ PRE
     sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
     run weekly
     assert_failure
-    assert_output --partial 'Rule Ledger records'
+    assert_output --partial "changed: $carried"
     assert [ ! -f "$GH_LOG" ]
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
@@ -2227,7 +2228,7 @@ PRE
     sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
     run weekly
     assert_failure
-    assert_output --partial 'Rule Ledger script'
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-rule-ledger.sh"
     refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
@@ -2242,7 +2243,7 @@ PRE
     sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
     run weekly
     assert_failure
-    assert_output --partial 'Verdict CLI'
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
     refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
@@ -2259,9 +2260,9 @@ PRE
     run weekly
     assert_failure
     assert_output --partial 'changed after the claude runs started'
-    # エラー文はパスを常に全部並べるので、書き換えた後の digest が After に出ることで、そのファイルを照合したと確かめる
-    digest=$(git hash-object -- "$HOME/.claude/scripts/$1")
-    assert_output --partial "$HOME/.claude/scripts/$1 $digest"
+    # 変わったパスだけを出し、digest の値は出さない
+    assert_output --partial "changed: $HOME/.claude/scripts/$1"
+    refute_output --partial "$(git hash-object -- "$HOME/.claude/scripts/$1")"
     refute grep -q 'pr create' "$GH_LOG"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
@@ -2301,4 +2302,206 @@ PRE
     run cat "$ARGV_LOG"
     assert_output --partial 'Never change files under docs/harness/failure-pattern-rates or docs/harness/rule-ledger'
     assert_output --partial 'Do not run harness-rule-ledger.sh'
+}
+
+# Integrity Snapshot(lib/harness-integrity.bash、ADR 0019)が新しく守る経路の contrast pair。
+# 書き換えはスナップショットの後(抽出か選別の claude)に限る。分類器の claude はスナップショットの前に走るので、
+# そこで書き換えるとスナップショットが書き換えた後の値を取ってしまう
+
+# tamper_in <reflect|review> <~/.claude/scripts の下のファイル名>: その工程の claude がファイルに 1 行足す
+tamper_in() {
+    local pattern
+    case $1 in
+    reflect) pattern='harness-reflect skill' ;;
+    review) pattern='harness-review skill' ;;
+    *) fail "unknown stage: $1" ;;
+    esac
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'$pattern'* ]]; then
+    printf '# tampered\n' >>"$HOME/.claude/scripts/$2"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+}
+
+# 選別の claude が commit の後に失敗する run(report_failed_review が手で作る PR の本文を残す)
+review_fails_after_commit() {
+    cat >"$STUBS/claude-pre" <<'PRE'
+[[ "$*" == *'harness-review skill'* ]] && export STUB_CLAUDE_MODE=is_error
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+}
+
+@test "選別が commit の後に失敗した run は、手で作る PR の本文に推移の節を足す(書き換えが無い側)" {
+    seed_queue
+    review_fails_after_commit
+    run weekly
+    assert_failure
+    assert_output --partial 'review failed after 1 commit(s)'
+    run cat "$HDIR/review-pr-body-$TODAY.md"
+    assert_line '## Failure Pattern の再発率'
+}
+
+@test "選別が commit の後に失敗した run で再発率のスクリプトが書き換えられていたら、推移の節を足さない" {
+    seed_queue
+    review_fails_after_commit
+    tamper_in review harness-failure-rates.sh
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-failure-rates.sh"
+    assert_output --partial 'the failure rate trend could not be trusted'
+    assert_output --partial 'do not publish the branch as it is'
+    refute_output --partial 'To publish by hand'
+    run cat "$HDIR/review-pr-body-$TODAY.md"
+    refute_line '## Failure Pattern の再発率'
+}
+
+@test "queue が空の週は、Verdict の CLI が書き換えられていなければ finish_run が heartbeat を書く" {
+    run weekly
+    assert_success
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "queue が空の週に抽出の claude が Verdict の CLI を書き換えたら、finish_run は CLI を呼ばずに失敗する" {
+    tamper_in reflect harness-verdict.sh
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
+    assert_output --partial 'failed to read the unpublished verdicts'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+# 採用の印が残るループのブランチ(Verdict の CLI の unpublished --branch が印を返す)
+leftover_adopted_branch() {
+    leftover_branch harness/review-2026-09-01
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-09-01 run old)\n' >"$HDIR/queue-archive.md"
+}
+
+# Verdict の CLI を、呼ばれたら印のファイルを残して何も返さない偽物に差し替える(採用を隠す書き換え)
+hide_adoptions_in_verdict_cli() { # <差し替える工程 reflect|now>
+    cat >"$BATS_TEST_TMPDIR/fake-verdict.sh" <<EOF
+#!/usr/bin/env bash
+touch "$BATS_TEST_TMPDIR/verdict-called"
+exit 0
+EOF
+    if [[ "$1" == now ]]; then
+        cp "$BATS_TEST_TMPDIR/fake-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
+        return
+    fi
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-reflect skill'* ]]; then
+    cp "$BATS_TEST_TMPDIR/fake-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+}
+
+@test "抽出の claude が Verdict の CLI を書き換えたら、report_stops は CLI を呼ばずに、信頼できなかったと書いたブランチの Issue を作る" {
+    leftover_adopted_branch
+    hide_adoptions_in_verdict_cli reflect
+    run weekly
+    assert_failure
+    assert [ ! -e "$BATS_TEST_TMPDIR/verdict-called" ]
+    refute_output --partial 'has an adopted verdict'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
+    run cat "$ALERT_BODIES"
+    assert_output --partial 'Verdict CLI を信頼できなかった'
+}
+
+# 改ざんの検出の lib だけが無い(健全性の lib は在る)入口スクリプトの複製で起動する
+weekly_without_integrity_lib() {
+    local dir="$BATS_TEST_TMPDIR/nointegrity"
+    mkdir -p "$dir/lib"
+    cp "$SCRIPT" "$dir/harness-weekly.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" "$dir/lib/"
+    bash "$dir/harness-weekly.sh"
+}
+
+@test "改ざんの検出の lib を読み込む前に止まった run の report_stops は、CLI を呼ばずに、確かめられなかったと書いたブランチの Issue を作る" {
+    leftover_adopted_branch
+    hide_adoptions_in_verdict_cli now
+    run weekly_without_integrity_lib
+    assert_failure
+    assert_output --partial 'harness-integrity.bash is missing or broken'
+    assert [ ! -e "$BATS_TEST_TMPDIR/verdict-called" ]
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
+    run cat "$ALERT_BODIES"
+    assert_output --partial 'Verdict CLI を確かめられなかった'
+}
+
+@test "スナップショットの前に止まった run の report_stops も、CLI を呼ばずに、確かめられなかったと書く" {
+    leftover_adopted_branch
+    rm "$HOME/.claude/scripts/harness-detect-failures.sh"
+    hide_adoptions_in_verdict_cli now
+    run weekly
+    assert_failure
+    assert_output --partial 'selecting pending sessions with'
+    refute_output --partial 'harness-integrity:'
+    assert [ ! -e "$BATS_TEST_TMPDIR/verdict-called" ]
+    run cat "$ALERT_BODIES"
+    assert_output --partial 'Verdict CLI を確かめられなかった'
+    refute_output --partial 'Verdict CLI を信頼できなかった'
+}
+
+# pnpm exec oxfmt(週の記録の commit。データの照合の後、push の前で、間に入口の呼び出しが無い)の最中に、
+# claude が残したバックグラウンドのプロセスが実行物を書き換えた状況を再現する
+tamper_during_oxfmt() {
+    install_exec "$STUBS/pnpm" <<'EOF'
+#!/usr/bin/env bash
+printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
+[[ "$*" != 'exec oxfmt docs/harness/failure-pattern-rates' ]] ||
+    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-eval-cases.sh"
+EOF
+}
+
+@test "公開の直前の関門: 週の記録の commit の後に書き換えが無ければ PR を作る" {
+    seed_queue
+    run weekly
+    assert_success
+    run grep -c '^pr create' "$GH_LOG"
+    assert_output 1
+}
+
+@test "公開の直前の関門: 入口の呼び出しの後に実行物が書き換えられたら、push も PR の作成もしない" {
+    seed_queue
+    tamper_during_oxfmt
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-eval-cases.sh"
+    assert_output --partial 'stopped before push'
+    refute grep -q 'pr create' "$GH_LOG"
+    run git -C "$ORIGIN" rev-parse --verify --quiet "refs/heads/$BRANCH"
+    assert_failure
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "ハッシュを取れない週の記録は、照合できないとして PR を作らずに失敗する(WARN で公開を続けない)" {
+    seed_queue
+    old_record 2026-09-26
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    chmod 000 "$RATES/2026-09-26.json"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    chmod 644 "$RATES/2026-09-26.json"
+    assert_failure
+    assert_output --partial "could not hash $RATES/2026-09-26.json"
+    refute_output --partial 'WARN failed to commit the weekly failure rate records'
+    refute grep -q 'pr create' "$GH_LOG"
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "ハッシュを取れる週の記録なら、持ち越した記録も PR に載せる(照合できない側の対)" {
+    seed_queue
+    old_record 2026-09-26
+    run weekly
+    assert_success
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
+    assert_line "$RATES_REPO_DIR/2026-09-26.json"
 }

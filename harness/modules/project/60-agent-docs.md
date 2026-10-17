@@ -10,4 +10,4 @@ The five canonical triage roles, each label string equal to its name. `triage` d
 
 ### Domain docs
 
-Single-context, on mattpocock-skills' default layout: the glossary is `CONTEXT.md` (`CONCEPTS.md` is its deprecated predecessor, kept as a read-only archive) and ADRs live in `docs/adr/` — distinct from `docs/solutions/`, which records past breakages rather than decisions. See `docs/agents/domain.md`.
+Single-context, on mattpocock-skills' default layout: the glossary is `GLOSSARY.md` (`CONCEPTS.md` is its deprecated predecessor, kept as a read-only archive) and ADRs live in `docs/adr/` — distinct from `docs/solutions/`, which records past breakages rather than decisions. See `docs/agents/domain.md`.
