@@ -49,7 +49,7 @@ glossary の書き手は歴史的に2系統あった: `ce-compound` / `ce-compou
   | `Target` | 部分所有（`modify_`）は観測した状態から毎回ファイル全体を再導出するため観測が空なら未管理部分を失う。symlink 等の「中身以外の性質」も write-back で失われる。動的に生成される値の再適用は tracked input の変化に gate せず毎回走らせる必要がある |
 
 - 誤って `CONCEPTS.md` に追記された内容を見つけたら、`GLOSSARY.md` へ 1〜2文に圧縮して移し、背景段落は `CONCEPTS.md` に残す。
-- ce-* 系 skill を実際に retire した時点で、`CONCEPTS.md` の残存段落を `docs/adr/` と `docs/solutions/` へ振り分けてファイルを削除できる。それまでは deprecated のまま置く。
+- `CONCEPTS.md` の残存段落を `docs/adr/` と `docs/solutions/` へ振り分ければ、ファイルを削除できる。ce-* 系 skill は削除済みなので、残しておく理由はこれらの段落だけ。振り分けるまでは deprecated のまま置く。
 
 ## 形式は `GLOSSARY-FORMAT.md` に従う
 

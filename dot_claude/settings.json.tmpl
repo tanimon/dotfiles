@@ -265,7 +265,7 @@
     "skill-creator@claude-plugins-official": false,
     "sentry@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
-    {{/* compound-engineering は削除済み(marketplace も extraKnownMarketplaces から外してある)。キーを消さずに false を明示するのは ecc@ecc と同じ理由で、installed_plugins.json に install が残ったマシンでキーが無いと有効扱いされるかを実測していないため。各マシンで `claude plugin uninstall compound-engineering@compound-engineering-plugin` を済ませたことを確かめたら、キーごと消してよい。代替: handoff は mattpocock-skills:handoff、docs/solutions の書式は docs/solutions/README.md。 */ -}}
+    {{/* compound-engineering は削除済み(marketplace も extraKnownMarketplaces から外してある)。キーを消さずに false を明示する理由は ecc@ecc のコメントと同じ。各マシンで `claude plugin uninstall compound-engineering@compound-engineering-plugin` を済ませたことを確かめたら、キーごと消してよい。代替: handoff は mattpocock-skills:handoff、docs/solutions の書式は docs/solutions/README.md。 */ -}}
     "compound-engineering@compound-engineering-plugin": false,
     {{/* ecc@ecc: 2026-09-24 に plugin 丸ごとの有効化をやめ、使っているファイルだけを .chezmoiexternal.toml で取り込むようにした(docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md)。キーを消すだけだと、installed_plugins.json に残った install が有効扱いされるかどうかが実測できていないので、false を明示して確定させる。 */ -}}
     "ecc@ecc": false,

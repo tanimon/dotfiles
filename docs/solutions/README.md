@@ -4,15 +4,15 @@
 
 書く価値があるのは、最終的なコード・テスト・ルールから読み取れない理由づけ(なぜ効くか、何が効かなかったか、再発をどう防ぐか)だけ。コードやコミットメッセージを読めば分かる定型の修正は書かない。
 
-この書式に合わない既存の文書(主に 2026-07 以前のもの)は書き直さない。新しく書く文書と、追記する文書の追記部分に適用する。
+既存の文書の多くはこの書式に揃っていない(見出しが英語、`problem_type` が無いか後述の表と違う値、など)。書き直さない。新しく書く文書と、追記する文書の追記部分に適用する。
 
 ## 書く前に: 重複の確認
 
 同じ問題の文書が既にあれば、新しく作らずにその文書へ追記する。
 
-1. frontmatter の `title` / `component` / `tags` を、問題のキーワードで grep する(例: `grep -rn -i -E '^(title|component|tags):.*fsmonitor' docs/solutions`)。
-2. 問題・原因・解決のうち 2 つ以上が重なる文書があれば、その文書に追記し、frontmatter に `last_updated: YYYY-MM-DD` を足す(既にあれば更新する)。path と既存の frontmatter は変えない。
-3. 重なりが 1 つ以下なら新しく作り、本文の「関連」で既存の文書へリンクする。
+1. 問題のキーワードで全文を grep し(例: `grep -rli --exclude=README.md fsmonitor docs/solutions`)、当たった文書の frontmatter と冒頭の節を読む。frontmatter の行に絞った grep は使わない。`tags` を次の行から `- x` で並べる文書が多く、その書き方の文書を取りこぼす。
+2. 問題・原因・解決の 3 つすべてが同じ文書があれば、その文書に追記し、frontmatter に `last_updated: YYYY-MM-DD` を足す(既にあれば更新する)。path と既存の frontmatter は変えない。
+3. 1 つでも違えば新しく作り、本文の「関連」で重なる既存の文書へリンクする。原因の違う事例を 1 つの文書に混ぜると、どの解決がどの原因に効くのかが読めなくなる。
 
 ## 置き場所とファイル名
 
@@ -41,6 +41,7 @@ date: YYYY-MM-DD
 category: integration-issues        # ディレクトリ名だけ(docs/solutions/ を付けない)
 problem_type: integration_issue     # 上の表の値
 component: tooling                  # 既存の文書で使われている語を優先する
+module: dot_claude/settings.json.tmpl  # 対象のファイル・ツール・仕組み。component より狭く、検索の手がかりになる
 severity: medium                    # critical / high / medium / low
 # bug の種別だけ必須
 symptoms:
@@ -53,7 +54,7 @@ last_updated: YYYY-MM-DD            # 追記したとき
 ---
 ```
 
-`component` / `root_cause` / `resolution_type` は語彙を固定していない。新しい語を作る前に `grep -rh --exclude=README.md '^component:' docs/solutions | sort | uniq -c` で既存の語を確かめる。
+`component` / `module` / `root_cause` / `resolution_type` は語彙を固定していない。新しい語を作る前に `grep -rh --exclude=README.md '^component:' docs/solutions | sort | uniq -c` で既存の語を確かめる。
 
 配列の要素がバッククォート・`[`・`*`・`&`・`!`・`|`・`>`・`%`・`@`・`?` で始まるとき、または `: ` を含むときは、二重引用符で囲む(囲まないと YAML として壊れる)。
 
