@@ -2,6 +2,8 @@
 # 週次ジョブの経路ごとの振る舞い(どの呼び出しが入口を通るか)は test/harness-weekly.bats が検査する。
 setup() {
     load 'helpers/setup'
+    # 偽の実行物が読む変数を、このマシンのシェルから漏らさない
+    unset STUB_EXIT HARNESS_EVAL_BUDGET_USD
     LIB="$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash"
     REPO_ROOT="$BATS_TEST_DIRNAME/.."
     export HOME="$BATS_TEST_TMPDIR/home"
@@ -9,9 +11,13 @@ setup() {
     HDIR="$HOME/.claude/harness"
     mkdir -p "$SCRIPTS/harness-eval-plugin/.claude-plugin" "$SCRIPTS/harness-eval-plugin/hooks" \
         "$HDIR/failure-pattern-rates" "$HDIR/rule-ledger/exported"
-    # 実行物は中身の決まった偽物にする(引数と終了コードを出す)
+    # 実行物は中身の決まった偽物にする(自分の名前と引数を出し、STUB_EXIT で終わる)
     for name in harness-failure-rates.sh harness-verdict.sh harness-rule-ledger.sh harness-eval-cases.sh; do
-        printf '#!/usr/bin/env bash\nprintf "%s %%s\\n" "$*"\nexit "${STUB_EXIT:-0}"\n' "$name" >"$SCRIPTS/$name"
+        cat >"$SCRIPTS/$name" <<'EOF'
+#!/usr/bin/env bash
+printf '%s %s\n' "${0##*/}" "$*"
+exit "${STUB_EXIT:-0}"
+EOF
     done
     printf '{}\n' >"$SCRIPTS/harness-failure-patterns.json"
     printf '{}\n' >"$SCRIPTS/harness-eval-plugin/.claude-plugin/plugin.json"
@@ -20,6 +26,7 @@ setup() {
     printf '{"id":"pr1-00000000"}\n' >"$HDIR/rule-ledger/pr1-00000000.json"
     printf '{"id":"pr1-00000000"}\n' >"$HDIR/rule-ledger/exported/pr1-00000000.json"
     printf '{"session_id":"s"}\n' >"$HDIR/classifications.jsonl"
+    printf '{"session_id":"s","epoch":1,"counts":{}}\n' >"$HDIR/detections.jsonl"
     # shellcheck source=../dot_claude/scripts/lib/harness-integrity.bash
     source "$LIB"
 }
@@ -87,7 +94,10 @@ teardown() {
 }
 
 @test "一覧に無いスクリプトは、照合が通っても入口から実行しない" {
-    printf '#!/usr/bin/env bash\necho ran\n' >"$SCRIPTS/harness-other.sh"
+    cat >"$SCRIPTS/harness-other.sh" <<'EOF'
+#!/usr/bin/env bash
+echo ran
+EOF
     harness_integrity_snapshot
     run harness_integrity_run "$SCRIPTS/harness-other.sh"
     assert_failure "$HARNESS_INTEGRITY_FAILED"
@@ -101,6 +111,7 @@ teardown() {
     run harness_integrity_run "$SCRIPTS/harness-failure-rates.sh" trend
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     assert_output --partial "could not hash $SCRIPTS/harness-failure-patterns.json"
+    assert_output --partial 'chezmoi apply'
     refute_output --partial 'harness-failure-rates.sh trend'
 }
 
@@ -127,6 +138,12 @@ teardown() {
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     assert_output --partial "missing: $HDIR/classifications.jsonl"
     printf '{"session_id":"s"}\n' >"$HDIR/classifications.jsonl"
+
+    printf '{"session_id":"t","epoch":2,"counts":{"repeat":9}}\n' >>"$HDIR/detections.jsonl"
+    run harness_integrity_check_data
+    assert_failure "$HARNESS_INTEGRITY_FAILED"
+    assert_output --partial "changed: $HDIR/detections.jsonl"
+    printf '{"session_id":"s","epoch":1,"counts":{}}\n' >"$HDIR/detections.jsonl"
 
     printf '{"id":"pr2-00000000"}\n' >"$HDIR/rule-ledger/pr2-00000000.json"
     run harness_integrity_check_data
@@ -192,7 +209,10 @@ teardown() {
 }
 
 @test "入口に渡した前置の環境変数はスクリプトに届く" {
-    printf '#!/usr/bin/env bash\nprintf "budget=%%s\\n" "${HARNESS_EVAL_BUDGET_USD:-}"\n' >"$SCRIPTS/harness-eval-cases.sh"
+    cat >"$SCRIPTS/harness-eval-cases.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'budget=%s\n' "${HARNESS_EVAL_BUDGET_USD:-}"
+EOF
     harness_integrity_snapshot
     HARNESS_EVAL_BUDGET_USD=7 run harness_integrity_run "$SCRIPTS/harness-eval-cases.sh" run
     assert_success

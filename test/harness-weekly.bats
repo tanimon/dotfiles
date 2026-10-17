@@ -1425,21 +1425,20 @@ PRE
     assert_line '| 合計 | 1 |'
 }
 
-@test "検出件数の節を組み立てられなくても PR は作り、節を省く" {
+@test "検出件数の記録を読めなければ、照合できないとして claude を起動せずに失敗し、PR を作らない" {
     : >"$HDIR/pending.jsonl"
     seed_queue
-    # pending が空なので選別は記録を読まず、節の組み立てと週の再発率の記録が読み取りに失敗する。
-    # 週の記録が欠けるので run は失敗にするが(heartbeat を書かない)、PR は作る
+    # 検出件数の記録は PR の本文の材料なので Integrity Snapshot のデータに入る。読めなければスナップショットを取れない
     printf '{}\n' >"$HDIR/detections.jsonl"
     chmod 000 "$HDIR/detections.jsonl"
     run weekly
     chmod 644 "$HDIR/detections.jsonl"
     assert_failure
-    assert_output --partial 'failed to build the detection counts'
-    assert_output --partial 'opened draft PR'
-    assert_output --partial 'this week has no failure rate record'
-    run cat "$GH_BODY"
-    refute_output --partial '## 失敗の検出'
+    assert_output --partial "could not hash $HDIR/detections.jsonl"
+    assert_output --partial 'failed to take the integrity snapshot'
+    refute grep -q '^review$' "$STAGE_LOG"
+    assert [ ! -f "$GH_LOG" ]
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
 @test "抽出を省いた週の PR の本文にも 0 件の検出の節を載せる" {
@@ -2240,6 +2239,7 @@ tamper_in() {
     case $1 in
     reflect) pattern='harness-reflect skill' ;;
     review) pattern='harness-review skill' ;;
+    *) fail "unknown stage: $1" ;;
     esac
     cat >"$STUBS/claude-pre" <<PRE
 if [[ "\$*" == *'$pattern'* ]]; then
@@ -2275,6 +2275,8 @@ PRE
     assert_failure
     assert_output --partial "changed: $HOME/.claude/scripts/harness-failure-rates.sh"
     assert_output --partial 'the failure rate trend could not be trusted'
+    assert_output --partial 'do not publish the branch as it is'
+    refute_output --partial 'To publish by hand'
     run cat "$HDIR/review-pr-body-$TODAY.md"
     refute_line '## Failure Pattern の再発率'
 }
@@ -2302,13 +2304,15 @@ leftover_adopted_branch() {
 
 # Verdict の CLI を、呼ばれたら印のファイルを残して何も返さない偽物に差し替える(採用を隠す書き換え)
 hide_adoptions_in_verdict_cli() { # <差し替える工程 reflect|now>
-    local fake
-    fake=$(printf '#!/usr/bin/env bash\ntouch %q\nexit 0\n' "$BATS_TEST_TMPDIR/verdict-called")
+    cat >"$BATS_TEST_TMPDIR/fake-verdict.sh" <<EOF
+#!/usr/bin/env bash
+touch "$BATS_TEST_TMPDIR/verdict-called"
+exit 0
+EOF
     if [[ "$1" == now ]]; then
-        printf '%s\n' "$fake" >"$HOME/.claude/scripts/harness-verdict.sh"
+        cp "$BATS_TEST_TMPDIR/fake-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
         return
     fi
-    printf '%s\n' "$fake" >"$BATS_TEST_TMPDIR/fake-verdict.sh"
     cat >"$STUBS/claude-pre" <<PRE
 if [[ "\$*" == *'harness-reflect skill'* ]]; then
     cp "$BATS_TEST_TMPDIR/fake-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
@@ -2393,7 +2397,7 @@ EOF
     run weekly
     assert_failure
     assert_output --partial "changed: $HOME/.claude/scripts/harness-eval-cases.sh"
-    assert_output --partial 'no PR created; the scripts the job runs could not be trusted'
+    assert_output --partial 'stopped before push'
     refute grep -q 'pr create' "$GH_LOG"
     run git -C "$ORIGIN" rev-parse --verify --quiet "refs/heads/$BRANCH"
     assert_failure

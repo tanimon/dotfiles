@@ -425,7 +425,7 @@ fi
 # shellcheck source=lib/harness-integrity.bash
 source "$INTEGRITY_LIB"
 declare -F harness_integrity_snapshot harness_integrity_ready harness_integrity_run harness_integrity_gate harness_integrity_check_data harness_integrity_seal harness_integrity_sealed >/dev/null &&
-    [[ "${HARNESS_INTEGRITY_FAILED:-}" == 3 ]] || {
+    [[ -n "${HARNESS_INTEGRITY_FAILED:-}" ]] || {
     printf 'harness-weekly: %s lacks the integrity checks; run chezmoi apply\n' "$INTEGRITY_LIB" >&2
     exit 1
 }
@@ -937,6 +937,13 @@ record_and_publish_ledger() { # <base> <PR の URL>
     fi
 }
 
+# 公開(push と gh pr create)の直前の関門。呼び出し元が照合の失敗を取りこぼしても、書き換えられた run の PR を作らない
+trusted_before_publish() { # <これから行う操作>
+    harness_integrity_gate && return 0
+    printf 'harness-weekly: stopped before %s on %s; no PR created, because the scripts the job runs could not be trusted\n' "$1" "$BRANCH" >&2
+    return 1
+}
+
 # 開いている自己改善ループの PR(ブランチ harness/review-*)の URL を出す。無ければ空
 open_loop_pr() {
     (cd "$REPO" && gh pr list --state open --json headRefName,url \
@@ -986,20 +993,13 @@ publish_metrics_only() {
         printf '\nマージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった %s 件も足した(%s)。\n' "$LEDGER_RECORDS_COMMITTED" "$LEDGER_REPO_DIR" >>"$PR_BODY"
     append_rates_section || return 1
     append_detection_section
-    # 公開の直前の関門。呼び出し元が照合の失敗を取りこぼしても、書き換えられた run の PR を作らない
-    harness_integrity_gate || {
-        printf 'harness-weekly: no PR created; the scripts the job runs could not be trusted\n' >&2
-        return 1
-    }
+    trusted_before_publish push || return 1
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
             "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
         return 1
     }
-    harness_integrity_gate || {
-        printf 'harness-weekly: pushed %s but created no PR; the scripts the job runs could not be trusted\n' "$BRANCH" >&2
-        return 1
-    }
+    trusted_before_publish 'gh pr create' || return 1
     url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
         --title "harness: 週次の指標 $REVIEW_DATE" --body-file "$PR_BODY") || {
         printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand with gh pr create --draft --base main --head %s --body-file %s\n' \
@@ -1146,8 +1146,10 @@ publish_review() {
             "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
         return 1
     fi
-    # 採用 0 件で PR を作らずに成功する週も、claude が書き換えたデータを正として持ち越さないよう、ここで照合する
-    # (Verdict の CLI などの実行物は、check_review_claims が入口を通して呼ぶときに照合される)
+    # データは repo に写す直前に照合するが、採用 0 件で PR を作らずに成功する週は写さないので、claude が書き換えた
+    # データを次の run のスナップショットが正として持ち越さないよう、ここでも照合する(record と export の前なので、
+    # job 自身の正当な書き込みには当たらない)。Verdict の CLI などの実行物は、check_review_claims が入口を通して
+    # 呼ぶときに照合される
     harness_integrity_check_data || {
         printf 'harness-weekly: no PR created; the local records could not be trusted\n' >&2
         return 1
@@ -1220,20 +1222,13 @@ publish_review() {
         git -C "$WORKTREE" reset --quiet --hard HEAD || return 1
         git -C "$WORKTREE" clean --quiet -fd -- "$RATES_REPO_DIR" || return 1
     fi
-    # 公開の直前の関門。呼び出し元が照合の失敗を取りこぼしても、書き換えられた run の PR を作らない
-    harness_integrity_gate || {
-        printf 'harness-weekly: no PR created; the scripts the job runs could not be trusted\n' >&2
-        return 1
-    }
+    trusted_before_publish push || return 1
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
             "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
         return 1
     }
-    harness_integrity_gate || {
-        printf 'harness-weekly: pushed %s but created no PR; the scripts the job runs could not be trusted\n' "$BRANCH" >&2
-        return 1
-    }
+    trusted_before_publish 'gh pr create' || return 1
     url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
         --title "harness: 週次レビュー $REVIEW_DATE" --body-file "$PR_BODY") || {
         printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand with gh pr create --draft --base main --head %s --body-file %s, then record its URL with %s\n' \
@@ -1283,8 +1278,13 @@ report_failed_review() {
             printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
     fi
     append_detection_section
-    # 照合に落ちたら節を省く(append_rates_section がその旨を出す)。この run は失敗で終わり、公開もしない
-    append_rates_section || true
+    # 照合に落ちたら節を省き(append_rates_section がその旨を出す)、手で公開する手順の代わりに、書き換えを
+    # 確かめてから commit を読み直すよう案内する
+    if ! append_rates_section; then
+        printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s), and the scripts the job uses were changed after the claude runs started; do not publish the branch as it is. Restore the scripts, find what changed them, and review the commits before publishing them by hand\n' \
+            "$commits" "$BRANCH" "$WORKTREE" >&2
+        return 0
+    fi
     printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts adopted in this run may already be in %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s, then %s\n' \
         "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" "$(publish_command "$REVIEW_RUN")" >&2
 }

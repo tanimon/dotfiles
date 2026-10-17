@@ -133,7 +133,7 @@ _Avoid_: テストケース(bats と紛らわしい)、評価(無限定)
 _Avoid_: queue-archive(ローカルの作業記録と混同する)、履歴
 
 **Integrity Snapshot**:
-週次ジョブが claude の起動前に取る、claude の後に使うスクリプトと記録のハッシュの一覧。claude の後に使うスクリプトは、照合を通る入口からだけ実行する。照合に落ちた run は PR を作らない。
+週次ジョブが claude の起動前に取る、claude の後に使うスクリプトと記録のハッシュの一覧。claude の後に使うものを信頼してよいかの基準になる。
 _Avoid_: digest の一覧、Guarded Path(CI がループの PR から守るパスの一覧と混同する)
 
 **Verdict**:
