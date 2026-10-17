@@ -534,8 +534,7 @@ prepare_self_tamper() { # <append | overwrite | overwrite_middle>
     mkdir -p "$dir/lib"
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$SCRIPT" "$dir/original.sh"
-    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" "$dir/lib/"
+    cp "$BATS_TEST_DIRNAME"/../dot_claude/scripts/lib/*.bash "$dir/lib/"
     export TAMPER_TARGET="$dir/harness-weekly.sh" TAMPER_ORIGINAL="$dir/original.sh" \
         TAMPER_MARKER="$BATS_TEST_TMPDIR/tampered" TAMPER_MODE="$1"
     export STUB_TAMPER_SELF="$BATS_TEST_TMPDIR/tamper"
