@@ -158,7 +158,7 @@ _Avoid_: profile（無限定）、プロファイル
 
 **Review-Verify**:
 既にコミットされたブランチに、Requirements Document を基準にしたレビュー修正ループと動作確認だけをかけ、人間へ報告するプロセス。push も PR の作成もせず、修正のコミットはローカルのブランチに残して、公開するかどうかは人間に委ねる。
-_Avoid_: レビューだけモード、deliver の後半
+_Avoid_: レビューだけモード
 
 **Review Finding**:
 レビューが返す個々の指摘。重大度を持つ。修正必須のものは修正されるか Deferred Finding になるかで閉じ、修正に回された Advisory Finding は修正されるか Declined Advisory Finding になるかで閉じる。

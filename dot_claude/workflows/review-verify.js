@@ -7,9 +7,9 @@ export const meta = {
 };
 
 // 判定はここに置いたコードで行い、agent にはさせない(ADR 0007)。
-// 実装・push・PR の作成はしない。公開するかは、報告とローカルのコミットを見た人間が決める(ADR 0019)。
+// 公開するかは、報告とローカルのコミットを見た人間が決める(ADR 0019)。
 const DEFAULTS = { maxReviewRounds: 3, maxVerifyRetries: 2 };
-// validateArgs が受け付ける引数のすべて。廃止した mode もここに無いので、渡されたら拒否する(ADR 0019)。
+// validateArgs が受け付ける引数のすべて。mode は持たない(ADR 0019)。
 const ARG_KEYS = [
   "requirementsPath",
   "baseRef",

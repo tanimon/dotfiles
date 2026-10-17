@@ -118,11 +118,11 @@ function section(report, title) {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-test("指摘ゼロなら修正せずに動作確認まで進み、push も PR の作成もしない(ADR 0015)", async () => {
+test("指摘ゼロなら修正せずに動作確認まで進み、push も PR の作成もしない(ADR 0019)", async () => {
   const { result, labels } = await runWorkflow();
   assert.deepEqual(labels, ["checks:1", "review:ecc", "review:requesting", "verify:1"]);
   assert.equal(result.stopReason, null);
-  // 返り値は ledger / report / stats / stopReason だけで、公開の結果を含まない(ADR 0015)。
+  // 返り値は ledger / report / stats / stopReason だけで、公開の結果を含まない(ADR 0019)。
   assert.deepEqual(Object.keys(result).sort(), ["ledger", "report", "stats", "stopReason"]);
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
@@ -1158,16 +1158,11 @@ test("動作確認の再試行の前に予算が下限を割ったら、budget �
   assert.equal(result.stopReason, "budget");
 });
 
-test("レビューの収束後に予算が下限を割ったら、1回目の動作確認にも入らず budget で止める", async () => {
+test("レビューの収束後に予算が下限を割ったら、1回目の動作確認にも入らず budget で止め、どこの前で止まったかを報告に出す", async () => {
   const { budget, wrap } = budgetLowAfter("review:requesting");
   const { result, labels } = await runWorkflow({ budget, respond: wrap(scenario()) });
   assert.ok(!labels.includes("verify:1"));
   assert.equal(result.stopReason, "budget");
-});
-
-test("budget で止まったとき、どこの前で止まったかを報告に出す", async () => {
-  const { budget, wrap } = budgetLowAfter("review:requesting");
-  const { result } = await runWorkflow({ budget, respond: wrap(scenario()) });
   assert.doesNotMatch(result.report, /次のラウンドに入らなかった/);
   assert.match(result.report, /動作確認 1 回目の前/);
 });
@@ -1187,29 +1182,6 @@ test("途中のラウンドでレビュアーが欠けていても、報告の�
   });
   assert.ok(result.report.startsWith("> **注意**"));
   assert.match(result.report.split("\n")[0], /ラウンド 1.*ecc/);
-});
-
-test("実装をせず、レビュー修正ループと動作確認だけを行う(ADR 0019)", async () => {
-  const { result, labels } = await runWorkflow({
-    respond: scenario({
-      reviews: [{ ecc: [finding("HIGH")] }, {}],
-      merges: [[cluster("a.js::bug", ["ecc#0"])]],
-      fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], observations: [] }],
-    }),
-  });
-  assert.deepEqual(labels, [
-    "checks:1",
-    "review:ecc",
-    "review:requesting",
-    "merge",
-    "fix:1",
-    "checks:2",
-    "review:ecc",
-    "review:requesting",
-    "verify:1",
-  ]);
-  assert.equal(result.stopReason, null);
-  assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
 
 test("報告の統計の節は上限を示し、mode 行も帰属行も付けない", async () => {
@@ -1320,13 +1292,13 @@ test("要件文書のうちブランチが着手していない項目を実装�
       return call.prompt;
     });
 
-  const reviewVerify = await runWorkflow({ respond });
-  for (const prompt of promptsOf(reviewVerify.calls)) {
+  const { calls } = await runWorkflow({ respond });
+  for (const prompt of promptsOf(calls)) {
     assert.match(prompt, /まだ着手していない/);
     // 範囲の制約を口実に、ブランチ自身の変更の不具合を見送らせない。
     assert.match(prompt, /不具合.*範囲外にしない/);
   }
-  const call = (label) => reviewVerify.calls.find((c) => c.label.startsWith(label)).prompt;
+  const call = (label) => calls.find((c) => c.label.startsWith(label)).prompt;
   // checks の prompt は要件文書を他に名指ししないので、範囲の文が指す文書を添える。
   assert.ok(call("checks:").includes(BASE_ARGS.requirementsPath));
   assert.match(call("checks:"), /passed=false/);

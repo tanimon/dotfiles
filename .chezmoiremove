@@ -84,5 +84,4 @@ bin/cco
 # Deliver は廃止され、Workflow は review-verify.js だけになっている(docs/adr/0019-retire-deliver-keep-only-review-verify.md)。
 # source から消しただけでは配置済みのファイルが残り、/deliver が古い Workflow を呼び続けるので、ここで消す。
 .claude/workflows/deliver.js
-.claude/skills/deliver/**
 .claude/skills/deliver
