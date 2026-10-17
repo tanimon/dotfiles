@@ -35,6 +35,8 @@
 # - 照合と実行の間、record の実行と封印の間に書き換えられたものは見つけられない。
 # - 分類器の claude はスナップショットの前に走る。ツール無しで起動するので書き換えられない前提に立つ。
 # - 前の週の claude が書き換えて持ち越したデータは、この run のスナップショットが正として取る。
+# - 週次ジョブの run の最中に手動の /harness-reflect(harness-select-pending.sh が検出件数の記録を書く)や
+#   /harness-review(Rule Ledger の記録を作る)が走ると、書き換えとして見つけてその run は PR を作らずに失敗する。
 #
 # Interface: HARNESS_INTEGRITY_FAILED / harness_integrity_executables / harness_integrity_snapshot /
 # harness_integrity_ready / harness_integrity_run / harness_integrity_gate / harness_integrity_check_data /

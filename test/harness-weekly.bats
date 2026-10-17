@@ -1436,7 +1436,7 @@ PRE
     assert_failure
     assert_output --partial "could not hash $HDIR/detections.jsonl"
     assert_output --partial 'failed to take the integrity snapshot'
-    refute grep -q '^review$' "$STAGE_LOG"
+    assert [ ! -f "$ARGV_LOG" ]
     assert [ ! -f "$GH_LOG" ]
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
