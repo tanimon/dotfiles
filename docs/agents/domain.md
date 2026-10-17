@@ -22,7 +22,7 @@ single-context リポジトリ（このリポジトリ）:
 
 ```
 /
-├── GLOSSARY.md           ← glossary（正典）
+├── GLOSSARY.md          ← glossary（正典）
 ├── CONCEPTS.md          ← 前身。deprecated、読み取り専用アーカイブ
 ├── docs/adr/            ← Architecture Decision Record
 ├── docs/solutions/      ← 過去の問題解決の記録（ADR ではない）

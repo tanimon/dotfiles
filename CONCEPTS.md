@@ -1,10 +1,10 @@
 # Concepts（DEPRECATED）
 
-> **このファイルは deprecated。** glossary の現行の正典は `GLOSSARY.md`（形式は mattpocock-skills の `domain-modeling/GLOSSARY-FORMAT.md` に準拠）。
+> **このファイルは deprecated。** glossary の現行の正典は `GLOSSARY.md`（形式と運用は `docs/agents/domain.md`）。
 >
-> - **新しい用語・定義をここに追加しない。** `GLOSSARY.md` に書く。
-> - **ここは読み取り専用のアーカイブ。** 各用語の後に続く詳細な段落（fail open の含意、prefix マッチの限界、Contrast Pair 自体の限界、部分所有の危険など）は `GLOSSARY-FORMAT.md` の「定義は1〜2文」制約に収まらないため `GLOSSARY.md` へ移していない。背景を追うときはここを読む。
-> - 元は `ce-compound` / `ce-compound-refresh` が追記する運用だったが、ce-* 系 skill は retire 検討中のため新規追記の想定はない。誤ってここに追記された内容を見つけたら `GLOSSARY.md` へ移す。
+> - **新しい用語・定義をここに追加しない。** glossary に書く。
+> - **ここは読み取り専用のアーカイブ。** 各用語の後に続く詳細な段落（fail open の含意、prefix マッチの限界、Contrast Pair 自体の限界、部分所有の危険など）は glossary の形式の「定義は1〜2文」に収まらないため glossary へ移していない。背景を追うときはここを読む。
+> - 元は `ce-compound` / `ce-compound-refresh` が追記する運用だったが、ce-* 系 skill は retire 検討中のため新規追記の想定はない。誤ってここに追記された内容を見つけたら glossary へ移す。
 >
 > 移行の経緯と判断は `docs/agents/domain.md` を参照。
 

@@ -2,8 +2,7 @@ LICENSE
 README.md
 CLAUDE.md
 AGENTS.md
-# GLOSSARY.md は glossary の正典（mattpocock-skills の /domain-modeling 系が読み書きする）。
-# CONCEPTS.md はその前身で deprecated — どちらも repo-only（docs/agents/domain.md 参照）
+# glossary とその deprecated な前身。どちらも repo-only（docs/agents/domain.md 参照）
 GLOSSARY.md
 CONCEPTS.md
 
