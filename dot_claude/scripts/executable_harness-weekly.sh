@@ -956,6 +956,10 @@ main() {
     trusted_before_publish() { # <これから行う操作>
         harness_integrity_gate && return 0
         printf 'harness-weekly: stopped before %s on %s; no PR created, because the scripts the job runs could not be trusted\n' "$1" "$BRANCH" >&2
+        # gh pr create の直前で止まったときはブランチが origin にあり、同じ日の再実行は手で PR を作るよう案内してしまう
+        [[ "$1" != 'gh pr create' ]] ||
+            printf 'harness-weekly: %s is already on origin; do not open a PR from it as it is. Find what changed the scripts, then delete the branch (git push origin --delete %s)\n' \
+                "$BRANCH" "$BRANCH" >&2
         return 1
     }
 
@@ -1131,15 +1135,17 @@ main() {
     #   - 結果ファイルが無い、または決めた形でない
     #   - commit があるのに本文が無い
     #   - 選別の claude の commit が週の再発率の記録($RATES_REPO_DIR)に触れた
+    #   - 選別の claude の後のデータの照合に落ちた(<データを信頼できるか> が 0)
     #   - push か PR の作成が失敗した
     # Deploy-only Fix は、結果ファイルを読めた時点で、未 commit の変更を含むどの失敗の判定よりも
     # 先に $DEPLOY_ONLY へ残す。commit 0 件で成功する週は本文を PR にしないので捨てる(採用も
     # 陳腐化の修正も無い週の本文は件数と残った陳腐化だけで、次の選別がまた数える)。
     # 失敗の経路では worktree・本文・結果ファイルを残す(調べられるように。worktree は次の
-    # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
-    # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
-    publish_review() {
-        local base=$1 commits url dropped_count dropped_items touched commit_status=0 titles status=0
+    # 実行が作り直す)。採用した項目は既に archive に移っているので、push か PR の作成が失敗した run の
+    # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る。公開の直前の関門
+    # (trusted_before_publish)で止まった run は、ブランチを公開しない(案内はその関数が出す)
+    publish_review() { # <base> <データを信頼できるか(1/0)>
+        local base=$1 data_trusted=$2 commits url dropped_count dropped_items touched commit_status=0 titles status=0 post_status=0
         if ! review_result_valid; then
             printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
                 "$REVIEW_RESULT" >&2
@@ -1161,11 +1167,9 @@ main() {
                 "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
             return 1
         fi
-        # データは repo に写す直前に照合するが、採用 0 件で PR を作らずに成功する週は写さないので、claude が書き換えた
-        # データを次の run のスナップショットが正として持ち越さないよう、ここでも照合する(record と export の前なので、
-        # job 自身の正当な書き込みには当たらない)。Verdict の CLI などの実行物は、check_review_claims が入口を通して
-        # 呼ぶときに照合される
-        harness_integrity_check_data || {
+        # データの照合は main が選別の claude の直後に済ませている。Verdict の CLI などの実行物は、check_review_claims が
+        # 入口を通して呼ぶときに照合される
+        [[ "$data_trusted" -eq 1 ]] || {
             printf 'harness-weekly: no PR created; the local records could not be trusted\n' >&2
             return 1
         }
@@ -1253,14 +1257,15 @@ main() {
         url=${url##*$'\n'}
         printf 'harness-weekly: opened draft PR %s (%s commit(s))\n' "$url" "$commits"
         rm -f "$PR_BODY" "$REVIEW_RESULT"
-        # PR を作った後に照合に落ちたら、後片付けはしたうえで run を失敗させる(heartbeat を書かない)
-        record_pr_url "$url" || status=$?
-        [[ "$status" -ne 0 ]] || record_and_publish_ledger "$base" "$url" || status=$?
+        # PR を作った後に照合に落ちたら、後片付けはしたうえで run を失敗させる(heartbeat を書かない)。
+        # status は adopted の WARN の経路で非 0 のまま残りうるので、別の変数で受ける
+        record_pr_url "$url" || post_status=$?
+        [[ "$post_status" -ne 0 ]] || record_and_publish_ledger "$base" "$url" || post_status=$?
         remove_worktree
         # ブランチは origin にあるので、ローカルの分は消す(残すと週ごとに溜まる)
         git -C "$REPO" branch --quiet -D "$BRANCH" >/dev/null 2>&1 ||
             printf 'harness-weekly: WARN could not delete local branch %s in %s\n' "$BRANCH" "$REPO" >&2
-        if [[ "$status" -ne 0 ]]; then
+        if [[ "$post_status" -ne 0 ]]; then
             printf 'harness-weekly: opened %s, but the scripts or records the job uses after it could not be trusted; check the PR and the Rule Ledger by hand\n' "$url" >&2
             return 1
         fi
@@ -1268,15 +1273,15 @@ main() {
 
     # 選別の claude が失敗した(予算切れを含む)run の後始末の案内。claude は commit や
     # archive への移動を済ませてから失敗しうるので、残った commit の場所と手で PR を作る手順を
-    # ログに出す。worktree は残す(次の実行が作り直すが、prepare_worktree は origin/main に無い
+    # ログに出す(データの照合に落ちた run では、手順の代わりにそのまま公開しないよう案内する)。worktree は残す(次の実行が作り直すが、prepare_worktree は origin/main に無い
     # commit を持つ当日のブランチを作り直さない)。claude は結果ファイルを書いてから失敗しうる
     # ので、結果ファイルが決めた形なら Deploy-only Fix はここでも $DEPLOY_ONLY に残す(結果
     # ファイルは日付付きで、次の週の run は読まない)。結果ファイルは run の前に消してあるので、
     # ここで読むのはこの run の claude が書いたものだけ。commit が残っていれば、手で作る PR の
     # 本文にも Dropped Change と Deploy-only Fix の節を足す(claude には本文に書かせないため、
     # 足さないと落とした変更の一覧が結果ファイルにしか残らない)
-    report_failed_review() {
-        local base=$1 commits result_ok=0
+    report_failed_review() { # <base> <データを信頼できるか(1/0)>
+        local base=$1 data_trusted=$2 commits result_ok=0 trusted=0
         if [[ -f "$REVIEW_RESULT" ]] && review_result_valid; then
             result_ok=1
             record_deploy_only ||
@@ -1292,11 +1297,14 @@ main() {
             result_sections >>"$PR_BODY" ||
                 printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
         fi
-        append_detection_section
-        # 照合に落ちたら節を省き(append_rates_section がその旨を出す)、手で公開する手順の代わりに、書き換えを
-        # 確かめてから commit を読み直すよう案内する
-        if ! append_rates_section; then
-            printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s), and the scripts the job uses were changed after the claude runs started; do not publish the branch as it is. Restore the scripts, find what changed them, and review the commits before publishing them by hand\n' \
+        # データの照合(main が選別の claude の直後に済ませている)に落ちたら検出件数と推移の節を省き、手で公開する
+        # 手順の代わりに、書き換えを確かめてから commit を読み直すよう案内する
+        if [[ "$data_trusted" -eq 1 ]]; then
+            append_detection_section
+            append_rates_section && trusted=1
+        fi
+        if [[ "$trusted" -eq 0 ]]; then
+            printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s), and the scripts or records the job uses were changed (or could not be checked) after the claude runs started; do not publish the branch as it is. Restore them, find what changed them, and review the commits before publishing them by hand\n' \
                 "$commits" "$BRANCH" "$WORKTREE" >&2
             return 0
         fi
@@ -1372,6 +1380,12 @@ ${WRITE_RULE}
 - Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
         run_claude reflect "$SESSION_ID" "$REFLECT_BUDGET_USD" "$PROMPT" || exit 1
     fi
+    # queue が空の週と当日の PR が既にある週は repo に写す工程を通らないので、抽出の claude が書き換えたデータを
+    # 次の run のスナップショットが正として持ち越さないよう、どの分岐にも入る前に照合する(job 自身の正当な書き込みの前)
+    harness_integrity_check_data || {
+        printf 'harness-weekly: the local records could not be trusted after reflect; skipped review\n' >&2
+        exit 1
+    }
 
     QUEUE_ENTRIES=$(count_queue)
     if [[ "$QUEUE_ENTRIES" -eq 0 ]]; then
@@ -1382,7 +1396,7 @@ ${WRITE_RULE}
     fi
 
     # 当日のブランチが origin にあれば、その日のループの PR は作成済みか、push 後に PR の作成が
-    # 失敗している(その run のログが手で開くよう促している)。作り直したブランチは
+    # 失敗している(その run のログが手で開くよう促しているか、公開の直前の関門で止まってブランチを消すよう促している)。作り直したブランチは
     # non-fast-forward で push できず、選別の費用が無駄になるので起動しない
     REMOTE_STATUS=0
     git -C "$REPO" ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null || REMOTE_STATUS=$?
@@ -1393,8 +1407,8 @@ ${WRITE_RULE}
             exit 1
         }
         if [[ -z "$EXISTING_PR" ]]; then
-            printf 'harness-weekly: %s exists on origin but has no PR; open it by hand (gh pr create --draft --base main --head %s --body-file %s); skipped review\n' \
-                "$BRANCH" "$BRANCH" "$PR_BODY" >&2
+            printf 'harness-weekly: %s exists on origin but has no PR; skipped review. Check the log of the run that pushed it: if it stopped before gh pr create because the scripts could not be trusted, delete the branch (git push origin --delete %s); otherwise open the PR by hand (gh pr create --draft --base main --head %s --body-file %s)\n' \
+                "$BRANCH" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
             exit 1
         fi
         printf 'harness-weekly: %s already exists on origin (PR %s); skipped review\n' "$BRANCH" "$EXISTING_PR"
@@ -1447,12 +1461,19 @@ ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
 - Finish with a one-line summary: entries adopted, rejected, handed off."
     # HARNESS_REVIEW_RUN は選別の claude にだけ渡す(抽出・分類・評価には渡さない)
+    REVIEW_STATUS=0
     (cd "$WORKTREE" && export HARNESS_REVIEW_RUN="$REVIEW_RUN" &&
-        run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || {
-        report_failed_review "$REVIEW_BASE"
+        run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || REVIEW_STATUS=$?
+    # 抽出の後と同じく、選別の claude の直後に、成否や後の分岐に関わらず 1 回照合する。失敗で終わる経路(選別の claude の
+    # 失敗・結果ファイルの不正・未 commit の変更)も repo に写す工程を通らないので、照合しないと書き換えがログに出ないまま
+    # 次の run のスナップショットが正として持ち越す。publish_review と report_failed_review はこの結果で公開と案内を決める
+    REVIEW_DATA_TRUSTED=1
+    harness_integrity_check_data || REVIEW_DATA_TRUSTED=0
+    if [[ "$REVIEW_STATUS" -ne 0 ]]; then
+        report_failed_review "$REVIEW_BASE" "$REVIEW_DATA_TRUSTED"
         exit 1
-    }
-    publish_review "$REVIEW_BASE" || exit 1
+    fi
+    publish_review "$REVIEW_BASE" "$REVIEW_DATA_TRUSTED" || exit 1
 
     finish_run || exit 1
 }

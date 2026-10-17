@@ -15,15 +15,17 @@
 # - データ: job が commit するか、PR の本文や commit する記録の材料として読むもの(週の再発率の記録・Rule Ledger の
 #   記録と書き出した形・分類の記録・検出件数の記録)。claude が正当に書くもの(queue・判定の記録・PR の本文・
 #   選別の結果ファイル)は守れないので含めない。job 自身も claude の後に正当に書く(rule-ledger の record と export)ので、
-#   使うたびには比べず、repo に写す直前と記録を作る直前に harness_integrity_check_data で比べる。
+#   使うたびには比べず、各 claude の後(job 自身が書く前)と、repo に写す直前・記録を作る直前・PR の本文の材料に
+#   読む直前に harness_integrity_check_data で比べる。
 #   信頼する入口が書いたファイル(評価の結果、record が作った記録)は harness_integrity_seal で後から一覧に足す。
 #   export が書く書き出した形は封印しないので、export より後にデータを比べないこと。
 # CI の Guarded Path の一覧(scripts/guarded-paths.txt)とは意味が違うので統合しない。実行物の Source がその一覧に
 # 載っていることは test/harness-integrity.bats が確かめる。
 #
 # 改ざん(書き換え・削除・追加)と照合不能(ハッシュを取れない)、スナップショットの前の使用は、どれも
-# HARNESS_INTEGRITY_FAILED(3)を返す。信頼するスクリプトは 0〜2 しか使わないので、呼び出し元はスクリプト自身の
-# 失敗と区別できる。$( ) の中の呼び出しでも終了コードで伝わる。呼び出し元が取りこぼしても公開しないよう、
+# HARNESS_INTEGRITY_FAILED(3)を返す。信頼するスクリプトが明示的に返すのは 0〜2 なので、呼び出し元はスクリプト自身の
+# 失敗と区別できる(set -e で伝わる子プロセスの終了コードが 3 と重なると照合の失敗として扱われるが、安全側の誤り)。
+# $( ) の中の呼び出しでも終了コードで伝わる。呼び出し元が取りこぼしても公開しないよう、
 # 週次ジョブは push と gh pr create の直前に harness_integrity_gate を呼ぶ。
 #
 # スナップショットはこの lib のシェル変数にだけ持つ(ファイルに置くと claude が書き換えられる)。$( ) の中で
@@ -172,7 +174,7 @@ harness_integrity_run() { # <スクリプト> [<引数>…]
     bash "$script" "$@"
 }
 
-# データの全部をスナップショット(封印したものを含む)と比べる。repo に写す直前と、記録を作る直前に呼ぶ
+# データの全部をスナップショット(封印したものを含む)と比べる。呼ぶ時点はこの lib のヘッダの「データ」の項
 harness_integrity_check_data() {
     local current
     _harness_integrity_require_snapshot || return "$HARNESS_INTEGRITY_FAILED"
