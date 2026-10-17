@@ -1,4 +1,4 @@
-// deliver.js を、agent() などの Workflow のフックを stub にして実行し、
+// review-verify.js を、agent() などの Workflow のフックを stub にして実行し、
 // ループの判定と報告の組み立てを決定的に検証する。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -6,13 +6,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT = readFileSync(
-  fileURLToPath(new URL("../dot_claude/workflows/deliver.js", import.meta.url)),
+  fileURLToPath(new URL("../dot_claude/workflows/review-verify.js", import.meta.url)),
   "utf8",
 );
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
 const BASE_ARGS = {
-  mode: "deliver",
   requirementsPath: "/repo/docs/plans/p.md",
   baseRef: "origin/main",
   checkCommands: ["just lint"],
@@ -41,8 +40,6 @@ const cluster = (key, members, extra = {}) => ({
 
 // reviews[i] / merges[i] は i 番目のレビューラウンド、fixes[i] は i 番目の修正ラウンドへの応答。
 function scenario({
-  tasks = [{ title: "t1", summary: "s1" }],
-  implement = () => ({ status: "done", commit: "abc", observations: [] }),
   checks = () => ({ passed: true, details: "" }),
   reviews = [],
   merges = [],
@@ -55,8 +52,6 @@ function scenario({
   let fixIndex = 0;
   let verifyIndex = 0;
   return (label, calls) => {
-    if (label === "plan") return { tasks };
-    if (label.startsWith("implement:")) return implement(Number(label.split(":")[1]));
     if (label.startsWith("checks:")) return checks(Number(label.split(":")[1]));
     if (label.startsWith("review:")) {
       const id = label.split(":")[1];
@@ -90,7 +85,7 @@ async function runWorkflow({
   };
   const parallel = (thunks) => Promise.all(thunks.map((t) => t().catch(() => null)));
   const pipeline = async () => {
-    throw new Error("deliver does not use pipeline()");
+    throw new Error("review-verify does not use pipeline()");
   };
   const body = SCRIPT.replace(/^export const meta/m, "const meta");
   const run = new AsyncFunction(
@@ -125,14 +120,7 @@ function section(report, title) {
 
 test("指摘ゼロなら修正せずに動作確認まで進み、push も PR の作成もしない(ADR 0015)", async () => {
   const { result, labels } = await runWorkflow();
-  assert.deepEqual(labels, [
-    "plan",
-    "implement:1",
-    "checks:1",
-    "review:ecc",
-    "review:requesting",
-    "verify:1",
-  ]);
+  assert.deepEqual(labels, ["checks:1", "review:ecc", "review:requesting", "verify:1"]);
   assert.equal(result.stopReason, null);
   // 返り値は ledger / report / stats / stopReason だけで、公開の結果を含まない(ADR 0015)。
   assert.deepEqual(Object.keys(result).sort(), ["ledger", "report", "stats", "stopReason"]);
@@ -166,7 +154,7 @@ test("修正必須が無くても参考指摘を修正に回し、その後に c
       ],
     }),
   });
-  assert.deepEqual(labels.slice(2, 10), [
+  assert.deepEqual(labels, [
     "checks:1",
     "review:ecc",
     "review:requesting",
@@ -175,6 +163,7 @@ test("修正必須が無くても参考指摘を修正に回し、その後に c
     "checks:2",
     "review:ecc",
     "review:requesting",
+    "verify:1",
   ]);
   assert.match(calls.find((c) => c.label === "fix:1").prompt, /a\.js::style/);
   assert.equal(result.stopReason, null);
@@ -769,25 +758,6 @@ test("verifyArgs が文字列でなければ拒否する", async () => {
   await assert.rejects(runWorkflow({ args: { verifyArgs: ["x"] } }), /verifyArgs は文字列/);
 });
 
-test("実装タスクが blocked ならレビューに進まずに停止して公開する", async () => {
-  const { result, labels } = await runWorkflow({
-    respond: scenario({
-      tasks: [
-        { title: "t1", summary: "s1" },
-        { title: "t2", summary: "s2" },
-      ],
-      implement: (n) =>
-        n === 1
-          ? { status: "blocked", reason: "plan の前提が崩れている", observations: [] }
-          : { status: "done", commit: "abc", observations: [] },
-    }),
-  });
-  assert.equal(result.stopReason, "implement-blocked");
-  assert.ok(!labels.includes("implement:2"));
-  assert.ok(!labels.some((l) => l.startsWith("review:")));
-  assert.match(result.report, /plan の前提が崩れている/);
-});
-
 test("レビュアーが全員 null なら指摘ゼロとみなさずに停止する", async () => {
   const { result } = await runWorkflow({
     respond: scenario({ reviews: [{ ecc: null, requesting: null }] }),
@@ -833,10 +803,10 @@ test("知らない引数は agent を呼ぶ前に拒否する(取り除いた pr
 test("observations を報告にまとめる", async () => {
   const { result } = await runWorkflow({
     respond: scenario({
-      implement: () => ({ status: "done", commit: "abc", observations: ["README が古い"] }),
+      checks: () => ({ passed: true, details: "", changes: [], observations: ["README が古い"] }),
     }),
   });
-  assert.match(section(result.report, "Observations"), /implement:1: README が古い/);
+  assert.match(section(result.report, "Observations"), /checks:1: README が古い/);
 });
 
 test("merge が code の修正必須指摘を requirements の cluster に入れても、code 側は修正に回す", async () => {
@@ -1178,23 +1148,6 @@ function budgetLowAfter(label) {
   };
 }
 
-test("実装タスクの途中で予算が下限を割ったら、次のタスクに進まず budget で止める", async () => {
-  const { budget, wrap } = budgetLowAfter("implement:1");
-  const { result, labels } = await runWorkflow({
-    budget,
-    respond: wrap(
-      scenario({
-        tasks: [
-          { title: "t1", summary: "s1" },
-          { title: "t2", summary: "s2" },
-        ],
-      }),
-    ),
-  });
-  assert.ok(!labels.includes("implement:2"));
-  assert.equal(result.stopReason, "budget");
-});
-
 test("動作確認の再試行の前に予算が下限を割ったら、budget で止める", async () => {
   const { budget, wrap } = budgetLowAfter("verify:1");
   const { result, labels } = await runWorkflow({
@@ -1213,20 +1166,10 @@ test("レビューの収束後に予算が下限を割ったら、1回目の動�
 });
 
 test("budget で止まったとき、どこの前で止まったかを報告に出す", async () => {
-  const { budget, wrap } = budgetLowAfter("implement:1");
-  const { result } = await runWorkflow({
-    budget,
-    respond: wrap(
-      scenario({
-        tasks: [
-          { title: "t1", summary: "s1" },
-          { title: "t2", summary: "s2" },
-        ],
-      }),
-    ),
-  });
+  const { budget, wrap } = budgetLowAfter("review:requesting");
+  const { result } = await runWorkflow({ budget, respond: wrap(scenario()) });
   assert.doesNotMatch(result.report, /次のラウンドに入らなかった/);
-  assert.match(result.report, /タスク 2\/2「t2」の前/);
+  assert.match(result.report, /動作確認 1 回目の前/);
 });
 
 test("入口 skill が書き出せるよう ledger を返す", async () => {
@@ -1246,9 +1189,8 @@ test("途中のラウンドでレビュアーが欠けていても、報告の�
   assert.match(result.report.split("\n")[0], /ラウンド 1.*ecc/);
 });
 
-test("review-verify では実装をせず、レビュー修正ループと動作確認だけを行う", async () => {
+test("実装をせず、レビュー修正ループと動作確認だけを行う(ADR 0019)", async () => {
   const { result, labels } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       reviews: [{ ecc: [finding("HIGH")] }, {}],
       merges: [[cluster("a.js::bug", ["ecc#0"])]],
@@ -1270,29 +1212,21 @@ test("review-verify では実装をせず、レビュー修正ループと動作
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
 
-test("どの mode の報告も統計の節で mode を示し、帰属行を付けない", async () => {
-  const reviewVerify = await runWorkflow({ args: { mode: "review-verify" } });
-  assert.match(section(reviewVerify.result.report, "統計"), /- mode: Review-Verify/);
-  assert.doesNotMatch(reviewVerify.result.report, /Generated with/);
-
-  const deliver = await runWorkflow();
-  assert.match(section(deliver.result.report, "統計"), /- mode: Deliver/);
-  assert.doesNotMatch(deliver.result.report, /Generated with/);
+test("報告の統計の節は上限を示し、mode 行も帰属行も付けない", async () => {
+  const { result } = await runWorkflow();
+  assert.match(section(result.report, "統計"), /- 上限: maxReviewRounds 3 \/ maxVerifyRetries 2/);
+  assert.doesNotMatch(result.report, /- mode:/);
+  assert.doesNotMatch(result.report, /Generated with/);
 });
 
-test("未知の mode は agent を呼ぶ前に throw する", async () => {
+test("mode を渡されたら、廃止した Deliver として走らせず、知らない引数として agent を呼ぶ前に拒否する(ADR 0019)", async () => {
   // agent が先に呼ばれると、その throw は stopReason=error として捕まって resolve するので、rejects が落ちる。
   const respond = (label) => {
     throw new Error(`agent が呼ばれた: ${label}`);
   };
-  await assert.rejects(runWorkflow({ args: { mode: "review" }, respond }), /mode/);
-});
-
-test("mode が無ければ、既定の deliver として走らず agent を呼ぶ前に throw する", async () => {
-  const respond = (label) => {
-    throw new Error(`agent が呼ばれた: ${label}`);
-  };
-  await assert.rejects(runWorkflow({ args: { mode: undefined }, respond }), /mode/);
+  for (const mode of ["deliver", "review-verify"]) {
+    await assert.rejects(runWorkflow({ args: { mode }, respond }), /知らない引数.*mode/);
+  }
 });
 
 test("値が undefined の引数は既定値を消さない(修正ラウンドの上限は 3 のまま)", async () => {
@@ -1308,13 +1242,11 @@ test("値が undefined の引数は既定値を消さない(修正ラウンド�
       })),
     }),
   });
-  assert.equal(labels[0], "plan");
   assert.equal(labels.filter((l) => l.startsWith("fix:")).length, 3);
 });
 
-test("review-verify でテスト/lint が通らなければ、レビューも動作確認もせずに停止する", async () => {
+test("テスト/lint が通らなければ、レビューも動作確認もせずに停止する", async () => {
   const { result, labels } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({ checks: () => ({ passed: false, details: "lint 失敗" }) }),
   });
   assert.deepEqual(labels, ["checks:1"]);
@@ -1322,9 +1254,8 @@ test("review-verify でテスト/lint が通らなければ、レビューも動
   assert.match(section(result.report, "Unresolved Finding"), /未レビュー/);
 });
 
-test("review-verify で requirementsBreaking により停止したら、動作確認をしない", async () => {
+test("requirementsBreaking により停止したら、動作確認をしない", async () => {
   const { result, labels } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       reviews: [
         { ecc: [finding("CRITICAL", { target: "requirements", requirementsBreaking: true })] },
@@ -1343,9 +1274,8 @@ test("review-verify で requirementsBreaking により停止したら、動作�
   assert.ok(!labels.some((l) => l.startsWith("verify:")));
 });
 
-test("review-verify で動作確認が失敗したら、直した後にレビューし直してから再確認する", async () => {
+test("動作確認が失敗したら、直した後にレビューし直してから再確認する", async () => {
   const { labels } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       verifies: [
         { passed: false, summary: "画面が真っ白" },
@@ -1366,23 +1296,22 @@ test("review-verify で動作確認が失敗したら、直した後にレビュ
   ]);
 });
 
-test("review-verify では、要件文書のうちブランチが着手していない項目を実装させないよう、テスト/lint・レビュー・修正・動作確認の prompt で範囲を限る", async () => {
-  const respond = () =>
-    scenario({
-      reviews: [{ requesting: [finding("Important")] }, {}],
-      merges: [[cluster("a.js::scope", ["requesting#0"])]],
-      fixes: [
-        {
-          results: [{ key: "a.js::scope", action: "propose-defer", reason: "未着手の要件" }],
-          observations: [],
-        },
-      ],
-      verdicts: { "a.js::scope": { agree: true, reason: "ブランチの範囲外" } },
-      verifies: [
-        { passed: false, summary: "画面が真っ白" },
-        { passed: true, summary: "ok" },
-      ],
-    });
+test("要件文書のうちブランチが着手していない項目を実装させないよう、テスト/lint・レビュー・修正・動作確認の prompt で範囲を限る", async () => {
+  const respond = scenario({
+    reviews: [{ requesting: [finding("Important")] }, {}],
+    merges: [[cluster("a.js::scope", ["requesting#0"])]],
+    fixes: [
+      {
+        results: [{ key: "a.js::scope", action: "propose-defer", reason: "未着手の要件" }],
+        observations: [],
+      },
+    ],
+    verdicts: { "a.js::scope": { agree: true, reason: "ブランチの範囲外" } },
+    verifies: [
+      { passed: false, summary: "画面が真っ白" },
+      { passed: true, summary: "ok" },
+    ],
+  });
   const scoped = ["checks:", "review:", "fix:", "defer-verify:", "verify:", "fix-verify:"];
   const promptsOf = (calls) =>
     scoped.map((prefix) => {
@@ -1391,7 +1320,7 @@ test("review-verify では、要件文書のうちブランチが着手してい
       return call.prompt;
     });
 
-  const reviewVerify = await runWorkflow({ args: { mode: "review-verify" }, respond: respond() });
+  const reviewVerify = await runWorkflow({ respond });
   for (const prompt of promptsOf(reviewVerify.calls)) {
     assert.match(prompt, /まだ着手していない/);
     // 範囲の制約を口実に、ブランチ自身の変更の不具合を見送らせない。
@@ -1408,38 +1337,31 @@ test("review-verify では、要件文書のうちブランチが着手してい
   );
   assert.match(call("defer-verify:"), /自分で確かめ/);
   assert.match(call("fix-verify:"), /fixed=false/);
-
-  const deliver = await runWorkflow({ respond: respond() });
-  for (const prompt of promptsOf(deliver.calls)) assert.doesNotMatch(prompt, /まだ着手していない/);
 });
 
-test("コードを編集する checks・fix・fix-verify の prompt は、どの mode でも要件文書の変更を禁じる", async () => {
-  const respond = () =>
-    scenario({
-      reviews: [{ requesting: [finding("Important")] }, {}],
-      merges: [[cluster("a.js::bug", ["requesting#0"])]],
-      fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], observations: [] }],
-      verifies: [
-        { passed: false, summary: "画面が真っ白" },
-        { passed: true, summary: "ok" },
-      ],
-    });
-  for (const mode of ["deliver", "review-verify"]) {
-    const { calls } = await runWorkflow({ args: { mode }, respond: respond() });
-    for (const prefix of ["checks:", "fix:", "fix-verify:"]) {
-      const call = calls.find((c) => c.label.startsWith(prefix));
-      assert.ok(call, `${mode}: ${prefix} が呼ばれていない`);
-      assert.ok(
-        call.prompt.includes(`要件文書 ${BASE_ARGS.requirementsPath} は変更しない`),
-        `${mode}: ${prefix} が要件文書の変更を禁じていない`,
-      );
-    }
+test("コードを編集する checks・fix・fix-verify の prompt は、要件文書の変更を禁じる", async () => {
+  const respond = scenario({
+    reviews: [{ requesting: [finding("Important")] }, {}],
+    merges: [[cluster("a.js::bug", ["requesting#0"])]],
+    fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], observations: [] }],
+    verifies: [
+      { passed: false, summary: "画面が真っ白" },
+      { passed: true, summary: "ok" },
+    ],
+  });
+  const { calls } = await runWorkflow({ respond });
+  for (const prefix of ["checks:", "fix:", "fix-verify:"]) {
+    const call = calls.find((c) => c.label.startsWith(prefix));
+    assert.ok(call, `${prefix} が呼ばれていない`);
+    assert.ok(
+      call.prompt.includes(`要件文書 ${BASE_ARGS.requirementsPath} は変更しない`),
+      `${prefix} が要件文書の変更を禁じていない`,
+    );
   }
 });
 
 test("テスト/lint を通すために checks がコードを変えたら、通った場合も報告に残す", async () => {
   const { result } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       checks: () => ({
         passed: true,
@@ -1467,7 +1389,6 @@ test("checks がコードを変えなければ、その節は「なし」と出�
 
 test("動作確認の修正がコードを変えたら、直った場合も報告と ledger に残す", async () => {
   const { result, calls } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       verifies: [
         { passed: false, summary: "画面が真っ白" },
@@ -1491,9 +1412,8 @@ test("動作確認の修正がコードを変えたら、直った場合も報�
   ]);
 });
 
-test("review-verify では、未着手の項目を範囲外とする規則が要件文書とのずれを直す指示より優先すると明示する", async () => {
+test("未着手の項目を範囲外とする規則が要件文書とのずれを直す指示より優先すると明示する", async () => {
   const { calls } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       reviews: [{ requesting: [finding("Important")] }, {}],
       merges: [[cluster("a.js::bug", ["requesting#0"])]],
@@ -1508,7 +1428,6 @@ test("review-verify では、未着手の項目を範囲外とする規則が要
 
 test("レビュー指摘を直したら、直した指摘と変えたファイルを報告と ledger に残す", async () => {
   const { result, calls } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       reviews: [{ ecc: [finding("HIGH")] }, {}],
       merges: [[cluster("a.js::bug", ["ecc#0"])]],
@@ -1545,13 +1464,6 @@ test("直したと申告した指摘が Unresolved になったら、修正し�
   assert.equal(section(result.report, "修正した指摘").trim(), "なし");
 });
 
-test("mode と他の必須引数が同時に欠けていれば、1回の throw で両方を挙げる", async () => {
-  await assert.rejects(
-    runWorkflow({ args: { mode: undefined, requirementsPath: "" } }),
-    /必須の引数がありません: requirementsPath, mode/,
-  );
-});
-
 test("修正の prompt は receiving-code-review で判断させ、非対話の読み替えと、参考指摘を直す側に倒す指示を含む", async () => {
   const { calls } = await runWorkflow({
     respond: scenario({
@@ -1580,7 +1492,6 @@ test("修正の prompt は receiving-code-review で判断させ、非対話の�
 
 test("統計は報告の「統計」節と同じ内容を stats として返し、収束したレビューの実行を数える", async () => {
   const { result } = await runWorkflow({
-    args: { mode: "review-verify" },
     respond: scenario({
       reviews: [{ ecc: [finding("HIGH")] }, {}],
       merges: [[cluster("a.js::bug", ["ecc#0"])]],
@@ -1588,7 +1499,7 @@ test("統計は報告の「統計」節と同じ内容を stats として返し�
     }),
   });
   assert.equal(`## 統計\n${section(result.report, "統計")}`.trim(), result.stats);
-  assert.match(result.stats, /- mode: Review-Verify\(maxReviewRounds 3 \/ maxVerifyRetries 2\)/);
+  assert.match(result.stats, /- 上限: maxReviewRounds 3 \/ maxVerifyRetries 2/);
   assert.match(result.stats, /- 停止: なし/);
   assert.match(result.stats, /- レビューの実行: 1\(動作確認の失敗による再入 0\)/);
   assert.match(result.stats, /- 実行 1: 収束した\(ラウンド 1〜2\)/);

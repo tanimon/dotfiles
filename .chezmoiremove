@@ -80,3 +80,9 @@ bin/cco
 # ファイルが残って読み込まれ続けるので、ここで消す。
 .claude/rules/typescript/hooks.md
 .claude/rules/web/hooks.md
+
+# Deliver は廃止され、Workflow は review-verify.js だけになっている(docs/adr/0019-retire-deliver-keep-only-review-verify.md)。
+# source から消しただけでは配置済みのファイルが残り、/deliver が古い Workflow を呼び続けるので、ここで消す。
+.claude/workflows/deliver.js
+.claude/skills/deliver/**
+.claude/skills/deliver

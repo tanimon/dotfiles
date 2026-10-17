@@ -41,7 +41,7 @@
 #   日本語(UTF-8 で 1 文字 3 バイト)は 1 文字 1 トークンを超えうるので、日本語が中心の SKILL.md は
 #   15000 バイト以内でも 5,000 トークンを超えることがある。1 文字 2 トークンと見る安全側の換算(約 7500
 #   バイト)は、既存の SKILL.md(dot_claude/skills/review-verify/SKILL.md、約 10 KB)を落とすので採らない。
-#   行数が少なくても 1 行が長い SKILL.md(dot_claude/skills/deliver/SKILL.md など)があるので、
+#   行数が少なくても 1 行が長い SKILL.md(dot_claude/skills/review-verify/SKILL.md など)があるので、
 #   バイト数も見る。
 # 日本語が中心の SKILL.md は 1 行あたりのバイト数が多く(500 行 × 約 100 バイト ≒ 50 KB)、500 行より先に
 # 15000 バイトに当たる。実際に効くのはほぼバイト数の上限で、500 行は 1 行が短い SKILL.md の歯止めになる。

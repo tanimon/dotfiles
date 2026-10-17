@@ -154,14 +154,10 @@ _Avoid_: profile（無限定）、プロファイル
 Isolation Boundary が何を許可するかを定義するポリシー文書。
 _Avoid_: profile（無限定）、プロファイル
 
-### Autonomous delivery
-
-**Deliver**:
-plan を受け取り、実装からレビュー修正ループ・動作確認を経て人間への報告までを agent が自律で行うプロセス。push も PR の作成もせず、コミットはローカルのブランチに残して、公開するかどうかは人間に委ねる。
-_Avoid_: 自律実装(無限定)
+### Autonomous review
 
 **Review-Verify**:
-既にコミットされたブランチに、Requirements Document を基準にしたレビュー修正ループと動作確認だけをかけ、人間へ報告するプロセス。Deliver とは、実装から始めないことだけが違い、どちらも公開しない。
+既にコミットされたブランチに、Requirements Document を基準にしたレビュー修正ループと動作確認だけをかけ、人間へ報告するプロセス。push も PR の作成もせず、修正のコミットはローカルのブランチに残して、公開するかどうかは人間に委ねる。
 _Avoid_: レビューだけモード、deliver の後半
 
 **Review Finding**:
@@ -169,7 +165,7 @@ _Avoid_: レビューだけモード、deliver の後半
 _Avoid_: コメント、issue(GitHub Issue と紛らわしい)
 
 **Deferred Finding**:
-修正しないと決めた Review Finding。実装した agent 単独では決められず、別の検証者が偽陽性またはスコープ外と同意したものに限る。必ず人間への最終報告に載る。
+修正しないと決めた Review Finding。修正エージェント単独では決められず、別の検証者が偽陽性またはスコープ外と同意したものに限る。必ず人間への最終報告に載る。
 _Avoid_: 見送り(無限定)、スキップした指摘、却下
 
 **Unresolved Finding**:
@@ -185,7 +181,7 @@ _Avoid_: nit(重大度を問わず使われる)、参考指摘(報告の節名�
 _Avoid_: Deferred Finding(検証者の同意を経たものに限る)
 
 **Requirements Document**:
-何を作るつもりかを人間が書いた、レビュー・修正・動作確認が意図の正本として読む文書。plan(タスク分解を持つもの)と spec のどちらもこの一種で、実装から始めるには plan が要る。
+何を作るつもりかを人間が書いた、レビュー・修正・動作確認が意図の正本として読む文書。plan と spec のどちらもこの一種。
 _Avoid_: 仕様書(無限定)、入力
 
 **Requirements Concern**:
