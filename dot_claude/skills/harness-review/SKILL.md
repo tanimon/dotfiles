@@ -76,7 +76,9 @@ For each `^## ` entry in `~/.claude/harness/queue.md`:
      `dot_claude/CLAUDE.md.tmpl` if it names Claude-only tools
    - this-repo pitfall → `harness/modules/project/50-pitfalls.md` (then run
      `just harness-sync`; `CLAUDE.md` is generated from it) or `.claude/rules/`
-   - incident record → `docs/solutions/`
+   - incident record → `docs/solutions/`, following the frontmatter,
+     category directory, section template and duplicate check in
+     `docs/solutions/README.md`
 
    Scope `project:<other-repo>` → verdict
    handoff to `<repo>`; tell the user what to add there — do not

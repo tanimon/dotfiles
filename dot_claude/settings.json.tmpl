@@ -112,7 +112,6 @@
       "mcp__claude_ai_Notion__notion-query-data-sources",
       "mcp__claude_ai_Notion__notion-search",
       "mcp__claude_ai_Slack__slack_search_channels",
-      "mcp__context7",
       "mcp__deepwiki",
       "Read({{ .chezmoi.homeDir }}/ghq/github.com/{{ .ghOrg }}/**)",
       "WebFetch(domain:*)",
@@ -266,7 +265,7 @@
     "skill-creator@claude-plugins-official": false,
     "sentry@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
-    {{/* compound-engineering は /doctor(2026-10-16)で無効化した。skill 一覧に 36 項目・約 8.1k 文字を載せる最大の項目で、一覧が予算を超えて他の skill の説明文が切り落とされていた一方、直近 14 日の利用は ce-handoff の 3 回だけだった(handoff は mattpocock-skills:handoff で代替できる)。再度使いたくなったら true に戻すだけでよい。 */ -}}
+    {{/* compound-engineering は削除済み(marketplace も extraKnownMarketplaces から外してある)。キーを消さずに false を明示するのは ecc@ecc と同じ理由で、installed_plugins.json に install が残ったマシンでキーが無いと有効扱いされるかを実測していないため。各マシンで `claude plugin uninstall compound-engineering@compound-engineering-plugin` を済ませたことを確かめたら、キーごと消してよい。代替: handoff は mattpocock-skills:handoff、docs/solutions の書式は docs/solutions/README.md。 */ -}}
     "compound-engineering@compound-engineering-plugin": false,
     {{/* ecc@ecc: 2026-09-24 に plugin 丸ごとの有効化をやめ、使っているファイルだけを .chezmoiexternal.toml で取り込むようにした(docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md)。キーを消すだけだと、installed_plugins.json に残った install が有効扱いされるかどうかが実測できていないので、false を明示して確定させる。 */ -}}
     "ecc@ecc": false,
@@ -291,13 +290,6 @@
         "source": "github",
         "repo": "anthropics/claude-plugins-official"
       }
-    },
-    "compound-engineering-plugin": {
-      "source": {
-        "source": "github",
-        "repo": "EveryInc/compound-engineering-plugin"
-      },
-      "autoUpdate": true
     },
     "cclens": {
       "source": {

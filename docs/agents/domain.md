@@ -34,7 +34,7 @@ single-context リポジトリ（このリポジトリ）:
 
 ## `CONCEPTS.md` の扱い
 
-glossary の書き手は歴史的に2系統あった: `ce-compound` / `ce-compound-refresh` が `CONCEPTS.md` に、mattpocock 系 skill（`/domain-modeling` 等）が `GLOSSARY.md` に書く。**ce-* 系は retire 検討中で新規追記の想定がないため、一本化ではなく世代交代で解決している**（一時的に symlink による SSoT を試したが、mattpocock のデフォルト構成を素直に採る方針に切り替えた）。
+glossary の書き手は歴史的に2系統あった: `ce-compound` / `ce-compound-refresh` が `CONCEPTS.md` に、mattpocock 系 skill（`/domain-modeling` 等）が `GLOSSARY.md` に書く。**ce-* 系(compound-engineering plugin)は削除済みで新規追記が起きないため、一本化ではなく世代交代で解決している**（一時的に symlink による SSoT を試したが、mattpocock のデフォルト構成を素直に採る方針に切り替えた）。
 
 - **書き込みは `GLOSSARY.md` のみ。** 新しい用語・定義・`_Avoid_` を `CONCEPTS.md` に追加しない。
 - **`CONCEPTS.md` は消さない。** `GLOSSARY-FORMAT.md` の「定義は1〜2文」制約に収まらない詳細な段落がそこにしか無い形で残っている。`GLOSSARY.md` に対応物が無い load-bearing な段落は以下:
