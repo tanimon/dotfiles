@@ -524,11 +524,12 @@ PRE
 # 抽出の claude の実行中に、入口スクリプト自身を同じ inode のまま書き換える run(#515)。bash は
 # スクリプトを実行しながら読むので、包まない形では書き換えた内容がその run の残りに効く。
 # リポジトリのファイルを書き換えないよう、入口スクリプトは隣の lib/ と一緒に複製して起動する。
-# append は末尾への追記、overwrite は最後の行の直前に 1 行入れた全体での上書き
-# (読み取り位置より後ろに命令が来るように。短い内容での上書きは EOF になるだけで検査にならない)。
+# append は末尾への追記、overwrite は最後の行の直前に、overwrite_middle は抽出の直後の文(QUEUE_ENTRIES の
+# 代入)の直前に 1 行入れた全体での上書き(読み取り位置より後ろに命令が来るように。短い内容での上書きは
+# EOF になるだけで検査にならない)。
 # 呼ぶ側は queue に項目を置いて選別の経路を通す。queue が空の経路は finish_run の後に exit 0 があり、
 # 末尾まで読みに行かないので、包まない形でも書き足した命令が実行されず検査にならない
-prepare_self_tamper() { # <append | overwrite>
+prepare_self_tamper() { # <append | overwrite | overwrite_middle>
     local dir="$BATS_TEST_TMPDIR/selfmod"
     mkdir -p "$dir/lib"
     cp "$SCRIPT" "$dir/harness-weekly.sh"
@@ -543,6 +544,10 @@ line="printf 'tampered\n' >>'$TAMPER_MARKER'"
 case "$TAMPER_MODE" in
 append) printf '%s\n' "$line" >>"$TAMPER_TARGET" ;;
 overwrite) { sed '$d' "$TAMPER_ORIGINAL"; printf '%s\n' "$line"; tail -n 1 "$TAMPER_ORIGINAL"; } >"$TAMPER_TARGET" ;;
+overwrite_middle)
+    TAMPER_LINE="$line" awk 'index($0, "QUEUE_ENTRIES=$(count_queue)") { print ENVIRON["TAMPER_LINE"] } { print }' \
+        "$TAMPER_ORIGINAL" >"$TAMPER_TARGET"
+    ;;
 esac
 EOF
     INODE_BEFORE=$(ls -i "$TAMPER_TARGET" | awk '{print $1}')
@@ -571,6 +576,16 @@ assert_tamper_not_run() {
 @test "抽出の実行中に入口スクリプトが同じ inode で上書きされても、その run は元の内容で最後まで動く" {
     seed_queue
     prepare_self_tamper overwrite
+    STUB_REVIEW_MODE=none run bash "$TAMPER_TARGET"
+    assert_success
+    assert_output --partial 'review committed no changes; no PR created'
+    assert_line --regexp '^harness-weekly: end .* exit=0 '
+    assert_tamper_not_run
+}
+
+@test "抽出の実行中に入口スクリプトの途中へ命令を入れて上書きされても、その run は元の内容で最後まで動く" {
+    seed_queue
+    prepare_self_tamper overwrite_middle
     STUB_REVIEW_MODE=none run bash "$TAMPER_TARGET"
     assert_success
     assert_output --partial 'review committed no changes; no PR created'

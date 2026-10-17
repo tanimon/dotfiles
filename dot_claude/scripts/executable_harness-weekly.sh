@@ -352,7 +352,7 @@ main() {
         return "$failed"
     }
 
-    # cleanup は trap が名前で呼び、report_stops・alert_issue・open_issue・home_relative は cleanup を経由してだけ呼ばれる。
+    # cleanup は trap が名前で呼び、report_stops とそれが使う関数は cleanup を経由してだけ呼ばれる。
     # main の中の trap からの呼び出しを shellcheck は追わず、これらを呼ばれない関数として指摘する。新しい版は
     # SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する
     # shellcheck disable=SC2317,SC2329
@@ -1446,8 +1446,8 @@ ${WRITE_RULE}
 }
 
 # main の呼び出しと exit を 1 つのグループにするのは、bash がグループを閉じるまで読んでから実行し、main が
-# 戻った後にこのファイルの続きを読まないため(exit を別のコマンドとして後ろの行に置くと、その行と末尾は
-# 書き換えた内容で動く)。main を条件の文脈(`main || …` や `if main`)で呼ぶと、main の中で set -e が効かなくなる
+# 戻った後にこのファイルの続きを読まないため。main を条件の文脈(`main || …` や `if main`)で呼ぶと、
+# main の中で set -e が効かなくなる
 {
     main "$@"
     exit
