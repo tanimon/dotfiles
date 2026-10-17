@@ -2430,3 +2430,107 @@ PRE
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
     assert_line "$RATES_REPO_DIR/2026-09-26.json"
 }
+
+# 抽出の claude の後のデータの照合。queue が空の週と当日の PR が既にある週は publish_review を通らないので、
+# 抽出の claude が書き換えたデータを照合しないまま heartbeat を書くと、次の run のスナップショットが正として持ち越す
+
+# reflect_rewrites_record <日付>: 抽出の claude がローカルの週の記録を書き換える
+reflect_rewrites_record() {
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-reflect skill'* ]]; then
+    printf '{"tampered":true}\n' >"$RATES/$1.json"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+}
+
+@test "queue が空の週は、持ち越した週の記録が書き換えられていなければ heartbeat を書く" {
+    old_record 2026-09-26
+    run weekly
+    assert_success
+    assert_output --partial 'queue is empty; skipped review'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "queue が空の週に抽出の claude が週の記録を書き換えたら、heartbeat を書かずに失敗する" {
+    old_record 2026-09-26
+    reflect_rewrites_record 2026-09-26
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $RATES/2026-09-26.json"
+    refute_output --partial 'queue is empty; skipped review'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "当日の PR が既にある週に抽出の claude が週の記録を書き換えたら、heartbeat を書かずに失敗する" {
+    seed_queue
+    old_record 2026-09-26
+    git -C "$HARNESS_WEEKLY_REPO" push -q origin "main:refs/heads/${BRANCH}"
+    reflect_rewrites_record 2026-09-26
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $RATES/2026-09-26.json"
+    refute_output --partial 'already exists on origin'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+# 選別の claude が commit の後に失敗した run(report_failed_review)のデータの照合。書き換えが無い側は
+# 「選別の claude が commit の後に失敗したら、手で作る PR の本文に検出の節を足す」
+
+@test "選別が commit の後に失敗した run で週の記録が書き換えられていたら、手で公開する手順を案内しない" {
+    seed_queue
+    old_record 2026-09-26
+    review_fails_after_commit
+    cat >"$STUBS/claude-pre" <<PRE
+if [[ "\$*" == *'harness-review skill'* ]]; then
+    printf '{"tampered":true}\n' >"$RATES/2026-09-26.json"
+fi
+PRE
+    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $RATES/2026-09-26.json"
+    assert_output --partial 'do not publish the branch as it is'
+    refute_output --partial 'To publish by hand'
+    run cat "$HDIR/review-pr-body-$TODAY.md"
+    refute_line '## 失敗の検出'
+    refute_line '## Failure Pattern の再発率'
+}
+
+# PR を作った後の経路。Verdict の CLI の adopted が照合のほかの理由で失敗しても、Rule Ledger の記録と heartbeat は止めない
+
+# adopted だけを失敗させる Verdict の CLI に差し替える(スナップショットの前なので書き換えではない)
+verdict_fails_on_adopted() {
+    mv "$HOME/.claude/scripts/harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict-real.sh"
+    cat >"$HOME/.claude/scripts/harness-verdict.sh" <<'EOF2'
+#!/usr/bin/env bash
+[[ "$1" != adopted ]] || exit 1
+exec bash "$HOME/.claude/scripts/harness-verdict-real.sh" "$@"
+EOF2
+}
+
+@test "Verdict の CLI の adopted が失敗しても、PR を作った後の Rule Ledger の記録と heartbeat は止めない" {
+    seed_queue
+    verdict_fails_on_adopted
+    run weekly
+    assert_success
+    assert_output --partial 'WARN could not read the adopted verdicts'
+    assert_output --partial 'opened draft PR https://github.com/example/dotfiles/pull/42'
+    assert_output --partial 'Rule Ledger record(s)'
+    refute_output --partial 'could not be trusted'
+    assert [ -f "$HDIR/weekly-heartbeat" ]
+}
+
+@test "PR を作った後に Verdict の CLI が書き換えられたら、PR を残したまま heartbeat を書かずに失敗する" {
+    seed_queue
+    cat >"$STUBS/gh-pre" <<'PRE'
+[[ "$1 $2" != 'pr create' ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+PRE
+    sed -i.bak '1r '"$STUBS/gh-pre" "$STUBS/gh"
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
+    assert_output --partial 'opened https://github.com/example/dotfiles/pull/42, but the scripts or records the job uses after it could not be trusted'
+    refute_output --partial 'Rule Ledger record(s)'
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}

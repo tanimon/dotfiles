@@ -941,6 +941,10 @@ record_and_publish_ledger() { # <base> <PR の URL>
 trusted_before_publish() { # <これから行う操作>
     harness_integrity_gate && return 0
     printf 'harness-weekly: stopped before %s on %s; no PR created, because the scripts the job runs could not be trusted\n' "$1" "$BRANCH" >&2
+    # gh pr create の直前で止まったときはブランチが origin にあり、同じ日の再実行は手で PR を作るよう案内してしまう
+    [[ "$1" != 'gh pr create' ]] ||
+        printf 'harness-weekly: %s is already on origin; do not open a PR from it as it is. Find what changed the scripts, then delete the branch (git push origin --delete %s)\n' \
+            "$BRANCH" "$BRANCH" >&2
     return 1
 }
 
@@ -1124,7 +1128,7 @@ check_review_claims() { # <commit の件数> <dropped の件数>
 # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
 # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
-    local base=$1 commits url dropped_count dropped_items touched commit_status=0 titles status=0
+    local base=$1 commits url dropped_count dropped_items touched commit_status=0 titles status=0 post_status=0
     if ! review_result_valid; then
         printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
             "$REVIEW_RESULT" >&2
@@ -1238,14 +1242,15 @@ publish_review() {
     url=${url##*$'\n'}
     printf 'harness-weekly: opened draft PR %s (%s commit(s))\n' "$url" "$commits"
     rm -f "$PR_BODY" "$REVIEW_RESULT"
-    # PR を作った後に照合に落ちたら、後片付けはしたうえで run を失敗させる(heartbeat を書かない)
-    record_pr_url "$url" || status=$?
-    [[ "$status" -ne 0 ]] || record_and_publish_ledger "$base" "$url" || status=$?
+    # PR を作った後に照合に落ちたら、後片付けはしたうえで run を失敗させる(heartbeat を書かない)。
+    # status は adopted の WARN の経路で非 0 のまま残りうるので、別の変数で受ける
+    record_pr_url "$url" || post_status=$?
+    [[ "$post_status" -ne 0 ]] || record_and_publish_ledger "$base" "$url" || post_status=$?
     remove_worktree
     # ブランチは origin にあるので、ローカルの分は消す(残すと週ごとに溜まる)
     git -C "$REPO" branch --quiet -D "$BRANCH" >/dev/null 2>&1 ||
         printf 'harness-weekly: WARN could not delete local branch %s in %s\n' "$BRANCH" "$REPO" >&2
-    if [[ "$status" -ne 0 ]]; then
+    if [[ "$post_status" -ne 0 ]]; then
         printf 'harness-weekly: opened %s, but the scripts or records the job uses after it could not be trusted; check the PR and the Rule Ledger by hand\n' "$url" >&2
         return 1
     fi
@@ -1261,7 +1266,7 @@ publish_review() {
 # 本文にも Dropped Change と Deploy-only Fix の節を足す(claude には本文に書かせないため、
 # 足さないと落とした変更の一覧が結果ファイルにしか残らない)
 report_failed_review() {
-    local base=$1 commits result_ok=0
+    local base=$1 commits result_ok=0 trusted=0
     if [[ -f "$REVIEW_RESULT" ]] && review_result_valid; then
         result_ok=1
         record_deploy_only ||
@@ -1277,11 +1282,15 @@ report_failed_review() {
         result_sections >>"$PR_BODY" ||
             printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
     fi
-    append_detection_section
-    # 照合に落ちたら節を省き(append_rates_section がその旨を出す)、手で公開する手順の代わりに、書き換えを
-    # 確かめてから commit を読み直すよう案内する
-    if ! append_rates_section; then
-        printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s), and the scripts the job uses were changed after the claude runs started; do not publish the branch as it is. Restore the scripts, find what changed them, and review the commits before publishing them by hand\n' \
+    # 選別の claude は自分の run を失敗させてこの経路に入れるので、publish_review と同じくデータを照合してから
+    # 検出件数と推移の節を足す。照合に落ちたら節を省き(推移は append_rates_section がその旨を出す)、手で公開する
+    # 手順の代わりに、書き換えを確かめてから commit を読み直すよう案内する
+    if harness_integrity_check_data; then
+        append_detection_section
+        append_rates_section && trusted=1
+    fi
+    if [[ "$trusted" -eq 0 ]]; then
+        printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s), and the scripts or records the job uses were changed after the claude runs started; do not publish the branch as it is. Restore them, find what changed them, and review the commits before publishing them by hand\n' \
             "$commits" "$BRANCH" "$WORKTREE" >&2
         return 0
     fi
@@ -1357,6 +1366,12 @@ ${WRITE_RULE}
 - Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
     run_claude reflect "$SESSION_ID" "$REFLECT_BUDGET_USD" "$PROMPT" || exit 1
 fi
+# queue が空の週と当日の PR が既にある週は repo に写す工程を通らないので、抽出の claude が書き換えたデータを
+# 次の run のスナップショットが正として持ち越さないよう、どの分岐にも入る前に照合する(job 自身の正当な書き込みの前)
+harness_integrity_check_data || {
+    printf 'harness-weekly: the local records could not be trusted after reflect; skipped review\n' >&2
+    exit 1
+}
 
 QUEUE_ENTRIES=$(count_queue)
 if [[ "$QUEUE_ENTRIES" -eq 0 ]]; then
