@@ -16,6 +16,9 @@
 # git push guard が変数を含む push に ask を返すため(#429)。
 # PR を作った後に、採用ごとの Rule Ledger の記録を作り(harness-rule-ledger.sh)、このスクリプトの
 # commit で同じブランチに足して push し直す(PR 番号は PR を作るまで決まらないため)。
+# 抽出と選別の claude は ~/.claude に書けるので、claude の後に使うスクリプトとデータは Integrity Snapshot
+# (lib/harness-integrity.bash。ADR 0019)が claude の起動前にハッシュを取り、使う直前に比べる。claude の後に
+# ~/.claude/scripts のスクリプトを呼ぶときは、必ずその入口(harness_integrity_run)を通す。
 # 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
 # heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
 # 停止(この run の失敗・前の週に成功しなかったこと・ループの PR の放置・PR にならないループの
@@ -103,8 +106,6 @@ DETECTIONS="$HARNESS_DIR/detections.jsonl"
 # 失敗を Failure Pattern に分類するスクリプトと、週の再発率を記録して推移の節を作るスクリプト
 CLASSIFY_FAILURES="$HOME/.claude/scripts/harness-classify-failures.sh"
 FAILURE_RATES="$HOME/.claude/scripts/harness-failure-rates.sh"
-# FAILURE_RATES が読む Failure Pattern の一覧(推移の節にも使う)
-FAILURE_PATTERNS="$HOME/.claude/scripts/harness-failure-patterns.json"
 # 週の再発率の記録(1 週 1 ファイル)。ローカルに全週を持ち、PR を作る run がリポジトリの
 # RATES_REPO_DIR に無い週の分をこのスクリプトの commit で足す(commit_rate_records)。
 # 1 つのファイルに追記しないのは、記録を含む PR が 2 本開いたときに同じ行の追記どうしで
@@ -118,7 +119,6 @@ RULE_LEDGER="$HOME/.claude/scripts/harness-rule-ledger.sh"
 VERDICT_CLI="$HOME/.claude/scripts/harness-verdict.sh"
 LOCAL_LEDGER_DIR="$HARNESS_DIR/rule-ledger"
 LEDGER_REPO_DIR="docs/harness/rule-ledger"
-CLASSIFICATIONS="$HARNESS_DIR/classifications.jsonl"
 # origin/main に無い週の記録がこの件数たまったら、採用が無くても記録だけの draft PR を作る
 METRICS_ONLY_WEEKS=4
 # このスクリプト自身の commit が使う git の設定。launchd の環境には GIT_CONFIG_GLOBAL が無く
@@ -262,6 +262,7 @@ home_relative() {
 # shellcheck disable=SC2016,SC2088
 report_stops() { # <この run の終了コード>
     local status=$1 failed=0 reported_failure=0 failed_issue="" log remedy prs stale number url days branches branch count pr_count repo cutoff marks
+    local verdict_status verdict_note
     log='~/Library/Logs/harness-weekly.log'
     remedy='launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly'
     if [[ "$status" -ne 0 ]]; then
@@ -313,16 +314,28 @@ report_stops() { # <この run の終了コード>
         repo=$(home_relative "$REPO")
         while IFS=$'\t' read -r branch count; do
             [[ -n "$branch" ]] || continue
-            # PR になっていない採用が残るブランチは finish_run がジョブを失敗させ、失敗の Issue が知らせる
-            if ! marks=$(bash "$VERDICT_CLI" unpublished --branch "$branch"); then
-                printf 'harness-weekly: WARN could not read the unpublished verdicts of %s from %s\n' "$branch" "$ARCHIVE" >&2
-                failed=1
-                continue
+            # PR になっていない採用が残るブランチは finish_run がジョブを失敗させ、失敗の Issue が知らせる。
+            # Verdict の CLI は Integrity Snapshot の入口を通してだけ呼ぶ。入口を使えない(lib を読み込む前か
+            # スナップショットの前に止まった)run と、照合に落ちた run では CLI を呼ばず、採用の有無を確かめずに
+            # ブランチの Issue を作って、そのことを本文に書く(通知は止めない)
+            verdict_note=""
+            if ! declare -F harness_integrity_run harness_integrity_ready >/dev/null || ! harness_integrity_ready; then
+                verdict_note='Verdict CLI を確かめられなかった(この run は改ざんの検出の準備の前に止まった)ため、このブランチに PR になっていない採用が残っているかは確かめていない。'
+            else
+                verdict_status=0
+                marks=$(harness_integrity_run "$VERDICT_CLI" unpublished --branch "$branch") || verdict_status=$?
+                if [[ "$verdict_status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+                    verdict_note='Verdict CLI を信頼できなかった(claude の起動後に週次ジョブが使うスクリプトが書き換えられていた。ログの `harness-integrity:` の行を参照)ため、このブランチに PR になっていない採用が残っているかは確かめていない。'
+                elif [[ "$verdict_status" -ne 0 ]]; then
+                    printf 'harness-weekly: WARN could not read the unpublished verdicts of %s from %s\n' "$branch" "$ARCHIVE" >&2
+                    failed=1
+                    continue
+                elif [[ -n "$marks" ]]; then
+                    printf 'harness-weekly: %s has an adopted verdict in %s; the failure issue reports it\n' "$branch" "$ARCHIVE"
+                    continue
+                fi
             fi
-            if [[ -n "$marks" ]]; then
-                printf 'harness-weekly: %s has an adopted verdict in %s; the failure issue reports it\n' "$branch" "$ARCHIVE"
-                continue
-            fi
+            [[ -z "$verdict_note" ]] || verdict_note+=$'\n\n'
             pr_count=$(cd "$REPO" && gh pr list --head "$branch" --state all --json number --jq length) || {
                 printf 'harness-weekly: WARN could not check whether %s has a PR\n' "$branch" >&2
                 failed=1
@@ -333,8 +346,8 @@ report_stops() { # <この run の終了コード>
                 printf 'harness-weekly: %s already has a PR; delete it with git -C %s branch -D %s to stop checking it\n' "$branch" "$REPO" "$branch"
                 continue
             fi
-            alert_issue "harness: ループのブランチ ${branch} が PR になっていない" "$(printf 'ループのブランチ `%s` が、PR にならないまま `%s` に残っている(origin/main に無い commit: %s 件)。週次ジョブはこのブランチを公開しない。\n\n対処(どちらか):\n\n- 公開する: `git -C %s push origin %s` の後に、`%s` で `gh pr create --draft --base main --head %s`\n- 要らなければ消す: `git -C %s branch -D %s`\n\nどちらかをしたら、この Issue を閉じる。\n' \
-                "$branch" "$repo" "$count" "$repo" "$branch" "$repo" "$branch" "$repo" "$branch")" || failed=1
+            alert_issue "harness: ループのブランチ ${branch} が PR になっていない" "$(printf 'ループのブランチ `%s` が、PR にならないまま `%s` に残っている(origin/main に無い commit: %s 件)。週次ジョブはこのブランチを公開しない。\n\n%s対処(どちらか):\n\n- 公開する: `git -C %s push origin %s` の後に、`%s` で `gh pr create --draft --base main --head %s`\n- 要らなければ消す: `git -C %s branch -D %s`\n\nどちらかをしたら、この Issue を閉じる。\n' \
+                "$branch" "$repo" "$count" "$verdict_note" "$repo" "$branch" "$repo" "$branch" "$repo" "$branch")" || failed=1
         done <<<"$branches"
     else
         printf 'harness-weekly: WARN could not list the loop branches in %s (is origin/main fetched?)\n' "$REPO" >&2
@@ -374,7 +387,6 @@ REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
 DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
 # 採用したルールの Eval Case の依頼。選別に書かせ、harness-eval-cases.sh が評価して結果を書く(ADR 0011)
 EVAL_CASES="$HOME/.claude/scripts/harness-eval-cases.sh"
-EVAL_PLUGIN_TEMPLATE="$HOME/.claude/scripts/harness-eval-plugin"
 EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
 EVAL_RESULTS="$HARNESS_DIR/eval-results-$REVIEW_DATE.json"
 EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
@@ -400,6 +412,21 @@ fi
 source "$HEALTH_LIB"
 declare -F harness_health_heartbeat_epoch harness_health_missed_run_days harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || {
     printf 'harness-weekly: %s lacks the stop checks; run chezmoi apply\n' "$HEALTH_LIB" >&2
+    exit 1
+}
+# Integrity Snapshot の lib(ADR 0019)。claude の後に使うスクリプトとデータの一覧と照合は lib だけが持つ。
+# 健全性の lib と同じく、claude の起動前に読んでメモリに載せる(claude が後で書き換えても効かない)
+INTEGRITY_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/harness-integrity.bash"
+if [[ ! -r "$INTEGRITY_LIB" ]] || ! "$BASH" -n "$INTEGRITY_LIB" 2>/dev/null; then
+    printf 'harness-weekly: %s is missing or broken; run chezmoi apply\n' "$INTEGRITY_LIB" >&2
+    exit 1
+fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/harness-integrity.bash
+source "$INTEGRITY_LIB"
+declare -F harness_integrity_snapshot harness_integrity_ready harness_integrity_run harness_integrity_gate harness_integrity_check_data harness_integrity_seal harness_integrity_sealed >/dev/null &&
+    [[ "${HARNESS_INTEGRITY_FAILED:-}" == 3 ]] || {
+    printf 'harness-weekly: %s lacks the integrity checks; run chezmoi apply\n' "$INTEGRITY_LIB" >&2
     exit 1
 }
 # heartbeat はこの run が成功すると書き換わるので、起動時に読む
@@ -554,13 +581,16 @@ net_change_section() {
 
 # 判定の記録で、この run の選別の採用($REVIEW_RUN の印)を PR の URL に置き換える(Verdict の CLI の publish)。
 # 置き換えが 0 件になるのは、陳腐化の修正だけの PR(正常)か、選別が settle で記録しなかったときで、
-# ここでは区別できないので、両方の読み方を添えて知らせる。失敗しても WARN だけにする(残った印は finish_run が捕まえる)
+# ここでは区別できないので、両方の読み方を添えて知らせる。失敗しても WARN だけにする(残った印は finish_run が捕まえる)。
+# Integrity Snapshot の照合に落ちたら、CLI を呼ばずに予約コードを返す
 record_pr_url() {
-    local count
-    count=$(bash "$VERDICT_CLI" publish --run "$REVIEW_RUN" --pr-url "$1") || {
+    local count status=0
+    count=$(harness_integrity_run "$VERDICT_CLI" publish --run "$REVIEW_RUN" --pr-url "$1") || status=$?
+    [[ "$status" -ne "$HARNESS_INTEGRITY_FAILED" ]] || return "$status"
+    if [[ "$status" -ne 0 ]]; then
         printf 'harness-weekly: WARN failed to record the PR URL in %s; finish_run reports the unpublished verdicts\n' "$ARCHIVE" >&2
         return 0
-    }
+    fi
     if [[ "$count" == 0 ]]; then
         printf 'harness-weekly: no verdict adopted in run "%s" in %s; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts with the settle command)\n' \
             "$REVIEW_RUN" "$ARCHIVE" >&2
@@ -706,64 +736,16 @@ record_failure_rates() {
     }
 }
 
-# ローカルの週の記録の「ファイル名 ハッシュ」を 1 行ずつ出す。抽出と選別の claude は
-# --dangerously-skip-permissions で動き、~/.claude/harness に書ける(queue.md などを書くため)ので、
-# claude を起動する前に取った値と commit の前に取った値を比べ、ローカルの記録の書き換えを見つける
-# (commit_rate_records)。値はこのスクリプトのシェル変数にだけ持つ(ファイルに置くと claude が書き換えられる)
-rate_record_digests() {
-    local file digest
-    [[ -d "$LOCAL_RATES_DIR" ]] || return 0
-    for file in "$LOCAL_RATES_DIR"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json; do
-        [[ -f "$file" ]] || continue
-        digest=$(git hash-object -- "$file") || return 1
-        printf '%s %s\n' "${file##*/}" "$digest"
-    done
-}
-RATE_RECORD_DIGESTS=""
-
-# Rule Ledger の記録の入力(ローカルの記録と書き出した形、Failure Pattern を引く分類の記録)と、記録を作って
-# 写す harness-rule-ledger.sh 自身と、それが判定の記録を読むのに使う Verdict の CLI の「パス ハッシュ」を 1 行ずつ出す。ローカルの記録は前の週や手動の review
-# から持ち越したもので、このスクリプトが写して commit するので、週の再発率の記録と同じく claude の起動前と
-# 比べて書き換えを見つける(check_ledger_inputs)。分類の記録は claude の起動前に分類器が書き終えている。
-# harness-rule-ledger.sh は Evaluator の一部(ADR 0011)で、~/.claude に書ける claude が書き換えると伏せ字や
-# 評価値を偽れるので、評価のスクリプト(evaluator_digests)と同じく比べる。Verdict の CLI も、書き換えると採用を
-# 選び替えられるので同じく比べる。再発率のスクリプトと Failure Pattern の一覧も、claude の後に推移の節を作るのに
-# 使い(append_rates_section)、書き換えると本文の推移を偽れるので同じく比べる。無ければ「missing」として比べる
-ledger_input_digests() {
-    local file digest
-    for file in "$RULE_LEDGER" "$VERDICT_CLI" "$FAILURE_RATES" "$FAILURE_PATTERNS"; do
-        if [[ -f "$file" ]]; then
-            digest=$(git hash-object -- "$file") || return 1
-            printf '%s %s\n' "$file" "$digest"
-        else
-            printf '%s missing\n' "$file"
-        fi
-    done
-    for file in "$LOCAL_LEDGER_DIR"/*.json "$LOCAL_LEDGER_DIR"/exported/*.json "$CLASSIFICATIONS"; do
-        [[ -f "$file" ]] || continue
-        digest=$(git hash-object -- "$file") || return 1
-        printf '%s %s\n' "$file" "$digest"
-    done
-}
-LEDGER_INPUT_DIGESTS=""
-
-# claude の起動後に Rule Ledger の入力か、claude の後に使うスクリプトが変わっていれば、記録を作らず PR も作らないよう
-# 1 を返す。それらのスクリプトを呼ぶ前(Verdict の CLI なら check_review_claims より前)に呼ぶこと
-check_ledger_inputs() {
-    local digests
-    digests=$(ledger_input_digests) || return 1
-    if [[ "$digests" != "$LEDGER_INPUT_DIGESTS" ]]; then
-        printf 'harness-weekly: the Rule Ledger records in %s or %s, or the Rule Ledger script %s, the Verdict CLI %s, the failure rate script %s or the Failure Pattern list %s, changed after the claude runs started (only this job and the manual review write the records; restore the scripts with chezmoi apply); no PR created. Before: [%s] After: [%s]\n' \
-            "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$VERDICT_CLI" "$FAILURE_RATES" "$FAILURE_PATTERNS" "$(tr '\n' ' ' <<<"$LEDGER_INPUT_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
-        return 1
-    fi
-}
-
-# 再発率の推移の節を、組み立てに成功したときだけ本文に足す(検出件数の節と同じ扱い)
+# 再発率の推移の節を、組み立てに成功したときだけ本文に足す(検出件数の節と同じ扱い)。ただし入口の照合に
+# 落ちたら節を省いたうえで予約コードを返す(呼び出し元は PR を作らない)
 append_rates_section() {
-    local section
-    if section=$(bash "$FAILURE_RATES" trend --weeks 4); then
+    local section status=0
+    section=$(harness_integrity_run "$FAILURE_RATES" trend --weeks 4) || status=$?
+    if [[ "$status" -eq 0 ]]; then
         printf '%s\n' "$section" >>"$PR_BODY"
+    elif [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        printf 'harness-weekly: the failure rate trend could not be trusted; left it out of %s\n' "$PR_BODY" >&2
+        return "$status"
     else
         printf 'harness-weekly: WARN failed to build the failure rate trend; left it out of %s\n' "$PR_BODY" >&2
     fi
@@ -772,7 +754,7 @@ append_rates_section() {
 # 判定の記録のうち、この run の選別が採用した項目の見出しを 1 行ずつ出す(Verdict の CLI の adopted)。
 # record_pr_url が印を PR の URL に置き換える前に読む
 adopted_titles() {
-    bash "$VERDICT_CLI" adopted --run "$REVIEW_RUN"
+    harness_integrity_run "$VERDICT_CLI" adopted --run "$REVIEW_RUN"
 }
 
 # 印 <run> の採用を PR の URL で記録する手順を、ログにそのまま貼れる 1 行のコマンドで出す。印は空白を含むので
@@ -782,52 +764,40 @@ publish_command() { # <run>
     printf "bash ~/.claude/scripts/harness-verdict.sh publish --run '%s' --pr-url <PR URL>" "${1//\'/$quote}"
 }
 
-# 評価のスクリプトと eval 専用 plugin の雛形の「パス ハッシュ」を 1 行ずつ出す。抽出と選別の claude は
-# ~/.claude に書けるので、claude を起動する前に取った値(EVALUATOR_DIGESTS)と評価の直前に取った値を比べ、
-# 評価される側が評価の仕組みを書き換えた run を見つける(rate_record_digests と同じ扱い)。無いファイルは
-# 「missing」として比べる(消されたことも書き換えとして見つける)
-evaluator_digests() {
-    local file
-    for file in "$EVAL_CASES" "$EVAL_PLUGIN_TEMPLATE/.claude-plugin/plugin.json" "$EVAL_PLUGIN_TEMPLATE/hooks/hooks.json"; do
-        if [[ -f "$file" ]]; then
-            printf '%s %s\n' "$file" "$(git hash-object -- "$file")" || return 1
-        else
-            printf '%s missing\n' "$file"
-        fi
-    done
-}
-EVALUATOR_DIGESTS=""
-# この run の評価の工程が書いた結果のハッシュ。評価が成功しなかった run では空(append_eval_section)
-EVAL_RESULTS_DIGEST=""
-
 # 採用したルールの Eval Case を評価し、効果の節を本文に足す。採用したのに結果にも免除にも無いものは、節が
 # 名前で出す(依頼が無ければ全件がそうなる)。評価の工程の失敗は WARN にとどめて PR の公開は止めないが、
 # 本文に評価できなかったことを書く(黙って節を省くと、効果が測られていないことが PR から見えない)
 append_eval_section() {
-    local adopted="$HARNESS_DIR/.eval-adopted-$REVIEW_DATE" section digests
-    digests=$(evaluator_digests) || return 1
-    if [[ "$digests" != "$EVALUATOR_DIGESTS" ]]; then
-        printf 'harness-weekly: the eval script or plugin template changed after the claude runs started (%s); not evaluated and no PR created. Restore them with chezmoi apply and check what changed them\n' \
-            "$(tr '\n' ' ' <<<"$digests")" >&2
-        return 2
-    fi
-    adopted_titles >"$adopted" || {
+    local adopted="$HARNESS_DIR/.eval-adopted-$REVIEW_DATE" section status=0
+    adopted_titles >"$adopted" || status=$?
+    if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        rm -f "$adopted"
+        return "$status"
+    elif [[ "$status" -ne 0 ]]; then
         printf 'harness-weekly: WARN could not read the adopted verdicts from %s for the eval section\n' "$ARCHIVE" >&2
         : >"$adopted"
-    }
+    fi
     if [[ ! -f "$EVAL_REQUESTS" ]]; then
         printf 'harness-weekly: review wrote no eval requests %s; the PR body lists every adopted rule as unevaluated\n' "$EVAL_REQUESTS"
         printf '{"cases": []}\n' >"$EVAL_REQUESTS"
     fi
-    # 結果のファイルは選別の claude も置けるので、評価の前に消し、評価が成功したときだけ Rule Ledger に渡す
-    # (EVAL_RESULTS_DIGEST。record_and_publish_ledger が照合する)
-    EVAL_RESULTS_DIGEST=""
+    # 結果のファイルは選別の claude も置けるので、評価の前に消し、評価が成功したときだけ封印して Rule Ledger に
+    # 渡す(record_and_publish_ledger は封印したものだけを渡し、データの照合が封印の後の書き換えを見つける)
     rm -f "$EVAL_RESULTS" || return 1
-    if HARNESS_EVAL_BUDGET_USD="$EVAL_BUDGET_USD" bash "$EVAL_CASES" run \
-        --requests "$EVAL_REQUESTS" --date "$REVIEW_DATE" --out "$EVAL_RESULTS" &&
-        section=$(bash "$EVAL_CASES" section --results "$EVAL_RESULTS" --adopted "$adopted"); then
+    status=0
+    HARNESS_EVAL_BUDGET_USD="$EVAL_BUDGET_USD" harness_integrity_run "$EVAL_CASES" run \
+        --requests "$EVAL_REQUESTS" --date "$REVIEW_DATE" --out "$EVAL_RESULTS" || status=$?
+    [[ "$status" -ne 0 ]] ||
+        section=$(harness_integrity_run "$EVAL_CASES" section --results "$EVAL_RESULTS" --adopted "$adopted") || status=$?
+    if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        rm -f "$adopted"
+        return "$status"
+    elif [[ "$status" -eq 0 ]]; then
         printf '%s\n' "$section" >>"$PR_BODY"
-        EVAL_RESULTS_DIGEST=$(git hash-object -- "$EVAL_RESULTS") || EVAL_RESULTS_DIGEST=""
+        harness_integrity_seal "$EVAL_RESULTS" || {
+            rm -f "$adopted"
+            return "$HARNESS_INTEGRITY_FAILED"
+        }
     else
         printf 'harness-weekly: WARN evaluating the eval cases with %s failed; the PR body says so\n' "$EVAL_CASES" >&2
         printf '\n## ルールの効果\n\n評価の工程が失敗したため、この PR のルールの効果は測っていない(週次ジョブのログを参照)。\n' >>"$PR_BODY"
@@ -869,21 +839,15 @@ uncommitted_rate_records() {
 
 # origin/main に無い週の記録を worktree に写し、このスクリプトの commit 1 つにする。抽出と選別の claude
 # には書かせない(改善する側が指標を書き換えられないように)。リポジトリ側の書き換えは publish_review が、
-# ローカルの記録の書き換えは claude を起動する前に取ったハッシュ(RATE_RECORD_DIGESTS)との比較が見つける。
-# 書き換えを見つけたら commit せずに 2 を返す。比べられるのはこの run の claude による書き換えまでで、
-# 前の週から持ち越した記録をその週の claude が書き換えていた場合は、この run のハッシュがそれを正として
-# 取るので見つけられない(ローカルの置き場は claude の書ける ~/.claude/harness の中にしか無い)。
+# ローカルの記録の書き換えは写す直前のデータの照合(Integrity Snapshot)が見つける。書き換えか照合できない
+# 記録を見つけたら、commit せずに予約コード(HARNESS_INTEGRITY_FAILED)を返す。前の週から持ち越した記録を
+# その週の claude が書き換えていた場合は見つけられない(lib のヘッダの残存リスク)。
 # oxfmt を通すのは、commit フックが JSON の書式を検査するため。写した件数を RATE_RECORDS_COMMITTED に入れる
 RATE_RECORDS_COMMITTED=0
 commit_rate_records() {
-    local base=$1 files file digests
+    local base=$1 files file
     RATE_RECORDS_COMMITTED=0
-    digests=$(rate_record_digests) || return 1
-    if [[ "$digests" != "$RATE_RECORD_DIGESTS" ]]; then
-        printf 'harness-weekly: the weekly failure rate records in %s changed after the claude runs started (only this job writes them); not committed. Before: [%s] After: [%s]\n' \
-            "$LOCAL_RATES_DIR" "$(tr '\n' ' ' <<<"$RATE_RECORD_DIGESTS")" "$(tr '\n' ' ' <<<"$digests")" >&2
-        return 2
-    fi
+    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
     files=$(uncommitted_rate_records "$base")
     [[ -n "$files" ]] || return 0
     mkdir -p "$WORKTREE/$RATES_REPO_DIR" || return 1
@@ -898,9 +862,9 @@ commit_rate_records() {
 
 # base(origin/main)に無いローカルの Rule Ledger の記録を worktree に写し、このスクリプトの commit 1 つにする。
 # 写す記録の選び方(マージされた PR と、この run の PR の記録だけ)と仕事の識別子の検査・伏せ字は
-# harness-rule-ledger.sh export が行う。選別の claude には書かせない(publish_review が commit を、
-# check_ledger_inputs がローカルの記録とスクリプトを確かめる)。写した件数を LEDGER_RECORDS_COMMITTED に入れる。
-# 失敗しても記録はローカルに残り、後の PR が足す
+# harness-rule-ledger.sh export が行う。選別の claude には書かせない(publish_review が commit を、写す直前の
+# データの照合がローカルの記録を確かめる)。写した件数を LEDGER_RECORDS_COMMITTED に入れる。
+# 失敗しても記録はローカルに残り、後の PR が足す。照合に落ちたら予約コードを返す
 LEDGER_RECORDS_COMMITTED=0
 # Rule Ledger の commit に失敗したときに、worktree を <revision> に戻して写しかけの記録を消す。記録はローカルに残る
 drop_ledger_commit() { # <revision>
@@ -913,9 +877,11 @@ commit_ledger_records() { # <base> [この run の PR の番号]
     local base=$1 output count pr_args=()
     LEDGER_RECORDS_COMMITTED=0
     [[ -z "${2:-}" ]] || pr_args=(--pr "$2")
-    # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを渡す
+    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
+    # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを渡す。
+    # export は書き出した形を rule-ledger/exported/ に残す(封印しない)ので、この後にデータを照合しないこと
     output=$(SENSITIVE_PATTERNS_LOCAL="${SENSITIVE_PATTERNS_LOCAL-$REPO/scripts/sensitive-patterns.local.txt}" \
-        bash "$RULE_LEDGER" export --base "$base" --worktree "$WORKTREE" ${pr_args[@]+"${pr_args[@]}"}) || return 1
+        harness_integrity_run "$RULE_LEDGER" export --base "$base" --worktree "$WORKTREE" ${pr_args[@]+"${pr_args[@]}"}) || return $?
     printf '%s\n' "$output"
     count=$(sed -n 's/^harness-rule-ledger: exported \([0-9][0-9]*\) record(s)$/\1/p' <<<"$output")
     [[ "$count" =~ ^[0-9]+$ ]] || return 1
@@ -928,27 +894,41 @@ commit_ledger_records() { # <base> [この run の PR の番号]
 
 # PR を作った後に、この run の採用を Rule Ledger に記録し、base に無い記録(マージされた PR から持ち越した分を
 # 含む)をこのスクリプトの commit で足して push し直す。PR 番号は PR を作るまで決まらないので、PR を作る前の
-# commit には入れられない。どこで失敗しても PR と採用の公開は止めない: 記録はローカルに残り、この PR が
+# commit には入れられない。照合のほかで失敗しても PR と採用の公開は止めない: 記録はローカルに残り、この PR が
 # マージされた後に PR を作る run が足す。記録そのもの(record)に失敗したときは、判定の記録の
-# PR の URL を持つ採用から手で作り直せる
+# PR の URL を持つ採用から手で作り直せる。Integrity Snapshot の照合に落ちたら、記録を足さずに予約コードを返す
 record_and_publish_ledger() { # <base> <PR の URL>
-    local base=$1 url=$2 pushed results=()
+    local base=$1 url=$2 pushed output status=0 id results=()
     pushed=$(git -C "$WORKTREE" rev-parse HEAD) || return 0
-    # 評価の工程が書いた結果だけを渡す。評価が失敗した run や、結果が評価の後に変わった run では渡さず、
-    # 採用を「測っていない」として記録する(選別の claude が置いた偽の得点を記録しない)
-    if [[ -n "$EVAL_RESULTS_DIGEST" && -f "$EVAL_RESULTS" &&
-        "$(git hash-object -- "$EVAL_RESULTS" 2>/dev/null)" == "$EVAL_RESULTS_DIGEST" ]]; then
+    # 評価の工程が書いて封印した結果だけを渡す。評価が失敗した run では渡さず、採用を「測っていない」として
+    # 記録する(選別の claude が置いた偽の得点を記録しない)。封印の後の書き換えは次のデータの照合が見つける
+    if harness_integrity_sealed "$EVAL_RESULTS"; then
         results=(--results "$EVAL_RESULTS")
     fi
-    bash "$RULE_LEDGER" record --pr-url "$url" --date "$REVIEW_DATE" --via weekly ${results[@]+"${results[@]}"} ||
+    # record は分類の記録と評価の結果から記録を作るので、その直前にデータを照合する
+    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
+    output=$(harness_integrity_run "$RULE_LEDGER" record --pr-url "$url" --date "$REVIEW_DATE" --via weekly ${results[@]+"${results[@]}"}) ||
+        status=$?
+    [[ -z "$output" ]] || printf '%s\n' "$output"
+    [[ "$status" -ne "$HARNESS_INTEGRITY_FAILED" ]] || return "$status"
+    [[ "$status" -eq 0 ]] ||
         printf 'harness-weekly: WARN failed to record the adoptions of %s in the Rule Ledger %s; record them by hand with bash %s record --pr-url %s --date %s --via weekly\n' \
             "$url" "$LOCAL_LEDGER_DIR" "$RULE_LEDGER" "$url" "$REVIEW_DATE" >&2
-    if ! commit_ledger_records "$base" "${url##*/}"; then
+    # record が作った記録だけを封印する(それ以外に増えた記録はデータの照合が追加として見つける)
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        harness_integrity_seal "$LOCAL_LEDGER_DIR/$id.json" || return "$HARNESS_INTEGRITY_FAILED"
+    done <<<"$(sed -n 's/^harness-rule-ledger: recorded \([^ ][^ ]*\)$/\1/p' <<<"$output")"
+    status=0
+    commit_ledger_records "$base" "${url##*/}" || status=$?
+    if [[ "$status" -ne 0 ]]; then
         # PR は作成済みなので、戻せなくても失敗にしない(worktree は remove_worktree が消す)
         drop_ledger_commit "$pushed" || true
+        [[ "$status" -ne "$HARNESS_INTEGRITY_FAILED" ]] || return "$status"
         return 0
     fi
     [[ "$LEDGER_RECORDS_COMMITTED" -gt 0 ]] || return 0
+    harness_integrity_gate || return "$HARNESS_INTEGRITY_FAILED"
     if git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH"; then
         printf 'harness-weekly: committed %s Rule Ledger record(s) to %s\n' "$LEDGER_RECORDS_COMMITTED" "$url"
     else
@@ -987,24 +967,37 @@ metrics_only_due() {
 
 # 採用の無い週に、週の記録だけの draft PR を作る。worktree と依存は用意済みの前提
 publish_metrics_only() {
-    local base=$1 url
+    local base=$1 url status=0
     local recorded
     commit_rate_records "$base" || {
         printf 'harness-weekly: failed to commit the weekly failure rate records in %s; no PR created\n' "$WORKTREE" >&2
         return 1
     }
-    check_ledger_inputs || return 1
     recorded=$(git -C "$WORKTREE" rev-parse HEAD) || return 1
-    commit_ledger_records "$base" || drop_ledger_commit "$recorded" || return 1
+    commit_ledger_records "$base" || status=$?
+    if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        printf 'harness-weekly: the Rule Ledger records could not be trusted; no PR created\n' >&2
+        return 1
+    fi
+    [[ "$status" -eq 0 ]] || drop_ledger_commit "$recorded" || return 1
     printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
         "$RATE_RECORDS_COMMITTED" >"$PR_BODY"
     [[ "$LEDGER_RECORDS_COMMITTED" -eq 0 ]] ||
         printf '\nマージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった %s 件も足した(%s)。\n' "$LEDGER_RECORDS_COMMITTED" "$LEDGER_REPO_DIR" >>"$PR_BODY"
-    append_rates_section
+    append_rates_section || return 1
     append_detection_section
+    # 公開の直前の関門。呼び出し元が照合の失敗を取りこぼしても、書き換えられた run の PR を作らない
+    harness_integrity_gate || {
+        printf 'harness-weekly: no PR created; the scripts the job runs could not be trusted\n' >&2
+        return 1
+    }
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
             "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
+        return 1
+    }
+    harness_integrity_gate || {
+        printf 'harness-weekly: pushed %s but created no PR; the scripts the job runs could not be trusted\n' "$BRANCH" >&2
         return 1
     }
     url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
@@ -1131,7 +1124,7 @@ check_review_claims() { # <commit の件数> <dropped の件数>
 # 実行が作り直す)。採用した項目は既に archive に移っているので、push 以降で失敗した run の
 # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る
 publish_review() {
-    local base=$1 commits url dropped_count dropped_items touched commit_status=0 titles
+    local base=$1 commits url dropped_count dropped_items touched commit_status=0 titles status=0
     if ! review_result_valid; then
         printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
             "$REVIEW_RESULT" >&2
@@ -1153,8 +1146,12 @@ publish_review() {
             "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
         return 1
     fi
-    # check_review_claims は Verdict の CLI で採用を読むので、その前に CLI の書き換えを確かめる
-    check_ledger_inputs || return 1
+    # 採用 0 件で PR を作らずに成功する週も、claude が書き換えたデータを正として持ち越さないよう、ここで照合する
+    # (Verdict の CLI などの実行物は、check_review_claims が入口を通して呼ぶときに照合される)
+    harness_integrity_check_data || {
+        printf 'harness-weekly: no PR created; the local records could not be trusted\n' >&2
+        return 1
+    }
     check_review_claims "$commits" "$dropped_count" || return 1
     if [[ "$commits" -eq 0 ]]; then
         if metrics_only_due "$base"; then
@@ -1185,7 +1182,10 @@ publish_review() {
     fi
     result_sections >>"$PR_BODY" || return 1
     append_detection_section
-    append_rates_section
+    append_rates_section || {
+        printf 'harness-weekly: no PR created; the failure rate trend could not be trusted\n' >&2
+        return 1
+    }
     append_eval_section || {
         printf 'harness-weekly: no PR created; the evaluation could not be trusted\n' >&2
         return 1
@@ -1195,14 +1195,18 @@ publish_review() {
     # Rule Ledger の記録は PR 番号が要るので、PR を作った後の commit で足す(record_and_publish_ledger)。
     # 足せなかったことは本文では知らせられないので、ログの WARN と、PR の commit に記録が無いことで分かる
     # 採用を読めなければ節を省く(評価の節と同じく、PR の公開は止めない)
-    if ! titles=$(adopted_titles); then
+    titles=$(adopted_titles) || status=$?
+    if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        printf 'harness-weekly: no PR created; the Verdict CLI could not be trusted\n' >&2
+        return 1
+    elif [[ "$status" -ne 0 ]]; then
         printf 'harness-weekly: WARN could not read the adopted verdicts from %s; left the Rule Ledger section out of %s\n' "$ARCHIVE" "$PR_BODY" >&2
     elif [[ -n "$titles" ]]; then
         printf '\n## Rule Ledger\n\n採用したルールの記録(%s)は、この PR を作った後に週次ジョブが「harness: Rule Ledger の記録を足す」の commit で足す。その commit が無ければ、記録はローカルに残っていて、この PR がマージされた後の PR に載る(マージせずに閉じたら載らない)。\n' \
             "$LEDGER_REPO_DIR" >>"$PR_BODY"
     fi
     commit_rate_records "$base" || commit_status=$?
-    if [[ "$commit_status" -eq 2 ]]; then
+    if [[ "$commit_status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         # 書き換えられた記録を正として持ち越さないよう、PR を作らずに失敗させて人に見せる
         printf 'harness-weekly: no PR created; check %s by hand\n' "$LOCAL_RATES_DIR" >&2
         return 1
@@ -1216,9 +1220,18 @@ publish_review() {
         git -C "$WORKTREE" reset --quiet --hard HEAD || return 1
         git -C "$WORKTREE" clean --quiet -fd -- "$RATES_REPO_DIR" || return 1
     fi
+    # 公開の直前の関門。呼び出し元が照合の失敗を取りこぼしても、書き換えられた run の PR を作らない
+    harness_integrity_gate || {
+        printf 'harness-weekly: no PR created; the scripts the job runs could not be trusted\n' >&2
+        return 1
+    }
     git -C "$WORKTREE" push --quiet origin "HEAD:refs/heads/$BRANCH" || {
         printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s\n' \
             "$BRANCH" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" >&2
+        return 1
+    }
+    harness_integrity_gate || {
+        printf 'harness-weekly: pushed %s but created no PR; the scripts the job runs could not be trusted\n' "$BRANCH" >&2
         return 1
     }
     url=$(cd "$WORKTREE" && gh pr create --draft --base main --head "$BRANCH" \
@@ -1230,12 +1243,17 @@ publish_review() {
     url=${url##*$'\n'}
     printf 'harness-weekly: opened draft PR %s (%s commit(s))\n' "$url" "$commits"
     rm -f "$PR_BODY" "$REVIEW_RESULT"
-    record_pr_url "$url"
-    record_and_publish_ledger "$base" "$url"
+    # PR を作った後に照合に落ちたら、後片付けはしたうえで run を失敗させる(heartbeat を書かない)
+    record_pr_url "$url" || status=$?
+    [[ "$status" -ne 0 ]] || record_and_publish_ledger "$base" "$url" || status=$?
     remove_worktree
     # ブランチは origin にあるので、ローカルの分は消す(残すと週ごとに溜まる)
     git -C "$REPO" branch --quiet -D "$BRANCH" >/dev/null 2>&1 ||
         printf 'harness-weekly: WARN could not delete local branch %s in %s\n' "$BRANCH" "$REPO" >&2
+    if [[ "$status" -ne 0 ]]; then
+        printf 'harness-weekly: opened %s, but the scripts or records the job uses after it could not be trusted; check the PR and the Rule Ledger by hand\n' "$url" >&2
+        return 1
+    fi
 }
 
 # 選別の claude が失敗した(予算切れを含む)run の後始末の案内。claude は commit や
@@ -1265,7 +1283,8 @@ report_failed_review() {
             printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
     fi
     append_detection_section
-    append_rates_section
+    # 照合に落ちたら節を省く(append_rates_section がその旨を出す)。この run は失敗で終わり、公開もしない
+    append_rates_section || true
     printf 'harness-weekly: review failed after %s commit(s) on local branch %s (worktree %s, PR body %s); verdicts adopted in this run may already be in %s. To publish by hand: git -C %s push origin %s, then gh pr create --draft --base main --head %s --body-file %s, then %s\n' \
         "$commits" "$BRANCH" "$WORKTREE" "$PR_BODY" "$ARCHIVE" "$REPO" "$BRANCH" "$BRANCH" "$PR_BODY" "$(publish_command "$REVIEW_RUN")" >&2
 }
@@ -1282,7 +1301,7 @@ report_failed_review() {
 # 選別は済ませてから確かめる(失敗させても週の処理は止めない)
 finish_run() {
     local leftovers run commands=""
-    leftovers=$(bash "$VERDICT_CLI" unpublished) || {
+    leftovers=$(harness_integrity_run "$VERDICT_CLI" unpublished) || {
         printf 'harness-weekly: failed to read the unpublished verdicts from %s; heartbeat not updated\n' "$ARCHIVE" >&2
         return 1
     }
@@ -1313,19 +1332,10 @@ bash "$SELECT_PENDING" --run "$SESSION_ID" || {
 }
 # 分類と週の記録は、選別を省く・当日の PR が既にあるなどの早期の終了より前に、毎週行う
 record_failure_rates
-# 抽出と選別の claude を起動する前に、ローカルの週の記録のハッシュを取る(commit_rate_records が比べる)
-# 評価の仕組みのハッシュも同じ時点で取る(append_eval_section が比べる)
-EVALUATOR_DIGESTS=$(evaluator_digests) || {
-    printf 'harness-weekly: failed to hash the eval script and plugin template\n' >&2
-    exit 1
-}
-RATE_RECORD_DIGESTS=$(rate_record_digests) || {
-    printf 'harness-weekly: failed to hash the weekly failure rate records in %s\n' "$LOCAL_RATES_DIR" >&2
-    exit 1
-}
-LEDGER_INPUT_DIGESTS=$(ledger_input_digests) || {
-    printf 'harness-weekly: failed to hash the Rule Ledger records in %s or %s, or the Rule Ledger script %s, the Verdict CLI %s, the failure rate script %s or the Failure Pattern list %s\n' \
-        "$LOCAL_LEDGER_DIR" "$CLASSIFICATIONS" "$RULE_LEDGER" "$VERDICT_CLI" "$FAILURE_RATES" "$FAILURE_PATTERNS" >&2
+# 抽出と選別の claude を起動する前に、claude の後に使うスクリプトとデータのハッシュを取る(Integrity Snapshot)。
+# 分類器の claude はツール無しなので、その後でよい。$( ) の外で呼ぶ(値は lib のシェル変数に持つ)
+harness_integrity_snapshot || {
+    printf 'harness-weekly: failed to take the integrity snapshot; skipped reflect\n' >&2
     exit 1
 }
 if [[ "$(count_pending)" -eq 0 ]]; then

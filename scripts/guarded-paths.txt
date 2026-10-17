@@ -31,6 +31,10 @@ dot_claude/scripts/executable_harness-weekly.sh
 # 週次ジョブが読み込む健全性の lib。停止を Issue で知らせる判定(PR の放置・PR にならないブランチ・
 # 走らなかった週)を書き換えると、ループの停止が知らされなくなる
 dot_claude/scripts/lib/harness-health.bash
+# 週次ジョブが読み込む Integrity Snapshot の lib(ADR 0019)。claude の後に使うファイルの一覧と照合を書き換えると、
+# 選別の claude が書き換えた Evaluator を週次ジョブが信頼して使う
+dot_claude/scripts/lib/harness-integrity.bash
+test/harness-integrity.bats
 
 # 改善ループ自身(ADR 0011。解禁の条件も ADR 0011)。ループが自分の抽出・選別・週次ジョブ・状態表示を書き換えると、
 # 改善の効果とループの変更の効果を区別できなくなる。ファイル単位で守るので、ループが自分の手順を改善する
@@ -106,7 +110,7 @@ test/fixtures/harness-eval-cases/
 dot_claude/scripts/executable_harness-rule-ledger.sh
 test/harness-rule-ledger.bats
 # Verdict の CLI(ADR 0017)。判定の記録の読み方を書き換えると、Rule Ledger が記録する採用を選び替えられる。
-# 週次ジョブも Rule Ledger の入力として claude の起動前後のハッシュを比べる
+# 週次ジョブは claude の後に Integrity Snapshot の入口(lib/harness-integrity.bash)を通して呼ぶ
 dot_claude/scripts/executable_harness-verdict.sh
 test/harness-verdict.bats
 +docs/harness/rule-ledger/
