@@ -2308,8 +2308,8 @@ PRE
 # 書き換えはスナップショットの後(抽出か選別の claude)に限る。分類器の claude はスナップショットの前に走るので、
 # そこで書き換えるとスナップショットが書き換えた後の値を取ってしまう
 
-# tamper_in <reflect|review> <~/.claude/scripts の下のファイル名>: その工程の claude がファイルに 1 行足す
-tamper_in() {
+# run_in <reflect|review> <コマンド>: その工程の claude が起動したときにコマンドを実行させる
+run_in() {
     local pattern
     case $1 in
     reflect) pattern='harness-reflect skill' ;;
@@ -2318,10 +2318,20 @@ tamper_in() {
     esac
     cat >"$STUBS/claude-pre" <<PRE
 if [[ "\$*" == *'$pattern'* ]]; then
-    printf '# tampered\n' >>"$HOME/.claude/scripts/$2"
+    $2
 fi
 PRE
     sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+}
+
+# tamper_in <reflect|review> <~/.claude/scripts の下のファイル名>: その工程の claude がファイルに 1 行足す
+tamper_in() {
+    run_in "$1" "printf '# tampered\n' >>\"$HOME/.claude/scripts/$2\""
+}
+
+# rewrite_record_in <reflect|review> <日付>: その工程の claude がローカルの週の記録を書き換える
+rewrite_record_in() {
+    run_in "$1" "printf '{\"tampered\":true}\n' >\"$RATES/$2.json\""
 }
 
 # 選別の claude が commit の後に失敗する run(report_failed_review が手で作る PR の本文を残す)
@@ -2506,18 +2516,8 @@ PRE
     assert_line "$RATES_REPO_DIR/2026-09-26.json"
 }
 
-# 抽出の claude の後のデータの照合。queue が空の週と当日の PR が既にある週は publish_review を通らないので、
-# 抽出の claude が書き換えたデータを照合しないまま heartbeat を書くと、次の run のスナップショットが正として持ち越す
-
-# reflect_rewrites_record <日付>: 抽出の claude がローカルの週の記録を書き換える
-reflect_rewrites_record() {
-    cat >"$STUBS/claude-pre" <<PRE
-if [[ "\$*" == *'harness-reflect skill'* ]]; then
-    printf '{"tampered":true}\n' >"$RATES/$1.json"
-fi
-PRE
-    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
-}
+# 各 claude の後のデータの照合。queue が空の週と当日の PR が既にある週、選別が失敗で終わる run は repo に写す工程を
+# 通らないので、claude が書き換えたデータを照合しないと、書き換えがログに出ないまま次の run のスナップショットが正として持ち越す
 
 @test "queue が空の週は、持ち越した週の記録が書き換えられていなければ heartbeat を書く" {
     old_record 2026-09-26
@@ -2529,7 +2529,7 @@ PRE
 
 @test "queue が空の週に抽出の claude が週の記録を書き換えたら、heartbeat を書かずに失敗する" {
     old_record 2026-09-26
-    reflect_rewrites_record 2026-09-26
+    rewrite_record_in reflect 2026-09-26
     run weekly
     assert_failure
     assert_output --partial "changed: $RATES/2026-09-26.json"
@@ -2541,7 +2541,7 @@ PRE
     seed_queue
     old_record 2026-09-26
     git -C "$HARNESS_WEEKLY_REPO" push -q origin "main:refs/heads/${BRANCH}"
-    reflect_rewrites_record 2026-09-26
+    rewrite_record_in reflect 2026-09-26
     run weekly
     assert_failure
     assert_output --partial "changed: $RATES/2026-09-26.json"
@@ -2549,19 +2549,36 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
-# 選別の claude が commit の後に失敗した run(report_failed_review)のデータの照合。書き換えが無い側は
+# 書き換えが無い側は「commit されていない変更が残っていたら PR を作らずに失敗する」
+@test "選別の claude が commit されていない変更を残した run で週の記録が書き換えられていたら、書き換えをログに出す" {
+    seed_queue
+    old_record 2026-09-26
+    rewrite_record_in review 2026-09-26
+    STUB_REVIEW_MODE=dirty run weekly
+    assert_failure
+    assert_output --partial "changed: $RATES/2026-09-26.json"
+    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+}
+
+# 選別の claude が失敗した run(report_failed_review)のデータの照合。書き換えが無い側は
 # 「選別の claude が commit の後に失敗したら、手で作る PR の本文に検出の節を足す」
+
+@test "選別の claude が commit の前に失敗した run で週の記録が書き換えられていたら、書き換えをログに出す" {
+    seed_queue
+    old_record 2026-09-26
+    review_fails_after_commit
+    rewrite_record_in review 2026-09-26
+    STUB_REVIEW_MODE=none run weekly
+    assert_failure
+    assert_output --partial 'review failed before committing'
+    assert_output --partial "changed: $RATES/2026-09-26.json"
+}
 
 @test "選別が commit の後に失敗した run で週の記録が書き換えられていたら、手で公開する手順を案内しない" {
     seed_queue
     old_record 2026-09-26
     review_fails_after_commit
-    cat >"$STUBS/claude-pre" <<PRE
-if [[ "\$*" == *'harness-review skill'* ]]; then
-    printf '{"tampered":true}\n' >"$RATES/2026-09-26.json"
-fi
-PRE
-    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
+    rewrite_record_in review 2026-09-26
     run weekly
     assert_failure
     assert_output --partial "changed: $RATES/2026-09-26.json"
