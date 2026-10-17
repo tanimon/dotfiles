@@ -350,6 +350,7 @@ main() {
                     continue
                 fi
                 # 綴りの正本は公開の lib。lib を読み込む前に止まった run だけがこの写しを使うので、綴りを変えるときは両方を直す
+                # (食い違いは test/harness-weekly.bats の「公開の lib を読み込む前に止まった run のブランチの Issue も…」が見つける)
                 if declare -F harness_publish_push_command harness_publish_pr_command >/dev/null; then
                     push_command=$(harness_publish_push_command "$branch" "$repo")
                     pr_command=$(harness_publish_pr_command "$branch")
