@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# scripts/chezmoi-source-snapshot.sh のテスト。
+# scripts/chezmoi-source-snapshot.sh と、それを --source に使う描画の seam(test/helpers/render.bash)のテスト。
 #
 # 各ケースは $BATS_TEST_TMPDIR に使い捨ての git リポジトリを組む。GIT_CONFIG_GLOBAL /
 # GIT_CONFIG_SYSTEM を潰すのは、このマシンの ~/.gitconfig の commit 署名を引き継ぐと
@@ -7,7 +7,8 @@
 #
 # 一時ファイルを作っては消すループ(churn)は、並列に走る別のレシピの pnpm が
 # リポジトリに作る一時ファイルの代わり。生きたリポジトリでは回さない: 並列の lint の
-# secretlint や scan-sensitive が同じ競合で落ちる。
+# secretlint や scan-sensitive も、リポジトリを辿るので同じ競合で落ちうる。
+# そのため seam のケースは、競合を起こす代わりに描画の source がリポジトリの外にあることを見る。
 
 setup() {
     load 'helpers/setup'
@@ -119,4 +120,16 @@ start_churn() {
         assert_success
         assert_output "$DEST"
     done
+}
+
+@test "render_template の描画は、リポジトリそのものではなくリポジトリの外の写しを source にする" {
+    load 'helpers/render'
+    printf '{{ .chezmoi.sourceDir }}' >"$BATS_TEST_TMPDIR/source-dir.tmpl"
+    run render_template personal "$BATS_TEST_TMPDIR/source-dir.tmpl"
+    assert_success
+    local repo
+    repo=$(cd "$RENDER_REPO" && pwd -P)
+    case "$output/" in
+    "$repo"/*) fail "描画の source がリポジトリの中にある: $output" ;;
+    esac
 }

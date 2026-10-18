@@ -150,7 +150,7 @@ check-templates:
         # profile の一覧は test/fixtures/chezmoi-<profile>.toml の実ファイルが正本
         # --source には作業ツリーの写しを渡す。並列のレシピがリポジトリに作っては消す一時ファイルで
         # chezmoi が落ちるため(理由は scripts/chezmoi-source-snapshot.sh)。テンプレートはリポジトリから読む
-        snapshot=$(mktemp -d) || { echo "FAIL: mktemp"; exit 1; }
+        snapshot=$(mktemp -d "${TMPDIR:-/tmp}/chezmoi-source-XXXXXX") || { echo "FAIL: mktemp"; exit 1; }
         trap 'rm -rf "$snapshot"' EXIT
         bash scripts/chezmoi-source-snapshot.sh . "$snapshot" || { echo "FAIL: source の写しを作れない"; exit 1; }
         profiles=""
@@ -305,14 +305,14 @@ check-templates:
 @test-nono-profile:
     pnpm exec bats test/nono-profile.bats
 
-# The nono pack sync script drives a fake nono. Local only: the template is
-# darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).
-# LC_ALL=C for the same bats-core locale bug as test-scripts: this suite's @test names are in Japanese.
-# Needs chezmoi — the last case renders from the snapshot and fails (not skips) without it.
+# LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合のため(この suite の @test 名は日本語)。
+# chezmoi が必要。「写しを source にした描画は…」と「render_template の描画は…」のケースは、chezmoi が無いと skip せず fail する
 # Test the working-tree snapshot that chezmoi-reading checks pass as --source
 @test-source-snapshot:
     LC_ALL=C pnpm exec bats test/chezmoi-source-snapshot.bats
 
+# The nono pack sync script drives a fake nono. Local only: the template is
+# darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).
 # Smoke test the nono pack sync script (version hash + pull/update)
 [group('local-only')]
 @test-nono-packs:
