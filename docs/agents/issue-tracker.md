@@ -1,6 +1,11 @@
 # Issue tracker: GitHub
 
-このリポジトリの issue と spec は GitHub Issues に置く（`tanimon/dotfiles`）。すべての操作は `gh` CLI 経由で行う。
+このリポジトリの issue は GitHub Issues に置く（`tanimon/dotfiles`）。すべての操作は `gh` CLI 経由で行う。
+
+spec の置き場所は、作ったスキルで決まる。
+
+- mattpocock の `/to-spec` が作る spec は GitHub Issue に置く。`docs/` には書かない。
+- superpowers の brainstorming が作る spec は `docs/superpowers/specs/` に、writing-plans が作る plan は `docs/superpowers/plans/` に commit する。
 
 ## Conventions
 
