@@ -18,7 +18,11 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
   glob 修飾子 `(N)` はこのシェルが `nobareglobqual` で動くため効かず、同じ `no matches found` で止まる(実測)。
 - **`path` `fpath` `cdpath` `manpath` `status` `argv` を変数名にしない。** `for path in …` は `PATH` を書き換え、
   以降の外部コマンドが `command not found` になる。症状は代入から離れた場所で出る。
-- `$VAR` の直後に `:` が続くときは `${VAR}` で閉じる(`:a` `:h` などが修飾子として消費される)。
+- **波括弧の無い `$VAR:h` の修飾子は `~/.zshrc` の `setopt ksh_arrays` で切ってある。** 切れていないと
+  `"$BR:app/x"` の `:a` が修飾子として消費されてパスが黙って壊れ、`$H:scripts` は `bad substitution` で止まる。
+  この option は配列も bash と同じ扱い(添字は 0 から、`$arr` は先頭の要素だけ。全要素は `"${arr[@]}"`)にする。
+  `$VAR:` の後ろが化けたら、最新のスナップショットに `ksharrays` が写っているかを確かめる。
+  他のシェルでも同じ意味になるよう、`$VAR` の直後に `:` が続くときは `${VAR}` で閉じる。
 
 ## 権限とサンドボックス除外はコマンド文字列の前方一致
 
