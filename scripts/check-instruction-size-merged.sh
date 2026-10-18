@@ -13,8 +13,9 @@
 # 範囲: 測るのは check-instruction-size.sh の既定の使い方(ソースのまま測るファイル)だけ。描画してから測る
 # テンプレート(test/rendered-instruction-size.bats)も同じ形でぶつかりうるが、ここでは測らない。
 #
-# 終了コード: 0 = 上限内、1 = 上限を超えたファイルがある、2 = 基準を解決できない・マージが衝突する・
-# 上限の一覧を読めない。
+# 終了コード: 0 = 上限内か、マージ結果を作れない(理由を出す)、1 = 上限を超えたファイルがある、
+# 2 = 上限の一覧を読めない。pre-push で走るので、マージ結果を作れないときは push を止めない: 衝突した PR では
+# GitHub が pull_request のワークフローを走らせず、止めると衝突を PR に載せる push もできなくなる。
 set -euo pipefail
 
 base=${1:-origin/main}
@@ -33,15 +34,15 @@ elif ! fetch_error=$(git fetch -q "$remote" "$branch" 2>&1); then
 fi
 
 if ! git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
-    echo "instruction-size-merged: 基準を解決できない: ${base}" >&2
-    exit 2
+    echo "instruction-size-merged: 基準を解決できないので測らない: ${base}" >&2
+    exit 0
 fi
 
 # --write-tree は衝突すると exit 1 で、衝突の情報を続けて出す。衝突した tree は衝突の印を含むので測らない
 if ! merge_output=$(git merge-tree --write-tree HEAD "$base"); then
-    echo "instruction-size-merged: HEAD と ${base} のマージが衝突する。衝突を解いてから測る:" >&2
+    echo "instruction-size-merged: HEAD と ${base} のマージ結果を作れない(衝突など)ので測らない。衝突を解いてから測る:" >&2
     printf '%s\n' "$merge_output" >&2
-    exit 2
+    exit 0
 fi
 merged_tree=${merge_output%%$'\n'*}
 

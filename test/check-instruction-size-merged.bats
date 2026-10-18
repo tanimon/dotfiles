@@ -2,6 +2,10 @@
 
 setup() {
     load 'helpers/setup'
+    # このマシンの git の設定(署名など)を引き継ぐと、スクリプトではなく設定の違いで結果が変わる
+    export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
+    export GIT_CONFIG_SYSTEM=/dev/null
+    : >"$GIT_CONFIG_GLOBAL"
     SCRIPT="$BATS_TEST_DIRNAME/../scripts/check-instruction-size-merged.sh"
     ORIGIN="$BATS_TEST_TMPDIR/origin.git"
     REPO="$BATS_TEST_TMPDIR/repo"
@@ -106,19 +110,26 @@ merged() {
     assert_success
 }
 
-@test "マージが衝突したら exit 2 にする" {
+@test "マージが衝突したら測らずに通し(push を止めない)、理由を出す" {
     put "$REPO" CLAUDE.md $'a\nm\nm\nbranch'
     git -C "$REPO" commit -q -am branch
     put "$OTHER" CLAUDE.md $'a\nm\nm\nbase'
     git -C "$OTHER" commit -q -am base
     git -C "$OTHER" push -q origin main
     run merged
-    assert_failure 2
-    assert_output --partial 'マージが衝突する'
+    assert_success
+    assert_output --partial 'マージ結果を作れない(衝突など)ので測らない'
 }
 
-@test "基準を解決できなければ exit 2 にする" {
+@test "基準を解決できなければ測らずに通し、理由を出す" {
     run merged no-such-ref
+    assert_success
+    assert_output --partial '基準を解決できないので測らない: no-such-ref'
+}
+
+@test "上限の一覧を読めなければ exit 2 にする" {
+    put "$REPO" scripts/instruction-size-limits.txt 'broken line'
+    git -C "$REPO" commit -q -am broken
+    run merged
     assert_failure 2
-    assert_output --partial '基準を解決できない: no-such-ref'
 }
