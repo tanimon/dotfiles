@@ -1,3 +1,6 @@
+# prek install が入れるフックの種類。stages を書かないフックは default_stages の pre-commit でだけ走る
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
 repos:
   - repo: local
     hooks:
@@ -122,3 +125,12 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      # CI は PR を origin/main とマージした結果を測るので、ブランチ単体では上限内でも落ちることがある。
+      # push の直前に fetch してマージ結果を測る(ネットワークが要るので lint と CI には入れない)
+      - id: check-instruction-size-merged
+        name: check-instruction-size-merged
+        entry: bash scripts/check-instruction-size-merged.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

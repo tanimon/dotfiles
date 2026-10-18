@@ -241,10 +241,14 @@ check-templates:
 @check-instruction-size:
     bash scripts/check-instruction-size.sh
 
+# 同じ上限で、HEAD を origin/main とマージした結果を測る(CI が測るのはマージ結果)。fetch するので lint には入れず、pre-push で走る
+@check-instruction-size-merged:
+    bash scripts/check-instruction-size-merged.sh
+
 # LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合の回避。
-# check-instruction-size.sh のテストと、描画してから測るテンプレートのサイズ上限(chezmoi が要る)
+# check-instruction-size.sh と check-instruction-size-merged.sh のテストと、描画してから測るテンプレートのサイズ上限(chezmoi が要る)
 @test-instruction-size:
-    LC_ALL=C pnpm exec bats test/check-instruction-size.bats test/rendered-instruction-size.bats
+    LC_ALL=C pnpm exec bats test/check-instruction-size.bats test/check-instruction-size-merged.bats test/rendered-instruction-size.bats
 
 # Smoke test the harness sync/check seam (harness/bin/harness.sh)
 @test-harness-sync:
