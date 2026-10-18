@@ -15,7 +15,7 @@ The loop itself (SessionEnd hook, queue, briefing) is described under "Harness s
 
 ### Sandbox
 
-The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` so that **this session is running inside nono** (macOS Seatbelt, deny-all default) unless it was launched by a path that bypasses the wrapper, in which case Claude Code's own native Bash sandbox applies. Exactly one boundary is in effect per launch path. Read `dot_config/nono/CLAUDE.md` before assuming a path or host is reachable.
+Plain `claude` runs under Claude Code's native Bash sandbox; only `claude-nono` (`dot_config/zsh/sandbox.zsh`, nono on trial) runs inside nono with the native one off. 境界は推測せず `INSIDE_NONO_SANDBOX` の有無で判定する。Read `dot_config/nono/CLAUDE.md` before assuming a path or host is reachable.
 
 ### Browsing
 

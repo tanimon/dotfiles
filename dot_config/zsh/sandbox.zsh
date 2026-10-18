@@ -1,6 +1,10 @@
 # Sandbox Claude Code via nono (kernel-enforced Seatbelt/Landlock, deny-all default).
 # Policy lives in ~/.config/nono/profiles/claude-seal.json (chezmoi-managed).
 #
+# nono は試用中なので、明示したときだけ使う。素の `claude` は wrapper を通らずに
+# 実行ファイルを起動し、Claude Code 自身の Bash サンドボックス(~/.claude/settings.json
+# の sandbox ブロック)が境界になる。nono の内側で動かすときは `claude-nono` で起動する。
+#
 # --allow-cwd is required: workdir.access in the profile sets the access *level*,
 # not the grant itself. Without it the working directory is not shared and nono
 # falls back to an interactive prompt no non-interactive run can answer.
@@ -9,16 +13,17 @@
 # nono is the single boundary. This is load-bearing, not a nicety: nested Seatbelt
 # does not degrade gracefully — every Bash tool call dies with
 # `Exit code 71 / sandbox-exec: sandbox_apply: Operation not permitted`.
-# Use `command claude` or `\claude` to bypass nono — that path keeps Claude Code's
-# native Bash sandbox active, per the sandbox block in ~/.claude/settings.json.
-claude() {
-  if command -v nono &>/dev/null; then
-    command nono run --profile claude-seal --allow-cwd -- \
-      claude --settings '{"sandbox":{"enabled":false}}' \
-      --dangerously-skip-permissions "$@"
-  else
-    command claude "$@"
+#
+# nono が無いときは素の claude に落とさずに失敗する。nono を明示して呼んだのに
+# 境界の違う経路で動くと、nono の内側にいると誤解したまま作業することになるため。
+claude-nono() {
+  if ! command -v nono &>/dev/null; then
+    print -u2 'claude-nono: nono が見つからない。素の claude はそのまま `claude` で起動する'
+    return 1
   fi
+  command nono run --profile claude-seal --allow-cwd -- \
+    claude --settings '{"sandbox":{"enabled":false}}' \
+    --dangerously-skip-permissions "$@"
 }
 
 # Disable codex's own Seatbelt sandbox when already inside nono. macOS denies
