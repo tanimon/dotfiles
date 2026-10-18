@@ -431,5 +431,6 @@ fi
 
 if ((status != 0)); then
     echo "instruction-size: 上限を超えたファイルがある。上限と根拠は $LIMITS_FILE" >&2
+    echo "instruction-size: CI は PR を基準のブランチとマージした結果を測る。手元で同じものを測るのは just check-instruction-size-merged" >&2
 fi
 exit "$status"
