@@ -13,6 +13,7 @@ symptoms:
 root_cause: async_timing
 resolution_type: code_fix
 tags: [chezmoi, just, pnpm, flaky, bats]
+last_updated: 2026-10-18
 ---
 
 # chezmoi が source を辿る途中で、並列のレシピが作っては消す一時ファイルを lstat して落ちる
@@ -83,10 +84,11 @@ chezmoi の `--source` に、リポジトリそのものではなく、作業ツ
 
 ## 再発防止
 
-- chezmoi で source state を読む検査を新しく書くときは、`--source` に `RENDER_SOURCE`(bats)か写しを渡す。`--source "$(pwd)"` やリポジトリのパスを直接渡さない。
+- chezmoi で source state を読む検査を新しく書くときは、`--source` に `RENDER_SOURCE`(bats)か写しを渡す。`--source "$(pwd)"` やリポジトリのパスを直接渡さない。`justfile` と `test/` でこれに反すると、`test/chezmoi-source-snapshot.bats` が落ちる(`just lint` に含まれる)。
 - `lint` に並列のレシピがある限り、リポジトリ全体を辿るほかの検査(`secretlint '**/*'`、`scan-sensitive`)も、理屈のうえでは同じ競合を受けうる。今のところ観測はしていない。
 
 ## 関連
 
 - `scripts/chezmoi-source-snapshot.sh`、`test/helpers/render.bash`
 - [workflow-issues/verification-through-the-wrong-resolution-path.md](../workflow-issues/verification-through-the-wrong-resolution-path.md)(`--source` を渡さないと別の source を見る、という逆向きの落とし穴)
+- [chezmoi-source-snapshot-tar-pipe-write-error.md](chezmoi-source-snapshot-tar-pipe-write-error.md)(写しを並行して作るときに、写しの作成そのものが失敗した件)
