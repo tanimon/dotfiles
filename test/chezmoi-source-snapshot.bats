@@ -56,6 +56,18 @@ start_churn() {
     done
 }
 
+# list_non_snapshot_sources REPO: REPO の justfile と test/ で、chezmoi の source(--source / -S)に
+# 写し以外を渡している行を出す。写しとして許すのは、どのファイルでも render.bash の RENDER_SOURCE、
+# justfile では check-templates の snapshot、このファイルでは DEST だけ
+list_non_snapshot_sources() {
+    cd "$1" || return 1
+    grep -nE -- '--source[ =]|(^|[[:space:]])-S[ =]*["$./~]' justfile test/*.bats test/helpers/*.bash |
+        grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' |
+        grep -vE -- '(--source|-S)[ =]*"\$RENDER_SOURCE"' |
+        grep -vE -- '^justfile:[0-9]+:.*(--source|-S)[ =]*"\$snapshot"' |
+        grep -vE -- '^test/chezmoi-source-snapshot\.bats:[0-9]+:.*(--source|-S)[ =]*"\$DEST"'
+}
+
 @test "作業ツリーの内容を写す(commit していない編集と、無視されていない未追跡ファイルを含む)" {
     printf 'edited\n' >"$REPO/tracked.txt"
     printf 'new\n' >"$REPO/untracked.txt"
@@ -136,18 +148,15 @@ start_churn() {
 
 @test "lint で chezmoi に source state を読ませる箇所は、source に写しを指定する" {
     # リポジトリそのものを渡すと、並列のレシピの一時ファイルで落ちる競合が戻る
-    # (scripts/chezmoi-source-snapshot.sh)。許すのは render.bash の RENDER_SOURCE、
-    # check-templates の snapshot、このファイルの DEST だけ
-    run bash -c 'cd "$1" && grep -nE -- "--source[ =]" justfile test/*.bats test/helpers/*.bash |
-        grep -vE "^[^:]+:[0-9]+:[[:space:]]*#" |
-        grep -vE -- "--source[ =]\"\\\$(RENDER_SOURCE|snapshot|DEST)\""' _ "${BATS_TEST_DIRNAME}/.."
+    # (scripts/chezmoi-source-snapshot.sh)
+    run list_non_snapshot_sources "${BATS_TEST_DIRNAME}/.."
     assert_output ''
 }
 
 @test "render.bash を並行して読み込んでも、写しは 1 つだけで中に余計な項目が入らない" {
     # 並列の test は同じ BATS_RUN_TMPDIR で写しを作り合う。後から来た test が写しの中に
     # link を作ると、chezmoi が辿る source に余計な項目が混ざる
-    local run_dir="$BATS_TEST_TMPDIR/run" i pids=()
+    local run_dir="$BATS_TEST_TMPDIR/run" i pid pids=()
     mkdir -p "$run_dir"
     for i in 1 2 3 4 5 6; do
         (
@@ -157,8 +166,8 @@ start_churn() {
         ) &
         pids+=("$!")
     done
-    for i in "${pids[@]}"; do
-        wait "$i" || fail "render.bash の読み込みが失敗した"
+    for pid in "${pids[@]}"; do
+        wait "$pid" || fail "render.bash の読み込みが失敗した"
     done
     [ -L "$run_dir/chezmoi-source" ] || fail "共有の写しが無い"
     run bash -c 'ls -A "$1" | grep -c "^chezmoi-source\."' _ "$run_dir"
