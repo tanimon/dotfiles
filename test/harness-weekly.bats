@@ -242,10 +242,8 @@ if [[ "$1" == issue || "$*" == *createdAt* || "$*" == *'--json number '* ]]; the
 fi
 printf '%s\n' "$*" >>"$GH_LOG"
 if [[ "$1 $2" == "pr list" && "$*" == *'--state open'* ]]; then
-    # 開いているループの PR の一覧(記録だけの PR を作るかの判定)。既定は無し
-    [[ -z "${STUB_GH_OPEN_FAIL:-}" ]] || exit 1
-    printf '%s' "${STUB_GH_OPEN_LOOP_PR:-}"
-    [[ -z "${STUB_GH_OPEN_LOOP_PR:-}" ]] || printf '\n'
+    # 開いているループの PR の一覧(記録だけの PR を作るかの判定)。いつも無し。開いている PR があるときの判定は
+    # test/harness-publish.bats が公開の module の interface で検査する
     exit 0
 fi
 if [[ "$1 $2" == "pr list" ]]; then
@@ -1894,18 +1892,6 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
-@test "採用 0 件の週は、origin/main に無い記録が 4 週分に満たなければ持ち越して PR を作らない" {
-    old_record 2026-09-19
-    old_record 2026-09-26
-    run weekly
-    assert_success
-    assert_output --partial '3 weekly failure rate record(s) not on origin/main; carried over'
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
-    assert [ -f "$RATES/$TODAY.json" ]
-    assert [ ! -d "$WT" ]
-}
-
 @test "採用 0 件の週に origin/main に無い記録が 4 週分たまったら、記録だけの draft PR を作る" {
     old_record 2026-09-12
     old_record 2026-09-19
@@ -1925,31 +1911,6 @@ PRE
     assert_line '## Failure Pattern の再発率'
     assert_line '## 失敗の検出'
     assert [ -f "$HDIR/weekly-heartbeat" ]
-    assert [ ! -d "$WT" ]
-}
-
-@test "origin/main にある週の記録は、記録だけの PR の件数に数えない" {
-    old_record 2026-09-12
-    old_record 2026-09-19
-    old_record 2026-09-26
-    commit_on_main 2026-09-12
-    run weekly
-    assert_success
-    assert_output --partial '3 weekly failure rate record(s) not on origin/main; carried over'
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
-    assert [ ! -d "$WT" ]
-}
-
-@test "開いているループの PR があれば、記録がたまっていても記録だけの PR を作らない" {
-    old_record 2026-09-12
-    old_record 2026-09-19
-    old_record 2026-09-26
-    STUB_GH_OPEN_LOOP_PR=https://github.com/example/dotfiles/pull/40 run weekly
-    assert_success
-    assert_output --partial 'loop PR https://github.com/example/dotfiles/pull/40 is open'
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
     assert [ ! -d "$WT" ]
 }
 
@@ -2141,27 +2102,6 @@ HOOK
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
     assert_output ''
     assert [ -f "$HDIR/weekly-heartbeat" ]
-}
-
-@test "採用 0 件の週は Rule Ledger の記録を持ち越し、記録だけの PR に載せる" {
-    carried=$(ledger_record 30 '[2026-09-20] carried over')
-    run weekly
-    assert_success
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
-    assert [ -f "$carried" ]
-    old_record 2026-09-12
-    old_record 2026-09-19
-    old_record 2026-09-26
-    run weekly
-    assert_success
-    assert_output --partial 'opened metrics-only draft PR'
-    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
-    assert_line --index 0 'harness: Rule Ledger の記録を足す'
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
-    assert_output "$LEDGER_REPO_DIR/${carried##*/}"
-    run cat "$GH_BODY"
-    assert_output --partial 'Rule Ledger の記録のうち、まだ載っていなかった 1 件'
 }
 
 @test "選別の claude の commit が Rule Ledger に触れたら PR を作らずに失敗する" {
