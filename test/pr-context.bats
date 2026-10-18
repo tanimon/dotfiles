@@ -131,6 +131,43 @@ hide_gh() {
     assert_output --partial "$expected"
 }
 
+@test "基準が進んでいなければ、merge-base の後の commit は無いと出す" {
+    make_repo
+    cd "$REPO"
+    run env PR_CONTEXT_SKIP_FETCH=1 bash "$SCRIPT"
+    assert_success
+    assert_line "none — HEAD contains origin/main"
+}
+
+@test "merge-base の後に基準へ入った commit の件数と一覧を出す" {
+    make_repo
+    cd "$REPO"
+    echo more >>"$BATS_TEST_TMPDIR/upstream/README.md"
+    git -C "$BATS_TEST_TMPDIR/upstream" commit -q -am "upstream moved"
+
+    run bash "$SCRIPT"
+    assert_success
+    assert_line "1 commit(s) not in HEAD:"
+    assert_output --partial "upstream moved"
+}
+
+@test "基準へ入った commit が多ければ一覧を切り、残りの件数を出す" {
+    make_repo
+    cd "$REPO"
+    local i
+    for ((i = 1; i <= 22; i++)); do
+        git -C "$BATS_TEST_TMPDIR/upstream" commit -q --allow-empty -m "upstream ${i}"
+    done
+
+    run bash "$SCRIPT"
+    assert_success
+    assert_line "22 commit(s) not in HEAD:"
+    assert_line "… and 2 more"
+    # git log は新しい順なので、切られるのは古い 2 件
+    assert_line --regexp ' upstream 22$'
+    refute_line --regexp ' upstream (1|2)$'
+}
+
 @test "PR_CONTEXT_SKIP_FETCH を立てると fetch を名指しでスキップする" {
     make_repo
     cd "$REPO"
