@@ -64,6 +64,19 @@ weekly() {
     assert_equal "$(cat "$HDIR/pending.jsonl")" 'x'
 }
 
+@test "書いた heartbeat を、今の時刻の成功として読む" {
+    source "$LIB"
+    before=$(date +%s)
+    run harness_health_write_heartbeat
+    assert_success
+    after=$(date +%s)
+    epoch=$(harness_health_heartbeat_epoch)
+    assert [ "$epoch" -ge "$before" ]
+    assert [ "$epoch" -le "$after" ]
+    run harness_health_heartbeat_days
+    assert_output 0
+}
+
 @test "heartbeat が新しければ ok で、OK の行に経過日数を出す" {
     weekly_installed
     heartbeat_days_ago 2

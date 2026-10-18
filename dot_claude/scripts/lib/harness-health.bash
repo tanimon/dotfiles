@@ -8,13 +8,13 @@
 # 読み込むのは briefing と doctor と週次ジョブ(harness-weekly.sh。停止を Issue で知らせる判定に
 # 使う)。reflect-trigger(SessionEnd)は読み込まない: lib が壊れて止まると、セッションの記録が
 # 黙って失われる(briefing なら黙ること自体が合図になる)。
-# heartbeat を書くのは週次ジョブで、書く側のファイル名と中身(epoch の数値)の知識はジョブにもある。
-# 一致は test/harness-weekly.bats が検査する。
+# heartbeat のファイル名と中身(epoch の数値)を知っているのはこの lib だけで、週次ジョブも書き込みに
+# harness_health_write_heartbeat を使う。いつ書くかは週次ジョブが決める。
 # 週次ジョブが読み込むので、この lib は Guarded Path(scripts/guarded-paths.txt)に載せてある。
 #
 # Interface: harness_health_dir / harness_health_bootstrap / harness_health_weekly /
-# harness_health_heartbeat_epoch / harness_health_heartbeat_days / harness_health_missed_run_days /
-# harness_health_stale_prs / harness_health_unpublished_loop_branches。
+# harness_health_write_heartbeat / harness_health_heartbeat_epoch / harness_health_heartbeat_days /
+# harness_health_missed_run_days / harness_health_stale_prs / harness_health_unpublished_loop_branches。
 # パスは呼び出しのたびに $HOME から作る(source した後に HOME が変わっても追従するため)。
 # 関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
 
@@ -46,6 +46,17 @@ harness_health_bootstrap() {
     if [[ ! -f "$dir/queue.md" ]]; then
         printf '# Harness improvement queue\n\nAppended by /harness-reflect; processed by /harness-review.\n' \
             >"$dir/queue.md" || return 1
+    fi
+}
+
+# 週次ジョブの成功(heartbeat)として、今の時刻を epoch で書く。tmp+mv にして、読む側に書きかけを見せない。
+harness_health_write_heartbeat() {
+    local dir tmp
+    dir=$(harness_health_dir) || return 1
+    tmp=$(mktemp "$dir/.weekly-heartbeat.XXXXXX") || return 1
+    if ! date +%s >"$tmp" || ! mv "$tmp" "$dir/weekly-heartbeat"; then
+        rm -f "$tmp"
+        return 1
     fi
 }
 

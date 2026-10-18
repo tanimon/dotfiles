@@ -334,30 +334,15 @@ seed_queue() {
     assert_output --partial '--output-format json'
 }
 
+# heartbeat の形は健全性の lib だけが知っているので、書いたかどうかは lib の読み取りで確かめる
 @test "成功すると heartbeat に現在時刻を書く" {
     before=$(date +%s)
     run weekly
     assert_success
-    assert [ -f "$HDIR/weekly-heartbeat" ]
-    hb=$(cat "$HDIR/weekly-heartbeat")
-    assert [ "$hb" -ge "$before" ]
-}
-
-# heartbeat のファイル名と中身(epoch)の知識は、このジョブ(書く側)と判定の lib の 2 か所にある。
-# その一致をここで確かめる
-@test "ジョブが書いた heartbeat を、判定の lib が新しい成功として読む" {
-    run weekly
-    assert_success
-    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.claude/scripts"
-    : >"$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
-    cp "$SCRIPT" "$HOME/.claude/scripts/harness-weekly.sh"
-    chmod +x "$HOME/.claude/scripts/harness-weekly.sh"
     # shellcheck source=../dot_claude/scripts/lib/harness-health.bash
     source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash"
-    run harness_health_weekly
-    assert_success
-    assert_line "$(printf 'ok\tweekly job last succeeded 0d ago')"
-    refute_line --regexp '^(warn|fail)'
+    epoch=$(harness_health_heartbeat_epoch)
+    assert [ "$epoch" -ge "$before" ]
 }
 
 @test "claude が非 0 で終わると失敗し、heartbeat を書き換えない" {
