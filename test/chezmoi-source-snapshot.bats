@@ -133,3 +133,36 @@ start_churn() {
     "$repo"/*) fail "描画の source がリポジトリの中にある: $output" ;;
     esac
 }
+
+@test "lint で chezmoi に source state を読ませる箇所は、source に写しを指定する" {
+    # リポジトリそのものを渡すと、並列のレシピの一時ファイルで落ちる競合が戻る
+    # (scripts/chezmoi-source-snapshot.sh)。許すのは render.bash の RENDER_SOURCE、
+    # check-templates の snapshot、このファイルの DEST だけ
+    run bash -c 'cd "$1" && grep -nE -- "--source[ =]" justfile test/*.bats test/helpers/*.bash |
+        grep -vE "^[^:]+:[0-9]+:[[:space:]]*#" |
+        grep -vE -- "--source[ =]\"\\\$(RENDER_SOURCE|snapshot|DEST)\""' _ "${BATS_TEST_DIRNAME}/.."
+    assert_output ''
+}
+
+@test "render.bash を並行して読み込んでも、写しは 1 つだけで中に余計な項目が入らない" {
+    # 並列の test は同じ BATS_RUN_TMPDIR で写しを作り合う。後から来た test が写しの中に
+    # link を作ると、chezmoi が辿る source に余計な項目が混ざる
+    local run_dir="$BATS_TEST_TMPDIR/run" i pids=()
+    mkdir -p "$run_dir"
+    for i in 1 2 3 4 5 6; do
+        (
+            BATS_RUN_TMPDIR=$run_dir
+            # shellcheck source=test/helpers/render.bash
+            source "${BATS_TEST_DIRNAME}/helpers/render.bash"
+        ) &
+        pids+=("$!")
+    done
+    for i in "${pids[@]}"; do
+        wait "$i" || fail "render.bash の読み込みが失敗した"
+    done
+    [ -L "$run_dir/chezmoi-source" ] || fail "共有の写しが無い"
+    run bash -c 'ls -A "$1" | grep -c "^chezmoi-source\."' _ "$run_dir"
+    assert_output 1
+    run bash -c 'ls -A "$1/chezmoi-source/" | grep "^chezmoi-source"' _ "$run_dir"
+    assert_output ''
+}

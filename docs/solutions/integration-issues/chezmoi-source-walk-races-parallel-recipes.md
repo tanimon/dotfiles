@@ -13,6 +13,7 @@ symptoms:
 root_cause: async_timing
 resolution_type: code_fix
 tags: [chezmoi, just, pnpm, flaky, bats]
+last_updated: 2026-10-18
 ---
 
 # chezmoi が source を辿る途中で、並列のレシピが作っては消す一時ファイルを lstat して落ちる
@@ -90,3 +91,16 @@ chezmoi の `--source` に、リポジトリそのものではなく、作業ツ
 
 - `scripts/chezmoi-source-snapshot.sh`、`test/helpers/render.bash`
 - [workflow-issues/verification-through-the-wrong-resolution-path.md](../workflow-issues/verification-through-the-wrong-resolution-path.md)(`--source` を渡さないと別の source を見る、という逆向きの落とし穴)
+
+## 追記 (2026-10-18)
+
+写しを並行して作ると、まれに写しの作成そのものが `tar: Write error` で失敗した。`bats --jobs` の suite が `render.bash` を同時に読み込むときに起きうる。
+
+- 写しのスクリプトだけを 16 本同時に 320 回作ると 2 回失敗した。パイプの各段の終了コードは `0 0 1 0`(`git ls-files`・削除済みを除く `while`・作る側の `tar -c`・展開する側の `tar -x`)だった。
+- 展開する側はアーカイブの終端を読んだところで正常に抜け、写しは揃っていた。作る側が末尾の埋め草を閉じたパイプに書いて失敗し、パイプライン全体が失敗扱いになっていた。
+- 並行しなければ 300 回で 0 回だった。
+
+**解決:** アーカイブをパイプで渡さず、一時ファイルに書いてから展開する。直した後は同じ条件で 960 回作って 0 回だった。`test/chezmoi-source-snapshot.bats` に、`render.bash` を並行して読み込んでも写しが 1 つだけで、中に余計な項目が入らないことを確かめるケースを足した(直す前は約 3% で落ちた)。
+
+あわせて、`justfile` と `test/` の中で chezmoi の `--source` に写し以外を渡している箇所を落とすケースも同じファイルに足した。新しく書いた検査がリポジトリそのものを渡すと、本文の競合が戻るため。
+
