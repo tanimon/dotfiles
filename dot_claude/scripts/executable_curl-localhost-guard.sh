@@ -28,10 +28,10 @@
 # 「たぶん安全」ではなく ask にする。
 #
 # 残存(受容): 縛るのは宛先アドレスだけで、最終到達先(ループバックのリスナーによる中継)と
-# 副作用(`-o` / `--dump-header` / `>`)は縛らない。新たな到達性が増えない理由は dot_claude/scripts/CLAUDE.md。
+# 副作用(`-o` / `--dump-header` / `>`)は縛らない。新たな到達性が増えない理由は .claude/rules/curl-localhost-guard.md。
 #
 # 引用符の外の `?` / `[` も `*` と同じく語の数を変えるので拒否する。ただし token 自身がループバック URL で、
-# authority に glob が無いものは通す(glob_token_is_loopback_safe。理由は dot_claude/scripts/CLAUDE.md)。
+# authority に glob が無いものは通す(glob_token_is_loopback_safe。理由は .claude/rules/curl-localhost-guard.md)。
 # glob は宛先チェックそのものを破るので、上の残存とは違って受容しない。
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
 # 新しい shellcheck は SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する。

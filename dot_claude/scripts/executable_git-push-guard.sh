@@ -19,7 +19,7 @@
 # carrying a push cannot slip past.
 #
 # このフックが見ない残存: alias / シェル関数と `gh api`(tier-model spec)、および
-# dot_claude/scripts/CLAUDE.md の「残存(受容)」の各項(引用符除去より前の早期終了・永続した設定・
+# .claude/rules/git-push-guard.md の「残存(受容)」の各項(引用符除去より前の早期終了・永続した設定・
 # フラグの前の `$(…)`・zsh のグロブ修飾子・git-core の dashed binary・標準入力の引数・`env -S`)。
 #
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
