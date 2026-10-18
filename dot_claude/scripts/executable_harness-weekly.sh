@@ -728,7 +728,7 @@ main() {
     # WARN だけにする。期間を決められない・記録を
     # 書けない週は記録そのものが欠け、推移に「記録なし」とも出ないので、RATE_RECORD_ERROR に残して
     # finish_run で run を失敗させる(週の処理は止めない)。since は前の週の記録が読めないと毎週失敗するので、
-    # WARN だけだと以降の週の記録が黙って作られなくなる。記録だけの PR の push や作成の失敗は、
+    # WARN だけだと以降の週の記録が黙って作られなくなる。Metrics-only PR の push や作成の失敗は、
     # 採用のある PR と同じく run の失敗にする(公開の lib の harness_publish_metrics_only)
     RATE_RECORD_ERROR=""
     record_failure_rates() {
@@ -820,7 +820,7 @@ main() {
         append_detection_section
     }
 
-    # queue が空で選別を省いた週に、記録だけの PR が要るかを確かめて作る。要否の判定と公開は公開の lib が行い、
+    # queue が空で選別を省いた週に、Metrics-only PR が要るかを確かめて作る。要否の判定と公開は公開の lib が行い、
     # worktree を作る前の絞り込みと、base を使った判定の 2 段で尋ねる。当日のブランチが origin に
     # あれば、その日の PR は作成済みか手で作るのを待っているので作らない
     publish_metrics_if_due() {
@@ -897,7 +897,7 @@ main() {
     # 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
     # Dropped Change の判定に使わない(本文には採用 0 件の週にも指標などが載りうるため)。
     #   - commit 0 件・dropped が空 → 成功。PR は作らない(deploy-only だけの週を含む)。ただし
-    #     origin/main に無い週の再発率の記録がたまっていれば、記録だけの PR を作る(公開の lib の
+    #     origin/main に無い週の再発率の記録がたまっていれば、Metrics-only PR を作る(公開の lib の
     #     harness_publish_metrics_only_due と harness_publish_metrics_only)
     #   - commit 0 件・dropped が空でない → 失敗(すべてが Dropped Change)
     #   - dropped の申告が queue と archive の観測と食い違う → 失敗(check_review_claims)

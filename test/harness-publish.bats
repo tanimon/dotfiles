@@ -109,12 +109,6 @@ init_publish() { # [<上書きする引数>…]
     assert_equal "$HARNESS_PUBLISH_LEDGER_REPO_DIR" docs/harness/rule-ledger
 }
 
-@test "再発率の記録の置き場・Metrics-only PR を作る週数・署名用の git 設定を定数で持つ" {
-    assert_equal "$HARNESS_PUBLISH_RATES_REPO_DIR" docs/harness/failure-pattern-rates
-    assert_equal "$HARNESS_PUBLISH_METRICS_ONLY_WEEKS" 4
-    assert_equal "$HARNESS_PUBLISH_AGENT_GIT_CONFIG" "$HOME/.config/git/claude-code.inc"
-}
-
 # <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
 guarded() { # <Source> <一覧のファイル>
     local line
@@ -137,7 +131,7 @@ guarded() { # <Source> <一覧のファイル>
     assert_success
 }
 
-# 以下は Metrics-only PR の要否の判定・公開・片付けの検査。git は実物を使い、origin は使い捨ての bare リポジトリにする。
+# publish_fixture は Metrics-only PR の要否の判定・公開・片付けの検査の fixture。git は実物を使い、origin は使い捨ての bare リポジトリにする。
 # gh と pnpm は PATH に置いた偽物、Rule Ledger のスクリプトは書き出す件数を STUB_LEDGER_EXPORT で決める偽物にする
 # (記録の選び方は test/harness-rule-ledger.bats の範囲)。Integrity Snapshot の lib は本物を使う。
 #
@@ -400,6 +394,21 @@ refute_pr_create() {
     assert_failure
 }
 
+@test "記録の commit は、GIT_CONFIG_GLOBAL が無ければ Claude Code の git の設定(~/.config/git/claude-code.inc)で作る" {
+    publish_fixture
+    four_local_records
+    make_worktree
+    init_real
+    mkdir -p "$HOME/.config/git"
+    printf '[user]\n\tname = claude-code-agent\n\temail = agent@example.com\n[commit]\n\tgpgsign = false\n' \
+        >"$HOME/.config/git/claude-code.inc"
+    unset GIT_CONFIG_GLOBAL
+    run harness_publish_metrics_only "$BASE" sections
+    assert_success
+    run git -C "$ORIGIN" log --format=%an "main..$BRANCH"
+    assert_output claude-code-agent
+}
+
 @test "Metrics-only PR: 持ち越した Rule Ledger の記録を PR を作る前に commit し、件数の文に続けて本文に書く" {
     publish_fixture
     four_local_records
@@ -455,7 +464,7 @@ refute_pr_create() {
     refute_published
 }
 
-@test "Metrics-only PR: Rule Ledger の記録を commit できなければ、写しかけを戻して記録だけの PR を作る" {
+@test "Metrics-only PR: Rule Ledger の記録を commit できなければ、写しかけを戻して Metrics-only PR を作る" {
     publish_fixture
     four_local_records
     make_worktree
@@ -569,7 +578,7 @@ refute_pr_create() {
     assert_success
 }
 
-# 以下は選別の結果の公開(harness_publish_review)の検査。fixture は Metrics-only PR の検査と同じものを使い、選別の commit・
+# review_fixture は選別の結果の公開(harness_publish_review)の検査の fixture。publish_fixture に選別の commit・
 # 判定の記録・Rule Ledger の record を足す。Verdict の CLI は本物を置き(判定の記録の書き換えを検査に残す)、Rule Ledger の
 # record は偽物にする(記録の作り方は test/harness-rule-ledger.bats の範囲)。
 #

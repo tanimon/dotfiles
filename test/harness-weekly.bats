@@ -242,7 +242,7 @@ if [[ "$1" == issue || "$*" == *createdAt* || "$*" == *'--json number '* ]]; the
 fi
 printf '%s\n' "$*" >>"$GH_LOG"
 if [[ "$1 $2" == "pr list" && "$*" == *'--state open'* ]]; then
-    # 開いているループの PR の一覧(記録だけの PR を作るかの判定)。いつも無し。開いている PR があるときの判定は
+    # 開いているループの PR の一覧(Metrics-only PR を作るかの判定)。いつも無し。開いている PR があるときの判定は
     # test/harness-publish.bats が公開の module の interface で検査する
     exit 0
 fi
@@ -1852,7 +1852,7 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
-@test "採用 0 件の週に origin/main に無い記録が 4 週分たまったら、記録だけの draft PR を作る" {
+@test "採用 0 件の週に origin/main に無い記録が 4 週分たまったら、Metrics-only PR を作る" {
     old_record 2026-09-12
     old_record 2026-09-19
     old_record 2026-09-26
@@ -1869,7 +1869,7 @@ PRE
     assert [ ! -d "$WT" ]
 }
 
-@test "選別が何も commit しなかった週も、記録がたまっていれば記録だけの PR を作る" {
+@test "選別が何も commit しなかった週も、記録がたまっていれば Metrics-only PR を作る" {
     seed_queue
     old_record 2026-09-12
     old_record 2026-09-19
