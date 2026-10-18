@@ -9,8 +9,8 @@ paths:
 ---
 
 **git push guard hook** — `dot_claude/scripts/executable_git-push-guard.sh` は `PreToolUse`
-(`matcher: "Bash"`)で走る**許可判定フック**。他の2つのフック(notify / worktree-include)と違い、
-これは副作用のための hook ではなく `hookSpecificOutput.permissionDecision` を返して**ツール呼び出しを
+(`matcher: "Bash"`)で走る**許可判定フック**。notify や worktree-include のような
+副作用のための hook ではなく `hookSpecificOutput.permissionDecision` を返して**ツール呼び出しを
 止める**ためのもの。存在理由は `permissions` のプレフィックス照合の限界で、`Bash(git push --force:*)`
 は `git push origin main --force` に当たらない — write intent がフラグ位置に移動できるため、
 `Bash(git push:*)` を `ask` に置く以外に塞ぐ手が無く、その結果として日常の push まで毎回プロンプトに

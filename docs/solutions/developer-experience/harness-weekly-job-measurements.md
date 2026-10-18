@@ -18,13 +18,13 @@ tags: [harness, launchd, nono, claude-p, measurement]
 ## 指針
 
 - 規則を変える前に、その規則が依っている記録をここで確かめる。
-- 測り直したら、版と日付を付けてこの文書に足す。規則の側には結論と参照だけを置く。
+- 測り直したら、版と日付を付けて該当する節に書き足すか、末尾に `## 追記 (YYYY-MM-DD)` の節を足し、frontmatter の `last_updated` を更新する(`docs/solutions/README.md`)。規則の側には結論と参照だけを置く。
 
 ## 例
 
 ### 実行中のスクリプトの書き換え(#515)
 
-書き換え方ごとの実測(2026-10-17、`/bin/bash` 3.2.57、nono の外の小さなスクリプト。bash の読み方は nono に依らない): 同じ inode への追記(`>>`)と上書き(`>`)は効く。rename による置き換え(一時ファイル → `mv`)と Claude Code の Edit / Write ツール(inode が変わる)は効かない。包んでも、最後の行が `main "$@"` だけなら main が戻った後に末尾への追記が実行され、`exit` を後ろの別の行に置くとその行を上書きで差し替えられる(shfmt は `main "$@"; exit` を 2 行に割るので、1 行の形は保てない)。`test/harness-weekly.bats` が抽出の claude の実行中に、末尾への追記と、最後の行の直前・本体の途中に命令を入れた上書きを行い、書き足した命令が実行されないことを確かめる(包まない形では 3 件とも落ちる。2 行の形では、最後の行の直前への上書きは書き足した命令が実行されて落ち、本体の途中への上書きは、書き足した命令は実行されないが main が戻った後に bash がずれた位置(コメントの行の途中)から読み、exit 127 で落ちる。2 行の形は、書き足した命令を実行させなくても run を壊しうる)。この 3 件は CI(ubuntu、bash 5 系)でも通る。
+書き換え方ごとの実測(2026-10-17、`/bin/bash` 3.2.57、nono の外の小さなスクリプト。bash の読み方は nono に依らない): 同じ inode への追記(`>>`)と上書き(`>`)は効く。rename による置き換え(一時ファイル → `mv`)と Claude Code の Edit / Write ツール(inode が変わる)は効かない。包む形とその理由、テストが何を確かめるかは `.claude/rules/harness-weekly.md` の「実行中の run は起動時の内容で動かす」の項にある。そのテストは、包まない形では 3 件とも落ちる。2 行の形(最後の行を `main "$@"` だけにし、`exit` を後ろの別の行に置く)では、最後の行の直前への上書きは書き足した命令が実行されて落ち、本体の途中への上書きは、書き足した命令は実行されないが main が戻った後に bash がずれた位置(コメントの行の途中)から読み、exit 127 で落ちる。2 行の形は、書き足した命令を実行させなくても run を壊しうる。この 3 件は CI(ubuntu、bash 5 系)でも通る。
 
 ### Eval Case の評価
 
@@ -36,7 +36,7 @@ tags: [harness, launchd, nono, claude-p, measurement]
 
 ### 抽出の工程までの通し実行
 
-**抽出の工程までの通し実行(2026-10-03、nono 0.79.0。選別・push・PR の作成は未計測)。** 本番のラベルを launchd から起動し、claude の起動まで通った。`launchctl print` は `runs = 1`・`last exit code = 0`、ログは `exit=0 pending=16->6`、結果は `is_error: false`・`subtype: success`、heartbeat は end の時刻で書かれた。境界の外の起動との比較(Contrast Pair)は、スクリプトの中で nono を掛けていた構成での次項の測定による。nono の内側から orca の hook スクリプトの読み取りが拒否されたが、hook は読めないときに `{}` を返すだけなので影響は無い。plist の読み取りも拒否されていた(いまは `read_file` で付与済み。`dot_config/nono/CLAUDE.md` の「境界の外で無人実行するもの」)。Bash が 1 回 `permission_denials` に入った(queue に追記するヒアドキュメントの本文を git push guard が `ask` にし、headless では拒否になる。#429)。エージェントの再試行で追記は済んでいた。
+**抽出の工程までの通し実行(2026-10-03、nono 0.79.0。選別・push・PR の作成は未計測)。** 本番のラベルを launchd から起動し、claude の起動まで通った。`launchctl print` は `runs = 1`・`last exit code = 0`、ログは `exit=0 pending=16->6`、結果は `is_error: false`・`subtype: success`、heartbeat は end の時刻で書かれた。pending 16 件のうち上限の 10 件を処理し、`total_cost_usd` は $1.20 で、既定の予算 $5 に届かなかった。境界の外の起動との比較(Contrast Pair)は、スクリプトの中で nono を掛けていた構成での次項の測定による。nono の内側から orca の hook スクリプトの読み取りが拒否されたが、hook は読めないときに `{}` を返すだけなので影響は無い。plist の読み取りも拒否されていた(いまは `read_file` で付与済み。`dot_config/nono/CLAUDE.md` の「境界の外で無人実行するもの」)。Bash が 1 回 `permission_denials` に入った(queue に追記するヒアドキュメントの本文を git push guard が `ask` にし、headless では拒否になる。#429)。エージェントの再試行で追記は済んでいた。
 
 ### launchd からの起動の Contrast Pair
 

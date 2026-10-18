@@ -71,7 +71,7 @@ AGENTS.md 215 46741
 CLAUDE.md 230 45235
 .claude/rules/shell-scripts.md 221 11866
 dot_claude/scripts/CLAUDE.md 101 10212
-.claude/rules/git-push-guard.md 209 23979
+.claude/rules/git-push-guard.md 209 23949
 .claude/rules/curl-localhost-guard.md 214 22216
 dot_config/nono/CLAUDE.md 53 41775
 
