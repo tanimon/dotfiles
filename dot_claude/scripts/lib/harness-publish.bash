@@ -10,14 +10,29 @@
 # - 手で公開するコマンドの綴り(push、draft PR の作成、判定の記録への PR の URL の記録)。週次ジョブの案内文は
 #   文を各箇所に持ち、コマンドの綴りだけをここから受け取る。綴りの関数は初期化の値を読まず、引数だけで組み立てる
 #   (案内文ごとにリポジトリの表記とブランチが違い、初期化の前に止まった run の通知も使うため)。
+# - Metrics-only PR が要るかの判定。worktree を作る前の絞り込み(harness_publish_metrics_only_maybe_due。ローカルの
+#   記録の件数と開いている Loop PR)と、base を使った判定(harness_publish_metrics_only_due。origin/main に無い週の件数と
+#   開いている Loop PR)の 2 段。gh の失敗は WARN を出して「要らない」に倒す。当日のブランチが origin にあるかの照会、
+#   worktree の準備、依存のインストールは週次ジョブが行う。
+# - Metrics-only PR の公開(harness_publish_metrics_only)と、公開しないで片付けること(harness_publish_discard)。
+#   公開の手順(記録の commit と戻し、push と gh pr create の直前の関門、push、PR の作成、URL の取り出し、
+#   失敗時の手で公開する案内、後片付け)はこの lib の内側の関数にあり、入口ごとの失敗の扱いは入口が持つ。
 #
-# 週次ジョブは claude の起動前にこの lib を読み込む(Integrity Snapshot の lib の後)。メモリに載った後は
-# claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。
+# 返り値は成功(公開した、または公開するものが無かった)と失敗の 2 値。Integrity Snapshot の照合の失敗
+# (HARNESS_INTEGRITY_FAILED)は入口の中で受け、外には出さない。失敗の理由と手で直す手順はこの lib がログに出す。
+# 公開の手順が出す行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤り
+# (初期化の引数など)だけを harness-publish: で出す。
+#
+# 週次ジョブは claude の起動前にこの lib を読み込む(Integrity Snapshot の lib の後。その照合と関門を使う)。
+# メモリに載った後は claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。
 # 週次ジョブが読み込むので、この lib は Guarded Path(scripts/guarded-paths.txt)に載せてある。
+# ローカルの記録の置き場と Rule Ledger のスクリプトのパスは、Integrity Snapshot の lib と同じく呼び出しのたびに $HOME から作る
+# (Rule Ledger のスクリプトは harness_integrity_executables の行と一致しなければ実行されない)。
 #
 # Interface: HARNESS_PUBLISH_RATES_REPO_DIR / HARNESS_PUBLISH_LEDGER_REPO_DIR / HARNESS_PUBLISH_METRICS_ONLY_WEEKS /
 # HARNESS_PUBLISH_AGENT_GIT_CONFIG / harness_publish_init / harness_publish_push_command /
-# harness_publish_pr_command / harness_publish_record_command。
+# harness_publish_pr_command / harness_publish_record_command / harness_publish_metrics_only_maybe_due /
+# harness_publish_metrics_only_due / harness_publish_metrics_only / harness_publish_discard。
 # 関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
 
 # 週の再発率の記録(1 週 1 ファイル)のリポジトリ内の置き場。週次ジョブの commit だけが書く
@@ -118,4 +133,257 @@ harness_publish_pr_command() { # <ブランチ> [<本文のパス>]
 harness_publish_record_command() { # <run>
     local quote="'\\''"
     printf "bash ~/.claude/scripts/harness-verdict.sh publish --run '%s' --pr-url <PR URL>" "${1//\'/$quote}"
+}
+
+# 公開の手順が数えた件数。_harness_publish_commit_rate_records と _harness_publish_commit_ledger_records が入れる
+_HARNESS_PUBLISH_RATE_RECORDS_COMMITTED=0
+_HARNESS_PUBLISH_LEDGER_RECORDS_COMMITTED=0
+# _harness_publish_push_and_create が作った PR の URL
+_HARNESS_PUBLISH_PR_URL=""
+
+# 週の再発率の記録のローカルの置き場(1 週 1 ファイル。全週を持つ)
+_harness_publish_local_rates_dir() {
+    printf '%s\n' "$HOME/.claude/harness/failure-pattern-rates"
+}
+
+# Rule Ledger のローカルの置き場(1 採用 1 ファイル)
+_harness_publish_local_ledger_dir() {
+    printf '%s\n' "$HOME/.claude/harness/rule-ledger"
+}
+
+_harness_publish_rule_ledger() {
+    printf '%s\n' "$HOME/.claude/scripts/harness-rule-ledger.sh"
+}
+
+# 週次ジョブ自身の commit に使う git。GIT_CONFIG_GLOBAL が無ければ HARNESS_PUBLISH_AGENT_GIT_CONFIG で署名する
+_harness_publish_git() {
+    if [[ -z "${GIT_CONFIG_GLOBAL:-}" && -f "$HARNESS_PUBLISH_AGENT_GIT_CONFIG" ]]; then
+        GIT_CONFIG_GLOBAL="$HARNESS_PUBLISH_AGENT_GIT_CONFIG" git "$@"
+    else
+        git "$@"
+    fi
+}
+
+_harness_publish_remove_worktree() {
+    git -C "$_HARNESS_PUBLISH_REPO" worktree remove --force "$_HARNESS_PUBLISH_WORKTREE" >/dev/null 2>&1 ||
+        rm -rf "$_HARNESS_PUBLISH_WORKTREE"
+}
+
+# ローカルの週の記録のうち、base(origin/main)の HARNESS_PUBLISH_RATES_REPO_DIR に無いものを出す。閉じた PR や
+# 未マージの PR に入っていた週も、origin/main に無ければ出す(ローカルの印では判定しない)。
+# この run の日付の記録だけは、origin/main にあっても中身が違えば出す。同じ日の再実行がその日の記録を
+# 書き直すため(harness-failure-rates.sh の since)。リポジトリ側は oxfmt を通してあるので、バイト列では
+# なく JSON として比べ、どちらかが JSON として読めなければ違うものとして出す。ほかの日付は中身を比べない:
+# origin/main の記録を人が直したときにローカルの古い写しで戻さないためと、前の週の claude が書き換えた
+# 記録(この run のハッシュでは見つけられない。_harness_publish_commit_rate_records)でマージ済みの記録を上書きしないため。
+# 再実行が選別を省いた(当日のブランチが origin にある)週は、書き直した記録はローカルにだけ残る
+_harness_publish_uncommitted_rate_records() { # <base>
+    local base=$1 rates_dir file committed local_record
+    rates_dir=$(_harness_publish_local_rates_dir)
+    [[ -d "$rates_dir" ]] || return 0
+    for file in "$rates_dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json; do
+        [[ -f "$file" ]] || continue
+        if ! git -C "$_HARNESS_PUBLISH_WORKTREE" cat-file -e "$base:$HARNESS_PUBLISH_RATES_REPO_DIR/${file##*/}" 2>/dev/null; then
+            printf '%s\n' "$file"
+        elif [[ "${file##*/}" == "$_HARNESS_PUBLISH_DATE.json" ]]; then
+            if ! committed=$(git -C "$_HARNESS_PUBLISH_WORKTREE" show "$base:$HARNESS_PUBLISH_RATES_REPO_DIR/${file##*/}" | jq -S -c . 2>/dev/null) ||
+                ! local_record=$(jq -S -c . "$file" 2>/dev/null) || [[ "$committed" != "$local_record" ]]; then
+                printf '%s\n' "$file"
+            fi
+        fi
+    done
+}
+
+# origin/main に無い週の記録を worktree に写し、週次ジョブの commit 1 つにする。抽出と選別の claude
+# には書かせない(改善する側が指標を書き換えられないように)。リポジトリ側の書き換えは週次ジョブが選別の commit の
+# 検査で、ローカルの記録の書き換えは写す直前のデータの照合(Integrity Snapshot)が見つける。書き換えか照合できない
+# 記録を見つけたら、commit せずに HARNESS_INTEGRITY_FAILED を返す。前の週から持ち越した記録を
+# その週の claude が書き換えていた場合は見つけられない(Integrity Snapshot の lib のヘッダの残存リスク)。
+# oxfmt を通すのは、commit フックが JSON の書式を検査するため。写した件数を _HARNESS_PUBLISH_RATE_RECORDS_COMMITTED に入れる
+_harness_publish_commit_rate_records() { # <base>
+    local base=$1 files file
+    _HARNESS_PUBLISH_RATE_RECORDS_COMMITTED=0
+    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
+    files=$(_harness_publish_uncommitted_rate_records "$base")
+    [[ -n "$files" ]] || return 0
+    mkdir -p "$_HARNESS_PUBLISH_WORKTREE/$HARNESS_PUBLISH_RATES_REPO_DIR" || return 1
+    while IFS= read -r file; do
+        cp "$file" "$_HARNESS_PUBLISH_WORKTREE/$HARNESS_PUBLISH_RATES_REPO_DIR/" || return 1
+        _HARNESS_PUBLISH_RATE_RECORDS_COMMITTED=$((_HARNESS_PUBLISH_RATE_RECORDS_COMMITTED + 1))
+    done <<<"$files"
+    (cd "$_HARNESS_PUBLISH_WORKTREE" && pnpm exec oxfmt "$HARNESS_PUBLISH_RATES_REPO_DIR") || return 1
+    git -C "$_HARNESS_PUBLISH_WORKTREE" add -- "$HARNESS_PUBLISH_RATES_REPO_DIR" || return 1
+    _harness_publish_git -C "$_HARNESS_PUBLISH_WORKTREE" commit --quiet -m "harness: Failure Pattern の再発率の週の記録を足す" || return 1
+}
+
+# Rule Ledger の commit に失敗したときに、worktree を <revision> に戻して写しかけの記録を消す。記録はローカルに残る
+_harness_publish_drop_ledger_commit() { # <revision>
+    printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for a later PR\n' "$(_harness_publish_local_ledger_dir)" >&2
+    git -C "$_HARNESS_PUBLISH_WORKTREE" reset --quiet --hard "$1" || return 1
+    git -C "$_HARNESS_PUBLISH_WORKTREE" clean --quiet -fd -- "$HARNESS_PUBLISH_LEDGER_REPO_DIR" || return 1
+}
+
+# base(origin/main)に無いローカルの Rule Ledger の記録を worktree に写し、週次ジョブの commit 1 つにする。
+# 写す記録の選び方(マージされた PR と、この run の PR の記録だけ)と仕事の識別子の検査・伏せ字は
+# harness-rule-ledger.sh export が行う。選別の claude には書かせない(週次ジョブが選別の commit を、写す直前の
+# データの照合がローカルの記録を確かめる)。写した件数を _HARNESS_PUBLISH_LEDGER_RECORDS_COMMITTED に入れる。
+# 失敗しても記録はローカルに残り、後の PR が足す。照合に落ちたら HARNESS_INTEGRITY_FAILED を返す
+_harness_publish_commit_ledger_records() { # <base> [この run の PR の番号]
+    local base=$1 output count pr_args=()
+    _HARNESS_PUBLISH_LEDGER_RECORDS_COMMITTED=0
+    [[ -z "${2:-}" ]] || pr_args=(--pr "$2")
+    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
+    # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを渡す。
+    # export は書き出した形を rule-ledger/exported/ に残す(封印しない)ので、この後にデータを照合しないこと
+    output=$(SENSITIVE_PATTERNS_LOCAL="${SENSITIVE_PATTERNS_LOCAL-$_HARNESS_PUBLISH_REPO/scripts/sensitive-patterns.local.txt}" \
+        harness_integrity_run "$(_harness_publish_rule_ledger)" export --base "$base" --worktree "$_HARNESS_PUBLISH_WORKTREE" ${pr_args[@]+"${pr_args[@]}"}) || return $?
+    printf '%s\n' "$output"
+    count=$(sed -n 's/^harness-rule-ledger: exported \([0-9][0-9]*\) record(s)$/\1/p' <<<"$output")
+    [[ "$count" =~ ^[0-9]+$ ]] || return 1
+    [[ "$count" -gt 0 ]] || return 0
+    (cd "$_HARNESS_PUBLISH_WORKTREE" && pnpm exec oxfmt "$HARNESS_PUBLISH_LEDGER_REPO_DIR") || return 1
+    git -C "$_HARNESS_PUBLISH_WORKTREE" add -- "$HARNESS_PUBLISH_LEDGER_REPO_DIR" || return 1
+    _harness_publish_git -C "$_HARNESS_PUBLISH_WORKTREE" commit --quiet -m "harness: Rule Ledger の記録を足す" || return 1
+    _HARNESS_PUBLISH_LEDGER_RECORDS_COMMITTED=$count
+}
+
+# 公開(push と gh pr create)の直前の関門。照合の失敗を取りこぼした呼び出し元があっても、書き換えられた run の PR を作らない
+_harness_publish_trusted_before() { # <これから行う操作>
+    harness_integrity_gate && return 0
+    printf 'harness-weekly: stopped before %s on %s; no PR created, because the scripts the job runs could not be trusted\n' "$1" "$_HARNESS_PUBLISH_BRANCH" >&2
+    # gh pr create の直前で止まったときはブランチが origin にあり、同じ日の再実行は手で PR を作るよう案内してしまう
+    [[ "$1" != 'gh pr create' ]] ||
+        printf 'harness-weekly: %s is already on origin; do not open a PR from it as it is. Find what changed the scripts, then delete the branch (git push origin --delete %s)\n' \
+            "$_HARNESS_PUBLISH_BRANCH" "$_HARNESS_PUBLISH_BRANCH" >&2
+    return 1
+}
+
+# 関門 → push → 関門 → draft PR の作成。作った PR の URL を _HARNESS_PUBLISH_PR_URL に入れる。失敗したら手で公開する
+# 案内を出して 1 を返し、worktree・ローカルブランチ・本文は残す(手で公開するときに使う)。
+# <案内の続き> は PR の作成に失敗したときの案内の末尾に足す文(PR を作った後に入口がすることを手で行う手順)
+_harness_publish_push_and_create() { # <PR のタイトル> [<案内の続き>]
+    local title=$1 hint=${2:-} url
+    _HARNESS_PUBLISH_PR_URL=""
+    _harness_publish_trusted_before push || return 1
+    git -C "$_HARNESS_PUBLISH_WORKTREE" push --quiet origin "HEAD:refs/heads/$_HARNESS_PUBLISH_BRANCH" || {
+        printf 'harness-weekly: push of %s failed; no PR created. To publish by hand: %s, then %s\n' \
+            "$_HARNESS_PUBLISH_BRANCH" "$(harness_publish_push_command "$_HARNESS_PUBLISH_BRANCH" "$_HARNESS_PUBLISH_REPO")" \
+            "$(harness_publish_pr_command "$_HARNESS_PUBLISH_BRANCH" "$_HARNESS_PUBLISH_PR_BODY")" >&2
+        return 1
+    }
+    _harness_publish_trusted_before 'gh pr create' || return 1
+    url=$(cd "$_HARNESS_PUBLISH_WORKTREE" && gh pr create --draft --base main --head "$_HARNESS_PUBLISH_BRANCH" \
+        --title "$title" --body-file "$_HARNESS_PUBLISH_PR_BODY") || {
+        printf 'harness-weekly: pushed %s but gh pr create failed; open the PR by hand with %s%s\n' \
+            "$_HARNESS_PUBLISH_BRANCH" "$(harness_publish_pr_command "$_HARNESS_PUBLISH_BRANCH" "$_HARNESS_PUBLISH_PR_BODY")" "$hint" >&2
+        return 1
+    }
+    # gh は URL を最後の行に出す
+    _HARNESS_PUBLISH_PR_URL=${url##*$'\n'}
+}
+
+# PR を作った後の後片付け。ブランチは origin にあるので、worktree とローカルのブランチを消す(残すと週ごとに溜まる)
+_harness_publish_cleanup_published() {
+    _harness_publish_remove_worktree
+    git -C "$_HARNESS_PUBLISH_REPO" branch --quiet -D "$_HARNESS_PUBLISH_BRANCH" >/dev/null 2>&1 ||
+        printf 'harness-weekly: WARN could not delete local branch %s in %s\n' "$_HARNESS_PUBLISH_BRANCH" "$_HARNESS_PUBLISH_REPO" >&2
+}
+
+# 開いている Loop PR(ブランチが初期化で受け取った prefix で始まる)の URL を出す。無ければ空。gh が失敗すれば非 0
+_harness_publish_open_loop_pr() {
+    local prefix
+    # prefix は JSON の文字列にして式に埋める(gh の --jq は --arg を取れない)
+    prefix=$(jq -n --arg prefix "$_HARNESS_PUBLISH_LOOP_BRANCH_PREFIX" '$prefix') || return 1
+    (cd "$_HARNESS_PUBLISH_REPO" && gh pr list --state open --json headRefName,url \
+        --jq "[.[] | select(.headRefName | startswith($prefix))][0].url // empty")
+}
+
+# Metrics-only PR が要るかの 1 段目。worktree を作る前に、ローカルの記録の件数(origin/main に無い件数の上限)と
+# 開いている Loop PR で絞る。要るかもしれなければ 0、要らなければ理由を出して 1 を返す(gh の失敗も 1)。
+# 開いている Loop PR があれば作らない(その PR に記録が入っているか、次に採用のある PR がまとめて足す。作ると毎週 1 本ずつ増える)
+harness_publish_metrics_only_maybe_due() {
+    local rates_dir local_count=0 file open_pr
+    rates_dir=$(_harness_publish_local_rates_dir)
+    for file in "$rates_dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json; do
+        [[ -f "$file" ]] && local_count=$((local_count + 1))
+    done
+    if [[ "$local_count" -lt "$HARNESS_PUBLISH_METRICS_ONLY_WEEKS" ]]; then
+        printf 'harness-weekly: at most %s weekly failure rate record(s) not on origin/main; carried over in %s (a metrics-only PR needs %s)\n' \
+            "$local_count" "$rates_dir" "$HARNESS_PUBLISH_METRICS_ONLY_WEEKS"
+        return 1
+    fi
+    open_pr=$(_harness_publish_open_loop_pr) || {
+        printf 'harness-weekly: WARN listing open loop PRs failed; no metrics-only PR this week\n' >&2
+        return 1
+    }
+    if [[ -n "$open_pr" ]]; then
+        printf 'harness-weekly: loop PR %s is open; weekly failure rate records carried over\n' "$open_pr"
+        return 1
+    fi
+}
+
+# Metrics-only PR が要るかの 2 段目。origin/main に無い週の記録(<base> は worktree の origin/main)が
+# HARNESS_PUBLISH_METRICS_ONLY_WEEKS 件以上あり、開いている Loop PR が無ければ 0。要らなければ理由を出して 1 を返す
+harness_publish_metrics_only_due() { # <base>
+    local base=$1 count open_pr
+    count=$(_harness_publish_uncommitted_rate_records "$base" | grep -c . || true)
+    if [[ "$count" -lt "$HARNESS_PUBLISH_METRICS_ONLY_WEEKS" ]]; then
+        printf 'harness-weekly: %s weekly failure rate record(s) not on origin/main; carried over in %s (a metrics-only PR needs %s)\n' \
+            "$count" "$(_harness_publish_local_rates_dir)" "$HARNESS_PUBLISH_METRICS_ONLY_WEEKS"
+        return 1
+    fi
+    open_pr=$(_harness_publish_open_loop_pr) || {
+        printf 'harness-weekly: WARN listing open loop PRs failed; no metrics-only PR this week\n' >&2
+        return 1
+    }
+    if [[ -n "$open_pr" ]]; then
+        printf 'harness-weekly: %s weekly failure rate record(s) not on origin/main, but loop PR %s is open; carried over\n' \
+            "$count" "$open_pr"
+        return 1
+    fi
+}
+
+# 採用の無い週に、週の記録だけの draft PR(Metrics-only PR)を作る。worktree と依存は用意済みの前提。
+# 手順: 再発率の記録の commit(できなければ PR を作らずに失敗) → 持ち越した Rule Ledger の記録の commit(照合に
+# 落ちたら PR を作らずに失敗し、ほかの失敗は戻して続ける) → 本文の先頭の件数の文 → <節を足す関数> → 関門 → push →
+# 関門 → PR の作成 → 後片付け。
+# 件数の文は commit の後にしか書けず、節(推移と検出件数)は週次ジョブが組み立てるので、本文は件数の文で書き始めて
+# (前の内容は捨てる)から <節を足す関数> を呼ぶ。節の関数を記録の commit の後に呼ぶのは、推移の節の入口の照合を
+# 記録の commit より後に保つため(先に呼ぶと、実行物が書き換えられた run のログと、ローカルに残る commit が変わる)。
+# <節を足す関数> が非 0 を返したら PR を作らずに失敗する(PR を作らない理由はその関数が出す)
+harness_publish_metrics_only() { # <base> <節を本文に足す関数>
+    local base=$1 sections=${2:-} recorded status=0
+    if [[ -z "$sections" ]] || ! declare -F "$sections" >/dev/null; then
+        printf 'harness-publish: harness_publish_metrics_only needs the name of a function that appends the body sections\n' >&2
+        return 1
+    fi
+    _harness_publish_commit_rate_records "$base" || {
+        printf 'harness-weekly: failed to commit the weekly failure rate records in %s; no PR created\n' "$_HARNESS_PUBLISH_WORKTREE" >&2
+        return 1
+    }
+    recorded=$(git -C "$_HARNESS_PUBLISH_WORKTREE" rev-parse HEAD) || return 1
+    _harness_publish_commit_ledger_records "$base" || status=$?
+    if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        printf 'harness-weekly: the Rule Ledger records could not be trusted; no PR created\n' >&2
+        return 1
+    fi
+    [[ "$status" -eq 0 ]] || _harness_publish_drop_ledger_commit "$recorded" || return 1
+    printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
+        "$_HARNESS_PUBLISH_RATE_RECORDS_COMMITTED" >"$_HARNESS_PUBLISH_PR_BODY"
+    [[ "$_HARNESS_PUBLISH_LEDGER_RECORDS_COMMITTED" -eq 0 ]] ||
+        printf '\nマージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった %s 件も足した(%s)。\n' \
+            "$_HARNESS_PUBLISH_LEDGER_RECORDS_COMMITTED" "$HARNESS_PUBLISH_LEDGER_REPO_DIR" >>"$_HARNESS_PUBLISH_PR_BODY"
+    "$sections" || return 1
+    _harness_publish_push_and_create "harness: 週次の指標 $_HARNESS_PUBLISH_DATE" || return 1
+    printf 'harness-weekly: opened metrics-only draft PR %s (%s weekly record(s))\n' "$_HARNESS_PUBLISH_PR_URL" "$_HARNESS_PUBLISH_RATE_RECORDS_COMMITTED"
+    rm -f "$_HARNESS_PUBLISH_PR_BODY" "$_HARNESS_PUBLISH_REVIEW_RESULT"
+    _harness_publish_cleanup_published
+    return 0
+}
+
+# 公開しない週の片付け。本文・選別の結果ファイル・worktree を消す。ローカルのブランチは消さない(公開しない週の
+# ブランチは origin/main から切ったままで、次の run の worktree の準備が作り直す)。worktree を消せなければ 1 を返す
+harness_publish_discard() {
+    rm -f "$_HARNESS_PUBLISH_PR_BODY" "$_HARNESS_PUBLISH_REVIEW_RESULT" || return 1
+    _harness_publish_remove_worktree
 }
