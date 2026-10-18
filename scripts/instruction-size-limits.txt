@@ -48,7 +48,8 @@
 #
 # 個別の上限は、既定値を超えているファイルの実測値(行数・バイト数とも)。上げる変更は差分として
 # 人のレビューに見える。ファイルを削ったら値も下げる(下げ忘れは検査しない。削った分の余白は
-# 次の書き足しに使えてしまう)。自己改善ループの PR がこの一覧を変えるとガード(scripts/check-guarded-paths.sh)が
+# 次の書き足しに使えてしまう)。既定値を超えて肥大化した後に削ったファイルは、既定値より小さくても実測値の行を残す
+# (dot_claude/scripts/CLAUDE.md。既定値に戻すと再び積もる)。自己改善ループの PR がこの一覧を変えるとガード(scripts/check-guarded-paths.sh)が
 # 落とす(scripts/guarded-paths.txt)ので、ループがこれらのファイルに書き足すには同じだけ削る。
 #
 # 上限はファイルごとに測るので、グローバル指示はテンプレートのソース(dot_claude/CLAUDE.md.tmpl と
@@ -69,9 +70,9 @@ skill:* 500 15000
 AGENTS.md 215 46741
 CLAUDE.md 230 45235
 .claude/rules/shell-scripts.md 221 11866
-dot_claude/scripts/CLAUDE.md 548 60046
-.claude/rules/git-push-guard.md 209 23983
-.claude/rules/curl-localhost-guard.md 214 22182
+dot_claude/scripts/CLAUDE.md 101 10212
+.claude/rules/git-push-guard.md 209 23979
+.claude/rules/curl-localhost-guard.md 214 22216
 dot_config/nono/CLAUDE.md 53 41775
 
 render:dot_codex/AGENTS.md.tmpl - 32768

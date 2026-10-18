@@ -9,7 +9,7 @@ paths:
 ---
 
 **curl localhost guard hook** — `dot_claude/scripts/executable_curl-localhost-guard.sh` も
-`PreToolUse`(`matcher: "Bash"`)で走る。**git-push-guard と同じ向き**(`allow` を返さず、フックが
+`PreToolUse`(`matcher: "Bash"`)で走る。**git-push-guard(`.claude/rules/git-push-guard.md`)と同じ向き**(`allow` を返さず、フックが
 `ask` / 無出力で判定する)にそろえてある。`allow` を返さないのは、Claude Code 2.1.285 ではフックの `allow` が
 マッチする ask ルールに**負ける**ため(測定は `docs/adr/0008-…`(deprecated)、
 決定は `docs/adr/0009-command-guard-hooks-gate-without-allow.md`)。フックの `deny` / `ask` は

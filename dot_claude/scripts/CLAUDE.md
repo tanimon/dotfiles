@@ -1,9 +1,8 @@
 # Claude Code Hook Scripts
 
 Guidance for `dot_claude/scripts/`: the hook scripts (notification delivery, worktree
-seeding, the PreToolUse command guards and their shared shell reader, the secretlint guard)
-and a pointer for the weekly harness job, scoped to this directory so it only needs to load
-when working here. See
+seeding, the secretlint guard) and pointers for the PreToolUse command guards and the weekly
+harness job, scoped to this directory so it only needs to load when working here. See
 `.claude/rules/shell-scripts.md` for general hook-script conventions.
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` is wired to
@@ -90,6 +89,12 @@ Tested by `just test-scripts` (`test/worktree-include.bats`).
 `.gitignore` 同様に末尾空白を無視する明示的なトリム(`${pattern%"${pattern##*[![:space:]]}"}`)を
 対にして入れてある。`[[:space:]]` は CR を含むため、CRLF でチェックアウトされた
 `.worktreeinclude` もこれで通る。
+
+**git push guard hook** — `executable_git-push-guard.sh` は `PreToolUse`(`matcher: "Bash"`)で走り、`git push` の破壊的な綴りを引数位置に関係なく `deny`、読み切れない綴りを `ask` にし、素の push は無出力にする。判定・残存リスク・テストの書き方は `.claude/rules/git-push-guard.md`(このスクリプトか bats を触ると読み込まれる)。
+
+**curl localhost guard hook** — `executable_curl-localhost-guard.sh` は `PreToolUse`(`matcher: "Bash"`)で走り、宛先がすべてループバックだと読み切れない curl に `ask` を返し、それ以外は無出力。判定・残存リスクは `.claude/rules/curl-localhost-guard.md`。
+
+**shell command reader** — `lib/shell-reader.bash` は両 guard がコマンド文字列を読むための共有ライブラリ。性質と制約は `.claude/rules/shell-reader.md`。
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在しない。保存時に format する PostToolUse フックは置いていない: インラインで `pnpm lint:fix` を呼ぶと全プロジェクトの .ts 編集ごとに走り、script の無いリポジトリでは失敗するので、置くなら外部スクリプト + `pnpm run --if-present` ガード + bats テストにする。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
 

@@ -1058,7 +1058,7 @@ echo x # \""
     assert_equal "$(decision "$output")" ask
 }
 
-# すべての segment が INERT_COMMANDS なら curl は実行されない(dot_claude/scripts/CLAUDE.md の無出力の条件)。
+# すべての segment が INERT_COMMANDS なら curl は実行されない(.claude/rules/curl-localhost-guard.md の無出力の条件)。
 @test "curl only as an argument of inert commands produces no decision" {
     run hook 'grep -rn curl dot_claude/'
     assert_success

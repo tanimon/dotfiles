@@ -31,8 +31,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 実装上の要点:
 
 - **読み取り(セグメント分割・引用符の解釈・区切りの正規化)は共有 reader が行う**
-  (`dot_claude/scripts/lib/shell-reader.bash`、テストは `test/shell-reader.bats`、概要は下の
-  「shell command reader」節)。引用符の中の区切り(`git commit -m "a; b"`)で `deny` しないのは、
+  (`dot_claude/scripts/lib/shell-reader.bash`、テストは `test/shell-reader.bats`、概要は
+  `.claude/rules/shell-reader.md`)。引用符の中の区切り(`git commit -m "a; b"`)で `deny` しないのは、
   reader が引用符を解釈するため。
 - **`$`/バッククォートの検査は push セグメントに限定する。** コマンド全体に広げると
   `git commit -m "$(date)" && git push origin x` まで `ask` になり、承認疲れの解消という目的を
