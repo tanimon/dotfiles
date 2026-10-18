@@ -17,8 +17,8 @@ approval dialog. The script classifies on `notification_type` as well, not on th
 prose in `message`; the message regex survives only as a fallback for a Claude Code that omits
 the field, and matches `approv` (not `approve`) because the product's literal is "needs your
 approval for …". Both notify entries set `"timeout": 5` so a hanging delivery backend
-(`terminal-notifier` produces no output for 120s under a Seatbelt sandbox, which the
-nono-wrapped `claude` imposes on hooks) degrades fast instead of holding the hook slot
+(`terminal-notifier` produces no output for 120s under a Seatbelt sandbox, which
+`claude-nono` imposes on hooks) degrades fast instead of holding the hook slot
 for the 60s default. The script exits silently
 when `ORCA_PANE_KEY`, `ORCA_AGENT_HOOK_PORT`, and `ORCA_AGENT_HOOK_TOKEN` are all set —
 that is the exact condition under which `~/.orca/agent-hooks/claude-hook.sh` forwards the

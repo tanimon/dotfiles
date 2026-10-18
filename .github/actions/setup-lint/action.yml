@@ -26,7 +26,7 @@ inputs:
     description: zizmor を導入する
     default: 'false'
   zsh:
-    description: zsh を導入する(ubuntu runner には既定で入っていない)
+    description: zsh(apt の版。固定しない)を導入する。ubuntu runner には既定で入っていない
     default: 'false'
 
 runs:

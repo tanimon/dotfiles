@@ -11,18 +11,14 @@ setup() {
     STUBS="$BATS_TEST_TMPDIR/bin"
     mkdir -p "$STUBS"
     export ARGV_LOG="$BATS_TEST_TMPDIR/argv.log"
-    install_exec "$STUBS/claude" <<'EOF'
-#!/bin/sh
-printf 'claude' >>"$ARGV_LOG"
-for a in "$@"; do printf ' %s' "$a" >>"$ARGV_LOG"; done
-printf '\n' >>"$ARGV_LOG"
-EOF
+    install_stub claude
 }
 
-install_nono_stub() {
-    install_exec "$STUBS/nono" <<'EOF'
+# install_stub NAME: 自分の名前と受け取った引数を 1 行で ARGV_LOG に追記するスタブを置く
+install_stub() {
+    install_exec "$STUBS/$1" <<'EOF'
 #!/bin/sh
-printf 'nono' >>"$ARGV_LOG"
+printf '%s' "$(basename "$0")" >>"$ARGV_LOG"
 for a in "$@"; do printf ' %s' "$a" >>"$ARGV_LOG"; done
 printf '\n' >>"$ARGV_LOG"
 EOF
@@ -35,7 +31,8 @@ run_zsh() {
 }
 
 @test "claude は関数ではなく PATH 上の実行ファイルに解決される" {
-    install_nono_stub
+    # nono があっても素の claude が nono を経由しないことを見るため、nono も置く
+    install_stub nono
     run_zsh 'whence -w claude; claude --version'
     assert_success
     assert_line 'claude: command'
@@ -44,7 +41,7 @@ run_zsh() {
 }
 
 @test "claude-nono は nono の内側で、入れ子のサンドボックスを切った claude を起動する" {
-    install_nono_stub
+    install_stub nono
     run_zsh 'claude-nono --resume abc'
     assert_success
     run cat "$ARGV_LOG"
