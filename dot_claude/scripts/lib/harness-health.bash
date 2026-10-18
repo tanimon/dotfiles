@@ -8,7 +8,7 @@
 # 読み込むのは briefing と doctor と週次ジョブ(harness-weekly.sh。停止を Issue で知らせる判定に
 # 使う)。reflect-trigger(SessionEnd)は読み込まない: lib が壊れて止まると、セッションの記録が
 # 黙って失われる(briefing なら黙ること自体が合図になる)。
-# heartbeat のファイル名と中身(epoch の数値)を知っているのはこの lib だけで、週次ジョブも書き込みに
+# heartbeat のファイル名と中身(epoch の数値)を知っているスクリプトはこの lib だけで、週次ジョブも書き込みに
 # harness_health_write_heartbeat を使う。いつ書くかは週次ジョブが決める。
 # 週次ジョブが読み込むので、この lib は Guarded Path(scripts/guarded-paths.txt)に載せてある。
 #

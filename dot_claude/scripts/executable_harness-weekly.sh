@@ -398,7 +398,7 @@ main() {
     # 上書きしないため(record_pr_url)。前の run の記録は残り、finish_run が知らせる
     REVIEW_RUN="$BRANCH run $REVIEW_SESSION_ID"
 
-    # 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)は健全性の lib にある。
+    # 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)と heartbeat の読み書きは健全性の lib にある。
     # 読めなければ失敗する。失敗の Issue は EXIT trap が lib に依らずに作る(report_stops)。
     # 素の source は、無い・構文エラー・空の lib で黙って落ちるので、briefing と同じ順に確かめる
     HEALTH_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/harness-health.bash"
@@ -410,7 +410,7 @@ main() {
     # shellcheck source=lib/harness-health.bash
     source "$HEALTH_LIB"
     declare -F harness_health_heartbeat_epoch harness_health_write_heartbeat harness_health_missed_run_days harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || {
-        printf 'harness-weekly: %s lacks the stop checks; run chezmoi apply\n' "$HEALTH_LIB" >&2
+        printf 'harness-weekly: %s lacks the heartbeat and stop checks; run chezmoi apply\n' "$HEALTH_LIB" >&2
         exit 1
     }
     # Integrity Snapshot の lib(ADR 0019)。claude の後に使うスクリプトとデータの一覧と照合は lib だけが持つ。

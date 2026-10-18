@@ -307,6 +307,10 @@ EOF
     # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く。transcript が無いので
     # 選別は検出器にかけずに残す
     printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
+    # heartbeat の判定(assert_heartbeat_written / refute_heartbeat_written)が使う
+    TEST_START=$(date +%s)
+    # shellcheck source=../dot_claude/scripts/lib/harness-health.bash
+    source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash"
 }
 
 teardown() {
@@ -319,6 +323,27 @@ weekly() {
 
 seed_queue() {
     printf '# Harness improvement queue\n\n## [2026-10-03] entry\n\n- **Scope:** global\n' >"$HDIR/queue.md"
+}
+
+# heartbeat の形(ファイル名と中身)は健全性の lib が持つので、書いたかどうかは lib の読み取りで確かめる。
+# 「書いた」は test の開始より後の時刻であること。seed_heartbeat で前の run の値を置いた test でも見分けられる
+assert_heartbeat_written() {
+    local epoch
+    epoch=$(harness_health_heartbeat_epoch) || fail 'heartbeat is missing or not a number'
+    assert [ "$epoch" -ge "$TEST_START" ]
+}
+
+refute_heartbeat_written() {
+    local epoch
+    if epoch=$(harness_health_heartbeat_epoch); then
+        assert [ "$epoch" -lt "$TEST_START" ]
+    fi
+}
+
+# 前の run が残した heartbeat を置く。lib の書き込みは今の時刻しか書けないので、過去の値と
+# 形の崩れた値はここで直接書く
+seed_heartbeat() { # <中身>
+    printf '%s\n' "$1" >"$HDIR/weekly-heartbeat"
 }
 
 @test "claude -p を予算と sandbox 無効の設定付きで直接起動し、nono は自分で掛けない" {
@@ -334,28 +359,23 @@ seed_queue() {
     assert_output --partial '--output-format json'
 }
 
-# heartbeat の形は健全性の lib だけが知っているので、書いたかどうかは lib の読み取りで確かめる
 @test "成功すると heartbeat に現在時刻を書く" {
-    before=$(date +%s)
     run weekly
     assert_success
-    # shellcheck source=../dot_claude/scripts/lib/harness-health.bash
-    source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash"
-    epoch=$(harness_health_heartbeat_epoch)
-    assert [ "$epoch" -ge "$before" ]
+    assert_heartbeat_written
 }
 
 @test "claude が非 0 で終わると失敗し、heartbeat を書き換えない" {
-    printf '100\n' >"$HDIR/weekly-heartbeat"
+    seed_heartbeat 100
     STUB_CLAUDE_MODE=exit1 run weekly
     assert_failure
-    assert_equal "$(cat "$HDIR/weekly-heartbeat")" "100"
+    assert_equal "$(harness_health_heartbeat_epoch)" 100
 }
 
 @test "結果が is_error なら exit 0 でも失敗とし、heartbeat を書かない" {
     STUB_CLAUDE_MODE=is_error run weekly
     assert_failure
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "ジョブ自身のセッションは pending に残らず、他のセッションは残る" {
@@ -400,7 +420,7 @@ PRE
     assert_output --partial 'not inside nono'
     assert_output --partial 'launchctl kickstart'
     assert [ ! -f "$ARGV_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
     assert [ ! -d "$HDIR/weekly.lock" ]
 }
 
@@ -422,7 +442,7 @@ PRE
     assert_success
     assert_output --partial 'already running'
     assert [ ! -f "$ARGV_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "止まった実行が残した lock は取り戻して実行する" {
@@ -433,7 +453,7 @@ PRE
     printf '%s\n' "$dead" >"$HDIR/weekly.lock/pid"
     run weekly
     assert_success
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
     assert [ ! -d "$HDIR/weekly.lock" ]
 }
 
@@ -468,7 +488,7 @@ PRE
     kill "$unrelated"
     assert_success
     refute_output --partial 'already running'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "外す行が無ければ pending を置き換えない" {
@@ -489,7 +509,7 @@ PRE
     assert_success
     assert_output --partial 'pending is empty'
     assert [ ! -f "$ARGV_LOG" ]
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
     assert [ ! -d "$HDIR/weekly.lock" ]
 }
 
@@ -546,7 +566,7 @@ assert_tamper_not_run() {
     assert_output 1
     assert [ ! -e "$TAMPER_MARKER" ]
     # run は元の内容で最後まで動いた
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "抽出の実行中に入口スクリプトの末尾へ追記されても、その run は追記した命令を実行しない" {
@@ -631,7 +651,7 @@ PRE
     # PR を作る前にブランチが origin にある(push はスクリプトが行う)
     run git -C "$ORIGIN" log --format=%s "$BRANCH"
     assert_line 'harness: add rule'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "PR の本文に採用の理由と、追加・削除・純増の行数が載る" {
@@ -664,7 +684,7 @@ PRE
     assert_success
     assert_output --partial 'review committed no changes; no PR created'
     assert [ ! -f "$GH_LOG" ]
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
     assert [ ! -d "$WT" ]
 }
 
@@ -746,7 +766,7 @@ PRE
     assert_output '1'
     run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
     assert_output '1'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "判定の記録にブランチ名が無ければ、URL を記録できなかったことを、陳腐化の修正だけなら正常と添えて残す" {
@@ -846,7 +866,7 @@ PRE
     assert_failure
     assert_output --partial 'uncommitted changes'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "commit が無く落とした変更があれば、採用なしと扱わずに失敗し heartbeat を書かない" {
@@ -857,7 +877,7 @@ PRE
     assert_output --partial 'harness: add rule(shellcheck で失敗)'
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
     # 調べられるように結果ファイルを残す
     assert [ -s "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
 }
@@ -868,7 +888,7 @@ PRE
     assert_success
     assert_output --partial 'review committed no changes; no PR created'
     assert [ ! -f "$GH_LOG" ]
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
     # 日付付きのファイルが週ごとに溜まらない
     assert [ ! -f "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
     assert [ ! -f "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
@@ -879,7 +899,7 @@ PRE
     STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["~/.claude/settings.json が古い: chezmoi apply で適用する"]}' run weekly
     assert_success
     assert [ ! -f "$GH_LOG" ]
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
     run cat "$HDIR/deploy-only.md"
     assert_output --partial "## $(date +%Y-%m-%d)"
     assert_output --partial '- ~/.claude/settings.json が古い: chezmoi apply で適用する'
@@ -941,7 +961,7 @@ PRE
     assert_failure
     assert_output --partial 'review-result-'
     refute_output --partial 'committed no changes'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "同じ日の前の run が残した結果ファイルを今回の結果として読まない" {
@@ -950,7 +970,7 @@ PRE
     STUB_REVIEW_MODE=none STUB_RESULT=missing run weekly
     assert_failure
     assert_output --partial 'did not write a valid result file'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "commit されていない変更を残した run でも deploy-only の修正は deploy-only.md に残す" {
@@ -1011,7 +1031,7 @@ PRE
     assert_output --partial "review left 1 entr(ies) in $HDIR/queue.md but reported 0 dropped change(s)"
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
     assert [ -s "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
 }
 
@@ -1021,7 +1041,7 @@ PRE
     assert_failure
     assert_output --partial 'review left 1 entr(ies)'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "queue に残った項目と dropped の件数が一致すれば、従来どおり PR を作って成功する" {
@@ -1031,7 +1051,7 @@ PRE
     refute_output --partial 'review left'
     run cat "$GH_LOG"
     assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "選別の後に queue を読めなければ、残数を 0 と読まずに失敗する" {
@@ -1041,7 +1061,7 @@ PRE
     assert_failure
     assert_output --partial "failed to count the entries in $HDIR/queue.md"
     refute_output --partial 'committed no changes'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "この run の採用の印が判定の記録にあるのに commit が無ければ、dropped が空でも失敗する" {
@@ -1051,7 +1071,7 @@ PRE
     assert_output --partial "has 1 verdict(s) adopted in run \"${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001\" but the review committed nothing"
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "この run の採用の印があり commit もあれば、従来どおり PR を作って成功する" {
@@ -1061,7 +1081,7 @@ PRE
     refute_output --partial 'but the review committed nothing'
     run cat "$GH_LOG"
     assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "PR の URL に置き換え済みの採用は、commit が無い週の失敗に数えない" {
@@ -1070,7 +1090,7 @@ PRE
     STUB_REVIEW_MODE=none run weekly
     assert_success
     assert_output --partial 'review committed no changes; no PR created'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "前の run が残した別の run の採用の印は、この run の commit が無いことの失敗に数えない" {
@@ -1132,12 +1152,11 @@ PRE
 
 @test "結果ファイルが JSON として読めないか、決めた形でなければ失敗する" {
     for broken in 'not json' '' '{}' '{"dropped":[]}' '{"dropped":"x","deploy_only":[]}' '{"dropped":[1],"deploy_only":[]}' '[]'; do
-        rm -f "$HDIR/weekly-heartbeat"
         seed_queue
         STUB_REVIEW_MODE=none STUB_RESULT="$broken" run weekly
         assert_failure
         assert_output --partial 'review-result-'
-        assert [ ! -f "$HDIR/weekly-heartbeat" ]
+        refute_heartbeat_written
     done
 }
 
@@ -1162,7 +1181,7 @@ PRE
     assert_failure
     assert_output --partial "pushed ${BRANCH} but gh pr create failed"
     assert_output --partial "then record its URL with bash ~/.claude/scripts/harness-verdict.sh publish --run '${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001' --pr-url <PR URL>"
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 # launchd の plist が渡す PATH を、テストの HOME で展開して返す
@@ -1202,7 +1221,7 @@ EOF
     assert_output --partial 'mise/shims'
     run cat "$STAGE_LOG"
     assert_output 'reflect'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "前の run の採用が PR にならないまま判定の記録に残っていれば、heartbeat を書かずに失敗する" {
@@ -1211,13 +1230,13 @@ EOF
     assert_failure
     assert_output --partial "never became a PR"
     assert_output --partial "bash ~/.claude/scripts/harness-verdict.sh publish --run 'harness/review-2026-01-01' --pr-url <PR URL>"
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
     # 案内どおりに publish で URL を記録すれば、次の run は heartbeat を書く
     run bash "$HOME/.claude/scripts/harness-verdict.sh" publish --run 'harness/review-2026-01-01' --pr-url https://github.com/example/dotfiles/pull/7
     assert_output '1'
     run weekly
     assert_success
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "手書きの印が ' を含んでも、復旧の案内の publish のコマンドは貼り付けて動く" {
@@ -1239,7 +1258,7 @@ EOF
     printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
     run weekly
     assert_success
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "前の run の採用の残りは、その週の選別と PR の作成を済ませてから知らせる" {
@@ -1252,7 +1271,7 @@ EOF
     assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
     run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
     assert_output '1'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "依存のインストールが失敗したら選別を起動せずに失敗する" {
@@ -1315,7 +1334,7 @@ EOF
     assert_output 'reflect'
     run cat "$GH_LOG"
     refute_output --partial 'pr create'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "当日のブランチが origin にあっても PR が無ければ、健全に見せずに失敗する" {
@@ -1327,7 +1346,7 @@ EOF
     assert_output --partial "--body-file $HDIR/review-pr-body-"
     run cat "$STAGE_LOG"
     assert_output 'reflect'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "無人の選別に chezmoi apply をさせない" {
@@ -1412,7 +1431,7 @@ PRE
     assert_success
     assert_output --partial 'pending is empty; skipped reflect'
     assert [ ! -f "$ARGV_LOG" ]
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "選別が失敗したら抽出に進まずに失敗する" {
@@ -1421,13 +1440,13 @@ PRE
     assert_failure
     assert_output --partial 'selecting pending sessions with'
     assert [ ! -f "$ARGV_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "PR の本文に前回の heartbeat より後の信号別の検出件数を載せ、手動の reflect の記録も含める" {
     : >"$HDIR/pending.jsonl"
     now=$(date +%s)
-    printf '%s\n' "$((now - 3600))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "$((now - 3600))"
     {
         # 前回の run より前の記録は数えない
         printf '{"session_id":"old","run":"earlier-run","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
@@ -1470,7 +1489,7 @@ PRE
 @test "先頭 0 付きの heartbeat も 10 進数の epoch として期間の始まりに使う" {
     : >"$HDIR/pending.jsonl"
     now=$(date +%s)
-    printf '0%s\n' "$((now - 3600))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "0$((now - 3600))"
     {
         printf '{"session_id":"old","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
         printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"repeat":1}}\n' "$((now - 60))"
@@ -1498,7 +1517,7 @@ PRE
     assert_output --partial 'failed to take the integrity snapshot'
     assert [ ! -f "$ARGV_LOG" ]
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "抽出を省いた週の PR の本文にも 0 件の検出の節を載せる" {
@@ -1690,7 +1709,7 @@ leftover_branch() { # <ブランチ>
 }
 
 @test "前の成功が 8 日以上前なら、起動した run が成功しても、走らなかった週の Issue を作る" {
-    printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "$(($(date +%s) - 9 * 86400))"
     run weekly
     assert_success
     run cat "$ALERT_LOG"
@@ -1702,7 +1721,7 @@ leftover_branch() { # <ブランチ>
 }
 
 @test "前の成功より後に更新された失敗の Issue が開いていれば、前の成功が古くても別の Issue にしない" {
-    printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "$(($(date +%s) - 9 * 86400))"
     STUB_GH_ISSUES=$(jq -nc --arg updated "$(iso_days_ago 2)" '[{number: 7, title: "harness: 週次ジョブが失敗した", updatedAt: $updated}]')
     export STUB_GH_ISSUES
     run weekly
@@ -1715,7 +1734,7 @@ leftover_branch() { # <ブランチ>
 
 @test "この run が失敗して Issue を作ったら、一覧に出なくても走らなかった週の Issue を作らない" {
     # 作った直後の Issue は一覧に出ないことがある。スタブの一覧は作った Issue を返さない
-    printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "$(($(date +%s) - 9 * 86400))"
     STUB_CLAUDE_MODE=exit1 run weekly
     assert_failure
     assert_output --partial 'the failure issue of this run reports it'
@@ -1726,7 +1745,7 @@ leftover_branch() { # <ブランチ>
 }
 
 @test "前の成功より前から開いている失敗の Issue は、その後に走らなかった週を抑えない" {
-    printf '%s\n' "$(($(date +%s) - 20 * 86400))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "$(($(date +%s) - 20 * 86400))"
     STUB_GH_ISSUES=$(jq -nc --arg updated "$(iso_days_ago 30)" '[{number: 7, title: "harness: 週次ジョブが失敗した", updatedAt: $updated}]')
     export STUB_GH_ISSUES
     run weekly
@@ -1736,7 +1755,7 @@ leftover_branch() { # <ブランチ>
 }
 
 @test "走らなかった週の Issue が開いていれば、次に見つけたときはコメントにする" {
-    printf '%s\n' "$(($(date +%s) - 9 * 86400))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "$(($(date +%s) - 9 * 86400))"
     export STUB_GH_ISSUES='[{"number":11,"title":"harness: 週次ジョブが 8 日以上成功していなかった","updatedAt":"2026-01-01T00:00:00Z"}]'
     run weekly
     assert_success
@@ -1756,7 +1775,7 @@ leftover_branch() { # <ブランチ>
 }
 
 @test "前の成功が 7 日前なら、走らなかった週の Issue を作らない" {
-    printf '%s\n' "$(($(date +%s) - 7 * 86400))" >"$HDIR/weekly-heartbeat"
+    seed_heartbeat "$(($(date +%s) - 7 * 86400))"
     run weekly
     assert_success
     run cat "$ALERT_LOG"
@@ -1785,10 +1804,10 @@ weekly_without_lib() { # [<lib に置く中身>]
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
 }
 
-@test "健全性の lib に停止の判定が無くて止まった run も、失敗の Issue を作る" {
+@test "健全性の lib に heartbeat と停止の判定が無くて止まった run も、失敗の Issue を作る" {
     run weekly_without_lib '# empty'
     assert_failure
-    assert_output --partial 'lacks the stop checks'
+    assert_output --partial 'lacks the heartbeat and stop checks'
     refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
@@ -1840,7 +1859,7 @@ commit_on_main() {
     assert_output --partial 'classifying failures with'
     run jq -r '.classification, .classified' "$RATES/$TODAY.json"
     assert_output "$(printf '%s\n' failed 0)"
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "採用のある PR に、origin/main に無い週の記録をジョブの commit で足し、本文に推移を載せる" {
@@ -1877,7 +1896,7 @@ PRE
     assert_failure
     assert_output --partial 'review commits touched docs/harness/failure-pattern-rates'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "採用 0 件の週は、origin/main に無い記録が 4 週分に満たなければ持ち越して PR を作らない" {
@@ -1910,7 +1929,7 @@ PRE
     assert_output --partial '4 週分たまった'
     assert_line '## Failure Pattern の再発率'
     assert_line '## 失敗の検出'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
     assert [ ! -d "$WT" ]
 }
 
@@ -1962,7 +1981,7 @@ PRE
     assert_output --partial 'could not decide the period'
     assert_output --partial 'this week has no failure rate record'
     assert [ ! -f "$RATES/$TODAY.json" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
     # 抽出の claude は起動している(週の処理は止めない)
     assert [ -f "$ARGV_LOG" ]
 }
@@ -1982,7 +2001,7 @@ PRE
     assert_output --partial 'changed after the claude runs started'
     run cat "$GH_LOG"
     refute_output --partial 'pr create'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "同じ日の再実行で書き直した記録は、origin/main に同じ日付のファイルがあっても PR に載せる" {
@@ -2058,7 +2077,7 @@ PRE
     assert_output --partial "changed: $HOME/.claude/scripts/harness-eval-cases.sh"
     assert [ ! -e "$HDIR/eval-results-$TODAY.json" ]
     refute grep -q 'pr create' "$GH_LOG"
-    assert [ ! -e "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 # ledger_record <PR 番号> <title>: 前の週か手動の review が残したローカルの Rule Ledger の記録を置き、パスを出す
@@ -2101,7 +2120,7 @@ ledger_record() {
     run cat "$GH_BODY"
     assert_line '## Rule Ledger'
     assert_output --partial '合計: +4 / -2(純増 +2 行)'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "Rule Ledger の記録の push に失敗しても、PR と heartbeat は残し、記録はローカルに持ち越す" {
@@ -2126,7 +2145,7 @@ HOOK
     assert [ -f "$LEDGER/$id.json" ]
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
     assert_output ''
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "採用 0 件の週は Rule Ledger の記録を持ち越し、記録だけの PR に載せる" {
@@ -2163,7 +2182,7 @@ PRE
     assert_failure
     assert_output --partial 'review commits touched docs/harness/rule-ledger'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "claude がローカルの Rule Ledger か分類の記録を書き換えたら、PR を作らずに失敗する" {
@@ -2180,7 +2199,7 @@ PRE
     assert_failure
     assert_output --partial "changed: $carried"
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "選別の claude が置いた偽の評価の結果は Rule Ledger に記録せず、測っていないと記録する" {
@@ -2215,7 +2234,7 @@ PRE
     assert_failure
     assert_output --partial "changed: $HOME/.claude/scripts/harness-rule-ledger.sh"
     refute grep -q 'pr create' "$GH_LOG"
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "選別の claude が Verdict の CLI を書き換えたら、PR を作らずに失敗する" {
@@ -2230,7 +2249,7 @@ PRE
     assert_failure
     assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
     refute grep -q 'pr create' "$GH_LOG"
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 # 推移の節は選別の claude の後に harness-failure-rates.sh trend が Failure Pattern の一覧を読んで作る
@@ -2249,7 +2268,7 @@ PRE
     assert_output --partial "changed: $HOME/.claude/scripts/$1"
     refute_output --partial "$(git hash-object -- "$HOME/.claude/scripts/$1")"
     refute grep -q 'pr create' "$GH_LOG"
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "選別の claude が再発率のスクリプトを書き換えたら、PR を作らずに失敗する" {
@@ -2277,7 +2296,7 @@ PRE
     assert_output --partial 'changed after the claude runs started'
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "選別のプロンプトは Rule Ledger を書かせず、ジョブが記録することを伝える" {
@@ -2354,7 +2373,7 @@ PRE
 @test "queue が空の週は、Verdict の CLI が書き換えられていなければ finish_run が heartbeat を書く" {
     run weekly
     assert_success
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "queue が空の週に抽出の claude が Verdict の CLI を書き換えたら、finish_run は CLI を呼ばずに失敗する" {
@@ -2363,7 +2382,7 @@ PRE
     assert_failure
     assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
     assert_output --partial 'failed to read the unpublished verdicts'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 # 採用の印が残るループのブランチ(Verdict の CLI の unpublished --branch が印を返す)
@@ -2471,7 +2490,7 @@ EOF
     refute grep -q 'pr create' "$GH_LOG"
     run git -C "$ORIGIN" rev-parse --verify --quiet "refs/heads/$BRANCH"
     assert_failure
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "ハッシュを取れない週の記録は、照合できないとして PR を作らずに失敗する(WARN で公開を続けない)" {
@@ -2489,7 +2508,7 @@ PRE
     assert_output --partial "could not hash $RATES/2026-09-26.json"
     refute_output --partial 'WARN failed to commit the weekly failure rate records'
     refute grep -q 'pr create' "$GH_LOG"
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "ハッシュを取れる週の記録なら、持ち越した記録も PR に載せる(照合できない側の対)" {
@@ -2509,7 +2528,7 @@ PRE
     run weekly
     assert_success
     assert_output --partial 'queue is empty; skipped review'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "queue が空の週に抽出の claude が週の記録を書き換えたら、heartbeat を書かずに失敗する" {
@@ -2519,7 +2538,7 @@ PRE
     assert_failure
     assert_output --partial "changed: $RATES/2026-09-26.json"
     refute_output --partial 'queue is empty; skipped review'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 @test "当日の PR が既にある週に抽出の claude が週の記録を書き換えたら、heartbeat を書かずに失敗する" {
@@ -2531,7 +2550,7 @@ PRE
     assert_failure
     assert_output --partial "changed: $RATES/2026-09-26.json"
     refute_output --partial 'already exists on origin'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 # 書き換えが無い側は「commit されていない変更が残っていたら PR を作らずに失敗する」
@@ -2542,7 +2561,7 @@ PRE
     STUB_REVIEW_MODE=dirty run weekly
     assert_failure
     assert_output --partial "changed: $RATES/2026-09-26.json"
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
 
 # 選別の claude が失敗した run(report_failed_review)のデータの照合。書き換えが無い側は
@@ -2595,7 +2614,7 @@ EOF2
     assert_output --partial 'opened draft PR https://github.com/example/dotfiles/pull/42'
     assert_output --partial 'Rule Ledger record(s)'
     refute_output --partial 'could not be trusted'
-    assert [ -f "$HDIR/weekly-heartbeat" ]
+    assert_heartbeat_written
 }
 
 @test "PR を作った後に Verdict の CLI が書き換えられたら、PR を残したまま heartbeat を書かずに失敗する" {
@@ -2609,5 +2628,5 @@ PRE
     assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
     assert_output --partial 'opened https://github.com/example/dotfiles/pull/42, but the scripts or records the job uses after it could not be trusted'
     refute_output --partial 'Rule Ledger record(s)'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
+    refute_heartbeat_written
 }
