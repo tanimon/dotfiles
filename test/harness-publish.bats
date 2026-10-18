@@ -67,7 +67,7 @@ EOF
 init_publish() { # [<上書きする引数>…]
     harness_publish_init --repo /work/repo --worktree /h/review-worktree \
         --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
-        --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json \
+        --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json --eval-results /h/eval-results-2026-10-17.json \
         --date 2026-10-17 --run 'harness/review-2026-10-17 run 0f0e' "$@"
 }
 
@@ -80,7 +80,7 @@ init_publish() { # [<上書きする引数>…]
 @test "初期化は値が欠けていれば、欠けた引数の名前を出して失敗する" {
     run harness_publish_init --repo /work/repo --worktree /h/review-worktree \
         --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
-        --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json \
+        --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json --eval-results /h/eval-results-2026-10-17.json \
         --date 2026-10-17
     assert_failure
     assert_output --partial '--run'
@@ -248,7 +248,7 @@ make_worktree() {
 init_real() {
     harness_integrity_snapshot
     harness_publish_init --repo "$REPO" --worktree "$WT" --branch "$BRANCH" --loop-branch-prefix test/loop- \
-        --pr-body "$BODY" --review-result "$RESULT" --date 2026-10-17 --run "$BRANCH run 0f0e"
+        --pr-body "$BODY" --review-result "$RESULT" --eval-results "$HDIR/eval-results-2026-10-17.json" --date 2026-10-17 --run "$BRANCH run 0f0e"
 }
 
 four_local_records() {
