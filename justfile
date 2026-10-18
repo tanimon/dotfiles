@@ -34,7 +34,7 @@ bats_jobs := `command -v parallel >/dev/null 2>&1 && echo "--jobs $(getconf _NPR
 # 依存レシピはどれもリポジトリに書き込まないので並列に走らせる。出力は混ざるが、失敗したレシピ名は just が最後に出す
 # Run all checks (mirrors CI)
 [parallel]
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-review-verify test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context test-harness-scripts check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-source-snapshot test-review-verify test-ci-parity
 
 # 手元の既定の検証。lint: から [group('slow')](Slow Suite)を除いた残りで、一致は test-ci-parity が検査する。
 # slow の印は、lint 全体の CPU 時間の大半を占める suite に付ける(`just --list` の [slow] が一覧)。
@@ -42,7 +42,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite
 # Slow Suite が検査する対象を変えたときは CI を待たずにそのレシピも手元で流す。
 # Run all checks except the slow suites (the default local check; CI runs them all)
 [parallel]
-lint-fast: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-review-verify test-ci-parity
+lint-fast: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise test-pr-context check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-source-snapshot test-review-verify test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -148,6 +148,11 @@ check-templates:
         # 構文エラーは分岐に関係なく parse で落ちるが、未描画の分岐内の実行時エラー
         # (存在しないキーの参照など)は落ちないので、全 profile の fixture で描画する。
         # profile の一覧は test/fixtures/chezmoi-<profile>.toml の実ファイルが正本
+        # --source には作業ツリーの写しを渡す。並列のレシピがリポジトリに作っては消す一時ファイルで
+        # chezmoi が落ちるため(理由は scripts/chezmoi-source-snapshot.sh)。テンプレートはリポジトリから読む
+        snapshot=$(mktemp -d "${TMPDIR:-/tmp}/chezmoi-source-XXXXXX") || { echo "FAIL: mktemp"; exit 1; }
+        trap 'rm -rf "$snapshot"' EXIT
+        bash scripts/chezmoi-source-snapshot.sh . "$snapshot" || { echo "FAIL: source の写しを作れない"; exit 1; }
         profiles=""
         fail=0
         for config in test/fixtures/chezmoi-*.toml; do
@@ -158,7 +163,7 @@ check-templates:
             for file in {{tmpl_files}}; do
                 rendered=$(chezmoi execute-template \
                     --config "$config" \
-                    --source "$(pwd)" \
+                    --source "$snapshot" \
                     < "$file") || { echo "FAIL: [$profile] $file (render)"; fail=1; continue; }
                 case "$file" in
                     *.json.tmpl)
@@ -299,6 +304,12 @@ check-templates:
 [group('local-only')]
 @test-nono-profile:
     pnpm exec bats test/nono-profile.bats
+
+# LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合のため(この suite の @test 名は日本語)。
+# chezmoi が必要。「写しを source にした描画は…」と「render_template の描画は…」のケースは、chezmoi が無いと skip せず fail する
+# Test the working-tree snapshot that chezmoi-reading checks pass as --source
+@test-source-snapshot:
+    LC_ALL=C pnpm exec bats test/chezmoi-source-snapshot.bats
 
 # The nono pack sync script drives a fake nono. Local only: the template is
 # darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).

@@ -168,14 +168,14 @@ EOF
 # openai/skills など .chezmoiexternal.toml にあるもの)になり、グローバル指示とは無関係に見えるので、
 # この注記を頼りに切り分けること。
 @test "chezmoi managed に .codex/AGENTS.md が出る" {
-    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$REPO"
+    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$RENDER_SOURCE"
     assert_success
     assert_line '.codex/AGENTS.md'
 }
 
 @test "chezmoi managed に .claude/CLAUDE.md が残っている" {
     # .tmpl 化で Target のパスが変わっていないこと
-    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$REPO"
+    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$RENDER_SOURCE"
     assert_success
     assert_line '.claude/CLAUDE.md'
 }
@@ -185,7 +185,7 @@ EOF
     # upstream のファイルが改名・削除されると黙って配置されなくなる(古いファイルは
     # ~/ に残って読み込まれ続ける)。hooks.md を外した理由は
     # docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md
-    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$REPO" --include=files
+    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$RENDER_SOURCE" --include=files
     assert_success
     local ecc_rules
     ecc_rules=$(printf '%s\n' "$output" | grep -E '^\.claude/rules/(typescript|web)/')
