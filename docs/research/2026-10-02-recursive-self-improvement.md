@@ -399,7 +399,7 @@
 #### ローカル launchd
 
 - **前例:** このマシンには、別リポジトリの launchd ジョブが `command claude -p … --allowedTools … --output-format text` を毎日実行しているものがある。直近 5 日間は成功ログが残っている。認証は通常セッションと同じ資格情報で通っているとみられる(どの資格情報かは未確認)。
-- **nono について:** nono のラッパーは zsh の関数(`dot_config/zsh/sandbox.zsh` の `claude()`)である。launchd は zsh の関数を読み込まないので、**nono は適用されない。** 適用されるのは Claude Code 自身の Bash サンドボックス(`settings.json.tmpl` の `sandbox.enabled: true`)だけ。nono の内側で走らせたいなら、スクリプトで `nono run --profile claude-seal --allow-cwd -- claude …` と明示的に包む必要がある。その場合は、ラッパーと同じように `--settings '{"sandbox":{"enabled":false}}'` も必要になる(`dot_config/nono/CLAUDE.md`)。nono の内側では書き込みに制約があり、たとえば `.git/config` は書けない。
+- **nono について:** nono のラッパーは zsh の関数(`dot_config/zsh/sandbox.zsh` の `claude-nono()`)である。launchd は zsh の関数を読み込まないので、**nono は適用されない。** 適用されるのは Claude Code 自身の Bash サンドボックス(`settings.json.tmpl` の `sandbox.enabled: true`)だけ。nono の内側で走らせたいなら、スクリプトで `nono run --profile claude-seal --allow-cwd -- claude …` と明示的に包む必要がある。その場合は、ラッパーと同じように `--settings '{"sandbox":{"enabled":false}}'` も必要になる(`dot_config/nono/CLAUDE.md`)。nono の内側では書き込みに制約があり、たとえば `.git/config` は書けない。
 - **transcript について:** `~/.claude/projects/` はローカルにしか無い。launchd なら直接読める。
 - **harness loop への副作用:** `--bare` を付けない `claude -p` はユーザーのフックを読み込む。SessionEnd の `harness-reflect-trigger.sh` は、対話か非対話かを区別していない(L41-L64 で見ているのは assistant の応答数が 10 以上かどうかと、重複かどうかだけ)。そのため、**定期実行のセッション自身が `pending.jsonl` に積まれ、reflect の入力が汚れる。** `--bare` にする(この場合は API キーが要る)か、トリガー側で除外する必要がある。
 

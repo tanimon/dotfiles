@@ -13,6 +13,8 @@
 # nono is the single boundary. This is load-bearing, not a nicety: nested Seatbelt
 # does not degrade gracefully — every Bash tool call dies with
 # `Exit code 71 / sandbox-exec: sandbox_apply: Operation not permitted`.
+# 同じ理由で、claude-nono のセッションの内側(INSIDE_NONO_SANDBOX あり)から素の `claude`
+# を起動すると Bash ツールが 71 で落ちる。内側から起動するときもこの --settings を付ける。
 #
 # nono が無いときは素の claude に落とさずに失敗する。nono を明示して呼んだのに
 # 境界の違う経路で動くと、nono の内側にいると誤解したまま作業することになるため。

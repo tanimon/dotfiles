@@ -215,7 +215,7 @@ The loop itself (SessionEnd hook, queue, briefing) is described under "Harness s
 
 ### Sandbox
 
-Plain `claude` runs under Claude Code's native Bash sandbox; only `claude-nono` (`dot_config/zsh/sandbox.zsh`, nono on trial) runs inside nono with the native one off. Tell which from `INSIDE_NONO_SANDBOX`, not by guessing.Read `dot_config/nono/CLAUDE.md` before assuming a path or host is reachable.
+Plain `claude` runs under Claude Code's native Bash sandbox; only `claude-nono` (`dot_config/zsh/sandbox.zsh`, nono on trial) runs inside nono with the native one off. Tell which from `INSIDE_NONO_SANDBOX`, not by guessing. Read `dot_config/nono/CLAUDE.md` before assuming a path or host is reachable.
 
 ### Browsing
 

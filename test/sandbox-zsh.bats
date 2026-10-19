@@ -14,12 +14,13 @@ setup() {
     install_stub claude
 }
 
-# install_stub NAME: 自分の名前と受け取った引数を 1 行で ARGV_LOG に追記するスタブを置く
+# install_stub NAME: 自分の名前と受け取った引数を 1 行で ARGV_LOG に追記するスタブを置く。
+# 引数は 1 つずつ [] で囲み、空白を含む引数や空の引数の境界がログに残るようにする
 install_stub() {
     install_exec "$STUBS/$1" <<'EOF'
 #!/bin/sh
 printf '%s' "$(basename "$0")" >>"$ARGV_LOG"
-for a in "$@"; do printf ' %s' "$a" >>"$ARGV_LOG"; done
+for a in "$@"; do printf ' [%s]' "$a" >>"$ARGV_LOG"; done
 printf '\n' >>"$ARGV_LOG"
 EOF
 }
@@ -37,15 +38,16 @@ run_zsh() {
     assert_success
     assert_line 'claude: command'
     run cat "$ARGV_LOG"
-    assert_output 'claude --version'
+    assert_output 'claude [--version]'
 }
 
 @test "claude-nono は nono の内側で、入れ子のサンドボックスを切った claude を起動する" {
     install_stub nono
-    run_zsh 'claude-nono --resume abc'
+    # 空白を含む引数と空の引数を混ぜ、引数が分割も結合もされずに渡ることを見る
+    run_zsh "claude-nono 'fix the bug' ''"
     assert_success
     run cat "$ARGV_LOG"
-    assert_output "nono run --profile claude-seal --allow-cwd -- claude --settings {\"sandbox\":{\"enabled\":false}} --dangerously-skip-permissions --resume abc"
+    assert_output 'nono [run] [--profile] [claude-seal] [--allow-cwd] [--] [claude] [--settings] [{"sandbox":{"enabled":false}}] [--dangerously-skip-permissions] [fix the bug] []'
 }
 
 @test "nono が無いとき claude-nono は素の claude に落ちずに失敗する" {
