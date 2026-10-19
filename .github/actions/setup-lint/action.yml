@@ -25,6 +25,9 @@ inputs:
   zizmor:
     description: zizmor を導入する
     default: 'false'
+  zsh:
+    description: zsh(apt の版。固定しない)を導入する。ubuntu runner には既定で入っていない
+    default: 'false'
 
 runs:
   using: composite
@@ -65,6 +68,10 @@ runs:
       name: Install zizmor
       shell: bash
       run: pip install zizmor==1.23.1
+    - if: inputs.zsh == 'true'
+      name: Install zsh
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
     - name: Install just
       shell: bash
       run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ネイティブ Bash サンドボックス(`command claude` 経路の escape hatch。dot_config/nono/CLAUDE.md の
-# 「Native Bash sandbox (escape hatch)」)の振る舞いを確かめる smoke test。`just smoke-native-sandbox`
+# ネイティブ Bash サンドボックス(素の `claude` の経路。dot_config/nono/CLAUDE.md の
+# 「Native Bash sandbox」)の振る舞いを確かめる smoke test。`just smoke-native-sandbox`
 # から、素のターミナル(どのサンドボックスの外)で人間が実行する。API 費用がかかるので lint と
 # CI には入れていない。
 #

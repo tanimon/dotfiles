@@ -25,7 +25,7 @@
 
 **強制点。** CI は (1) だけを強制する(chezmoi 設定も実ユーザー名も無い)。(2) の強制点はローカルの pre-commit フックと `just lint`。意図的に公開している情報(公開済みの commit identity・SSH 公開鍵・このリポの公開アカウント名)は `scripts/sensitive-allowlist.txt` に `<path-suffix or *>:<regex>` 形式で例外登録する。識別子そのものはこのファイルに書けない(書けば漏洩そのもの)ことが設計上の制約。
 
-**Claude Code sandbox (nono)** — The `claude` shell command is wrapped by `dot_config/zsh/sandbox.zsh` to run inside [nono](https://github.com/nolabs-ai/nono) (Homebrew, macOS Seatbelt / Linux Landlock, deny-all default), extending the official `claude-code` pack via `dot_config/nono/profiles/claude-seal.json`. See `dot_config/nono/CLAUDE.md` for the full policy detail (egress control, git/gh-inside-the-boundary, 1Password signing, accepted security residuals, the native-sandbox escape hatch).
+**Claude Code sandbox (nono)** — `claude-nono` in `dot_config/zsh/sandbox.zsh` (on trial; plain `claude` is unwrapped) runs Claude Code inside [nono](https://github.com/nolabs-ai/nono) (Homebrew, macOS Seatbelt / Linux Landlock, deny-all default), extending the official `claude-code` pack via `dot_config/nono/profiles/claude-seal.json`. See `dot_config/nono/CLAUDE.md` for the full policy detail (egress control, git/gh-inside-the-boundary, 1Password signing, accepted security residuals, the native Bash sandbox).
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` wires notification delivery to `Notification`/`StopFailure` only. See `dot_claude/scripts/CLAUDE.md` for the full detail (matcher filtering, orca handoff, delivery backend fallback).
 
