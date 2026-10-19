@@ -8,13 +8,14 @@
 # 読み込むのは briefing と doctor と週次ジョブ(harness-weekly.sh。停止を Issue で知らせる判定に
 # 使う)。reflect-trigger(SessionEnd)は読み込まない: lib が壊れて止まると、セッションの記録が
 # 黙って失われる(briefing なら黙ること自体が合図になる)。
-# heartbeat を書くのは週次ジョブで、書く側のファイル名と中身(epoch の数値)の知識はジョブにもある。
-# 一致は test/harness-weekly.bats が検査する。
+# heartbeat のファイル名と中身(epoch の数値)を知っているスクリプトはこの lib だけで、週次ジョブも書き込みに
+# harness_health_write_heartbeat を使う。いつ書くかは週次ジョブが決める。
 # 週次ジョブが読み込むので、この lib は Guarded Path(scripts/guarded-paths.txt)に載せてある。
 #
 # Interface: harness_health_dir / harness_health_bootstrap / harness_health_weekly /
-# harness_health_heartbeat_epoch / harness_health_heartbeat_days / harness_health_missed_run_days /
-# harness_health_stale_prs / harness_health_unpublished_loop_branches。
+# harness_health_heartbeat_file / harness_health_write_heartbeat / harness_health_heartbeat_epoch /
+# harness_health_heartbeat_days / harness_health_missed_run_days / harness_health_stale_prs /
+# harness_health_unpublished_loop_branches。
 # パスは呼び出しのたびに $HOME から作る(source した後に HOME が変わっても追従するため)。
 # 関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
 
@@ -49,13 +50,32 @@ harness_health_bootstrap() {
     fi
 }
 
+# heartbeat のパスを出す。
+harness_health_heartbeat_file() {
+    local dir
+    dir=$(harness_health_dir) || return 1
+    printf '%s\n' "$dir/weekly-heartbeat"
+}
+
+# 週次ジョブの成功(heartbeat)として、今の時刻を epoch で書く。同じディレクトリの隠しファイルに書いてから
+# mv して、読む側に書きかけを見せない。
+harness_health_write_heartbeat() {
+    local file tmp
+    file=$(harness_health_heartbeat_file) || return 1
+    tmp=$(mktemp "${file%/*}/.${file##*/}.XXXXXX") || return 1
+    if ! date +%s >"$tmp" || ! mv "$tmp" "$file"; then
+        rm -f "$tmp"
+        return 1
+    fi
+}
+
 # 最後に成功した週次ジョブ(heartbeat)の時刻を epoch で出す。heartbeat が無いか数値でなければ
 # 何も出さずに 1 を返す。
 harness_health_heartbeat_epoch() {
-    local dir heartbeat
-    dir=$(harness_health_dir) || return 1
-    [[ -f "$dir/weekly-heartbeat" ]] || return 1
-    heartbeat=$(tr -d '[:space:]' <"$dir/weekly-heartbeat" 2>/dev/null) || return 1
+    local file heartbeat
+    file=$(harness_health_heartbeat_file) || return 1
+    [[ -f "$file" ]] || return 1
+    heartbeat=$(tr -d '[:space:]' <"$file" 2>/dev/null) || return 1
     [[ "$heartbeat" =~ ^[0-9]+$ ]] || return 1
     # 10# を付けないと、先頭 0 付きの値(0899 など)が 8 進数として解釈されて算術展開が落ちる
     printf '%s\n' "$((10#$heartbeat))"
@@ -75,11 +95,10 @@ harness_health_heartbeat_days() {
 # 何も出さないのは、launchd の無いマシンで plist も無いとき(ジョブを動かす前提が無い)。
 # 判定できたら 0 を返す(level が fail でも 0)。
 harness_health_weekly() {
-    local dir plist entry heartbeat_file days remedy
-    dir=$(harness_health_dir) || return 1
+    local plist entry heartbeat_file days remedy
+    heartbeat_file=$(harness_health_heartbeat_file) || return 1
     plist="$HOME/Library/LaunchAgents/local.dotfiles.harness-weekly.plist"
     entry="$HOME/.claude/scripts/harness-weekly.sh"
-    heartbeat_file="$dir/weekly-heartbeat"
     remedy=$HARNESS_HEALTH_WEEKLY_REMEDY
 
     # briefing のフックと plist はどちらも chezmoi apply で置かれるので、macOS で plist だけが

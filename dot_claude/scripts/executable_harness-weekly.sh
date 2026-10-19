@@ -43,7 +43,6 @@ set -euo pipefail
 main() {
 
     HARNESS_DIR="$HOME/.claude/harness"
-    HEARTBEAT="$HARNESS_DIR/weekly-heartbeat"
     REFLECT_BUDGET_USD="${HARNESS_WEEKLY_BUDGET_USD:-5}"
     REVIEW_BUDGET_USD="${HARNESS_WEEKLY_REVIEW_BUDGET_USD:-5}"
     MAX_SESSIONS="${HARNESS_WEEKLY_MAX_SESSIONS:-10}"
@@ -155,13 +154,6 @@ main() {
         mv "$tmp" "$PENDING"
     }
 
-    write_heartbeat() {
-        local tmp
-        tmp=$(mktemp "$HARNESS_DIR/.weekly-heartbeat.XXXXXX")
-        date +%s >"$tmp"
-        mv "$tmp" "$HEARTBEAT"
-    }
-
     # 実行ログで run の区切りと進み具合を読めるように、開始と終了の行を出す。
     # 処理件数は claude の結果(成功時の要約文)に頼らず pending の行数の前後で残す。
     # 予算切れなどで失敗した run の結果には要約文が無いため。終了の行は EXIT trap で
@@ -173,14 +165,6 @@ main() {
             printf '0\n'
         fi
     }
-
-    # PR の本文の検出件数の期間の始まり(detection_section)。この run が heartbeat を書き換える前に読む。
-    # heartbeat が無いか壊れていれば直近 7 日にする
-    DETECTION_SINCE=$(($(date +%s) - 7 * 24 * 60 * 60))
-    if [[ -f "$HEARTBEAT" ]] && read -r heartbeat_epoch <"$HEARTBEAT" && [[ "$heartbeat_epoch" =~ ^[0-9]+$ ]]; then
-        # 10# で先頭 0 を落とす。0 付きのままだと jq の --argjson と date が読めず、節が省かれる
-        DETECTION_SINCE=$((10#$heartbeat_epoch))
-    fi
 
     SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
     REVIEW_SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
@@ -414,7 +398,7 @@ main() {
     # 上書きしないため(公開の lib の harness_publish_review)。前の run の記録は残り、finish_run が知らせる
     REVIEW_RUN="$BRANCH run $REVIEW_SESSION_ID"
 
-    # 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)は健全性の lib にある。
+    # 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)と heartbeat の読み書きは健全性の lib にある。
     # 読めなければ失敗する。失敗の Issue は EXIT trap が lib に依らずに作る(report_stops)。
     # 素の source は、無い・構文エラー・空の lib で黙って落ちるので、briefing と同じ順に確かめる
     HEALTH_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/harness-health.bash"
@@ -425,8 +409,8 @@ main() {
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=lib/harness-health.bash
     source "$HEALTH_LIB"
-    declare -F harness_health_heartbeat_epoch harness_health_missed_run_days harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || {
-        printf 'harness-weekly: %s lacks the stop checks; run chezmoi apply\n' "$HEALTH_LIB" >&2
+    declare -F harness_health_heartbeat_file harness_health_heartbeat_epoch harness_health_write_heartbeat harness_health_missed_run_days harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || {
+        printf 'harness-weekly: %s lacks the heartbeat and stop checks; run chezmoi apply\n' "$HEALTH_LIB" >&2
         exit 1
     }
     # Integrity Snapshot の lib(ADR 0019)。claude の後に使うスクリプトとデータの一覧と照合は lib だけが持つ。
@@ -470,6 +454,8 @@ main() {
     MISSED_DAYS=$(harness_health_missed_run_days)
     # 前の成功の時刻。失敗の Issue がそれより後に更新されていれば、走らなかった週はその Issue が知らせている
     LAST_SUCCESS=$(harness_health_heartbeat_epoch) || LAST_SUCCESS=""
+    # PR の本文の検出件数の期間の始まり(detection_section)。前の成功が無ければ直近 7 日にする
+    DETECTION_SINCE=${LAST_SUCCESS:-$(($(date +%s) - 7 * 24 * 60 * 60))}
 
     # headless の claude を 1 回起動し、結果をログに残してから成否を返す。
     # 非 0 で終わっても結果(費用・エラーの種類)を先に出す。予算の上限などで止まった run も
@@ -1071,7 +1057,10 @@ main() {
             printf 'harness-weekly: this week has no failure rate record (%s); heartbeat not updated\n' "$RATE_RECORD_ERROR" >&2
             return 1
         fi
-        write_heartbeat
+        harness_health_write_heartbeat || {
+            printf 'harness-weekly: failed to write the heartbeat %s\n' "$(harness_health_heartbeat_file)" >&2
+            return 1
+        }
     }
 
     # 処理対象が無い工程は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
