@@ -219,6 +219,43 @@ EOF
     assert_output 'budget=7'
 }
 
+# 信頼しない工程(週次ジョブの claude)の偽物。STEP_TAMPER があればデータを書き換え、STEP_EXIT で終わる
+untrusted_step() {
+    printf 'step %s\n' "$*"
+    [[ -z "${STEP_TAMPER:-}" ]] || printf 'x\n' >>"$HDIR/classifications.jsonl"
+    return "${STEP_EXIT:-0}"
+}
+
+@test "信頼しない工程が失敗してデータを書き換えたら、工程の入口は照合して予約コードを返す" {
+    harness_integrity_snapshot
+    STEP_TAMPER=1 STEP_EXIT=1 run harness_integrity_run_untrusted untrusted_step reflect
+    assert_failure "$HARNESS_INTEGRITY_FAILED"
+    assert_line 'step reflect'
+    assert_output --partial "changed: $HDIR/classifications.jsonl"
+}
+
+@test "工程の入口は、成功なら 0、成功してもデータの書き換えがあれば 3、失敗なら工程自身の 3 も含めて 1 を返す" {
+    harness_integrity_snapshot
+    run harness_integrity_run_untrusted untrusted_step review
+    assert_success
+    assert_output 'step review'
+    STEP_EXIT=1 run harness_integrity_run_untrusted untrusted_step review
+    assert_failure 1
+    STEP_EXIT=3 run harness_integrity_run_untrusted untrusted_step review
+    assert_failure 1
+    refute_output --partial 'harness-integrity:'
+    STEP_TAMPER=1 run harness_integrity_run_untrusted untrusted_step review
+    assert_failure "$HARNESS_INTEGRITY_FAILED"
+    assert_output --partial "changed: $HDIR/classifications.jsonl"
+}
+
+@test "スナップショットの前は、工程の入口は工程を実行せずに予約コードを返す" {
+    run harness_integrity_run_untrusted untrusted_step reflect
+    assert_failure "$HARNESS_INTEGRITY_FAILED"
+    assert_output --partial 'used before the snapshot'
+    refute_output --partial 'step reflect'
+}
+
 # 実行時の一覧(この lib)と CI の Guarded Path の一覧(scripts/guarded-paths.txt)は意味が違うので別々に持つ。
 # 代わりに、実行時の一覧にある実行物の Source がすべて Guarded Path であることを確かめる
 

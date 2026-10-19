@@ -2434,6 +2434,17 @@ PRE
     refute_heartbeat_written
 }
 
+@test "抽出の claude が失敗した run で週の記録が書き換えられていたら、書き換えをログに出す" {
+    old_record 2026-09-26
+    run_in reflect "printf '{\"tampered\":true}\n' >\"$RATES/2026-09-26.json\"; export STUB_CLAUDE_MODE=is_error"
+    run weekly
+    assert_failure
+    assert_output --partial 'reflect: claude failed'
+    assert_output --partial "changed: $RATES/2026-09-26.json"
+    assert_output --partial 'could not be trusted after reflect'
+    refute_heartbeat_written
+}
+
 # 書き換えが無い側は「commit されていない変更が残っていたら PR を作らずに失敗する」
 @test "選別の claude が commit されていない変更を残した run で週の記録が書き換えられていたら、書き換えをログに出す" {
     seed_queue
@@ -2472,6 +2483,20 @@ PRE
     run cat "$HDIR/review-pr-body-$TODAY.md"
     refute_line '## 失敗の検出'
     refute_line '## Failure Pattern の再発率'
+}
+
+# 書き換えが無い側は、選別が成功して PR を作る run(既定の adopt)
+@test "選別の claude が成功しても週の記録を書き換えていたら、PR を作らず、手で公開する手順を案内しない" {
+    seed_queue
+    old_record 2026-09-26
+    rewrite_record_in review 2026-09-26
+    run weekly
+    assert_failure
+    assert_output --partial "changed: $RATES/2026-09-26.json"
+    assert_output --partial 'do not publish the branch as it is'
+    refute_output --partial 'To publish by hand'
+    refute grep -q 'pr create' "$GH_LOG"
+    refute_heartbeat_written
 }
 
 # PR を作った後の経路。Verdict の CLI の adopted が照合のほかの理由で失敗しても、Rule Ledger の記録と heartbeat は止めない
