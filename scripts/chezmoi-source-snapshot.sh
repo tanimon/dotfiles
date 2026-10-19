@@ -31,15 +31,19 @@ if [[ $(tar --version 2>/dev/null) == *bsdtar* ]]; then
 fi
 
 # 追跡しているファイルは並列のレシピが作っては消すことがないので、まとめて tar で写す。
-# 作業ツリーで削除済みのものだけを除く(git ls-files --cached は削除済みも出す)
+# 作業ツリーで削除済みのものだけを除く(git ls-files --cached は削除済みも出す)。
+# アーカイブはパイプで渡さず一時ファイルに書く。展開する側の tar は終端を読んだところで抜けるので、
+# パイプだと作る側の tar が末尾の埋め草を閉じたパイプに書いて失敗することがある(並行して作るとき)
+archive=$(mktemp "${TMPDIR:-/tmp}/chezmoi-source-snapshot.XXXXXX")
+trap 'rm -f "$archive"' EXIT
 git ls-files -z --cached |
     while IFS= read -r -d '' file; do
         if [ -e "$file" ] || [ -L "$file" ]; then
             printf '%s\0' "$file"
         fi
     done |
-    tar ${tar_opts[@]+"${tar_opts[@]}"} --null -T - -cf - |
-    tar -xf - -C "$dest"
+    tar ${tar_opts[@]+"${tar_opts[@]}"} --null -T - -cf "$archive"
+tar -xf "$archive" -C "$dest"
 
 # 未追跡のファイルには、並列のレシピの一時ファイルが混ざる。写す前か写している間に消えたものは飛ばす
 git ls-files -z --others --exclude-standard |

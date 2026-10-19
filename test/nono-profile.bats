@@ -6,7 +6,7 @@ setup() {
     if ! command -v nono >/dev/null 2>&1; then
         skip "nono not installed"
     fi
-    # nono の内側(claude-seal が INSIDE_NONO_SANDBOX を注入する。普段の Claude Code
+    # nono の内側(claude-seal が INSIDE_NONO_SANDBOX を注入する。`claude-nono` で起動した
     # セッションもここ)では、入れ子の nono が profile の存在しないパス
     # (~/Library/Application Support/orca/codex-accounts 等)を canonicalize する際に
     # ENOENT ではなく EPERM を受け、`nono why` が判定前に失敗する(実測)。EPERM になる
@@ -111,7 +111,7 @@ why() {
 
 # --- 週次ジョブの plist ------------------------------------------------------
 # briefing と doctor は plist の有無で「週次ジョブが導入済みか」を判定し、無ければ
-# heartbeat を検査しない。普段の claude は nono の内側で動くので、plist が読めない
+# heartbeat を検査しない。`claude-nono` のセッションは nono の内側で動くので、plist が読めない
 # と停止の警告が黙って消える(nono 内で `test -f` が exit 1 になることを実測)。
 
 @test "claude-seal profile allows read on the weekly job plist" {
