@@ -242,10 +242,8 @@ if [[ "$1" == issue || "$*" == *createdAt* || "$*" == *'--json number '* ]]; the
 fi
 printf '%s\n' "$*" >>"$GH_LOG"
 if [[ "$1 $2" == "pr list" && "$*" == *'--state open'* ]]; then
-    # 開いているループの PR の一覧(記録だけの PR を作るかの判定)。既定は無し
-    [[ -z "${STUB_GH_OPEN_FAIL:-}" ]] || exit 1
-    printf '%s' "${STUB_GH_OPEN_LOOP_PR:-}"
-    [[ -z "${STUB_GH_OPEN_LOOP_PR:-}" ]] || printf '\n'
+    # 開いているループの PR の一覧(Metrics-only PR を作るかの判定)。いつも無し。開いている PR があるときの判定は
+    # test/harness-publish.bats が公開の module の interface で検査する
     exit 0
 fi
 if [[ "$1 $2" == "pr list" ]]; then
@@ -534,8 +532,7 @@ prepare_self_tamper() { # <append | overwrite | overwrite_middle>
     mkdir -p "$dir/lib"
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$SCRIPT" "$dir/original.sh"
-    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" "$dir/lib/"
+    cp "$BATS_TEST_DIRNAME"/../dot_claude/scripts/lib/*.bash "$dir/lib/"
     export TAMPER_TARGET="$dir/harness-weekly.sh" TAMPER_ORIGINAL="$dir/original.sh" \
         TAMPER_MARKER="$BATS_TEST_TMPDIR/tampered" TAMPER_MODE="$1"
     export STUB_TAMPER_SELF="$BATS_TEST_TMPDIR/tamper"
@@ -727,16 +724,6 @@ PRE
     assert_output '2'
 }
 
-@test "判定の記録の adopted (<ブランチ>) を PR の URL に置き換える" {
-    seed_queue
-    run weekly
-    assert_success
-    run bash "$HOME/.claude/scripts/harness-verdict.sh" entries
-    assert_success
-    run jq -r '[.title, .raw] | @tsv' <<<"$output"
-    assert_output "$(printf '[2026-10-03] entry\tadopted (PR https://github.com/example/dotfiles/pull/42)')"
-}
-
 @test "選別の claude にだけ採用の印を HARNESS_REVIEW_RUN で渡し、prompt には印を書かない" {
     seed_queue
     run weekly
@@ -764,15 +751,6 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
-@test "判定の記録にブランチ名が無ければ、URL を記録できなかったことを、陳腐化の修正だけなら正常と添えて残す" {
-    seed_queue
-    STUB_REVIEW_MODE=no_verdict run weekly
-    assert_success
-    assert_output --partial 'PR URL not recorded'
-    assert_output --partial 'normal if the PR only fixes stale rules'
-    refute_output --partial 'WARN'
-}
-
 @test "バイナリファイルは行数の代わりにバイナリと書き、パスの | はエスケープする" {
     seed_queue
     STUB_REVIEW_MODE=binary_pipe run weekly
@@ -782,22 +760,6 @@ PRE
     assert_output --partial '| `a\|b.md` | +1 | -0 |'
     assert_output --partial '合計: +1 / -0(純増 +1 行)'
     assert_output --partial 'バイナリファイル 1 件は行数に含めない'
-}
-
-@test "PR を作れたら本文のファイルを消し、作れなかったら残す" {
-    seed_queue
-    run weekly
-    assert_success
-    assert [ ! -f "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
-    # origin にあるのでローカルのブランチは消す
-    run git -C "$HARNESS_WEEKLY_REPO" rev-parse --verify --quiet "refs/heads/$BRANCH"
-    assert_failure
-    seed_queue
-    rm -f "$GH_LOG"
-    git -C "$ORIGIN" branch -D "$BRANCH" >/dev/null
-    STUB_GH_FAIL=1 run weekly
-    assert_failure
-    assert [ -s "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
 }
 
 @test "選別の claude が commit の後に失敗したら、残った commit のブランチと手で PR を作る手順を出す" {
@@ -1176,7 +1138,6 @@ PRE
     STUB_GH_FAIL=1 run weekly
     assert_failure
     assert_output --partial "pushed ${BRANCH} but gh pr create failed"
-    assert_output --partial "then record its URL with bash ~/.claude/scripts/harness-verdict.sh publish --run '${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001' --pr-url <PR URL>"
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
@@ -1867,16 +1828,12 @@ commit_on_main() {
     assert_success
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_output "$(printf '%s\n' 'harness: Rule Ledger の記録を足す' 'harness: Failure Pattern の再発率の週の記録を足す' 'harness: add rule')"
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
-    assert_output "$(printf '%s\n' "$RATES_REPO_DIR/2026-09-26.json" "$RATES_REPO_DIR/$TODAY.json")"
     run cat "$GH_BODY"
     assert_line '## Failure Pattern の再発率'
     assert_output --partial "| Failure Pattern | 2026-09-19 | 2026-09-26 | ${TODAY} |"
     # 純増は選別の commit だけで数える
     assert_output --partial '合計: +4 / -2(純増 +2 行)'
     refute_output --partial "$RATES_REPO_DIR"
-    run cat "$PNPM_LOG"
-    assert_output --partial "$WT exec oxfmt $RATES_REPO_DIR"
 }
 
 @test "選別の claude の commit が週の記録に触れたら PR を作らずに失敗する" {
@@ -1895,19 +1852,7 @@ PRE
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
-@test "採用 0 件の週は、origin/main に無い記録が 4 週分に満たなければ持ち越して PR を作らない" {
-    old_record 2026-09-19
-    old_record 2026-09-26
-    run weekly
-    assert_success
-    assert_output --partial '3 weekly failure rate record(s) not on origin/main; carried over'
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
-    assert [ -f "$RATES/$TODAY.json" ]
-    assert [ ! -d "$WT" ]
-}
-
-@test "採用 0 件の週に origin/main に無い記録が 4 週分たまったら、記録だけの draft PR を作る" {
+@test "採用 0 件の週に origin/main に無い記録が 4 週分たまったら、Metrics-only PR を作る" {
     old_record 2026-09-12
     old_record 2026-09-19
     old_record 2026-09-26
@@ -1916,11 +1861,6 @@ PRE
     assert_output --partial 'opened metrics-only draft PR'
     run grep '^pr create' "$GH_LOG"
     assert_output --regexp "^pr create --draft --base main --head ${BRANCH} --title harness: 週次の指標 "
-    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
-    assert_output 'harness: Failure Pattern の再発率の週の記録を足す'
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH"
-    assert_output "$(printf '%s\n' "$RATES_REPO_DIR/2026-09-12.json" "$RATES_REPO_DIR/2026-09-19.json" \
-        "$RATES_REPO_DIR/2026-09-26.json" "$RATES_REPO_DIR/$TODAY.json")"
     run cat "$GH_BODY"
     assert_output --partial '4 週分たまった'
     assert_line '## Failure Pattern の再発率'
@@ -1929,32 +1869,7 @@ PRE
     assert [ ! -d "$WT" ]
 }
 
-@test "origin/main にある週の記録は、記録だけの PR の件数に数えない" {
-    old_record 2026-09-12
-    old_record 2026-09-19
-    old_record 2026-09-26
-    commit_on_main 2026-09-12
-    run weekly
-    assert_success
-    assert_output --partial '3 weekly failure rate record(s) not on origin/main; carried over'
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
-    assert [ ! -d "$WT" ]
-}
-
-@test "開いているループの PR があれば、記録がたまっていても記録だけの PR を作らない" {
-    old_record 2026-09-12
-    old_record 2026-09-19
-    old_record 2026-09-26
-    STUB_GH_OPEN_LOOP_PR=https://github.com/example/dotfiles/pull/40 run weekly
-    assert_success
-    assert_output --partial 'loop PR https://github.com/example/dotfiles/pull/40 is open'
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
-    assert [ ! -d "$WT" ]
-}
-
-@test "選別が何も commit しなかった週も、記録がたまっていれば記録だけの PR を作る" {
+@test "選別が何も commit しなかった週も、記録がたまっていれば Metrics-only PR を作る" {
     seed_queue
     old_record 2026-09-12
     old_record 2026-09-19
@@ -1962,8 +1877,6 @@ PRE
     STUB_REVIEW_MODE=body_only run weekly
     assert_success
     assert_output --partial 'review committed no changes; opening a metrics-only PR'
-    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
-    assert_output 'harness: Failure Pattern の再発率の週の記録を足す'
     run cat "$GH_BODY"
     refute_output --partial 'reason'
     assert_output --partial '4 週分たまった'
@@ -1998,28 +1911,6 @@ PRE
     run cat "$GH_LOG"
     refute_output --partial 'pr create'
     assert [ ! -f "$HDIR/weekly-heartbeat" ]
-}
-
-@test "同じ日の再実行で書き直した記録は、origin/main に同じ日付のファイルがあっても PR に載せる" {
-    seed_queue
-    old_record "$TODAY"
-    commit_on_main "$TODAY"
-    run weekly
-    assert_success
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
-    assert_output "$RATES_REPO_DIR/$TODAY.json"
-}
-
-@test "origin/main にある前の日付の記録は、ローカルの中身が違っても PR に載せない" {
-    seed_queue
-    old_record 2026-09-26
-    commit_on_main 2026-09-26
-    # origin/main の記録を人が直した後の状態(ローカルの古い写しで戻さない)
-    printf '{"date":"2026-09-26","since":0,"until":1,"classification":"ok","patterns":{}}\n' >"$RATES/2026-09-26.json"
-    run weekly
-    assert_success
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$RATES_REPO_DIR"
-    assert_output "$RATES_REPO_DIR/$TODAY.json"
 }
 
 @test "採用したルールの Eval Case を評価し、with / without と Δ を PR の本文に載せる" {
@@ -2117,52 +2008,6 @@ ledger_record() {
     assert_line '## Rule Ledger'
     assert_output --partial '合計: +4 / -2(純増 +2 行)'
     assert [ -f "$HDIR/weekly-heartbeat" ]
-}
-
-@test "Rule Ledger の記録の push に失敗しても、PR と heartbeat は残し、記録はローカルに持ち越す" {
-    seed_queue
-    cat >"$ORIGIN/hooks/pre-receive" <<'HOOK'
-#!/usr/bin/env bash
-while read -r old new ref; do
-    if git ls-tree -r --name-only "$new" | grep -q '^docs/harness/rule-ledger/'; then
-        echo 'rejected' >&2
-        exit 1
-    fi
-done
-HOOK
-    chmod +x "$ORIGIN/hooks/pre-receive"
-    run weekly
-    assert_success
-    assert_output --partial 'WARN'
-    assert_output --partial 'Rule Ledger'
-    run grep -c '^pr create' "$GH_LOG"
-    assert_output 1
-    id="pr42-$(printf '%s' '[2026-10-03] entry' | shasum -a 256 | cut -c1-8)"
-    assert [ -f "$LEDGER/$id.json" ]
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
-    assert_output ''
-    assert [ -f "$HDIR/weekly-heartbeat" ]
-}
-
-@test "採用 0 件の週は Rule Ledger の記録を持ち越し、記録だけの PR に載せる" {
-    carried=$(ledger_record 30 '[2026-09-20] carried over')
-    run weekly
-    assert_success
-    run cat "$GH_LOG"
-    refute_output --partial 'pr create'
-    assert [ -f "$carried" ]
-    old_record 2026-09-12
-    old_record 2026-09-19
-    old_record 2026-09-26
-    run weekly
-    assert_success
-    assert_output --partial 'opened metrics-only draft PR'
-    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
-    assert_line --index 0 'harness: Rule Ledger の記録を足す'
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- "$LEDGER_REPO_DIR"
-    assert_output "$LEDGER_REPO_DIR/${carried##*/}"
-    run cat "$GH_BODY"
-    assert_output --partial 'Rule Ledger の記録のうち、まだ載っていなかった 1 件'
 }
 
 @test "選別の claude の commit が Rule Ledger に触れたら PR を作らずに失敗する" {
@@ -2443,6 +2288,71 @@ weekly_without_integrity_lib() {
     assert_output --partial 'Verdict CLI を確かめられなかった'
 }
 
+# 公開の lib だけが無いか壊れた(健全性の lib と Integrity Snapshot の lib は在る)入口スクリプトの複製で起動する
+weekly_without_publish_lib() { # [<lib に置く中身>]
+    local dir="$BATS_TEST_TMPDIR/nopublish"
+    mkdir -p "$dir/lib"
+    cp "$SCRIPT" "$dir/harness-weekly.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" "$dir/lib/"
+    [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-publish.bash"
+    bash "$dir/harness-weekly.sh"
+}
+
+@test "公開の lib が無くて止まった run も、失敗の Issue を作る" {
+    run weekly_without_publish_lib
+    assert_failure
+    assert_output --partial 'harness-publish.bash is missing or broken'
+    refute_output --partial 'command not found'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+@test "公開の lib の構文が壊れていれば、読み込まずに止まる" {
+    run weekly_without_publish_lib 'harness_publish_init() {'
+    assert_failure
+    assert_output --partial 'harness-publish.bash is missing or broken'
+    refute_output --partial 'command not found'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+@test "公開の lib に綴りの関数か定数が欠けていれば止まる" {
+    run weekly_without_publish_lib '# empty'
+    assert_failure
+    assert_output --partial 'harness-publish.bash lacks the publish steps'
+    refute_output --partial 'command not found'
+    run weekly_without_publish_lib "$(grep -v '^HARNESS_PUBLISH_METRICS_ONLY_WEEKS=' "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash")"
+    assert_failure
+    assert_output --partial 'harness-publish.bash lacks the publish steps'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+@test "公開の lib を読み込む前に止まった run のブランチの Issue も、lib が組み立てるのと同じ綴りで公開の手順を書く" {
+    mv "$HARNESS_WEEKLY_REPO" "$HOME/repo"
+    export HARNESS_WEEKLY_REPO="$HOME/repo"
+    leftover_branch harness/review-2026-09-01
+    # 綴りの正本(lib)で組み立てた手順。report_stops は lib が無い run では自分の写しで同じ文を作る
+    expected=$(
+        # shellcheck source=../dot_claude/scripts/lib/harness-publish.bash
+        source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash"
+        printf -- '- 公開する: `%s` の後に、`~/repo` で `%s`' \
+            "$(harness_publish_push_command harness/review-2026-09-01 '~/repo')" \
+            "$(harness_publish_pr_command harness/review-2026-09-01)"
+    )
+    run weekly_without_publish_lib
+    assert_failure
+    assert_output --partial 'harness-publish.bash is missing or broken'
+    run cat "$ALERT_LOG"
+    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
+    run cat "$ALERT_BODIES"
+    assert_line "$expected"
+    assert_output --partial '- 公開する: `git -C ~/repo push origin harness/review-2026-09-01` の後に、`~/repo` で `gh pr create --draft --base main --head harness/review-2026-09-01`'
+    refute_output --partial "$HOME"
+}
+
+
 @test "スナップショットの前に止まった run の report_stops も、CLI を呼ばずに、確かめられなかったと書く" {
     leftover_adopted_branch
     rm "$HOME/.claude/scripts/harness-detect-failures.sh"
@@ -2455,38 +2365,6 @@ weekly_without_integrity_lib() {
     run cat "$ALERT_BODIES"
     assert_output --partial 'Verdict CLI を確かめられなかった'
     refute_output --partial 'Verdict CLI を信頼できなかった'
-}
-
-# pnpm exec oxfmt(週の記録の commit。データの照合の後、push の前で、間に入口の呼び出しが無い)の最中に、
-# claude が残したバックグラウンドのプロセスが実行物を書き換えた状況を再現する
-tamper_during_oxfmt() {
-    install_exec "$STUBS/pnpm" <<'EOF'
-#!/usr/bin/env bash
-printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
-[[ "$*" != 'exec oxfmt docs/harness/failure-pattern-rates' ]] ||
-    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-eval-cases.sh"
-EOF
-}
-
-@test "公開の直前の関門: 週の記録の commit の後に書き換えが無ければ PR を作る" {
-    seed_queue
-    run weekly
-    assert_success
-    run grep -c '^pr create' "$GH_LOG"
-    assert_output 1
-}
-
-@test "公開の直前の関門: 入口の呼び出しの後に実行物が書き換えられたら、push も PR の作成もしない" {
-    seed_queue
-    tamper_during_oxfmt
-    run weekly
-    assert_failure
-    assert_output --partial "changed: $HOME/.claude/scripts/harness-eval-cases.sh"
-    assert_output --partial 'stopped before push'
-    refute grep -q 'pr create' "$GH_LOG"
-    run git -C "$ORIGIN" rev-parse --verify --quiet "refs/heads/$BRANCH"
-    assert_failure
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }
 
 @test "ハッシュを取れない週の記録は、照合できないとして PR を作らずに失敗する(WARN で公開を続けない)" {
@@ -2611,18 +2489,4 @@ EOF2
     assert_output --partial 'Rule Ledger record(s)'
     refute_output --partial 'could not be trusted'
     assert [ -f "$HDIR/weekly-heartbeat" ]
-}
-
-@test "PR を作った後に Verdict の CLI が書き換えられたら、PR を残したまま heartbeat を書かずに失敗する" {
-    seed_queue
-    cat >"$STUBS/gh-pre" <<'PRE'
-[[ "$1 $2" != 'pr create' ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
-PRE
-    sed -i.bak '1r '"$STUBS/gh-pre" "$STUBS/gh"
-    run weekly
-    assert_failure
-    assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
-    assert_output --partial 'opened https://github.com/example/dotfiles/pull/42, but the scripts or records the job uses after it could not be trusted'
-    refute_output --partial 'Rule Ledger record(s)'
-    assert [ ! -f "$HDIR/weekly-heartbeat" ]
 }

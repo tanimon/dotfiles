@@ -26,7 +26,7 @@
 # HARNESS_INTEGRITY_FAILED(3)を返す。信頼するスクリプトが明示的に返すのは 0〜2 なので、呼び出し元はスクリプト自身の
 # 失敗と区別できる(set -e で伝わる子プロセスの終了コードが 3 と重なると照合の失敗として扱われるが、安全側の誤り)。
 # $( ) の中の呼び出しでも終了コードで伝わる。呼び出し元が取りこぼしても公開しないよう、
-# 週次ジョブは push と gh pr create の直前に harness_integrity_gate を呼ぶ。
+# 公開の lib(harness-publish.bash)は push と gh pr create の直前に harness_integrity_gate を呼ぶ。
 #
 # スナップショットはこの lib のシェル変数にだけ持つ(ファイルに置くと claude が書き換えられる)。$( ) の中で
 # 封印した値は呼び出し元に戻らないので、harness_integrity_snapshot と harness_integrity_seal は $( ) の外で呼ぶ。
