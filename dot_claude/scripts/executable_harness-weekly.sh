@@ -409,7 +409,7 @@ main() {
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=lib/harness-health.bash
     source "$HEALTH_LIB"
-    declare -F harness_health_heartbeat_epoch harness_health_write_heartbeat harness_health_missed_run_days harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || {
+    declare -F harness_health_heartbeat_file harness_health_heartbeat_epoch harness_health_write_heartbeat harness_health_missed_run_days harness_health_stale_prs harness_health_unpublished_loop_branches >/dev/null || {
         printf 'harness-weekly: %s lacks the heartbeat and stop checks; run chezmoi apply\n' "$HEALTH_LIB" >&2
         exit 1
     }
