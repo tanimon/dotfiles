@@ -307,7 +307,7 @@ EOF
     # pending が空の週は claude を起動しないので、既定では処理対象を 1 件置く。transcript が無いので
     # 選別は検出器にかけずに残す
     printf '{"session_id":"seed","transcript_path":"/tmp/s","cwd":"/tmp","recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
-    # heartbeat の判定(assert_heartbeat_written / refute_heartbeat_written)が使う
+    # heartbeat を確かめるのに使う(assert_heartbeat_written・refute_heartbeat_written と、test の本体での lib の読み取り)
     TEST_START=$(date +%s)
     # shellcheck source=../dot_claude/scripts/lib/harness-health.bash
     source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash"
@@ -325,25 +325,33 @@ seed_queue() {
     printf '# Harness improvement queue\n\n## [2026-10-03] entry\n\n- **Scope:** global\n' >"$HDIR/queue.md"
 }
 
-# heartbeat の形(ファイル名と中身)は健全性の lib が持つので、書いたかどうかは lib の読み取りで確かめる。
-# 「書いた」は test の開始より後の時刻であること。seed_heartbeat で前の run の値を置いた test でも見分けられる
+# heartbeat の中身は健全性の lib が持つので、書いたかどうかは lib の読み取りで確かめる。
+# 「書いた」は test の開始以後の時刻であること。seed_heartbeat で置く前の run の値は、開始より前の時刻にする
+# (開始と同じ秒の値は、書いたものと見分けられない)
 assert_heartbeat_written() {
     local epoch
     epoch=$(harness_health_heartbeat_epoch) || fail 'heartbeat is missing or not a number'
     assert [ "$epoch" -ge "$TEST_START" ]
 }
 
+# 「書いていない」は、heartbeat が無いか、開始より前の時刻のままであること。lib が読めない heartbeat は
+# 書き損じとして落とす
 refute_heartbeat_written() {
     local epoch
-    if epoch=$(harness_health_heartbeat_epoch); then
-        assert [ "$epoch" -lt "$TEST_START" ]
-    fi
+    [[ -e "$(heartbeat_path)" ]] || return 0
+    epoch=$(harness_health_heartbeat_epoch) || fail 'heartbeat exists but is not a number'
+    assert [ "$epoch" -lt "$TEST_START" ]
 }
 
-# 前の run が残した heartbeat を置く。lib の書き込みは今の時刻しか書けないので、過去の値と
-# 形の崩れた値はここで直接書く
+# heartbeat の置き場所。lib の状態ディレクトリから作る。ファイル名を知っているのは test の中ではここだけ
+heartbeat_path() {
+    printf '%s\n' "$(harness_health_dir)/weekly-heartbeat"
+}
+
+# 前の run が残した heartbeat を置く。lib の書き込みは今の時刻しか書けないので、過去の値は
+# ここで直接書く
 seed_heartbeat() { # <中身>
-    printf '%s\n' "$1" >"$HDIR/weekly-heartbeat"
+    printf '%s\n' "$1" >"$(heartbeat_path)"
 }
 
 @test "claude -p を予算と sandbox 無効の設定付きで直接起動し、nono は自分で掛けない" {
