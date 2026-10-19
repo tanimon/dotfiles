@@ -1327,7 +1327,7 @@ main() {
             return 1
         fi
         harness_health_write_heartbeat || {
-            printf 'harness-weekly: failed to write the heartbeat in %s\n' "$HARNESS_DIR" >&2
+            printf 'harness-weekly: failed to write the heartbeat %s\n' "$(harness_health_heartbeat_file)" >&2
             return 1
         }
     }

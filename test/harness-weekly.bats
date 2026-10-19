@@ -338,20 +338,15 @@ assert_heartbeat_written() {
 # 書き損じとして落とす
 refute_heartbeat_written() {
     local epoch
-    [[ -e "$(heartbeat_path)" ]] || return 0
+    [[ -e "$(harness_health_heartbeat_file)" ]] || return 0
     epoch=$(harness_health_heartbeat_epoch) || fail 'heartbeat exists but is not a number'
     assert [ "$epoch" -lt "$TEST_START" ]
-}
-
-# heartbeat の置き場所。lib の状態ディレクトリから作る。ファイル名を知っているのは test の中ではここだけ
-heartbeat_path() {
-    printf '%s\n' "$(harness_health_dir)/weekly-heartbeat"
 }
 
 # 前の run が残した heartbeat を置く。lib の書き込みは今の時刻しか書けないので、過去の値は
 # ここで直接書く
 seed_heartbeat() { # <中身>
-    printf '%s\n' "$1" >"$(heartbeat_path)"
+    printf '%s\n' "$1" >"$(harness_health_heartbeat_file)"
 }
 
 @test "claude -p を予算と sandbox 無効の設定付きで直接起動し、nono は自分で掛けない" {
