@@ -818,6 +818,7 @@ main() {
     metrics_only_sections() {
         append_rates_section || return 1
         append_detection_section
+        return 0
     }
 
     # queue が空で選別を省いた週に、Metrics-only PR が要るかを確かめて作る。要否の判定と公開は公開の lib が行い、
