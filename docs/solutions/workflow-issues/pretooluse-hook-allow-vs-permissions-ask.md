@@ -69,9 +69,9 @@ command claude -p '…curl を実行して…' --model haiku < /dev/null \
 
 ### 実測時の落とし穴
 
-- **`claude` シェル関数は使えない。** `dot_config/zsh/sandbox.zsh` のラッパーが
+- **`claude-nono` は使えない。** `dot_config/zsh/sandbox.zsh` のこの関数は
   `--dangerously-skip-permissions` を渡すので、権限の実測が全部素通りして「フックが効いた」と
-  誤読する。必ず `command claude`。
+  誤読する。素の `claude`(関数を確実に避けるなら `command claude`)で実測する。
 - ネストした Seatbelt は `sandbox_apply: Operation not permitted` で落ちるので、
   `--settings` に `{"sandbox":{"enabled":false}}` を含める。
 - `-p` は stdin を待つ(`no stdin data received in 3s`)ので `< /dev/null` を付ける。

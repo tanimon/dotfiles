@@ -90,6 +90,7 @@ jobs:
       - uses: ./.github/actions/setup-lint
         with:
           pnpm: 'true'
+          zsh: 'true'
       - run: just test-scripts
 
   harness-loop-scripts:
