@@ -108,6 +108,23 @@ if ! merge_base=$(git merge-base "$BASE" HEAD); then
 fi
 printf '%s\n' "$merge_base"
 
+section "${BASE} since merge-base"
+# ブランチを切った後に基準へ入った commit。CI は PR を基準とマージした結果を検査するので、
+# ここに出る変更とぶつかると、ブランチ単体では通る検査(サイズの上限など)が CI で落ちる。
+# 一覧は先頭の BEHIND_SHOWN 件までに切り、切ったことと残りの件数を出す
+BEHIND_SHOWN=20
+behind=$(git rev-list --count "${merge_base}..${BASE}")
+if ((behind == 0)); then
+    echo "none — HEAD contains ${BASE}"
+else
+    echo "${behind} commit(s) not in HEAD:"
+    behind_log=$(git log --oneline -n "$BEHIND_SHOWN" "${merge_base}..${BASE}")
+    printf '%s\n' "$behind_log"
+    if ((behind > BEHIND_SHOWN)); then
+        echo "… and $((behind - BEHIND_SHOWN)) more"
+    fi
+fi
+
 section "changed files vs ${BASE}"
 stat=$(git diff --no-ext-diff --stat "${BASE}...HEAD")
 if [[ -z $stat ]]; then

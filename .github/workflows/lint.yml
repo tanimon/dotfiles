@@ -364,6 +364,20 @@ jobs:
           chezmoi: 'true'
       - run: just test-settings-hooks
 
+  source-snapshot:
+    name: chezmoi source snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # chezmoi は必須。描画のケースは、chezmoi が無いと skip せず fail する
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+          chezmoi: 'true'
+      - run: just test-source-snapshot
+
   guard-contract:
     name: guard hook startup contract
     runs-on: ubuntu-latest

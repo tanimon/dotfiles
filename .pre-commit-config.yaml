@@ -1,3 +1,6 @@
+# prek install が入れるフックの種類。stages を書かないフックは default_stages の pre-commit でだけ走る
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
 repos:
   - repo: local
     hooks:
@@ -69,6 +72,18 @@ repos:
         files: '^(CLAUDE\.md|AGENTS\.md|\.cursor/rules/.*\.mdc|justfile|harness/(modules/.*|project\.json|adapters/.*|bin/.*|lib/.*))$'
         pass_filenames: false
         types: [file]
+      # ルールと指示のファイルのサイズ上限。check-instructions は生成物が Source と一致するかしか見ないので、
+      # module に書き足して harness-sync した生成物の上限超えは、これが無いと lint か CI まで分からない。
+      # 対象は scripts/check-instruction-size.sh の INSTRUCTION_PATHSPECS と配置先の判定。source の名前
+      # (private_・exact_・.tmpl)を変えても外れないよう、ファイル名とディレクトリで広めに拾う。
+      # 描画してから測るテンプレート(test-instruction-size。chezmoi が要り遅い)はここでは測らない
+      - id: check-instruction-size
+        name: check-instruction-size
+        entry: bash scripts/check-instruction-size.sh
+        language: system
+        files: '((CLAUDE|AGENTS|SKILL)\.md(\.tmpl|\.literal)?|\.mdc|^\.chezmoitemplates/agent-instructions-common|^scripts/(instruction-size-limits\.txt|check-instruction-size\.sh)|^harness/modules/.*|(^|/)(private_)?(dot_|\.)claude/(exact_)?rules/.*)$'
+        pass_filenames: false
+        types: [file]
       # check-instructions は「Target が Source と一致しているか」しか見ない。
       # 一致したまま壊れる不変条件が 2 つあり、それはこのスイートだけが捕まえる:
       #   - AGENTS.md の 32 KiB 切り捨てが 35-key-patterns の内側で起きること
@@ -122,3 +137,12 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      # CI は PR を origin/main とマージした結果を測るので、ブランチ単体では上限内でも落ちることがある。
+      # push の直前に fetch してマージ結果を測る(ネットワークが要るので lint と CI には入れない)
+      - id: check-instruction-size-merged
+        name: check-instruction-size-merged
+        entry: bash scripts/check-instruction-size-merged.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

@@ -116,7 +116,7 @@ force-push 3 行がそれ)。
 
 ## 関連
 
-- `dot_claude/scripts/CLAUDE.md` — 両フックの詳細と残存リスク
+- `.claude/rules/git-push-guard.md` / `.claude/rules/curl-localhost-guard.md` — 両フックの詳細と残存リスク
 - `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` — Tier 1(rule で強制可能)と
   hook-enforced の区別
 - `test/curl-localhost-guard.bats` / `test/git-push-guard.bats` — 判定が出るべきケースと出ない
