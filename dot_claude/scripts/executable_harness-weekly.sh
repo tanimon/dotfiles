@@ -792,17 +792,23 @@ main() {
     #   - no-change → 成功。PR は作らない(deploy-only だけの週を含む)。ただし origin/main に無い週の再発率の記録が
     #     たまっていれば、Metrics-only PR を作る(公開の lib の harness_publish_metrics_only_due と harness_publish_metrics_only)
     #   - publish → 本文の節を足し、公開の lib の harness_publish_review で PR を作る
-    #   - failed と、分類の照合の失敗(予約コード 3)→ 失敗。heartbeat を書かせない(理由は lib が出す)
+    #   - failed と、分類の照合の失敗(予約コード 3)→ 失敗。heartbeat を書かせない(理由は Review Outcome の lib が出す。
+    #     照合の失敗は Integrity Snapshot の lib が書き換えを出し、ここで PR を作らないことを出す)
     # 公開の lib が失敗を返したとき(push か PR の作成の失敗など。扱いはその入口のコメント)も失敗にする。
     # commit 0 件で成功する週は本文を PR にしないので捨てる(採用も陳腐化の修正も無い週の本文は件数と残った陳腐化だけで、
     # 次の選別がまた数える)。失敗の経路では worktree・本文・結果ファイルを残す(調べられるように。worktree は次の
     # 実行が作り直す)。採用した項目は既に archive に移っているので、push か PR の作成が失敗した run の
     # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る(案内は公開の lib が出す)
     publish_review() { # <base>
-        local base=$1 outcome titles status=0
+        local base=$1 outcome outcome_status=0 titles status=0
         # データの照合は工程の入口が選別の claude の直後に済ませており、落ちた run はここに来ない(report_failed_review)。
         # Verdict の CLI などの実行物は、分類が入口を通して呼ぶときに照合される
-        outcome=$(harness_review_outcome_classify "$base" ok) || return 1
+        outcome=$(harness_review_outcome_classify "$base" ok) || outcome_status=$?
+        if [[ "$outcome_status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+            printf 'harness-weekly: no PR created; the Verdict CLI could not be trusted\n' >&2
+            return 1
+        fi
+        [[ "$outcome_status" -eq 0 ]] || return 1
         case "$outcome" in
         publish) ;;
         no-change)

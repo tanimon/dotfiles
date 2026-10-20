@@ -1871,6 +1871,8 @@ PRE
     STUB_REVIEW_MODE=adopt_uncommitted run weekly
     assert_failure
     assert_output --partial 'changed after the claude runs started'
+    # 週次ジョブ自身の言葉でも、PR を作らなかった理由を残す
+    assert_output --partial 'harness-weekly: no PR created; the Verdict CLI could not be trusted'
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
     refute_heartbeat_written
