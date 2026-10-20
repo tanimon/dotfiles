@@ -378,13 +378,8 @@ main() {
     # 日付を入れるのは、失敗した run の本文と結果ファイルを次の週の run が消さないため。
     # 成功した run は消す
     PR_BODY="$HARNESS_DIR/review-pr-body-$REVIEW_DATE.md"
-    # 選別に毎回書かせる結果ファイル。Dropped Change と Deploy-only Fix を人が読める 1 行の
-    # 文字列の配列で持つ({"dropped": [...], "deploy_only": [...]})。選別の成否の判定は本文の
-    # 有無ではなくこのファイルで行い、本文の 2 つの節もこのファイルからこのスクリプトが作る
+    # 選別に毎回書かせる結果ファイル。形・読み方・Deploy-only Fix の記録の正本は Review Outcome の lib
     REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
-    # Deploy-only Fix の報告先。PR の有無にかかわらず日付付きで追記し、空でない間は
-    # briefing が警告する(人が適用したら消す)
-    DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
     # 採用したルールの Eval Case の依頼。選別に書かせ、harness-eval-cases.sh が評価して結果を書く(ADR 0011)
     EVAL_CASES="$HOME/.claude/scripts/harness-eval-cases.sh"
     EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
@@ -451,6 +446,23 @@ main() {
     harness_publish_init --repo "$REPO" --worktree "$WORKTREE" --branch "$BRANCH" --loop-branch-prefix "$LOOP_BRANCH_PREFIX" \
         --pr-body "$PR_BODY" --review-result "$REVIEW_RESULT" --eval-results "$EVAL_RESULTS" --date "$REVIEW_DATE" \
         --run "$REVIEW_RUN" || exit 1
+    # Review Outcome の module。選別の結果ファイルの契約・Deploy-only Fix の記録・選別が残したものの分類の正本。
+    # 公開の lib の置き場の定数を使うので、その後に読む
+    REVIEW_OUTCOME_LIB="$(dirname "${BASH_SOURCE[0]}")/lib/harness-review-outcome.bash"
+    if [[ ! -r "$REVIEW_OUTCOME_LIB" ]] || ! "$BASH" -n "$REVIEW_OUTCOME_LIB" 2>/dev/null; then
+        printf 'harness-weekly: %s is missing or broken; run chezmoi apply\n' "$REVIEW_OUTCOME_LIB" >&2
+        exit 1
+    fi
+    # shellcheck source-path=SCRIPTDIR
+    # shellcheck source=lib/harness-review-outcome.bash
+    source "$REVIEW_OUTCOME_LIB"
+    declare -F harness_review_outcome_init harness_review_outcome_result_instructions harness_review_outcome_classify \
+        harness_review_outcome_sections >/dev/null || {
+        printf 'harness-weekly: %s lacks the review outcome checks; run chezmoi apply\n' "$REVIEW_OUTCOME_LIB" >&2
+        exit 1
+    }
+    harness_review_outcome_init --worktree "$WORKTREE" --review-result "$REVIEW_RESULT" --pr-body "$PR_BODY" \
+        --run "$REVIEW_RUN" --date "$REVIEW_DATE" || exit 1
     # heartbeat はこの run が成功すると書き換わるので、起動時に読む
     MISSED_DAYS=$(harness_health_missed_run_days)
     # 前の成功の時刻。失敗の Issue がそれより後に更新されていれば、走らなかった週はその Issue が知らせている
@@ -598,74 +610,6 @@ main() {
             printf "\n合計: +%d / -%d(純増 %s%d 行)\n", added, deleted, (net > 0 ? "+" : ""), net
             if (binaries > 0) printf "\nバイナリファイル %d 件は行数に含めない。\n", binaries
         }'
-    }
-
-    # 結果ファイルが決めた形(object で、dropped と deploy_only が文字列の配列)かを確かめる。
-    # キーの欠落を空配列として読まない(jq の .dropped | length は null に 0 を返す)
-    review_result_valid() {
-        jq -e 'type == "object"
-        and (.dropped | type == "array") and (.deploy_only | type == "array")
-        and all(.dropped[], .deploy_only[]; type == "string")' "$REVIEW_RESULT" >/dev/null 2>&1
-    }
-
-    # 結果ファイルの配列 1 つの要素を、1 行の文字列に整えて出す。改行は空白に潰し(リストを
-    # 崩さないため)、前後の空白と、claude が付けた箇条書きの印(「- 」「* 」)を外す。空になった
-    # 要素は捨てる(中身の無い項目を deploy-only.md に足したり、Dropped Change と数えたりしない)
-    # shellcheck disable=SC2016 # $key は jq の変数
-    RESULT_ITEMS_FILTER='.[$key][] | gsub("[\r\n]+"; " ") | sub("^\\s+"; "") | sub("\\s+$"; "")
-    | sub("^[-*](\\s+|$)"; "") | select(length > 0)'
-
-    # 整えた要素を Markdown のリストにする
-    result_items() {
-        jq -r --arg key "$1" "$RESULT_ITEMS_FILTER"' | "- " + .' "$REVIEW_RESULT"
-    }
-
-    result_count() {
-        jq -r --arg key "$1" "[$RESULT_ITEMS_FILTER] | length" "$REVIEW_RESULT"
-    }
-
-    # Deploy-only Fix を $DEPLOY_ONLY に日付の見出し付きで追記する。既に同じ行があるものと、
-    # 同じ結果ファイルの中で重なったものは足さない(失敗した run の後に同じ日・次の週に
-    # 再実行すると、同じ修正がまた報告されるため)
-    record_deploy_only() {
-        local items item new_items="" count=0
-        items=$(result_items deploy_only) || return 1
-        while IFS= read -r item; do
-            [[ -n "$item" ]] || continue
-            if [[ -f "$DEPLOY_ONLY" ]] && grep -qxF -- "$item" "$DEPLOY_ONLY"; then
-                continue
-            fi
-            if [[ -n "$new_items" ]] && grep -qxF -- "$item" <<<"$new_items"; then
-                continue
-            fi
-            new_items+="${item}"$'\n'
-            count=$((count + 1))
-        done <<<"$items"
-        [[ "$count" -gt 0 ]] || return 0
-        # 同じ日の再実行では、最後の見出しが今日のものならその下に足し、見出しを重ねない
-        if [[ -f "$DEPLOY_ONLY" ]] && [[ "$(grep '^## ' "$DEPLOY_ONLY" | tail -n 1)" == "## $REVIEW_DATE" ]]; then
-            printf '%s\n' "$new_items" >>"$DEPLOY_ONLY" || return 1
-        else
-            printf '## %s\n\n%s\n' "$REVIEW_DATE" "$new_items" >>"$DEPLOY_ONLY" || return 1
-        fi
-        printf 'harness-weekly: recorded %s deploy-only fix(es) in %s; apply them by hand, then delete it\n' \
-            "$count" "$DEPLOY_ONLY"
-    }
-
-    # PR の本文に付ける Dropped Change と Deploy-only Fix の節。claude には本文に書かせず、
-    # 結果ファイルから作る(純増の節と同じ扱い)
-    result_sections() {
-        local dropped deploy_only
-        dropped=$(result_items dropped) || return 1
-        deploy_only=$(result_items deploy_only) || return 1
-        if [[ -n "$dropped" ]]; then
-            printf '\n## 落とした変更\n\ncommit フックか lint を通せずに commit しなかった変更。queue に残してあり、次の選別にかけ直す。\n\n%s\n' "$dropped"
-        fi
-        if [[ -n "$deploy_only" ]]; then
-            # 本文は公開リポジトリの PR になるので、ローカルアカウント名を含む $HOME を ~ で書く
-            printf '\n## deploy-only の修正\n\nこの PR の commit では直らず、人が適用して初めて効く修正。%s にも記録した(適用したら消す)。\n\n%s\n' \
-                "~${DEPLOY_ONLY#"$HOME"}" "$deploy_only"
-        fi
     }
 
     # PR の本文に付ける、失敗の検出件数の節。期間は前回の成功した run(heartbeat)より後で、
@@ -844,93 +788,30 @@ main() {
         harness_publish_metrics_only "$base" metrics_only_sections
     }
 
-    # 結果ファイルの申告(dropped)を、ジョブが自分で観測できる事実と突き合わせる。claude が採用を
-    # 落としたのに "dropped": [] と書いた週を、成功として扱わないため。
-    #   - harness-review は処理した項目をすべて archive に移すので、queue に残ってよいのは落とした
-    #     変更だけ。残数が dropped の件数より多ければ、申告しなかった項目がある
-    #   - archive にこの run の採用(adopted_titles)があるのに commit が 0 件なら、採用を commit していない。
-    #     陳腐化の修正には印が付かないので、採用と区別できる。公開の lib が印を置き換える前に呼ぶ
-    # 項目はタイトルではなく件数で比べる(commit の件名に queue のタイトルがそのまま入る保証は無い)。
-    # そのため、採用の一部だけを commit せず陳腐化の修正の commit で件数が埋まる週は見分けられない。
-    # dropped の要素は queue の項目ではなく変更の単位なので、queue に項目を持たない陳腐化の修正を
-    # dropped に入れると件数がかさ上げされ、申告しなかった項目が同じ数だけ残っていても見分けられない。
-    # 逆に複数の項目を 1 つの変更にまとめて落とすと、正しく申告した週でも失敗する。
-    # 選別の最中に対話セッションの /harness-reflect が queue に足した項目も残数に数えるので、その週は
-    # 誤って失敗する(成功を偽るより安全なので受け入れる)
-    check_review_claims() { # <commit の件数> <dropped の件数>
-        local commits=$1 dropped_count=$2 remaining titles marks
-        remaining=$(count_queue) || return 1
-        # count_queue は grep の失敗も || true で通すので、読めない queue は空の出力になる(空は 0 と比べられる)
-        if [[ ! "$remaining" =~ ^[0-9]+$ ]]; then
-            printf 'harness-weekly: failed to count the entries in %s; no PR created\n' "$QUEUE" >&2
-            return 1
-        fi
-        if [[ "$remaining" -gt "$dropped_count" ]]; then
-            printf 'harness-weekly: review left %s entr(ies) in %s but reported %s dropped change(s) in %s (an entry was neither moved to %s nor reported as dropped); no PR created\n' \
-                "$remaining" "$QUEUE" "$dropped_count" "$REVIEW_RESULT" "$ARCHIVE" >&2
-            return 1
-        fi
-        [[ "$commits" -eq 0 ]] || return 0
-        titles=$(adopted_titles) || {
-            printf 'harness-weekly: failed to read the adopted verdicts from %s; no PR created\n' "$ARCHIVE" >&2
-            return 1
-        }
-        if [[ -n "$titles" ]]; then
-            marks=$(printf '%s\n' "$titles" | wc -l | tr -d ' ')
-            printf 'harness-weekly: %s has %s verdict(s) adopted in run "%s" but the review committed nothing (an adopted change was not committed and not reported as dropped); no PR created\n' \
-                "$ARCHIVE" "$marks" "$REVIEW_RUN" >&2
-            return 1
-        fi
-    }
-
-    # 選別の結果から PR を作る。判定は結果ファイルと commit の数で行い、本文の有無は
-    # Dropped Change の判定に使わない(本文には採用 0 件の週にも指標などが載りうるため)。
-    #   - commit 0 件・dropped が空 → 成功。PR は作らない(deploy-only だけの週を含む)。ただし
-    #     origin/main に無い週の再発率の記録がたまっていれば、Metrics-only PR を作る(公開の lib の
-    #     harness_publish_metrics_only_due と harness_publish_metrics_only)
-    #   - commit 0 件・dropped が空でない → 失敗(すべてが Dropped Change)
-    #   - dropped の申告が queue と archive の観測と食い違う → 失敗(check_review_claims)
-    #   - commit 1 件以上 → 本文の節を足し、公開の lib の harness_publish_review で PR を作る。dropped は queue に
-    #     残っており、次の選別にかけ直される
-    # 次はどれも失敗として扱い、heartbeat を書かせない:
-    #   - commit されていない変更が残った
-    #   - 結果ファイルが無い、または決めた形でない
-    #   - commit があるのに本文が無い
-    #   - 選別の claude の commit が週の再発率の記録($HARNESS_PUBLISH_RATES_REPO_DIR)に触れた
-    #   - 公開の lib が失敗を返した(push か PR の作成の失敗など。公開の手順の失敗の扱いはその入口のコメント)
-    # Deploy-only Fix は、結果ファイルを読めた時点で、未 commit の変更を含むどの失敗の判定よりも
-    # 先に $DEPLOY_ONLY へ残す。commit 0 件で成功する週は本文を PR にしないので捨てる(採用も
-    # 陳腐化の修正も無い週の本文は件数と残った陳腐化だけで、次の選別がまた数える)。
-    # 失敗の経路では worktree・本文・結果ファイルを残す(調べられるように。worktree は次の
+    # 選別の結果から PR を作る。選別が残したものの分類(Review Outcome の lib の harness_review_outcome_classify)で振り分ける:
+    #   - no-change → 成功。PR は作らない(deploy-only だけの週を含む)。ただし origin/main に無い週の再発率の記録が
+    #     たまっていれば、Metrics-only PR を作る(公開の lib の harness_publish_metrics_only_due と harness_publish_metrics_only)
+    #   - publish → 本文の節を足し、公開の lib の harness_publish_review で PR を作る
+    #   - failed と、分類の照合の失敗(予約コード 3)→ 失敗。heartbeat を書かせない(理由は Review Outcome の lib が出す。
+    #     照合の失敗は Integrity Snapshot の lib が書き換えを出し、ここで PR を作らないことを出す)
+    # 公開の lib が失敗を返したとき(push か PR の作成の失敗など。扱いはその入口のコメント)も失敗にする。
+    # commit 0 件で成功する週は本文を PR にしないので捨てる(採用も陳腐化の修正も無い週の本文は件数と残った陳腐化だけで、
+    # 次の選別がまた数える)。失敗の経路では worktree・本文・結果ファイルを残す(調べられるように。worktree は次の
     # 実行が作り直す)。採用した項目は既に archive に移っているので、push か PR の作成が失敗した run の
     # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る(案内は公開の lib が出す)
     publish_review() { # <base>
-        local base=$1 commits dropped_count dropped_items touched titles status=0
-        if ! review_result_valid; then
-            printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
-                "$REVIEW_RESULT" >&2
-            return 1
-        fi
-        record_deploy_only || {
-            printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
-            return 1
-        }
-        if [[ -n "$(git -C "$WORKTREE" status --porcelain)" ]]; then
-            printf 'harness-weekly: review left uncommitted changes in %s; no PR created\n' "$WORKTREE" >&2
-            return 1
-        fi
-        commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD") || return 1
-        dropped_count=$(result_count dropped) || return 1
-        if [[ "$commits" -eq 0 && "$dropped_count" -gt 0 ]]; then
-            dropped_items=$(result_items dropped) || return 1
-            printf 'harness-weekly: review dropped %s change(s) and committed nothing (a commit hook or lint failed; the entries stay in the queue); no PR created. Dropped (see %s):\n%s\n' \
-                "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
-            return 1
-        fi
+        local base=$1 outcome outcome_status=0 titles status=0
         # データの照合は工程の入口が選別の claude の直後に済ませており、落ちた run はここに来ない(report_failed_review)。
-        # Verdict の CLI などの実行物は、check_review_claims が入口を通して呼ぶときに照合される
-        check_review_claims "$commits" "$dropped_count" || return 1
-        if [[ "$commits" -eq 0 ]]; then
+        # Verdict の CLI などの実行物は、分類が入口を通して呼ぶときに照合される
+        outcome=$(harness_review_outcome_classify "$base" ok) || outcome_status=$?
+        if [[ "$outcome_status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+            printf 'harness-weekly: no PR created; the Verdict CLI could not be trusted\n' >&2
+            return 1
+        fi
+        [[ "$outcome_status" -eq 0 ]] || return 1
+        case "$outcome" in
+        publish) ;;
+        no-change)
             if harness_publish_metrics_only_due "$base"; then
                 printf 'harness-weekly: review committed no changes; opening a metrics-only PR\n'
                 harness_publish_metrics_only "$base" metrics_only_sections
@@ -939,24 +820,10 @@ main() {
             printf 'harness-weekly: review committed no changes; no PR created\n'
             harness_publish_discard
             return 0
-        fi
-        if [[ ! -s "$PR_BODY" ]]; then
-            printf 'harness-weekly: review made %s commit(s) but wrote no PR body; no PR created\n' "$commits" >&2
-            return 1
-        fi
-        touched=$(git -C "$WORKTREE" diff --name-only "$base" HEAD -- "$HARNESS_PUBLISH_RATES_REPO_DIR") || return 1
-        if [[ -n "$touched" ]]; then
-            printf 'harness-weekly: review commits touched %s (only this job writes the weekly failure rate records); no PR created\n' \
-                "$HARNESS_PUBLISH_RATES_REPO_DIR" >&2
-            return 1
-        fi
-        touched=$(git -C "$WORKTREE" diff --name-only "$base" HEAD -- "$HARNESS_PUBLISH_LEDGER_REPO_DIR") || return 1
-        if [[ -n "$touched" ]]; then
-            printf 'harness-weekly: review commits touched %s (only this job writes the Rule Ledger); no PR created\n' \
-                "$HARNESS_PUBLISH_LEDGER_REPO_DIR" >&2
-            return 1
-        fi
-        result_sections >>"$PR_BODY" || return 1
+            ;;
+        *) return 1 ;;
+        esac
+        harness_review_outcome_sections >>"$PR_BODY" || return 1
         append_detection_section
         append_rates_section || {
             printf 'harness-weekly: no PR created; the failure rate trend could not be trusted\n' >&2
@@ -987,35 +854,18 @@ main() {
     # 選別の claude が失敗した(予算切れを含む)run と、claude の成否に関わらず照合に落ちた run の後始末の案内。claude は commit や
     # archive への移動を済ませてから失敗しうるので、残った commit の場所と手で PR を作る手順を
     # ログに出す(データの照合に落ちた run では、手順の代わりにそのまま公開しないよう案内する)。worktree は残す(次の実行が作り直すが、prepare_worktree は origin/main に無い
-    # commit を持つ当日のブランチを作り直さない)。claude は結果ファイルを書いてから失敗しうる
-    # ので、結果ファイルが決めた形なら Deploy-only Fix はここでも $DEPLOY_ONLY に残す(結果
-    # ファイルは日付付きで、次の週の run は読まない)。結果ファイルは run の前に消してあるので、
-    # ここで読むのはこの run の claude が書いたものだけ。commit が残っていれば、手で作る PR の
-    # 本文にも Dropped Change と Deploy-only Fix の節を足す(claude には本文に書かせないため、
+    # commit を持つ当日のブランチを作り直さない)。Deploy-only Fix の記録と、commit が無い run の案内は Review Outcome の lib が
+    # 分類のときに行う。結果ファイルは run の前に消してあるので、lib が読むのはこの run の claude が書いたものだけ。
+    # commit が残っていれば、手で作る PR の本文にも Dropped Change と Deploy-only Fix の節を足す(claude には本文に書かせないため、
     # 足さないと落とした変更の一覧が結果ファイルにしか残らない)
     report_failed_review() { # <base> <データを信頼できるか(1/0)>
-        local base=$1 data_trusted=$2 commits result_ok=0 trusted=0
-        if [[ -f "$REVIEW_RESULT" ]] && review_result_valid; then
-            result_ok=1
-            record_deploy_only ||
-                printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
-        fi
+        local base=$1 data_trusted=$2 claude=failed outcome commits trusted=0
+        [[ "$data_trusted" -eq 1 ]] || claude=untrusted
+        outcome=$(harness_review_outcome_classify "$base" "$claude") || return 0
+        [[ "$outcome" == failed-with-commits ]] || return 0
         commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD" 2>/dev/null || printf '?')
-        # 照合に落ちた run は claude が成功していてもここに来るので、claude の失敗と読める文面を出さない
-        if [[ "$commits" == "0" && "$data_trusted" -eq 0 ]]; then
-            printf 'harness-weekly: review made no commits, and the records the job uses were changed (or could not be checked) after the claude runs started; restore them and find what changed them. Worktree %s kept; verdicts already moved to %s stay there\n' \
-                "$WORKTREE" "$ARCHIVE" >&2
-            return 0
-        fi
-        if [[ "$commits" == "0" ]]; then
-            printf 'harness-weekly: review failed before committing; worktree %s kept; verdicts already moved to %s stay there\n' \
-                "$WORKTREE" "$ARCHIVE" >&2
-            return 0
-        fi
-        if [[ "$result_ok" -eq 1 ]]; then
-            result_sections >>"$PR_BODY" ||
-                printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
-        fi
+        harness_review_outcome_sections >>"$PR_BODY" ||
+            printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
         # データの照合(工程の入口が選別の claude の直後に済ませている)に落ちたら検出件数と推移の節を省き、手で公開する
         # 手順の代わりに、書き換えを確かめてから commit を読み直すよう案内する
         if [[ "$data_trusted" -eq 1 ]]; then
@@ -1173,13 +1023,15 @@ ${WRITE_RULE}
     # 手順は harness-review スキルのまま使い、手動の /harness-review と同じ queue と判定の
     # 記録(queue-archive.md・state.json)を更新させる。変えるのは、作業場所と、push と PR を
     # このスクリプトが行う点だけ。節は番号ではなく見出しで指す(番号は SKILL.md の変更で黙ってずれる)
+    # 結果ファイルの指示文は、形の検査と同じく Review Outcome の lib が持つ
+    RESULT_INSTRUCTIONS=$(harness_review_outcome_result_instructions) || exit 1
     REVIEW_PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
 Use the harness-review skill, following its rules, with these changes:
 - Your working directory is a git worktree of the chezmoi source repo, on branch ${BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
 - Skip \"Reflect over pending sessions\"; this job already ran it.
 - Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). List a deploy-only fix (one that a commit cannot fix and that takes effect only when a human applies it) in the result file instead.
 - In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Treat each [slow] recipe (just --list) whose targets a change touches as part of just lint-fast for that change. Fold fixes for a failing commit hook or just lint-fast into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint-fast fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
-- Always write the result file ${REVIEW_RESULT} before you finish, even if nothing happened: a JSON object {\"dropped\": [...], \"deploy_only\": [...]} whose elements are one-line strings (in Japanese). In \"dropped\", put each dropped change with its queue title and the failing hook or lint check; in \"deploy_only\", each deploy-only fix with what to apply and why. Use empty arrays when there are none. This job decides whether the run failed from this file, not from the PR body.
+${RESULT_INSTRUCTIONS}
 - Write the PR body (in Japanese) to ${PR_BODY}: for each adopted change, its queue title, the files it changes, and why it was adopted; for each staleness fix, the files and why; then the rejected and handoff counts and the remaining staleness findings. Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body; this job appends them from the diff, its detection and rate records, the evaluation and the result file. Never change files under ${HARNESS_PUBLISH_RATES_REPO_DIR} or ${HARNESS_PUBLISH_LEDGER_REPO_DIR}, or the local Rule Ledger in ${LOCAL_LEDGER_DIR}; this job commits them. If nothing is adopted and nothing is stale, make no commits.
 - For every adopted change, write an Eval Case request to ${EVAL_REQUESTS} as described in the skill's \"Eval Case requests\" section (Write tool only; this job runs the evaluation and appends the effect to the PR body). Do not run the evaluation yourself.
 - In \"Bookkeeping\", record every verdict with the skill's settle command (a command with single-quoted arguments, not text you compose). HARNESS_REVIEW_RUN is set, so never pass --pr-url: this job records the PR URL after it opens the PR. Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.

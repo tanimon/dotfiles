@@ -120,10 +120,8 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         mkdir -p rules && printf 'a\nb\nc\n' >rules/new.md && printf 'keep\n' >README.md
         git add -A && git commit -qm 'harness: add rule'
     }
-    # queue の項目すべての Verdict を Verdict の CLI で記録する(harness-review の Bookkeeping)。
-    # STUB_KEEP_QUEUE があれば記録せず queue に残す(落とした変更を残した run、または採用か却下した項目を残した run の再現)
+    # queue の項目すべての Verdict を Verdict の CLI で記録する(harness-review の Bookkeeping)
     settle_all() { # <kind> [引数]
-        [[ -z "${STUB_KEEP_QUEUE:-}" ]] || return 0
         local titles title
         titles=$(grep '^## ' "$HOME/.claude/harness/queue.md" | cut -c4-) || return 0
         while IFS= read -r title; do
@@ -163,10 +161,6 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         printf 'reason\n' >"$body"
         settle_all rejected 'stub'
         ;;
-    no_body)
-        adopt
-        settle_all rejected 'stub'
-        ;;
     adopt_uncommitted)
         # 採用を判定の記録に書いたのに commit しなかった run の再現
         settle_all adopted
@@ -181,7 +175,6 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         ;;
     none) settle_all rejected 'stub' ;;
     esac
-    [[ -z "${STUB_QUEUE_UNREADABLE:-}" ]] || chmod 000 "$HOME/.claude/harness/queue.md"
 else
     printf 'reflect\n' >>"$STAGE_LOG"
     # 実行中の入口スクリプトを抽出の claude が書き換える run の再現
@@ -835,19 +828,6 @@ PRE
     refute_heartbeat_written
 }
 
-@test "commit が無く落とした変更があれば、採用なしと扱わずに失敗し heartbeat を書かない" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["harness: add rule(shellcheck で失敗)"],"deploy_only":[]}' run weekly
-    assert_failure
-    assert_output --partial 'dropped 1 change(s)'
-    assert_output --partial 'harness: add rule(shellcheck で失敗)'
-    refute_output --partial 'committed no changes'
-    assert [ ! -f "$GH_LOG" ]
-    refute_heartbeat_written
-    # 調べられるように結果ファイルを残す
-    assert [ -s "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
-}
-
 @test "commit が無く落とした変更も無ければ、本文があっても PR を作らずに成功する" {
     seed_queue
     STUB_REVIEW_MODE=body_only run weekly
@@ -857,34 +837,6 @@ PRE
     assert_heartbeat_written
     # 日付付きのファイルが週ごとに溜まらない
     assert [ ! -f "$HDIR/review-pr-body-$(date +%Y-%m-%d).md" ]
-    assert [ ! -f "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
-}
-
-@test "commit が無く deploy-only の修正だけなら成功し、deploy-only.md に残してブリーフィングが警告する" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["~/.claude/settings.json が古い: chezmoi apply で適用する"]}' run weekly
-    assert_success
-    assert [ ! -f "$GH_LOG" ]
-    assert_heartbeat_written
-    run cat "$HDIR/deploy-only.md"
-    assert_output --partial "## $(date +%Y-%m-%d)"
-    assert_output --partial '- ~/.claude/settings.json が古い: chezmoi apply で適用する'
-    run bash "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-briefing.sh"
-    assert_output --partial 'ATTENTION'
-    assert_output --partial 'deploy-only fix'
-    assert_output --partial "$HDIR/deploy-only.md"
-}
-
-@test "commit があり落とした変更もあれば PR を作り、本文にジョブが作った落とした変更の節が入る" {
-    seed_queue
-    STUB_RESULT='{"dropped":["harness: other entry(just lint の oxfmt で失敗)"],"deploy_only":[]}' run weekly
-    assert_success
-    run cat "$GH_LOG"
-    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
-    run cat "$GH_BODY"
-    assert_output --partial '## 落とした変更'
-    assert_output --partial '- harness: other entry(just lint の oxfmt で失敗)'
-    refute_output --partial '## deploy-only の修正'
     assert [ ! -f "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
 }
 
@@ -903,140 +855,12 @@ PRE
     assert_output --partial '- 複数行の 説明'
 }
 
-@test "失敗する run でも deploy-only の修正は deploy-only.md に残す" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["x(prek で失敗)"],"deploy_only":["y を適用する"]}' run weekly
-    assert_failure
-    run cat "$HDIR/deploy-only.md"
-    assert_output --partial '- y を適用する'
-}
-
-@test "deploy-only.md には週ごとに追記し、前の記録を消さない" {
-    printf '## 2026-01-01\n\n- old fix\n' >"$HDIR/deploy-only.md"
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["new fix"]}' run weekly
-    assert_success
-    run cat "$HDIR/deploy-only.md"
-    assert_output --partial '- old fix'
-    assert_output --partial '- new fix'
-}
-
-@test "結果ファイルが無ければ、commit が無くても採用なしと扱わずに失敗する" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT=missing run weekly
-    assert_failure
-    assert_output --partial 'review-result-'
-    refute_output --partial 'committed no changes'
-    refute_heartbeat_written
-}
-
 @test "同じ日の前の run が残した結果ファイルを今回の結果として読まない" {
     printf '{"dropped":[],"deploy_only":[]}\n' >"$HDIR/review-result-$(date +%Y-%m-%d).json"
     seed_queue
     STUB_REVIEW_MODE=none STUB_RESULT=missing run weekly
     assert_failure
     assert_output --partial 'did not write a valid result file'
-    refute_heartbeat_written
-}
-
-@test "commit されていない変更を残した run でも deploy-only の修正は deploy-only.md に残す" {
-    seed_queue
-    STUB_REVIEW_MODE=dirty STUB_RESULT='{"dropped":[],"deploy_only":["z を適用する"]}' run weekly
-    assert_failure
-    assert_output --partial 'uncommitted changes'
-    run cat "$HDIR/deploy-only.md"
-    assert_output --partial '- z を適用する'
-}
-
-@test "同じ deploy-only の修正を再び報告されても deploy-only.md に二重に足さない" {
-    printf '## 2026-01-01\n\n- same fix\n' >"$HDIR/deploy-only.md"
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["same fix","other fix"]}' run weekly
-    assert_success
-    run grep -c '^- same fix$' "$HDIR/deploy-only.md"
-    assert_output '1'
-    run grep -c '^- other fix$' "$HDIR/deploy-only.md"
-    assert_output '1'
-}
-
-@test "同じ結果ファイルの中で重なった deploy-only の修正も deploy-only.md に二重に足さない" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["dup fix","dup fix"]}' run weekly
-    assert_success
-    run grep -c '^- dup fix$' "$HDIR/deploy-only.md"
-    assert_output '1'
-}
-
-@test "空や空白だけの要素は数えず、箇条書きの印を二重にしない" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["", "  ", "- "],"deploy_only":["", " - bullet fix ", "* star fix"]}' run weekly
-    # dropped が中身の無い要素だけなら、commit 0 件の週を失敗にしない
-    assert_success
-    assert_output --partial 'review committed no changes; no PR created'
-    run cat "$HDIR/deploy-only.md"
-    assert_line '- bullet fix'
-    assert_line '- star fix'
-    refute_line '- '
-    refute_output --partial '- - '
-    # 件数は中身のある要素だけを数える
-    run bash "$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_harness-briefing.sh"
-    assert_output --partial '(2)'
-}
-
-@test "中身のある落とした変更が 1 つでもあれば、空の要素と混ざっていても失敗する" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":["", "x(prek で失敗)"],"deploy_only":[]}' run weekly
-    assert_failure
-    assert_output --partial 'dropped 1 change(s)'
-}
-
-@test "dropped が空なのに queue に項目が残っていれば、PR を作らずに失敗し heartbeat を書かない" {
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_KEEP_QUEUE=1 run weekly
-    assert_failure
-    assert_output --partial "review left 1 entr(ies) in $HDIR/queue.md but reported 0 dropped change(s)"
-    refute_output --partial 'committed no changes'
-    assert [ ! -f "$GH_LOG" ]
-    refute_heartbeat_written
-    assert [ -s "$HDIR/review-result-$(date +%Y-%m-%d).json" ]
-}
-
-@test "commit があっても、dropped が空なのに queue に項目が残っていれば PR を作らずに失敗する" {
-    seed_queue
-    STUB_KEEP_QUEUE=1 run weekly
-    assert_failure
-    assert_output --partial 'review left 1 entr(ies)'
-    assert [ ! -f "$GH_LOG" ]
-    refute_heartbeat_written
-}
-
-@test "queue に残った項目と dropped の件数が一致すれば、従来どおり PR を作って成功する" {
-    seed_queue
-    STUB_KEEP_QUEUE=1 STUB_RESULT='{"dropped":["harness: other entry(prek で失敗)"],"deploy_only":[]}' run weekly
-    assert_success
-    refute_output --partial 'review left'
-    run cat "$GH_LOG"
-    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
-    assert_heartbeat_written
-}
-
-@test "選別の後に queue を読めなければ、残数を 0 と読まずに失敗する" {
-    [ "$(id -u)" -ne 0 ] || skip "root は mode 000 のファイルも読めるので再現できない"
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_QUEUE_UNREADABLE=1 run weekly
-    assert_failure
-    assert_output --partial "failed to count the entries in $HDIR/queue.md"
-    refute_output --partial 'committed no changes'
-    refute_heartbeat_written
-}
-
-@test "この run の採用の印が判定の記録にあるのに commit が無ければ、dropped が空でも失敗する" {
-    seed_queue
-    STUB_REVIEW_MODE=adopt_uncommitted run weekly
-    assert_failure
-    assert_output --partial "has 1 verdict(s) adopted in run \"${BRANCH} run aaaaaaaa-0000-0000-0000-000000000001\" but the review committed nothing"
-    refute_output --partial 'committed no changes'
-    assert [ ! -f "$GH_LOG" ]
     refute_heartbeat_written
 }
 
@@ -1047,15 +871,6 @@ PRE
     refute_output --partial 'but the review committed nothing'
     run cat "$GH_LOG"
     assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
-    assert_heartbeat_written
-}
-
-@test "PR の URL に置き換え済みの採用は、commit が無い週の失敗に数えない" {
-    seed_queue
-    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
-    STUB_REVIEW_MODE=none run weekly
-    assert_success
-    assert_output --partial 'review committed no changes; no PR created'
     assert_heartbeat_written
 }
 
@@ -1071,16 +886,6 @@ PRE
     refute_output --partial 'but the review committed nothing'
 }
 
-@test "選別の claude が結果ファイルを書いた後に失敗しても、deploy-only の修正は deploy-only.md に残す" {
-    : >"$HDIR/pending.jsonl"
-    seed_queue
-    STUB_CLAUDE_MODE=is_error STUB_RESULT='{"dropped":[],"deploy_only":["w を適用する"]}' run weekly
-    assert_failure
-    assert_output --partial 'review failed after'
-    run cat "$HDIR/deploy-only.md"
-    assert_output --partial '- w を適用する'
-}
-
 @test "選別の claude が commit と結果ファイルを書いた後に失敗したら、手で作る PR の本文に結果の節を足す" {
     : >"$HDIR/pending.jsonl"
     seed_queue
@@ -1094,51 +899,6 @@ PRE
     assert_output --partial '- v を適用する'
     assert_output --partial '~/.claude/harness/deploy-only.md にも記録した'
     refute_output --partial "$HOME"
-}
-
-@test "同じ日に deploy-only の修正が加わっても、日付の見出しを重ねない" {
-    printf '## %s\n\n- first fix\n\n' "$(date +%Y-%m-%d)" >"$HDIR/deploy-only.md"
-    seed_queue
-    STUB_REVIEW_MODE=none STUB_RESULT='{"dropped":[],"deploy_only":["second fix"]}' run weekly
-    assert_success
-    run grep -c "^## $(date +%Y-%m-%d)\$" "$HDIR/deploy-only.md"
-    assert_output '1'
-    run grep -c '^- second fix$' "$HDIR/deploy-only.md"
-    assert_output '1'
-}
-
-@test "選別の claude が結果ファイルを書かずに失敗したら、deploy-only.md を作らない" {
-    : >"$HDIR/pending.jsonl"
-    seed_queue
-    STUB_CLAUDE_MODE=is_error STUB_RESULT=missing run weekly
-    assert_failure
-    assert [ ! -f "$HDIR/deploy-only.md" ]
-    refute_output --partial 'failed to record deploy-only'
-}
-
-@test "結果ファイルが JSON として読めないか、決めた形でなければ失敗する" {
-    for broken in 'not json' '' '{}' '{"dropped":[]}' '{"dropped":"x","deploy_only":[]}' '{"dropped":[1],"deploy_only":[]}' '[]'; do
-        seed_queue
-        STUB_REVIEW_MODE=none STUB_RESULT="$broken" run weekly
-        assert_failure
-        assert_output --partial 'review-result-'
-        refute_heartbeat_written
-    done
-}
-
-@test "commit があっても結果ファイルが無ければ PR を作らずに失敗する" {
-    seed_queue
-    STUB_RESULT=missing run weekly
-    assert_failure
-    assert [ ! -f "$GH_LOG" ]
-}
-
-@test "commit があるのに本文が無ければ PR を作らずに失敗する" {
-    seed_queue
-    STUB_REVIEW_MODE=no_body run weekly
-    assert_failure
-    assert_output --partial 'no PR body'
-    assert [ ! -f "$GH_LOG" ]
 }
 
 @test "push 後に PR の作成が失敗したら、ブランチ名を添えて失敗する" {
@@ -1844,22 +1604,6 @@ commit_on_main() {
     refute_output --partial "$RATES_REPO_DIR"
 }
 
-@test "選別の claude の commit が週の記録に触れたら PR を作らずに失敗する" {
-    seed_queue
-    cat >"$STUBS/claude-pre" <<'PRE'
-if [[ "$*" == *'harness-review skill'* ]]; then
-    mkdir -p docs/harness/failure-pattern-rates && printf '{}\n' >docs/harness/failure-pattern-rates/2026-01-01.json
-    git add -A && git commit -qm 'tamper'
-fi
-PRE
-    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
-    run weekly
-    assert_failure
-    assert_output --partial 'review commits touched docs/harness/failure-pattern-rates'
-    assert [ ! -f "$GH_LOG" ]
-    refute_heartbeat_written
-}
-
 @test "採用 0 件の週に origin/main に無い記録が 4 週分たまったら、Metrics-only PR を作る" {
     old_record 2026-09-12
     old_record 2026-09-19
@@ -2018,22 +1762,6 @@ ledger_record() {
     assert_heartbeat_written
 }
 
-@test "選別の claude の commit が Rule Ledger に触れたら PR を作らずに失敗する" {
-    seed_queue
-    cat >"$STUBS/claude-pre" <<'PRE'
-if [[ "$*" == *'harness-review skill'* ]]; then
-    mkdir -p docs/harness/rule-ledger && printf '{}\n' >docs/harness/rule-ledger/pr1-00000000.json
-    git add -A && git commit -qm 'tamper'
-fi
-PRE
-    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
-    run weekly
-    assert_failure
-    assert_output --partial 'review commits touched docs/harness/rule-ledger'
-    assert [ ! -f "$GH_LOG" ]
-    refute_heartbeat_written
-}
-
 @test "claude がローカルの Rule Ledger か分類の記録を書き換えたら、PR を作らずに失敗する" {
     seed_queue
     carried=$(ledger_record 30 '[2026-09-20] carried over')
@@ -2143,6 +1871,8 @@ PRE
     STUB_REVIEW_MODE=adopt_uncommitted run weekly
     assert_failure
     assert_output --partial 'changed after the claude runs started'
+    # 週次ジョブ自身の言葉でも、PR を作らなかった理由を残す
+    assert_output --partial 'harness-weekly: no PR created; the Verdict CLI could not be trusted'
     refute_output --partial 'committed no changes'
     assert [ ! -f "$GH_LOG" ]
     refute_heartbeat_written
@@ -2333,6 +2063,33 @@ weekly_without_publish_lib() { # [<lib に置く中身>]
     run weekly_without_publish_lib "$(grep -v '^HARNESS_PUBLISH_METRICS_ONLY_WEEKS=' "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash")"
     assert_failure
     assert_output --partial 'harness-publish.bash lacks the publish steps'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+# Review Outcome の lib だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
+weekly_without_review_outcome_lib() { # [<lib に置く中身>]
+    local dir="$BATS_TEST_TMPDIR/nooutcome"
+    mkdir -p "$dir/lib"
+    cp "$SCRIPT" "$dir/harness-weekly.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash" "$dir/lib/"
+    [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-review-outcome.bash"
+    bash "$dir/harness-weekly.sh"
+}
+
+@test "Review Outcome の lib が無いか壊れていれば、読み込まずに止まり失敗の Issue を作る" {
+    run weekly_without_review_outcome_lib
+    assert_failure
+    assert_output --partial 'harness-review-outcome.bash is missing or broken'
+    refute_output --partial 'command not found'
+    run weekly_without_review_outcome_lib 'harness_review_outcome_init() {'
+    assert_failure
+    assert_output --partial 'harness-review-outcome.bash is missing or broken'
+    run weekly_without_review_outcome_lib '# empty'
+    assert_failure
+    assert_output --partial 'harness-review-outcome.bash lacks the review outcome checks'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
 }

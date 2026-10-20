@@ -98,4 +98,4 @@ Tested by `just test-scripts` (`test/worktree-include.bats`).
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在しない。保存時に format する PostToolUse フックは置いていない: インラインで `pnpm lint:fix` を呼ぶと全プロジェクトの .ts 編集ごとに走り、script の無いリポジトリでは失敗するので、置くなら外部スクリプト + `pnpm run --if-present` ガード + bats テストにする。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
 
-**Weekly harness job** — 週次ジョブの記述は `.claude/rules/harness-weekly.md`。正本は健全性の判定が `lib/harness-health.bash`(briefing と doctor は表示だけ)、Loop PR の公開の手順が `lib/harness-publish.bash`。
+**Weekly harness job** — 週次ジョブの記述と、`lib/harness-*.bash` のどれが何の正本かは `.claude/rules/harness-weekly.md`。

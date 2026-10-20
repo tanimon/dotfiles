@@ -112,7 +112,7 @@ while IFS=$'\t' read -r level message; do
     esac
 done <<<"$WEEKLY_OUT"
 
-# 週次ジョブが残した Deploy-only Fix(harness-weekly.sh の record_deploy_only)。commit では
+# 週次ジョブが残した Deploy-only Fix(lib/harness-review-outcome.bash が記録する)。commit では
 # 直らないので、人が適用してファイルを消すまで知らせ続ける
 DEPLOY_ONLY="$HARNESS_DIR/deploy-only.md"
 # 件数で判定する(項目だけ消して見出しが残ったファイルで警告し続けないため)
