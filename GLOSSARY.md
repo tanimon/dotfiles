@@ -148,6 +148,10 @@ _Avoid_: 判定(Evaluator の判定と混同する)、採否
 自己改善ループが採用したが、commit フックや lint を通せずに commit しなかった変更。失敗ではなく、queue に戻して次の選別にかけ直す。commit が1件も無く Dropped Change がある週だけを、ループの失敗として扱う(陳腐化の修正などの commit があれば PR を作り、Dropped Change はその本文に載せる)。
 _Avoid_: 却下(採否の判定と混同する)、失敗した採用
 
+**Review Outcome**:
+選別の claude が worktree・結果ファイル・queue・判定の記録に残したものから週次ジョブが下す、その選別の結果の分類。公開・変更なし・Dropped Change だけ・申告の食い違い・形の不正・選別の失敗のどれか 1 つ。Verdict(項目ごとの結果)とは単位が違う。
+_Avoid_: 選別の結果(無限定)、review result(結果ファイルと混同する)
+
 **Deploy-only Fix**:
 リポジトリへの commit では直らず、人が適用して初めて効く修正。PR の有無にかかわらず、人が適用し終えるまで知らせ続ける。
 _Avoid_: 手動修正、apply 待ち
