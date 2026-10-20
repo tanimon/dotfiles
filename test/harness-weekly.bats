@@ -376,6 +376,7 @@ seed_heartbeat() { # <中身>
 @test "結果が is_error なら exit 0 でも失敗とし、heartbeat を書かない" {
     STUB_CLAUDE_MODE=is_error run weekly
     assert_failure
+    refute_output --partial 'could not be trusted'
     refute_heartbeat_written
 }
 
@@ -2445,7 +2446,8 @@ PRE
     refute_heartbeat_written
 }
 
-# 書き換えが無い側は「commit されていない変更が残っていたら PR を作らずに失敗する」
+# 選別の claude が成功していても、照合に落ちた run は publish_review(未 commit の変更の確認)を通らず
+# report_failed_review に回る。commit が 0 件なので、claude の失敗ではなく記録の書き換えを告げる文面を出す
 @test "選別の claude が commit されていない変更を残した run で週の記録が書き換えられていたら、書き換えをログに出す" {
     seed_queue
     old_record 2026-09-26
@@ -2453,11 +2455,23 @@ PRE
     STUB_REVIEW_MODE=dirty run weekly
     assert_failure
     assert_output --partial "changed: $RATES/2026-09-26.json"
+    assert_output --partial 'review made no commits, and the records the job uses were changed'
+    refute_output --partial 'review failed before committing'
     refute_heartbeat_written
 }
 
 # 選別の claude が失敗した run(report_failed_review)のデータの照合。書き換えが無い側は
+# 「選別の claude が commit の前に失敗したら、claude の失敗として告げる」と
 # 「選別の claude が commit の後に失敗したら、手で作る PR の本文に検出の節を足す」
+
+@test "選別の claude が commit の前に失敗した run は、claude の失敗として告げる(書き換えが無い側)" {
+    seed_queue
+    review_fails_after_commit
+    STUB_REVIEW_MODE=none run weekly
+    assert_failure
+    assert_output --partial 'review failed before committing'
+    refute_output --partial 'the records the job uses were changed'
+}
 
 @test "選別の claude が commit の前に失敗した run で週の記録が書き換えられていたら、書き換えをログに出す" {
     seed_queue
@@ -2466,7 +2480,8 @@ PRE
     rewrite_record_in review 2026-09-26
     STUB_REVIEW_MODE=none run weekly
     assert_failure
-    assert_output --partial 'review failed before committing'
+    assert_output --partial 'review made no commits, and the records the job uses were changed'
+    refute_output --partial 'review failed before committing'
     assert_output --partial "changed: $RATES/2026-09-26.json"
 }
 

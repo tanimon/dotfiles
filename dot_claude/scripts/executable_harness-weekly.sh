@@ -17,8 +17,9 @@
 # PR を作った後に、採用ごとの Rule Ledger の記録を作り(harness-rule-ledger.sh)、このジョブの
 # commit で同じブランチに足して push し直す(PR 番号は PR を作るまで決まらないため)。
 # 抽出と選別の claude は ~/.claude に書けるので、claude の後に使うスクリプトとデータは Integrity Snapshot
-# (lib/harness-integrity.bash。ADR 0019)が claude の起動前にハッシュを取り、使う直前に比べる。claude の後に
-# ~/.claude/scripts のスクリプトを呼ぶときは、必ずその入口(harness_integrity_run)を通す。
+# (lib/harness-integrity.bash。ADR 0019)が claude の起動前にハッシュを取り、使う直前に比べる。claude の工程は
+# 必ず工程の入口(harness_integrity_run_untrusted。直後にデータを比べる)を通して起動し、claude の後に
+# ~/.claude/scripts のスクリプトを呼ぶときは、必ず実行物の入口(harness_integrity_run)を通す。
 # 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
 # heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
 # 停止(この run の失敗・前の週に成功しなかったこと・ループの PR の放置・PR にならないループの
@@ -1000,6 +1001,12 @@ main() {
                 printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
         fi
         commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD" 2>/dev/null || printf '?')
+        # 照合に落ちた run は claude が成功していてもここに来るので、claude の失敗と読める文面を出さない
+        if [[ "$commits" == "0" && "$data_trusted" -eq 0 ]]; then
+            printf 'harness-weekly: review made no commits, and the records the job uses were changed (or could not be checked) after the claude runs started; restore them and find what changed them. Worktree %s kept; verdicts already moved to %s stay there\n' \
+                "$WORKTREE" "$ARCHIVE" >&2
+            return 0
+        fi
         if [[ "$commits" == "0" ]]; then
             printf 'harness-weekly: review failed before committing; worktree %s kept; verdicts already moved to %s stay there\n' \
                 "$WORKTREE" "$ARCHIVE" >&2

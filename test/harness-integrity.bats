@@ -226,6 +226,12 @@ untrusted_step() {
     return "${STEP_EXIT:-0}"
 }
 
+# 戻らずにシェルごと終わる工程の偽物(exit や set -u の中断)
+exiting_step() {
+    [[ -z "${STEP_TAMPER:-}" ]] || printf 'x\n' >>"$HDIR/classifications.jsonl"
+    exit "${STEP_EXIT:-0}"
+}
+
 @test "信頼しない工程が失敗してデータを書き換えたら、工程の入口は照合して予約コードを返す" {
     harness_integrity_snapshot
     STEP_TAMPER=1 STEP_EXIT=1 run harness_integrity_run_untrusted untrusted_step reflect
@@ -245,6 +251,15 @@ untrusted_step() {
     assert_failure 1
     refute_output --partial 'harness-integrity:'
     STEP_TAMPER=1 run harness_integrity_run_untrusted untrusted_step review
+    assert_failure "$HARNESS_INTEGRITY_FAILED"
+    assert_output --partial "changed: $HDIR/classifications.jsonl"
+}
+
+@test "工程がシェルごと終わっても、工程の入口は照合まで進む" {
+    harness_integrity_snapshot
+    STEP_EXIT=5 run harness_integrity_run_untrusted exiting_step
+    assert_failure 1
+    STEP_TAMPER=1 run harness_integrity_run_untrusted exiting_step
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     assert_output --partial "changed: $HDIR/classifications.jsonl"
 }

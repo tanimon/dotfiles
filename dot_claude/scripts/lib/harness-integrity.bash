@@ -178,11 +178,14 @@ harness_integrity_run() { # <スクリプト> [<引数>…]
 # 信頼しない工程(抽出と選別の claude)の入口。<コマンド> を実行し、成否に関わらずその後でデータの全部を比べる。
 # 照合に落ちたら 3、コマンドが失敗したら 1(コマンド自身の 3 も 1 に揃え、3 は照合の失敗だけにする)、どちらも無ければ 0。
 # スナップショットの前なら実行せずに 3 を返す。今の照合はシェル変数を読むだけだが、照合が状態を書く形(seal のような
-# 一覧への追加)に変わっても結果が呼び出し元に残るよう、snapshot・seal と同じく $( ) とサブシェルの外で呼ぶ
+# 一覧への追加)に変わっても結果が呼び出し元に残るよう、snapshot・seal と同じく $( ) とサブシェルの外で呼ぶ。
+# <コマンド> はサブシェルで走らせる。コマンドが exit や set -u の中断でシェルごと終わっても照合まで進むようにするため
+# (親のシェルで走らせると照合が飛び、bash 3.2 では EXIT trap がある run は exit 0 で終わりうる)。そのためコマンドは
+# 呼び出し元の変数や作業ディレクトリを変えられない
 harness_integrity_run_untrusted() { # <コマンド> [<引数>…]
     local status=0
     _harness_integrity_require_snapshot || return "$HARNESS_INTEGRITY_FAILED"
-    "$@" || status=$?
+    ("$@") || status=$?
     harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
     [[ "$status" -eq 0 ]] || return 1
 }
