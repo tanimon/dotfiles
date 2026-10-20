@@ -146,21 +146,6 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         printf 'reason\n' >"$body"
         settle_all rejected 'stub'
         ;;
-    binary_pipe)
-        printf 'a\0b' >blob.bin && printf 'x\n' >'a|b.md'
-        git add -A && git commit -qm 'harness: binary and pipe'
-        printf 'reason\n' >"$body"
-        settle_all rejected 'stub'
-        ;;
-    two_changes)
-        # 採用 2 件が同じファイルに触れる(ファイルごとの表では変更ごとの純増が読めない形)
-        mkdir -p rules && printf 'a\nb\n' >rules/shared.md
-        git add -A && git commit -qm 'harness: first | entry'
-        printf 'a\nb\nc\nd\ne\n' >rules/shared.md && printf 'keep\n' >README.md
-        git add -A && git commit -qm 'harness: second entry'
-        printf 'reason\n' >"$body"
-        settle_all rejected 'stub'
-        ;;
     adopt_uncommitted)
         # 採用を判定の記録に書いたのに commit しなかった run の再現
         settle_all adopted
@@ -648,28 +633,16 @@ PRE
     assert_heartbeat_written
 }
 
-@test "PR の本文に採用の理由と、追加・削除・純増の行数が載る" {
+# 本文の節の中身(純増の表・検出件数の表・節の順序)は test/harness-pr-body.bats が検査する。ここでは選別の前の
+# HEAD を base として本文の lib に渡し、選別が書いた本文の後ろに節が付くことだけを見る
+@test "PR の本文に、選別が書いた本文と、選別の commit から数えた純増の節が載る" {
     seed_queue
     run weekly
     assert_success
     run cat "$GH_BODY"
     assert_output --partial '理由: 同じ失敗の再発を防ぐため'
     assert_output --partial '## 純増'
-    assert_output --partial '| `rules/new.md` | +3 | -0 |'
-    assert_output --partial '| `README.md` | +1 | -2 |'
     assert_output --partial '合計: +4 / -2(純増 +2 行)'
-    assert_output --partial '| harness: add rule | +4 | -2 |'
-}
-
-@test "同じファイルに触れる採用が複数あっても、純増を変更(commit)ごとに載せる" {
-    seed_queue
-    STUB_REVIEW_MODE=two_changes run weekly
-    assert_success
-    run cat "$GH_BODY"
-    assert_output --partial '| harness: first \| entry | +2 | -0 |'
-    assert_output --partial '| harness: second entry | +4 | -2 |'
-    assert_output --partial '| `rules/shared.md` | +5 | -0 |'
-    assert_output --partial '合計: +6 / -2(純増 +4 行)'
 }
 
 @test "採用した変更が無ければ PR を作らず、その旨をログに残す" {
@@ -751,17 +724,6 @@ PRE
     run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
     assert_output '1'
     refute_heartbeat_written
-}
-
-@test "バイナリファイルは行数の代わりにバイナリと書き、パスの | はエスケープする" {
-    seed_queue
-    STUB_REVIEW_MODE=binary_pipe run weekly
-    assert_success
-    run cat "$GH_BODY"
-    assert_output --partial '| `blob.bin` | バイナリ | バイナリ |'
-    assert_output --partial '| `a\|b.md` | +1 | -0 |'
-    assert_output --partial '合計: +1 / -0(純増 +1 行)'
-    assert_output --partial 'バイナリファイル 1 件は行数に含めない'
 }
 
 @test "選別の claude が commit の後に失敗したら、残った commit のブランチと手で PR を作る手順を出す" {
@@ -1168,7 +1130,9 @@ PRE
     refute_heartbeat_written
 }
 
-@test "PR の本文に前回の heartbeat より後の信号別の検出件数を載せ、手動の reflect の記録も含める" {
+# 期間の切り方・読めない行・表の形は test/harness-pr-body.bats が検査する。ここでは、この run の検出器が記録した件数と、
+# 前回の heartbeat から決めた期間の始まりが、本文の lib に届くことを見る
+@test "PR の本文に、この run の検出器の件数と前回の heartbeat より後の手動の reflect の記録を載せる" {
     : >"$HDIR/pending.jsonl"
     now=$(date +%s)
     seed_heartbeat "$((now - 3600))"
@@ -1177,7 +1141,6 @@ PRE
         printf '{"session_id":"old","run":"earlier-run","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
         # 週の途中で手動の reflect が先に選別したセッションは数える
         printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"user_negation":2}}\n' "$((now - 60))"
-        printf 'broken line\n'
     } >"$HDIR/detections.jsonl"
     add_session clean1 clean
     add_session err1 tool-error
@@ -1186,12 +1149,10 @@ PRE
     run weekly
     assert_success
     run cat "$GH_BODY"
-    assert_output --partial '## 失敗の検出'
     assert_output --partial '以降に検出器にかけたセッション: 4 件(失敗あり 3 件)。'
     assert_line '| `tool_error` | 3 |'
     assert_line '| `ci_failure` | 2 |'
     assert_line '| `user_negation` | 2 |'
-    assert_line '| `repeat` | 0 |'
     assert_line '| 合計 | 7 |'
 }
 
@@ -1243,16 +1204,6 @@ PRE
     assert [ ! -f "$ARGV_LOG" ]
     assert [ ! -f "$GH_LOG" ]
     refute_heartbeat_written
-}
-
-@test "抽出を省いた週の PR の本文にも 0 件の検出の節を載せる" {
-    : >"$HDIR/pending.jsonl"
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$GH_BODY"
-    assert_output --partial '以降に検出器にかけたセッション: 0 件(失敗あり 0 件)。'
-    assert_line '| 合計 | 0 |'
 }
 
 @test "選別の claude が commit の後に失敗したら、手で作る PR の本文に検出の節を足す" {
@@ -2092,6 +2043,35 @@ weekly_without_review_outcome_lib() { # [<lib に置く中身>]
     assert_output --partial 'harness-review-outcome.bash lacks the review outcome checks'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+# 本文の lib だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
+weekly_without_pr_body_lib() { # [<lib に置く中身>]
+    local dir="$BATS_TEST_TMPDIR/noprbody"
+    mkdir -p "$dir/lib"
+    cp "$SCRIPT" "$dir/harness-weekly.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-review-outcome.bash" "$dir/lib/"
+    [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-pr-body.bash"
+    bash "$dir/harness-weekly.sh"
+}
+
+@test "本文の lib が無いか壊れていれば、読み込まずに止まり失敗の Issue を作る" {
+    run weekly_without_pr_body_lib
+    assert_failure
+    assert_output --partial 'harness-pr-body.bash is missing or broken'
+    refute_output --partial 'command not found'
+    run weekly_without_pr_body_lib 'harness_pr_body_init() {'
+    assert_failure
+    assert_output --partial 'harness-pr-body.bash is missing or broken'
+    run weekly_without_pr_body_lib '# empty'
+    assert_failure
+    assert_output --partial 'harness-pr-body.bash lacks the PR body sections'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    assert [ ! -f "$ARGV_LOG" ]
 }
 
 @test "公開の lib を読み込む前に止まった run のブランチの Issue も、lib が組み立てるのと同じ綴りで公開の手順を書く" {

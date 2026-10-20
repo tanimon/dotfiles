@@ -166,7 +166,7 @@ _harness_pr_body_net_change() { # <base>
 # 抽出を省いた週(pending が空)も表を出す。採用 0 件で PR を作らない週の件数は検出の記録にだけ残る。
 # JSON として読めない行は飛ばす。
 # 信号の一覧は harness-detect-failures.sh の信号の写し。一覧に無い信号は表に出ず合計にだけ入るので、
-# 検出器に信号を足したらここにも足す
+# 検出器に信号を足したらここにも足す(test/harness-pr-body.bats が検出器の信号すべてが表に出ることを確かめる)
 _HARNESS_PR_BODY_DETECTION_SIGNALS="user_negation user_interrupt user_rejection hook_deny ci_failure tool_error repeat"
 _harness_pr_body_detection() {
     local rows="[]" signal count sessions failing total since_label since=$_HARNESS_PR_BODY_DETECTION_SINCE
