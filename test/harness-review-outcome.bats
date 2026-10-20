@@ -310,9 +310,11 @@ classify() { # <claude の成否>
     result '{"dropped":[],"deploy_only":["w を適用する"]}'
     mkdir "$HDIR/deploy-only.md"
     review_commit
-    classify failed
-    assert_output 'failed-with-commits'
-    [[ "$stderr" == *'failed to record deploy-only fixes'* ]]
+    for claude in failed untrusted; do
+        classify "$claude"
+        assert_output 'failed-with-commits'
+        [[ "$stderr" == *'failed to record deploy-only fixes'* ]]
+    done
 }
 
 @test "結果ファイル由来の 2 節を、パスを ~ で書いて出す" {

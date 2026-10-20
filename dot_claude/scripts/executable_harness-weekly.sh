@@ -859,8 +859,8 @@ main() {
     # commit が残っていれば、手で作る PR の本文にも Dropped Change と Deploy-only Fix の節を足す(claude には本文に書かせないため、
     # 足さないと落とした変更の一覧が結果ファイルにしか残らない)
     report_failed_review() { # <base> <データを信頼できるか(1/0)>
-        local base=$1 data_trusted=$2 claude=untrusted outcome commits trusted=0
-        [[ "$data_trusted" -ne 1 ]] || claude=failed
+        local base=$1 data_trusted=$2 claude=failed outcome commits trusted=0
+        [[ "$data_trusted" -eq 1 ]] || claude=untrusted
         outcome=$(harness_review_outcome_classify "$base" "$claude") || return 0
         [[ "$outcome" == failed-with-commits ]] || return 0
         commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD" 2>/dev/null || printf '?')

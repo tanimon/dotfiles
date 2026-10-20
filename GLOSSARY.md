@@ -149,7 +149,7 @@ _Avoid_: 判定(Evaluator の判定と混同する)、採否
 _Avoid_: 却下(採否の判定と混同する)、失敗した採用
 
 **Review Outcome**:
-選別の claude が worktree・結果ファイル・queue・判定の記録に残したものから週次ジョブが下す、その選別の結果の分類。公開・変更なし・Dropped Change だけ・申告の食い違い・形の不正・選別の失敗のどれか 1 つ。Verdict(項目ごとの結果)とは単位が違う。
+選別の claude が worktree・結果ファイル・queue・判定の記録に残したものから週次ジョブが下す、その選別の結果の分類で、Verdict(項目ごとの結果)とは単位が違う。公開・変更なし・Dropped Change だけ・申告の食い違い・形の不正・選別の失敗のどれか 1 つ。
 _Avoid_: 選別の結果(無限定)、review result(結果ファイルと混同する)
 
 **Deploy-only Fix**:

@@ -15,7 +15,7 @@
 # 分類の値(標準出力に 1 行)と週次ジョブの振り分け:
 #   publish              本文の節を足して公開する
 #   no-change            Metrics-only PR の要否を公開の lib に尋ねる(要らなければ片付けて成功)
-#   failed               失敗(理由はこの lib が stderr に出す)
+#   failed               失敗(理由は stderr に出る。git と jq 自身の失敗は、そのコマンドのエラー文だけになる)
 #   failed-with-commits  選別の claude が失敗した(か照合に落ちた)が commit が残っている。週次ジョブが案内を出す
 # Verdict の CLI の照合に落ちたら値を出さずに HARNESS_INTEGRITY_FAILED(3)で終わる。使い方の誤りは 2。
 # 理由の行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤りだけを harness-review-outcome: で出す。
