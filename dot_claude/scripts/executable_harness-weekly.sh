@@ -17,8 +17,9 @@
 # PR を作った後に、採用ごとの Rule Ledger の記録を作り(harness-rule-ledger.sh)、このジョブの
 # commit で同じブランチに足して push し直す(PR 番号は PR を作るまで決まらないため)。
 # 抽出と選別の claude は ~/.claude に書けるので、claude の後に使うスクリプトとデータは Integrity Snapshot
-# (lib/harness-integrity.bash。ADR 0019)が claude の起動前にハッシュを取り、使う直前に比べる。claude の後に
-# ~/.claude/scripts のスクリプトを呼ぶときは、必ずその入口(harness_integrity_run)を通す。
+# (lib/harness-integrity.bash。ADR 0019)が claude の起動前にハッシュを取り、使う直前に比べる。claude の工程は
+# 必ず工程の入口(harness_integrity_run_untrusted。直後にデータを比べる)を通して起動し、claude の後に
+# ~/.claude/scripts のスクリプトを呼ぶときは、必ず実行物の入口(harness_integrity_run)を通す。
 # 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
 # heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
 # 停止(この run の失敗・前の週に成功しなかったこと・ループの PR の放置・PR にならないループの
@@ -423,7 +424,7 @@ main() {
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=lib/harness-integrity.bash
     source "$INTEGRITY_LIB"
-    if ! declare -F harness_integrity_snapshot harness_integrity_ready harness_integrity_run harness_integrity_gate harness_integrity_check_data harness_integrity_seal harness_integrity_sealed >/dev/null ||
+    if ! declare -F harness_integrity_snapshot harness_integrity_ready harness_integrity_run harness_integrity_run_untrusted harness_integrity_gate harness_integrity_check_data harness_integrity_seal harness_integrity_sealed >/dev/null ||
         [[ -z "${HARNESS_INTEGRITY_FAILED:-}" ]]; then
         printf 'harness-weekly: %s lacks the integrity checks; run chezmoi apply\n' "$INTEGRITY_LIB" >&2
         exit 1
@@ -464,6 +465,7 @@ main() {
     # permission_denials は headless で拒否されたツール呼び出し。PreToolUse フックの ask も
     # ここに入る(確認する人がいないため)。エージェントが別の形で再試行して進むこともあるので
     # 失敗にはしないが、黙って成功扱いにしないよう警告を出す
+    # shellcheck disable=SC2317,SC2329 # 抽出では工程の入口に関数名で渡し、選別では review_in_worktree から呼ぶ
     run_claude() {
         local stage=$1 session_id=$2 budget=$3 prompt=$4 status=0 result denials
         result=$(claude -p "$prompt" \
@@ -895,7 +897,6 @@ main() {
     #   - 結果ファイルが無い、または決めた形でない
     #   - commit があるのに本文が無い
     #   - 選別の claude の commit が週の再発率の記録($HARNESS_PUBLISH_RATES_REPO_DIR)に触れた
-    #   - 選別の claude の後のデータの照合に落ちた(<データを信頼できるか> が 0)
     #   - 公開の lib が失敗を返した(push か PR の作成の失敗など。公開の手順の失敗の扱いはその入口のコメント)
     # Deploy-only Fix は、結果ファイルを読めた時点で、未 commit の変更を含むどの失敗の判定よりも
     # 先に $DEPLOY_ONLY へ残す。commit 0 件で成功する週は本文を PR にしないので捨てる(採用も
@@ -903,8 +904,8 @@ main() {
     # 失敗の経路では worktree・本文・結果ファイルを残す(調べられるように。worktree は次の
     # 実行が作り直す)。採用した項目は既に archive に移っているので、push か PR の作成が失敗した run の
     # commit は $REPO のローカルブランチ $BRANCH から手で push / PR を作る(案内は公開の lib が出す)
-    publish_review() { # <base> <データを信頼できるか(1/0)>
-        local base=$1 data_trusted=$2 commits dropped_count dropped_items touched titles status=0
+    publish_review() { # <base>
+        local base=$1 commits dropped_count dropped_items touched titles status=0
         if ! review_result_valid; then
             printf 'harness-weekly: review did not write a valid result file %s (a JSON object with string arrays "dropped" and "deploy_only"); no PR created\n' \
                 "$REVIEW_RESULT" >&2
@@ -926,12 +927,8 @@ main() {
                 "$dropped_count" "$REVIEW_RESULT" "$dropped_items" >&2
             return 1
         fi
-        # データの照合は main が選別の claude の直後に済ませている。Verdict の CLI などの実行物は、check_review_claims が
-        # 入口を通して呼ぶときに照合される
-        [[ "$data_trusted" -eq 1 ]] || {
-            printf 'harness-weekly: no PR created; the local records could not be trusted\n' >&2
-            return 1
-        }
+        # データの照合は工程の入口が選別の claude の直後に済ませており、落ちた run はここに来ない(report_failed_review)。
+        # Verdict の CLI などの実行物は、check_review_claims が入口を通して呼ぶときに照合される
         check_review_claims "$commits" "$dropped_count" || return 1
         if [[ "$commits" -eq 0 ]]; then
             if harness_publish_metrics_only_due "$base"; then
@@ -987,7 +984,7 @@ main() {
         harness_publish_review "$base"
     }
 
-    # 選別の claude が失敗した(予算切れを含む)run の後始末の案内。claude は commit や
+    # 選別の claude が失敗した(予算切れを含む)run と、claude の成否に関わらず照合に落ちた run の後始末の案内。claude は commit や
     # archive への移動を済ませてから失敗しうるので、残った commit の場所と手で PR を作る手順を
     # ログに出す(データの照合に落ちた run では、手順の代わりにそのまま公開しないよう案内する)。worktree は残す(次の実行が作り直すが、prepare_worktree は origin/main に無い
     # commit を持つ当日のブランチを作り直さない)。claude は結果ファイルを書いてから失敗しうる
@@ -1004,6 +1001,12 @@ main() {
                 printf 'harness-weekly: failed to record deploy-only fixes from %s in %s\n' "$REVIEW_RESULT" "$DEPLOY_ONLY" >&2
         fi
         commits=$(git -C "$WORKTREE" rev-list --count "$base..HEAD" 2>/dev/null || printf '?')
+        # 照合に落ちた run は claude が成功していてもここに来るので、claude の失敗と読める文面を出さない
+        if [[ "$commits" == "0" && "$data_trusted" -eq 0 ]]; then
+            printf 'harness-weekly: review made no commits, and the records the job uses were changed (or could not be checked) after the claude runs started; restore them and find what changed them. Worktree %s kept; verdicts already moved to %s stay there\n' \
+                "$WORKTREE" "$ARCHIVE" >&2
+            return 0
+        fi
         if [[ "$commits" == "0" ]]; then
             printf 'harness-weekly: review failed before committing; worktree %s kept; verdicts already moved to %s stay there\n' \
                 "$WORKTREE" "$ARCHIVE" >&2
@@ -1013,7 +1016,7 @@ main() {
             result_sections >>"$PR_BODY" ||
                 printf 'harness-weekly: failed to add the sections from %s to %s\n' "$REVIEW_RESULT" "$PR_BODY" >&2
         fi
-        # データの照合(main が選別の claude の直後に済ませている)に落ちたら検出件数と推移の節を省き、手で公開する
+        # データの照合(工程の入口が選別の claude の直後に済ませている)に落ちたら検出件数と推移の節を省き、手で公開する
         # 手順の代わりに、書き換えを確かめてから commit を読み直すよう案内する
         if [[ "$data_trusted" -eq 1 ]]; then
             append_detection_section
@@ -1098,14 +1101,17 @@ Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl,
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output (such as running /harness-review). Use no skill other than harness-reflect.
 - Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
-        run_claude reflect "$SESSION_ID" "$REFLECT_BUDGET_USD" "$PROMPT" || exit 1
+        # 工程の入口が、抽出の claude の成否に関わらず直後にデータを照合する(job 自身の正当な書き込みの前)。
+        # queue が空の週・当日の PR が既にある週・抽出が失敗した run は repo に写す工程を通らないので、ここで照合しないと
+        # 抽出の claude が書き換えたデータを次の run のスナップショットが正として持ち越す
+        REFLECT_STATUS=0
+        harness_integrity_run_untrusted run_claude reflect "$SESSION_ID" "$REFLECT_BUDGET_USD" "$PROMPT" || REFLECT_STATUS=$?
+        if [[ "$REFLECT_STATUS" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+            printf 'harness-weekly: the local records could not be trusted after reflect; skipped review\n' >&2
+            exit 1
+        fi
+        [[ "$REFLECT_STATUS" -eq 0 ]] || exit 1
     fi
-    # queue が空の週と当日の PR が既にある週は repo に写す工程を通らないので、抽出の claude が書き換えたデータを
-    # 次の run のスナップショットが正として持ち越さないよう、どの分岐にも入る前に照合する(job 自身の正当な書き込みの前)
-    harness_integrity_check_data || {
-        printf 'harness-weekly: the local records could not be trusted after reflect; skipped review\n' >&2
-        exit 1
-    }
 
     QUEUE_ENTRIES=$(count_queue)
     if [[ "$QUEUE_ENTRIES" -eq 0 ]]; then
@@ -1181,19 +1187,22 @@ ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
 - Finish with a one-line summary: entries adopted, rejected, handed off."
     # HARNESS_REVIEW_RUN は選別の claude にだけ渡す(抽出・分類・評価には渡さない)
-    REVIEW_STATUS=0
-    (cd "$WORKTREE" && export HARNESS_REVIEW_RUN="$REVIEW_RUN" &&
-        run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT") || REVIEW_STATUS=$?
-    # 抽出の後と同じく、選別の claude の直後に、成否や後の分岐に関わらず 1 回照合する。失敗で終わる経路(選別の claude の
+    # shellcheck disable=SC2317,SC2329 # Integrity Snapshot の工程の入口に関数名で渡して呼ぶ
+    review_in_worktree() {
+        (cd "$WORKTREE" && export HARNESS_REVIEW_RUN="$REVIEW_RUN" &&
+            run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT")
+    }
+    # 抽出と同じく、工程の入口が選別の claude の成否に関わらず直後にデータを照合する。失敗で終わる経路(選別の claude の
     # 失敗・結果ファイルの不正・未 commit の変更)も repo に写す工程を通らないので、照合しないと書き換えがログに出ないまま
-    # 次の run のスナップショットが正として持ち越す。publish_review と report_failed_review はこの結果で公開と案内を決める
-    REVIEW_DATA_TRUSTED=1
-    harness_integrity_check_data || REVIEW_DATA_TRUSTED=0
+    # 次の run のスナップショットが正として持ち越す。照合に落ちた run は、claude が成功していても失敗した選別として扱う
+    # (入口の終了コードからは claude の成否が分からない。どちらでも PR は作らず、手で公開する手順も案内しない)
+    REVIEW_STATUS=0
+    harness_integrity_run_untrusted review_in_worktree || REVIEW_STATUS=$?
     if [[ "$REVIEW_STATUS" -ne 0 ]]; then
-        report_failed_review "$REVIEW_BASE" "$REVIEW_DATA_TRUSTED"
+        report_failed_review "$REVIEW_BASE" "$((REVIEW_STATUS == HARNESS_INTEGRITY_FAILED ? 0 : 1))"
         exit 1
     fi
-    publish_review "$REVIEW_BASE" "$REVIEW_DATA_TRUSTED" || exit 1
+    publish_review "$REVIEW_BASE" || exit 1
 
     finish_run || exit 1
 }

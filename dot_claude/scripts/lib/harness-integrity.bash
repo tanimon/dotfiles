@@ -15,8 +15,9 @@
 # - データ: job が commit するか、PR の本文や commit する記録の材料として読むもの(週の再発率の記録・Rule Ledger の
 #   記録と書き出した形・分類の記録・検出件数の記録)。claude が正当に書くもの(queue・判定の記録・PR の本文・
 #   選別の結果ファイル)は守れないので含めない。job 自身も claude の後に正当に書く(rule-ledger の record と export)ので、
-#   使うたびには比べず、各 claude の後(job 自身が書く前)と、repo に写す直前・記録を作る直前・PR の本文の材料に
-#   読む直前に harness_integrity_check_data で比べる。
+#   使うたびには比べない。各 claude の後(job 自身が書く前)は、claude の工程を通す入口 harness_integrity_run_untrusted が
+#   claude の成否に関わらず比べる。repo に写す直前・記録を作る直前・PR の本文の材料に読む直前は、呼び出し元が
+#   harness_integrity_check_data で比べる。
 #   信頼する入口が書いたファイル(評価の結果、record が作った記録)は harness_integrity_seal で後から一覧に足す。
 #   export が書く書き出した形は封印しないので、export より後にデータを比べないこと。
 # CI の Guarded Path の一覧(scripts/guarded-paths.txt)とは意味が違うので統合しない。実行物の Source がその一覧に
@@ -41,8 +42,8 @@
 #   /harness-review(Rule Ledger の記録を作る)が走ると、書き換えとして見つけてその run は PR を作らずに失敗する。
 #
 # Interface: HARNESS_INTEGRITY_FAILED / harness_integrity_executables / harness_integrity_snapshot /
-# harness_integrity_ready / harness_integrity_run / harness_integrity_gate / harness_integrity_check_data /
-# harness_integrity_seal / harness_integrity_sealed。
+# harness_integrity_ready / harness_integrity_run / harness_integrity_run_untrusted / harness_integrity_gate /
+# harness_integrity_check_data / harness_integrity_seal / harness_integrity_sealed。
 # パスは呼び出しのたびに $HOME から作る。関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
 
 HARNESS_INTEGRITY_FAILED=3
@@ -172,6 +173,21 @@ harness_integrity_run() { # <スクリプト> [<引数>…]
     harness_integrity_gate || return "$HARNESS_INTEGRITY_FAILED"
     shift
     bash "$script" "$@"
+}
+
+# 信頼しない工程(抽出と選別の claude)の入口。<コマンド> を実行し、成否に関わらずその後でデータの全部を比べる。
+# 照合に落ちたら 3、コマンドが失敗したら 1(コマンド自身の 3 も 1 に揃え、3 は照合の失敗だけにする)、どちらも無ければ 0。
+# スナップショットの前なら実行せずに 3 を返す。今の照合はシェル変数を読むだけだが、照合が状態を書く形(seal のような
+# 一覧への追加)に変わっても結果が呼び出し元に残るよう、snapshot・seal と同じく $( ) とサブシェルの外で呼ぶ。
+# <コマンド> はサブシェルで走らせる。コマンドが exit や set -u の中断でシェルごと終わっても照合まで進むようにするため
+# (親のシェルで走らせると照合が飛び、bash 3.2 では EXIT trap がある run は exit 0 で終わりうる)。そのためコマンドは
+# 呼び出し元の変数や作業ディレクトリを変えられない
+harness_integrity_run_untrusted() { # <コマンド> [<引数>…]
+    local status=0
+    _harness_integrity_require_snapshot || return "$HARNESS_INTEGRITY_FAILED"
+    ("$@") || status=$?
+    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
+    [[ "$status" -eq 0 ]] || return 1
 }
 
 # データの全部をスナップショット(封印したものを含む)と比べる。呼ぶ時点はこの lib のヘッダの「データ」の項
