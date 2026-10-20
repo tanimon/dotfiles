@@ -77,6 +77,10 @@ test/check-instruction-size.bats
 test/rendered-instruction-size.bats
 test/helpers/render.bash
 test/fixtures/
+# render.bash は作業ツリーの写しを source にして描画するので、写しを作るスクリプトも描画の seam に含む。
+# 外にあると、写す段階でルールを切り詰めて合成後の出力を上限内に見せられる
+scripts/chezmoi-source-snapshot.sh
+test/chezmoi-source-snapshot.bats
 
 # 失敗の検出器(ADR 0011)。検出の規則・fixture・テストを書き換えると、失敗が見えなくなる。
 # 選別は検出の結果で抽出の入力と週ごとの検出件数を決めるので、検出器と同じ扱いにする
