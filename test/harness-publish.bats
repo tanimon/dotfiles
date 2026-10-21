@@ -253,12 +253,14 @@ four_local_records() {
     local_record 2026-10-17
 }
 
-# 週次ジョブが渡す、本文に節を足す関数の代わり。SECTIONS_FAIL で失敗し、SECTIONS_TAMPER があれば足した後に
-# Rule Ledger のスクリプトを書き換える(節を書いた後で push の前に実行物が書き換えられた run の再現)
-sections() {
-    printf '\n## 推移\n' >>"$BODY"
-    [[ -z "${SECTIONS_TAMPER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
-    [[ -z "${SECTIONS_FAIL:-}" ]]
+# 本文の lib(lib/harness-pr-body.bash)の Metrics-only PR の入口の代わり。本文の中身はその lib の bats の範囲なので、
+# ここでは受け取った件数と、呼ばれた時点で worktree にある commit の数(記録の commit の後に呼ばれたか)を本文に書く。
+# BODY_STATUS があればその値で終わり、BODY_TAMPER があれば書いた後に Rule Ledger のスクリプトを書き換える
+# (本文を書いた後で push の前に実行物が書き換えられた run の再現)
+harness_pr_body_metrics_only() {
+    printf 'rates=%s ledger=%s commits=%s\n' "$1" "$2" "$(git -C "$WT" rev-list --count "$BASE..HEAD")" >"$BODY"
+    [[ -z "${BODY_TAMPER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+    return "${BODY_STATUS:-0}"
 }
 
 # 公開しない(PR を作らず origin にもブランチを出さない)ことを確かめる
@@ -367,21 +369,20 @@ refute_pr_create() {
     assert_line 'harness-weekly: WARN listing open loop PRs failed; no metrics-only PR this week'
 }
 
-@test "Metrics-only PR: 記録を commit して push し、件数の文の後に週次ジョブの節を載せた draft PR を作って片付ける" {
+@test "Metrics-only PR: 記録を commit して push し、commit の後に本文の lib に件数を渡して書かせた本文で draft PR を作って片付ける" {
     publish_fixture
     four_local_records
     merged_record 2026-09-26
     local_record 2026-09-19
     make_worktree
     init_real
-    printf 'claude が書いた本文\n' >"$BODY"
-    run harness_publish_metrics_only "$BASE" sections
+    run harness_publish_metrics_only "$BASE"
     assert_success
     assert_line 'harness-weekly: opened metrics-only draft PR https://github.com/example/dotfiles/pull/42 (4 weekly record(s))'
     run grep '^pr create' "$GH_LOG"
     assert_output "pr create --draft --base main --head ${BRANCH} --title harness: 週次の指標 2026-10-17 --body-file ${BODY}"
     run cat "$GH_BODY"
-    assert_output "$(printf '%s\n' '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が 4 週分たまったので、記録だけを commit した。' '' '## 推移')"
+    assert_output 'rates=4 ledger=0 commits=1'
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_output 'harness: Failure Pattern の再発率の週の記録を足す'
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH"
@@ -403,27 +404,25 @@ refute_pr_create() {
     printf '[user]\n\tname = claude-code-agent\n\temail = agent@example.com\n[commit]\n\tgpgsign = false\n' \
         >"$HOME/.config/git/claude-code.inc"
     unset GIT_CONFIG_GLOBAL
-    run harness_publish_metrics_only "$BASE" sections
+    run harness_publish_metrics_only "$BASE"
     assert_success
     run git -C "$ORIGIN" log --format=%an "main..$BRANCH"
     assert_output claude-code-agent
 }
 
-@test "Metrics-only PR: 持ち越した Rule Ledger の記録を PR を作る前に commit し、件数の文に続けて本文に書く" {
+@test "Metrics-only PR: 持ち越した Rule Ledger の記録を PR を作る前に commit し、その件数も本文の lib に渡す" {
     publish_fixture
     four_local_records
     make_worktree
     init_real
-    STUB_LEDGER_EXPORT=2 run harness_publish_metrics_only "$BASE" sections
+    STUB_LEDGER_EXPORT=2 run harness_publish_metrics_only "$BASE"
     assert_success
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_output "$(printf '%s\n' 'harness: Rule Ledger の記録を足す' 'harness: Failure Pattern の再発率の週の記録を足す')"
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- docs/harness/rule-ledger
     assert_output "$(printf 'docs/harness/rule-ledger/%s.json\n' pr30-1 pr30-2)"
-    run sed -n 3p "$GH_BODY"
-    assert_output 'マージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった 2 件も足した(docs/harness/rule-ledger)。'
-    run tail -n 1 "$GH_BODY"
-    assert_output '## 推移'
+    run cat "$GH_BODY"
+    assert_output 'rates=4 ledger=2 commits=2'
 }
 
 @test "Metrics-only PR: 再発率の記録を commit できなければ、PR を作らずに失敗する" {
@@ -431,7 +430,7 @@ refute_pr_create() {
     four_local_records
     make_worktree
     init_real
-    STUB_PNPM_FAIL=1 run harness_publish_metrics_only "$BASE" sections
+    STUB_PNPM_FAIL=1 run harness_publish_metrics_only "$BASE"
     assert_failure 1
     assert_line "harness-weekly: failed to commit the weekly failure rate records in ${WT}; no PR created"
     refute_published
@@ -443,7 +442,7 @@ refute_pr_create() {
     make_worktree
     init_real
     printf '{"tampered":true}\n' >"$RATES/2026-10-10.json"
-    run harness_publish_metrics_only "$BASE" sections
+    run harness_publish_metrics_only "$BASE"
     assert_failure 1
     assert_output --partial "changed: $RATES/2026-10-10.json"
     assert_line "harness-weekly: failed to commit the weekly failure rate records in ${WT}; no PR created"
@@ -458,7 +457,7 @@ refute_pr_create() {
     make_worktree
     init_real
     printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
-    run harness_publish_metrics_only "$BASE" sections
+    run harness_publish_metrics_only "$BASE"
     assert_failure 1
     assert_line 'harness-weekly: the Rule Ledger records could not be trusted; no PR created'
     refute_published
@@ -469,7 +468,7 @@ refute_pr_create() {
     four_local_records
     make_worktree
     init_real
-    STUB_LEDGER_FAIL=1 run harness_publish_metrics_only "$BASE" sections
+    STUB_LEDGER_FAIL=1 run harness_publish_metrics_only "$BASE"
     assert_success
     assert_line "harness-weekly: WARN failed to commit the Rule Ledger records; they stay in $HDIR/rule-ledger for a later PR"
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
@@ -477,25 +476,35 @@ refute_pr_create() {
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- docs/harness/rule-ledger
     assert_output ''
     run cat "$GH_BODY"
-    refute_output --partial 'Rule Ledger'
+    assert_output 'rates=4 ledger=0 commits=1'
 }
 
-@test "Metrics-only PR: 本文の節を足せなければ、push も PR の作成もせずに失敗する" {
+@test "Metrics-only PR: 本文の lib が失敗したら、push も PR の作成もせずに失敗する" {
     publish_fixture
     four_local_records
     make_worktree
     init_real
-    SECTIONS_FAIL=1 run harness_publish_metrics_only "$BASE" sections
+    BODY_STATUS=1 run harness_publish_metrics_only "$BASE"
     assert_failure 1
     refute_published
 }
 
-@test "Metrics-only PR: 節を書いた後に実行物が書き換えられたら、push の直前の関門で止まる" {
+@test "Metrics-only PR: 本文の lib が照合に落ちたら、予約コードを外に出さずに PR を作らずに失敗する" {
     publish_fixture
     four_local_records
     make_worktree
     init_real
-    SECTIONS_TAMPER=1 run harness_publish_metrics_only "$BASE" sections
+    BODY_STATUS=$HARNESS_INTEGRITY_FAILED run harness_publish_metrics_only "$BASE"
+    assert_failure 1
+    refute_published
+}
+
+@test "Metrics-only PR: 本文を書いた後に実行物が書き換えられたら、push の直前の関門で止まる" {
+    publish_fixture
+    four_local_records
+    make_worktree
+    init_real
+    BODY_TAMPER=1 run harness_publish_metrics_only "$BASE"
     assert_failure 1
     assert_line "harness-weekly: stopped before push on ${BRANCH}; no PR created, because the scripts the job runs could not be trusted"
     refute_published
@@ -509,7 +518,7 @@ refute_pr_create() {
     # push を受けた origin のフックが実行物を書き換える
     printf '#!/usr/bin/env bash\nprintf "# tampered\\n" >>"%s"\n' "$HOME/.claude/scripts/harness-rule-ledger.sh" >"$ORIGIN/hooks/post-receive"
     chmod +x "$ORIGIN/hooks/post-receive"
-    run harness_publish_metrics_only "$BASE" sections
+    run harness_publish_metrics_only "$BASE"
     assert_failure 1
     assert_line "harness-weekly: stopped before gh pr create on ${BRANCH}; no PR created, because the scripts the job runs could not be trusted"
     assert_line "harness-weekly: ${BRANCH} is already on origin; do not open a PR from it as it is. Find what changed the scripts, then delete the branch (git push origin --delete ${BRANCH})"
@@ -525,7 +534,7 @@ refute_pr_create() {
     init_real
     printf '#!/usr/bin/env bash\nexit 1\n' >"$ORIGIN/hooks/pre-receive"
     chmod +x "$ORIGIN/hooks/pre-receive"
-    run harness_publish_metrics_only "$BASE" sections
+    run harness_publish_metrics_only "$BASE"
     assert_failure 1
     assert_line "harness-weekly: push of ${BRANCH} failed; no PR created. To publish by hand: git -C ${REPO} push origin ${BRANCH}, then gh pr create --draft --base main --head ${BRANCH} --body-file ${BODY}"
     refute_published
@@ -540,7 +549,7 @@ refute_pr_create() {
     four_local_records
     make_worktree
     init_real
-    STUB_GH_FAIL=1 run harness_publish_metrics_only "$BASE" sections
+    STUB_GH_FAIL=1 run harness_publish_metrics_only "$BASE"
     assert_failure 1
     assert_line "harness-weekly: pushed ${BRANCH} but gh pr create failed; open the PR by hand with gh pr create --draft --base main --head ${BRANCH} --body-file ${BODY}"
     run git -C "$ORIGIN" rev-parse --verify --quiet "refs/heads/$BRANCH"
@@ -549,18 +558,6 @@ refute_pr_create() {
     assert [ -s "$BODY" ]
     run git -C "$REPO" rev-parse --verify --quiet "refs/heads/$BRANCH"
     assert_success
-}
-
-@test "Metrics-only PR: 本文の節を足す関数を渡さなければ、何もせずに失敗する" {
-    publish_fixture
-    four_local_records
-    make_worktree
-    init_real
-    run harness_publish_metrics_only "$BASE" no_such_function
-    assert_failure 1
-    assert_output --partial 'harness-publish:'
-    run git -C "$WT" rev-list --count "$BASE..HEAD"
-    assert_output 0
 }
 
 @test "公開しないで片付けると、本文・結果ファイル・worktree を消し、ローカルブランチは残す" {

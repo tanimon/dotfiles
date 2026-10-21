@@ -43,6 +43,10 @@ dot_claude/scripts/lib/harness-publish.bash
 dot_claude/scripts/lib/harness-review-outcome.bash
 test/harness-review-outcome.bats
 test/harness-publish.bats
+# 週次ジョブが読み込む Loop PR の本文の module。節と節ごとの失敗の扱いを書き換えると、純増・失敗の検出件数・
+# 再発率の推移を PR から隠したり、照合に落ちた推移を省いて PR を作らせたりできる
+dot_claude/scripts/lib/harness-pr-body.bash
+test/harness-pr-body.bats
 
 # 改善ループ自身(ADR 0011。解禁の条件も ADR 0011)。ループが自分の抽出・選別・週次ジョブ・状態表示を書き換えると、
 # 改善の効果とループの変更の効果を区別できなくなる。ファイル単位で守るので、ループが自分の手順を改善する
