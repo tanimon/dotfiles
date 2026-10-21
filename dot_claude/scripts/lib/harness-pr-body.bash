@@ -6,13 +6,16 @@
 # - 本文の 3 種類それぞれの組み立て: 採用のある Loop PR(harness_pr_body_review)、Metrics-only PR
 #   (harness_pr_body_metrics_only。公開の lib が記録の commit の後に呼ぶ)、選別の claude が commit の後に失敗した run の
 #   手で公開するための本文(harness_pr_body_failed_review)。節の順序と節ごとの失敗の扱いの正本はそれぞれの入口のコメント。
-# - ジョブが足す節: Review Outcome の節の取り込み、失敗の検出件数、Failure Pattern の再発率の推移、純増、Rule Ledger。
+# - ジョブが足す節: Review Outcome の節の取り込み、失敗の検出件数、Failure Pattern の再発率の推移、評価が失敗したときの
+#   ルールの効果、純増、Rule Ledger。
+# - この run の採用の見出しの読み取り(harness_pr_body_adopted_titles)。Rule Ledger の節と、週次ジョブの評価の節の材料。
 # - 選別の prompt の、本文に書かせるものと書かせないものの指示(harness_pr_body_review_instructions)。ジョブが足す節を
 #   claude に書かせないための一覧なので、節を足すときはここも直す。
-# 持たないもの: 本文の先頭(選別の claude が書く)、Eval Case の評価の実行と結果の封印(週次ジョブ。評価の節の文字列を
-# 受け取るだけ)、Dropped Change と Deploy-only Fix の節の中身(Review Outcome の lib)、本文を消すこと(公開の lib)。
+# 持たないもの: 本文の先頭(選別の claude が書く)、Eval Case の評価の実行と結果の封印(週次ジョブ。成功した評価の節の
+# 文字列を受け取るだけ)、Dropped Change と Deploy-only Fix の節の中身(Review Outcome の lib)、本文を消すこと(公開の lib)。
 #
-# 返り値は 0(成功)・1(失敗)・HARNESS_INTEGRITY_FAILED(Integrity Snapshot の照合に落ちた)。指標の節(検出件数と、
+# 返り値は 0(成功)・1(失敗)・2(この lib の使い方の誤り)・HARNESS_INTEGRITY_FAILED(Integrity Snapshot の照合に
+# 落ちた)。指標の節(検出件数と、
 # 照合のほかで失敗した推移)は WARN を出して節を省き、成功を返す。PR を作らない理由の行は、この lib が出す。
 # 出す行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤りだけを harness-pr-body: で出す。
 #
@@ -22,8 +25,8 @@
 # Guarded Path(scripts/guarded-paths.txt)に載せてある。判定の記録・再発率のスクリプト・Verdict の CLI のパスは、呼び出しの
 # たびに $HOME から作る(2 つのスクリプトは harness_integrity_executables の行と一致しなければ実行されない)。
 #
-# Interface: harness_pr_body_init / harness_pr_body_review_instructions / harness_pr_body_review /
-# harness_pr_body_metrics_only / harness_pr_body_failed_review。関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、
+# Interface: harness_pr_body_init / harness_pr_body_review_instructions / harness_pr_body_adopted_titles /
+# harness_pr_body_review / harness_pr_body_metrics_only / harness_pr_body_failed_review。関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、
 # 失敗は明示的に返す。
 
 # run ごとの値。harness_pr_body_init が入れる
@@ -217,12 +220,19 @@ _harness_pr_body_append_rates() {
     fi
 }
 
+# この run の選別が採用した項目の見出しを 1 行ずつ出す(Verdict の CLI の adopted)。Rule Ledger の節と、週次ジョブが
+# Eval Case の評価の節を作るときに使う。公開の lib が印を PR の URL に置き換える前に読む。Verdict の CLI の照合に落ちたら予約コード
+harness_pr_body_adopted_titles() {
+    _harness_pr_body_ready || return
+    harness_integrity_run "$(_harness_pr_body_verdict_cli)" adopted --run "$_HARNESS_PR_BODY_RUN"
+}
+
 # Rule Ledger の節。記録は PR 番号が要るので、PR を作った後の commit で足す(公開の lib の harness_publish_review)。
 # 足せなかったことは本文では知らせられないので、ログの WARN と、PR の commit に記録が無いことで分かる。
 # 採用を読めなければ節を省く(評価の節と同じく、PR の公開は止めない)。Verdict の CLI の照合に落ちたら予約コードを返す
 _harness_pr_body_append_rule_ledger() {
     local titles status=0
-    titles=$(harness_integrity_run "$(_harness_pr_body_verdict_cli)" adopted --run "$_HARNESS_PR_BODY_RUN") || status=$?
+    titles=$(harness_pr_body_adopted_titles) || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         printf 'harness-weekly: no PR created; the Verdict CLI could not be trusted\n' >&2
         return "$status"
@@ -237,8 +247,10 @@ _harness_pr_body_append_rule_ledger() {
 
 # harness_pr_body_review <base> <評価の節>
 #   選別の claude が書いた本文の後ろに、Review Outcome の節・検出件数・再発率の推移・評価の節・純増・Rule Ledger の節を
-#   この順に足す。<base> は選別の前の worktree の HEAD。<評価の節> は週次ジョブが評価の工程から作った文字列(評価できなかった
-#   ことを書いた節を含む。末尾の改行なし)で、改行を 1 つ付けて足す。純増は選別の commit だけで数えるので、公開の lib が記録の commit を足す前に呼ぶ。
+#   この順に足す。<base> は選別の前の worktree の HEAD。<評価の節> は週次ジョブが評価の工程(harness-eval-cases.sh section)から
+#   受け取った文字列(末尾の改行なし)で、改行を 1 つ付けて足す。空なら評価の工程が失敗したとして、効果を測っていないことを
+#   書いた節を足す(黙って節を省くと、効果が測られていないことが PR から見えない)。
+#   純増は選別の commit だけで数えるので、公開の lib が記録の commit を足す前に呼ぶ。
 #   失敗の扱い: Review Outcome の節・純増を作れなければ 1。推移と Rule Ledger の節は Verdict の CLI と再発率のスクリプトの
 #   照合に落ちたら、PR を作らない理由を出して予約コード。検出件数・推移・採用の読み取りのほかの失敗は WARN で節を省く
 harness_pr_body_review() {
@@ -255,7 +267,11 @@ harness_pr_body_review() {
         printf 'harness-weekly: no PR created; the failure rate trend could not be trusted\n' >&2
         return "$status"
     fi
-    printf '%s\n' "$eval_section" >>"$_HARNESS_PR_BODY_FILE"
+    if [[ -n "$eval_section" ]]; then
+        printf '%s\n' "$eval_section" >>"$_HARNESS_PR_BODY_FILE"
+    else
+        printf '\n## ルールの効果\n\n評価の工程が失敗したため、この PR のルールの効果は測っていない(週次ジョブのログを参照)。\n' >>"$_HARNESS_PR_BODY_FILE"
+    fi
     # 純増は選別の commit だけで数える(記録の commit を混ぜると、ルールの肥大の数字に記録の行が入る)
     _harness_pr_body_net_change "$base" >>"$_HARNESS_PR_BODY_FILE" || return 1
     _harness_pr_body_append_rule_ledger

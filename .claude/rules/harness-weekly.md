@@ -9,6 +9,7 @@ paths:
   - "dot_claude/scripts/lib/harness-integrity.bash"
   - "dot_claude/scripts/lib/harness-publish.bash"
   - "dot_claude/scripts/lib/harness-review-outcome.bash"
+  - "dot_claude/scripts/lib/harness-pr-body.bash"
   - "dot_claude/scripts/executable_harness-classify-failures.sh"
   - "dot_claude/scripts/executable_harness-failure-rates.sh"
   - "dot_claude/scripts/harness-failure-patterns.json"

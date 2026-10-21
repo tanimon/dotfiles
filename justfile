@@ -218,7 +218,7 @@ check-templates:
 
 # LC_ALL=C for the same bats-core locale bug as test-scripts: the weekly-job
 # tests in briefing / doctor / weekly have Japanese @test names.
-# Smoke test harness loop scripts (reflect-trigger, health lib, integrity lib, publish lib, review outcome lib, briefing, doctor, weekly job, failure detector, pending selection, failure classifier, failure rates, eval cases, rule ledger, verdict CLI)
+# Smoke test harness loop scripts (reflect-trigger, health lib, integrity lib, publish lib, review outcome lib, PR body lib, briefing, doctor, weekly job, failure detector, pending selection, failure classifier, failure rates, eval cases, rule ledger, verdict CLI)
 [group('slow')]
 @test-harness-scripts:
     LC_ALL=C pnpm exec bats {{ bats_jobs }} test/harness-reflect-trigger.bats test/harness-health.bats test/harness-integrity.bats test/harness-publish.bats test/harness-review-outcome.bats test/harness-pr-body.bats test/harness-briefing.bats test/harness-doctor.bats test/harness-weekly.bats test/harness-detect-failures.bats test/harness-select-pending.bats test/harness-classify-failures.bats test/harness-failure-rates.bats test/harness-eval-cases.bats test/harness-rule-ledger.bats test/harness-verdict.bats

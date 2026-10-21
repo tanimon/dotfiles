@@ -479,8 +479,8 @@ main() {
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=lib/harness-pr-body.bash
     source "$PR_BODY_LIB"
-    declare -F harness_pr_body_init harness_pr_body_review_instructions harness_pr_body_review harness_pr_body_metrics_only \
-        harness_pr_body_failed_review >/dev/null || {
+    declare -F harness_pr_body_init harness_pr_body_review_instructions harness_pr_body_adopted_titles harness_pr_body_review \
+        harness_pr_body_metrics_only harness_pr_body_failed_review >/dev/null || {
         printf 'harness-weekly: %s lacks the PR body sections; run chezmoi apply\n' "$PR_BODY_LIB" >&2
         exit 1
     }
@@ -600,20 +600,14 @@ main() {
         }
     }
 
-    # 判定の記録のうち、この run の選別が採用した項目の見出しを 1 行ずつ出す(Verdict の CLI の adopted)。
-    # 公開の lib が印を PR の URL に置き換える前に読む
-    adopted_titles() {
-        harness_integrity_run "$VERDICT_CLI" adopted --run "$REVIEW_RUN"
-    }
-
     # 採用したルールの Eval Case を評価し、効果の節を EVAL_SECTION に入れる(本文に足すのは本文の lib)。採用したのに
     # 結果にも免除にも無いものは、節が名前で出す(依頼が無ければ全件がそうなる)。評価の工程の失敗は WARN にとどめて
-    # PR の公開は止めないが、節に評価できなかったことを書く(黙って節を省くと、効果が測られていないことが PR から見えない)。
+    # PR の公開は止めず、EVAL_SECTION を空のまま本文の lib に渡す(lib が効果を測っていないことを書く)。
     # 封印は lib のシェル変数に持つので、$( ) の外で呼ぶ
     EVAL_SECTION=""
     evaluate_rules() {
         local adopted="$HARNESS_DIR/.eval-adopted-$REVIEW_DATE" section status=0
-        adopted_titles >"$adopted" || status=$?
+        harness_pr_body_adopted_titles >"$adopted" || status=$?
         if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
             rm -f "$adopted"
             return "$status"
@@ -644,7 +638,6 @@ main() {
             }
         else
             printf 'harness-weekly: WARN evaluating the eval cases with %s failed; the PR body says so\n' "$EVAL_CASES" >&2
-            EVAL_SECTION=$'\n## ルールの効果\n\n評価の工程が失敗したため、この PR のルールの効果は測っていない(週次ジョブのログを参照)。'
         fi
         rm -f "$adopted"
     }

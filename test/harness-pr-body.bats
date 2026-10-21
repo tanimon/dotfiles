@@ -180,7 +180,7 @@ headings() {
     assert_line '| 合計 | 0 |'
 }
 
-@test "検出件数: 検出器のすべての信号が表の行に出る" {
+@test "検出件数: 表の信号の行は検出器の信号とちょうど一致する" {
     local signal signals
     signals=$(grep -o 'signal: "[a-z_]*"' "$REPO_ROOT/dot_claude/scripts/executable_harness-detect-failures.sh" |
         sed 's/signal: "\(.*\)"/\1/' | sort -u)
@@ -190,6 +190,9 @@ headings() {
     done
     review
     assert_success
+    # 検出器に無い信号の行も、検出器の信号の欠けも落とす
+    run bash -c 'sed -n "s/^| \`\([a-z_]*\)\` | [0-9]* |$/\1/p" "$1" | sort' _ "$BODY"
+    assert_output "$signals"
     run cat "$BODY"
     for signal in $signals; do
         assert_line "| \`$signal\` | 1 |"
@@ -207,7 +210,7 @@ headings() {
     run grep -Fx "harness-weekly: WARN failed to build the detection counts from $DETECTIONS; left them out of $BODY" <<<"$stderr"
     assert_success
     run headings
-    assert_output "$(printf '%s\n' '## 推移' '## 純増')"
+    assert_output "$(printf '%s\n' '## 推移' '## ルールの効果' '## 純増')"
 }
 
 @test "推移がほかの理由で作れなければ、WARN を出して節を省き、PR の公開は止めない" {
@@ -334,6 +337,26 @@ headings() {
     assert_success
 }
 
+@test "評価の節が空なら、評価の工程が失敗したとして効果を測っていないことを書いた節を足す" {
+    review ''
+    assert_success
+    run cat "$BODY"
+    assert_line '## ルールの効果'
+    assert_line '評価の工程が失敗したため、この PR のルールの効果は測っていない(週次ジョブのログを参照)。'
+}
+
+@test "採用の見出しは、この run の印で Verdict の CLI に問い合わせて出す" {
+    cat >"$SCRIPTS/harness-verdict.sh" <<'EOF'
+#!/usr/bin/env bash
+[[ "$*" == "adopted --run harness/review-2026-10-20 run 0f0e" ]] || exit 1
+printf 'entry 1\nentry 2\n'
+EOF
+    harness_integrity_snapshot
+    run --separate-stderr harness_pr_body_adopted_titles
+    assert_success
+    assert_output "$(printf '%s\n' 'entry 1' 'entry 2')"
+}
+
 @test "選別の prompt の本文の指示は、本文のパスと、ジョブが足すので書かせないものをすべて挙げる" {
     run harness_pr_body_review_instructions
     assert_success
@@ -350,9 +373,11 @@ headings() {
     run harness_pr_body_init --pr-body "$BODY" --worktree "$WT" --review-result "$RESULT" --detections "$DETECTIONS" \
         --detection-since "$SINCE" --run "$RUN_MARK" --date 2026-10-20
     assert_failure 2
-    _HARNESS_PR_BODY_FILE=""
-    run harness_pr_body_metrics_only 4 0
+    # 初期化していない lib は、週次ジョブと同じ順に読み込み直した別の bash で作る
+    run bash -c 'for lib in integrity publish review-outcome pr-body; do source "$1/harness-$lib.bash"; done
+        harness_pr_body_metrics_only 4 0' _ "$REPO_ROOT/dot_claude/scripts/lib"
     assert_failure 2
+    assert_output --partial 'harness-pr-body: call harness_pr_body_init first'
 }
 
 # <Source> が <一覧> の行(完全一致)に当たれば 0
