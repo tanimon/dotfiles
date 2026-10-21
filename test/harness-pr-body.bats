@@ -130,6 +130,19 @@ headings() {
     assert_line '合計: +5 / -0(純増 +5 行)'
 }
 
+@test "純増: 1 つの commit が複数のファイルに触れれば、削除も含めてその commit の行に合算する" {
+    mkdir -p "$WT/rules"
+    printf 'a\nb\nc\n' >"$WT/rules/new.md"
+    printf 'line1\nchanged\n' >"$WT/README.md"
+    git -C "$WT" add -A
+    git -C "$WT" commit -qm 'harness: add rule'
+    review
+    assert_success
+    run cat "$BODY"
+    assert_line '| harness: add rule | +4 | -1 |'
+    assert_line '合計: +4 / -1(純増 +3 行)'
+}
+
 @test "純増: バイナリファイルは行数の代わりにバイナリと書いて合計から外し、パスの | はエスケープする" {
     printf '\000\001\002' >"$WT/blob.bin"
     printf 'x\n' >"$WT/a|b.md"
@@ -288,9 +301,27 @@ headings() {
     printf '# tampered\n' >>"$SCRIPTS/harness-failure-rates.sh"
     run --separate-stderr harness_pr_body_metrics_only 4 0
     assert_failure "$HARNESS_INTEGRITY_FAILED"
-    run grep -F "harness-weekly: the failure rate trend could not be trusted; left it out of $BODY" <<<"$stderr"
+    # 次の run が $stderr を空にするので退避する
+    local errors=$stderr
+    run grep -F "harness-weekly: the failure rate trend could not be trusted; left it out of $BODY" <<<"$errors"
+    assert_success
+    run grep -F 'harness-weekly: no PR created; the failure rate trend could not be trusted' <<<"$errors"
     assert_success
     run grep -c '^## ' "$BODY"
+    assert_output 0
+}
+
+@test "Metrics-only PR の本文: 件数の文を書けなければ、PR を作らない理由を出して 1 を返し、推移の節に進まない" {
+    BODY="$BATS_TEST_TMPDIR/missing/review-pr-body.md"
+    init_body "$SINCE"
+    export STUB_TAMPER_VERDICT=1
+    harness_integrity_snapshot
+    run --separate-stderr harness_pr_body_metrics_only 4 2
+    assert_failure 1
+    run grep -F "harness-weekly: failed to write the record counts to $BODY; no PR created" <<<"$stderr"
+    assert_success
+    # 推移のスクリプトが走っていれば Verdict の CLI を書き換えている
+    run grep -c tampered "$SCRIPTS/harness-verdict.sh"
     assert_output 0
 }
 

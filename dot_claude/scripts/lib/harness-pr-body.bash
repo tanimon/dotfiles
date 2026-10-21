@@ -15,8 +15,9 @@
 # 文字列を受け取るだけ)、Dropped Change と Deploy-only Fix の節の中身(Review Outcome の lib)、本文を消すこと(公開の lib)。
 #
 # 返り値は 0(成功)・1(失敗)・2(この lib の使い方の誤り)・HARNESS_INTEGRITY_FAILED(Integrity Snapshot の照合に
-# 落ちた)。指標の節(検出件数と、
-# 照合のほかで失敗した推移)は WARN を出して節を省き、成功を返す。PR を作らない理由の行は、この lib が出す。
+# 落ちた)。ただし harness_pr_body_adopted_titles は Verdict の CLI の終了コードをそのまま返す(CLI の引数の誤りも 2)。
+# 指標の節(検出件数と、照合のほかで失敗した推移)は WARN を出して節を省き、成功を返す。PR を作る本文の入口
+# (harness_pr_body_review と harness_pr_body_metrics_only)が非 0 を返すときは、PR を作らない理由の行をこの lib が出す。
 # 出す行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤りだけを harness-pr-body: で出す。
 #
 # 週次ジョブは claude の起動前に、Integrity Snapshot の lib・公開の lib・Review Outcome の lib の後でこの lib を読み込む
@@ -220,8 +221,19 @@ _harness_pr_body_append_rates() {
     fi
 }
 
+# PR を作る本文(採用のある Loop PR と Metrics-only PR)に推移の節を足す。照合に落ちたら PR を作らない理由を出して予約コード
+_harness_pr_body_append_rates_for_pr() {
+    local status=0
+    _harness_pr_body_append_rates || status=$?
+    if [[ "$status" -ne 0 ]]; then
+        printf 'harness-weekly: no PR created; the failure rate trend could not be trusted\n' >&2
+        return "$status"
+    fi
+}
+
 # この run の選別が採用した項目の見出しを 1 行ずつ出す(Verdict の CLI の adopted)。Rule Ledger の節と、週次ジョブが
-# Eval Case の評価の節を作るときに使う。公開の lib が印を PR の URL に置き換える前に読む。Verdict の CLI の照合に落ちたら予約コード
+# Eval Case の評価の節を作るときに使う。公開の lib が印を PR の URL に置き換える前に読む。終了コードは Verdict の CLI の
+# もの(照合に落ちたら予約コード)
 harness_pr_body_adopted_titles() {
     _harness_pr_body_ready || return
     harness_integrity_run "$(_harness_pr_body_verdict_cli)" adopted --run "$_HARNESS_PR_BODY_RUN"
@@ -254,7 +266,7 @@ _harness_pr_body_append_rule_ledger() {
 #   失敗の扱い: Review Outcome の節・純増を作れなければ 1。推移と Rule Ledger の節は Verdict の CLI と再発率のスクリプトの
 #   照合に落ちたら、PR を作らない理由を出して予約コード。検出件数・推移・採用の読み取りのほかの失敗は WARN で節を省く
 harness_pr_body_review() {
-    local base=${1:-} eval_section=${2:-} status=0
+    local base=${1:-} eval_section=${2:-}
     _harness_pr_body_ready || return
     [[ $# -eq 2 && -n "$base" ]] || {
         _harness_pr_body_usage 'review needs <base> and <eval section>'
@@ -262,11 +274,7 @@ harness_pr_body_review() {
     }
     harness_review_outcome_sections >>"$_HARNESS_PR_BODY_FILE" || return 1
     _harness_pr_body_append_detection
-    _harness_pr_body_append_rates || status=$?
-    if [[ "$status" -ne 0 ]]; then
-        printf 'harness-weekly: no PR created; the failure rate trend could not be trusted\n' >&2
-        return "$status"
-    fi
+    _harness_pr_body_append_rates_for_pr || return
     if [[ -n "$eval_section" ]]; then
         printf '%s\n' "$eval_section" >>"$_HARNESS_PR_BODY_FILE"
     else
@@ -281,7 +289,8 @@ harness_pr_body_review() {
 #   Metrics-only PR の本文を書く(前の内容は捨てる)。件数の文・推移・検出件数の順。件数は記録の commit の後にしか
 #   決まらないので、公開の lib の harness_publish_metrics_only が commit の後に呼ぶ。推移の節の入口の照合も記録の commit より
 #   後に保つ(先に呼ぶと、実行物が書き換えられた run のログと、ローカルに残る commit が変わる)。
-#   失敗の扱い: 推移が照合に落ちたら予約コード(公開の lib は PR を作らない)。本文を書けなければ 1
+#   失敗の扱い: 推移が照合に落ちたら予約コード(公開の lib は PR を作らない)。件数の文を書けなければ 1。どちらも
+#   PR を作らない理由を出す
 harness_pr_body_metrics_only() {
     local rate_records=${1:-} ledger_records=${2:-}
     _harness_pr_body_ready || return
@@ -289,14 +298,20 @@ harness_pr_body_metrics_only() {
         _harness_pr_body_usage 'metrics_only needs the numbers of the committed rate records and Rule Ledger records'
         return
     }
-    printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
-        "$rate_records" >"$_HARNESS_PR_BODY_FILE" || return 1
-    if [[ "$ledger_records" -ne 0 ]]; then
-        printf '\nマージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった %s 件も足した(%s)。\n' \
-            "$ledger_records" "$HARNESS_PUBLISH_LEDGER_REPO_DIR" >>"$_HARNESS_PR_BODY_FILE" || return 1
-    fi
-    _harness_pr_body_append_rates || return
+    _harness_pr_body_metrics_only_counts "$rate_records" "$ledger_records" || {
+        printf 'harness-weekly: failed to write the record counts to %s; no PR created\n' "$_HARNESS_PR_BODY_FILE" >&2
+        return 1
+    }
+    _harness_pr_body_append_rates_for_pr || return
     _harness_pr_body_append_detection
+}
+
+_harness_pr_body_metrics_only_counts() { # <週の再発率の記録の件数> <持ち越した Rule Ledger の記録の件数>
+    printf '採用した変更は無い。origin/main に無い週の Failure Pattern の再発率の記録が %s 週分たまったので、記録だけを commit した。\n' \
+        "$1" >"$_HARNESS_PR_BODY_FILE" || return 1
+    [[ "$2" -eq 0 ]] ||
+        printf '\nマージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった %s 件も足した(%s)。\n' \
+            "$2" "$HARNESS_PUBLISH_LEDGER_REPO_DIR" >>"$_HARNESS_PR_BODY_FILE"
 }
 
 # harness_pr_body_failed_review <データを信頼できるか(1/0)>
