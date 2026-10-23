@@ -11,11 +11,9 @@ setup() {
     HDIR="$HOME/.claude/harness"
     mkdir -p "$HOME/.claude/scripts" "$HDIR"
     cp "$REPO_ROOT/dot_claude/scripts/executable_harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
-    # 週次ジョブと同じ順に読む(Integrity Snapshot → 公開 → この lib)
+    # 週次ジョブと同じ順に読む(Integrity Snapshot → この lib)
     # shellcheck source=../dot_claude/scripts/lib/harness-integrity.bash
     source "$REPO_ROOT/dot_claude/scripts/lib/harness-integrity.bash"
-    # shellcheck source=../dot_claude/scripts/lib/harness-publish.bash
-    source "$REPO_ROOT/dot_claude/scripts/lib/harness-publish.bash"
     # shellcheck source=../dot_claude/scripts/lib/harness-review-outcome.bash
     source "$REPO_ROOT/dot_claude/scripts/lib/harness-review-outcome.bash"
 
@@ -33,7 +31,13 @@ setup() {
     RUN_MARK="harness/review-2026-10-20 run 0f0e"
     printf '# Harness improvement queue\n' >"$HDIR/queue.md"
     harness_integrity_snapshot
-    harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20
+    init_outcome
+}
+
+# 置き場は Loop PR の module が渡す値と同じにする
+init_outcome() { # [<上書きする引数>…]
+    harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20 \
+        --rates-repo-dir docs/harness/failure-pattern-rates --ledger-repo-dir docs/harness/rule-ledger "$@"
 }
 
 # 選別の commit を 1 件足す(<パス> を省くと change.md)
@@ -210,7 +214,7 @@ classify() { # <claude の成否>
 
 @test "選別の commit が週の記録か Rule Ledger の置き場に触れたら failed を出す" {
     local dir
-    for dir in "$HARNESS_PUBLISH_RATES_REPO_DIR" "$HARNESS_PUBLISH_LEDGER_REPO_DIR"; do
+    for dir in docs/harness/failure-pattern-rates docs/harness/rule-ledger; do
         empty_result
         body
         git -C "$WT" reset -q --hard "$BASE"
@@ -357,7 +361,6 @@ classify() { # <claude の成否>
 @test "初期化の前に呼ぶと、値を出さずに 2 で終わる" {
     run bash -c 'set -euo pipefail
         source "$1/dot_claude/scripts/lib/harness-integrity.bash"
-        source "$1/dot_claude/scripts/lib/harness-publish.bash"
         source "$1/dot_claude/scripts/lib/harness-review-outcome.bash"
         harness_review_outcome_classify HEAD ok' _ "$REPO_ROOT"
     assert_equal "$status" 2
@@ -365,19 +368,24 @@ classify() { # <claude の成否>
     refute_line 'publish'
 }
 
-@test "公開の lib の置き場の定数が無ければ、初期化が 2 で終わる" {
-    unset HARNESS_PUBLISH_RATES_REPO_DIR
-    run harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20
+@test "記録の置き場が渡されなければ、初期化が 2 で終わる" {
+    run harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20 \
+        --ledger-repo-dir docs/harness/rule-ledger
     assert_equal "$status" 2
-    assert_output --partial 'HARNESS_PUBLISH_RATES_REPO_DIR'
+    assert_output --partial '--rates-repo-dir'
+    run harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20 \
+        --rates-repo-dir docs/harness/failure-pattern-rates
+    assert_equal "$status" 2
+    assert_output --partial '--ledger-repo-dir'
 }
 
 @test "初期化の引数の欠落・空・余りは 2 で終わる" {
-    run harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK"
+    run harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" \
+        --rates-repo-dir docs/harness/failure-pattern-rates --ledger-repo-dir docs/harness/rule-ledger
     assert_equal "$status" 2
-    run harness_review_outcome_init --worktree '' --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20
+    run init_outcome --worktree ''
     assert_equal "$status" 2
-    run harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20 extra
+    run init_outcome extra
     assert_equal "$status" 2
 }
 

@@ -1,7 +1,7 @@
 # 週次ジョブの Loop PR の本文の module(lib/harness-pr-body.bash)の interface の検査。lib を直接 source する。
 # 本文の 3 種類の節の順序・節ごとの失敗の扱い・純増の表・検出件数の期間と表・選別の prompt の本文の指示はここで検査する。
 # 週次ジョブがこの lib を読み込めないときに止まることと、PR を作る run の本文に節が付く配線は test/harness-weekly.bats、
-# Metrics-only PR の入口が commit の後に件数を渡すことは test/harness-publish.bats が検査する。
+# Metrics-only PR の入口が commit の後に件数を渡すことは test/harness-loop-pr.bats が検査する。
 bats_require_minimum_version 1.5.0
 
 setup() {
@@ -28,11 +28,9 @@ EOF
 [[ -z "${STUB_ADOPTED_STATUS:-}" ]] || exit "$STUB_ADOPTED_STATUS"
 [[ -z "${STUB_ADOPTED:-}" ]] || printf '%s\n' "$STUB_ADOPTED"
 EOF
-    # 週次ジョブと同じ順に読む(Integrity Snapshot → 公開 → Review Outcome → この lib)
+    # 週次ジョブと同じ順に読む(Integrity Snapshot → Review Outcome → この lib)
     # shellcheck source=../dot_claude/scripts/lib/harness-integrity.bash
     source "$REPO_ROOT/dot_claude/scripts/lib/harness-integrity.bash"
-    # shellcheck source=../dot_claude/scripts/lib/harness-publish.bash
-    source "$REPO_ROOT/dot_claude/scripts/lib/harness-publish.bash"
     # shellcheck source=../dot_claude/scripts/lib/harness-review-outcome.bash
     source "$REPO_ROOT/dot_claude/scripts/lib/harness-review-outcome.bash"
     # shellcheck source=../dot_claude/scripts/lib/harness-pr-body.bash
@@ -54,14 +52,15 @@ EOF
     NOW=$(date +%s)
     SINCE=$((NOW - 3600))
     printf '{"dropped":[],"deploy_only":[]}\n' >"$RESULT"
-    harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20
+    harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20 \
+        --rates-repo-dir docs/harness/failure-pattern-rates --ledger-repo-dir docs/harness/rule-ledger
     init_body "$SINCE"
 }
 
 # <期間の始まり> で初期化する(スナップショットは記録を置いた後に取る)
 init_body() { # <期間の始まり>
     harness_pr_body_init --pr-body "$BODY" --worktree "$WT" --review-result "$RESULT" \
-        --detections "$DETECTIONS" --detection-since "$1" --run "$RUN_MARK"
+        --detections "$DETECTIONS" --detection-since "$1" --run "$RUN_MARK" --ledger-repo-dir docs/harness/rule-ledger
 }
 
 # 選別の commit を 1 件足す
@@ -402,10 +401,10 @@ EOF
     run harness_pr_body_init --pr-body "$BODY"
     assert_failure 2
     run harness_pr_body_init --pr-body "$BODY" --worktree "$WT" --review-result "$RESULT" --detections "$DETECTIONS" \
-        --detection-since "$SINCE" --run "$RUN_MARK" --date 2026-10-20
+        --detection-since "$SINCE" --run "$RUN_MARK" --ledger-repo-dir docs/harness/rule-ledger --date 2026-10-20
     assert_failure 2
     # 初期化していない lib は、週次ジョブと同じ順に読み込み直した別の bash で作る
-    run bash -c 'for lib in integrity publish review-outcome pr-body; do source "$1/harness-$lib.bash"; done
+    run bash -c 'for lib in integrity review-outcome pr-body; do source "$1/harness-$lib.bash"; done
         harness_pr_body_metrics_only 4 0' _ "$REPO_ROOT/dot_claude/scripts/lib"
     assert_failure 2
     assert_output --partial 'harness-pr-body: call harness_pr_body_init first'

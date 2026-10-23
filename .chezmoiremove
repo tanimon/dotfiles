@@ -85,3 +85,7 @@ bin/cco
 # source から消しただけでは配置済みのファイルが残り、/deliver が古い Workflow を呼び続けるので、ここで消す。
 .claude/workflows/deliver.js
 .claude/skills/deliver
+
+# 週次ジョブの公開の lib は Loop PR の module(lib/harness-loop-pr.bash)に改名した。source から消しただけでは
+# 配置済みの旧い名前のファイルが ~/.claude/scripts/lib/ に残るので、ここで消す。
+.claude/scripts/lib/harness-publish.bash
