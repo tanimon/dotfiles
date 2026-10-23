@@ -39,4 +39,5 @@ skill がなくても以下の手順だけで再実行できる。
 - `support/` — 複数のシナリオ・seed で使う共通モジュール。`support/run.ts` は実行ごとの切り替え
 - `seed/common.ts` / `seed/features/<機能>.ts` — 全機能共通 / 機能ごとのデータ準備(`setup`)と片付け(`cleanup`)
 - `profile.md` — 起動方法・ログイン方式などプロジェクト固有知識
+- `.web-verify-suite` — web-verify がスイートを作り終えた印(消すと web-verify はこの場所を使わずに止まる)
 - 録画・trace は `test-results/<機能>/`、HTML レポートは `report/<機能>/`(いずれも生成物、commit しない)

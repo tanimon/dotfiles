@@ -35,6 +35,7 @@ profile.md に書く項目を対象リポから調査する。読む場所の優
 ## 3. 生成手順
 
 `SKILL_DIR` は SKILL.md の `<skill-dir>`、`DIR` は確定した配置場所の絶対パス。
+scaffold の直前に references/storage.md の「ロック」を取り直して分類し直し、「5. 生成の検証」の後まで持つ。
 zsh では `$VAR:` の `:` が修飾子に化けるので、変数は常に `${}` で閉じる。
 
 ```sh
@@ -82,6 +83,15 @@ npx playwright install chromium
 - `.env` — エージェントは資格情報の値を扱わない。ユーザー自身に `.env.example` を
   コピーして直接編集してもらう
 
+保存場所は `{repo}` 単位で別の worktree と共有されるので、最初の scaffold で決めた構成がそのリポジトリの
+規約になる。たとえば 1 つのスイートで複数のアプリ(セラー画面と管理画面など)をまたいで検証するなら、
+最初から次のようにアプリごとに分けておく:
+
+- ベースURLの環境変数をアプリごとに 1 つ持つ(`VERIFY_<APP>_BASE_URL`)。`.env.example` と profile.md もそれに合わせる
+- `support/run.ts` に、アプリごとの認証状態の保存先を返す関数を足し、projects をアプリごとの
+  auth-setup と本編に分ける。spec は `scenarios/<feature>/<app>/` のようにディレクトリ名で振り分ける
+- `seed/setup.ts` の未設定検出と `seed/modules.ts` の向き先ガードは、すべてのベースURLを検査する
+
 ## 5. 生成の検証
 
 ```sh
@@ -90,6 +100,8 @@ cd "${DIR}" && npx playwright test --list
 
 Expected: シナリオ一覧が表示され exit 0(config・spec の構文エラーがないことの確認。
 ブラウザ・アプリ起動は不要。`--list` は globalSetup を実行しないので、seed の確認にはならない)。
+
+通ったら完了マーカーを置き(`touch "${DIR}/.web-verify-suite"`)、references/storage.md の「ロック」の解放を行う。
 
 ## 6. ホストリポの .gitignore 確認(配置場所が対象リポの中のときだけ)
 
@@ -111,6 +123,7 @@ ignore されていないこと(何も出力されず exit 1)を確認する。�
 
 保存場所にスイートはあるが `support/run.ts` が無いものは、機能ごとの切り替えが入る前の旧レイアウト。
 `VERIFY_FEATURE` が効かず、機能ごとの実行も並行実行もできないので、追加の前に最小限だけ書き換える。
+同じ保存場所で構造だけを直す作業なので、始める前に references/storage.md の「ロック」を取り直し、終わるまで持つ。
 
 1. 書き換え前の結果を控える: `VERIFY_REPO_DIR=… npx playwright test` で全体を実行し、pass/fail を記録する
    (旧 config は `VERIFY_REPO_DIR` を読まないが、新 config との比較のため同じ形で実行する)。
@@ -126,9 +139,34 @@ ignore されていないこと(何も出力されず exit 1)を確認する。�
    リポのルートを `cwd: '../..'` のような相対パスで指していた箇所は `process.env.VERIFY_REPO_DIR` に直す
 5. `scenarios/auth.setup.ts` の storageState の保存先を新テンプレートどおり `storageStatePath` にする
 6. README.md の「実行方法」「観点一覧」「構成」と、profile.md の「対象リポジトリ」節を新テンプレートに合わせる。
-   `@playwright/test` / `dotenv` / `@types/node` が `package.json` に無ければ `npm install -D` で足す
+   `@playwright/test` / `dotenv` / `@types/node` が `package.json` に無ければ `npm install -D` で足す。
+   `.gitignore` に `.web-verify-lock/` が無ければ足す
 7. 既存のシナリオは移動しない(平置きのまま、`VERIFY_FEATURE` 未設定の全体実行に含まれる)
-8. 1. と同じ形で全体を実行し、pass/fail が変わらないことを確かめる。変わったら退避したファイルで書き換えを戻し
-   (新しくコピーしたファイルは消す)、
+8. 1. と同じ形で全体を実行し、pass/fail が変わらないことを確かめる。変わらなければ完了マーカーを置いてロックを解放する。
+   変わったら退避したファイルで書き換えを戻し(新しくコピーしたファイルは消す)、ロックを解放して、
    今回の機能の追加には進まずに止めて報告する(旧レイアウトのままでは `VERIFY_FEATURE` が効かないため)。
    flaky が疑われるときは、変わったシナリオだけを前後それぞれもう一度実行して確かめてから判断する
+
+## 8. 別の保存場所への移管
+
+移管は、既存のスイートを別の保存場所へ移し、新しいレイアウトに載せ替えること。同じ場所で構造だけを直す
+「7. 旧レイアウトの更新」とは別の作業で、7 の「既存のシナリオは移動しない」は移管には当てはまらない。
+`/web-verify` の引数で移管を指示されたときだけ行う。
+
+1. **ベースラインを取る**: 移管元で全体を実行し(`VERIFY_REPO_DIR=… npx playwright test`)、テストごとの pass/fail を控える
+2. **移管先に scaffold する**: 移管先を references/storage.md の順で解決・ロック・分類し(「空」であること)、
+   この文書の 3〜5 で新テンプレートを置く。profile 調査は移管元の profile.md を読んで行い、
+   5 の完了マーカーとロックの解放はこの手順の 6 まで持ち越す
+3. **既存資産を機能単位のパスへ移植する**: シナリオは README.md の観点一覧の「ブランチ」列から `<feature>` を決めて
+   `scenarios/<feature>/` へ、ブランチが分からないものは `scenarios/` 直下へ平置きで移す。seed は、全機能が
+   前提にするデータを `seed/common.ts` に、リポジトリ固有の列・モデルを触るものを含め機能が前提にするデータを
+   `seed/features/<feature>.ts` に置く。`support/` の共通モジュールと README.md の観点一覧も移す
+4. **リポジトリのルートを `VERIFY_REPO_DIR` から求める**: 移管先がリポの外なら `REPO_DIR_FROM_SUITE` は `null` のまま、
+   `cwd: '../..'` のような相対パスは `process.env.VERIFY_REPO_DIR` に直す
+5. **`.env` だけを値を読まずにコピーする**(`cp "<移管元>/.env" "${DIR}/.env"`)。`report/`・`test-results/`・`.auth/`・
+   `node_modules/` は実行ごとに作り直されるので移さない
+6. **一致を確かめる**: 移管先で機能ごとに(平置きのシナリオは全体実行で)実行し、1 のベースラインとテストごとに
+   pass/fail が一致することを確かめる。一致したら完了マーカーを置いてロックを解放する。一致しなければ
+   ロックだけを解放し、マーカーを置かずに止めて報告する(次の起動は「それ以外」に分類して止まる)
+7. **移管元の削除をユーザーに任せる**: 削除してよいかを確かめ、ユーザー自身が `! rm -rf "<移管元>"` で
+   消すよう案内する(リポの `.claude/` 配下はエージェントの権限では消せないことがある)

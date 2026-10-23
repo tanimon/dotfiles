@@ -3,3 +3,4 @@ test-results/
 report/
 .auth/
 .env
+.web-verify-lock/
