@@ -157,20 +157,9 @@ Single-context, on mattpocock-skills' default layout: the glossary is `GLOSSARY.
 
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
-**リポジトリの場所ベースの gitignore 切り替え(includeIf)** — superpowers 系と削除済みの ce 系のスキルが生成した経緯ドキュメント(`docs/{brainstorms,ideation,plans,residual-review-findings,superpowers}/`)は、仕事リポジトリではノイズになるため除外し、個人リポジトリでは開発経緯として commit したい。これを git の `includeIf "gitdir:..."` で場所単位に切り替える: デフォルトの `~/.gitignore`(`dot_gitignore.tmpl`)はこれらを除外し、`dot_gitconfig.tmpl` の `includeIf`(`~/ghq/github.com/tanimon/` と `~/.local/share/chezmoi/`)が `~/.config/git/personal.inc` 経由で `core.excludesfile` を `~/.gitignore_personal`(`dot_gitignore_personal.tmpl`、これらを除外しない版)に差し替える。共通部分は `.chezmoitemplates/gitignore-common` に一本化し、両 `.tmpl` が `{{ template "gitignore-common" }}` で取り込む(対象ブロック以外の重複管理を避けるため)。フェイルセーフはデフォルト除外側: 未登録の場所(仕事の新リポジトリ・OSS クローン)では commit されず、個人リポジトリの登録漏れの損害は「commit されない」だけで軽微。`gitdir` は worktree でも本体の `.git` 配下を指すため、`~/orca/workspaces/` 等に切った worktree にも本体側のルールが自動で効く。新しい個人開発の場所を増やしたら `includeIf` セクションを追記する。仕事リポジトリへの commit-then-delete(レビュー前削除)方式は検討のうえ不採用: gitignore されたファイルもローカルには存在し続けるので開発中の参照に commit は不要で、削除後も push 済みブランチの中間コミットには残り、削除忘れガードを仕事リポジトリの CI/フックに置くこともできないため。
+**リポジトリの場所ベースの gitignore 切り替え(includeIf)** — 経緯ドキュメント(`docs/superpowers/` など)を仕事リポジトリでは除外し個人リポジトリでだけ commit する仕組みと不採用案は、`.claude/rules/gitignore-includeif.md`(関連ファイルを扱うときだけ読み込まれる)にある。
 
-**Identity leak guard(`scripts/scan-sensitive-info.sh`)** — このリポジトリは public なので、work 用 GitHub org 名とローカルアカウント名は git 管理下に置かない。ガードは 2 層で、1 層では両方の形を覆えない。
-
-**(1) 形(shape)のパターン** — `sensitive-patterns.txt` に commit され、CI でも動く。識別子そのものを含まないので commit できる。
-- `ghq/github\.com/[A-Za-z0-9._-]+` — `~/ghq/github.com/<literal>` のハードコードを検出し、`~/ghq/github.com/{{ .ghOrg }}/**`(正例は `dot_claude/settings.json.tmpl`)を強制する。
-- `-Users-[A-Za-z][A-Za-z0-9.-]*--` — Claude Code のプロジェクトスラグ(`/Users/<user>/.local/share/chezmoi` → `-Users-<user>--local-share-chezmoi`。実際には `<user>` の位置に実アカウント名が入る)。`/` が消えるため既存の `/Users/...` パターンでは**構造的に捕まらない**。実際にこの形で実アカウント名が docs/ に残っていた。
-- プレースホルダ(`{{ .ghOrg }}`、`<work-org>`、`-Users-<user>--`)はいずれも文字クラス外なので誤検知しない。
-
-**(2) 識別子そのもの** — 散文中の言及(「<org> の worktree では…」)は形が無いので (1) では捕まらない。**リポジトリには書かず**、スキャン時にマシンから解決する: work org は `chezmoi data` の `.ghOrg`、アカウント名は `id -un`。それぞれ `SENSITIVE_WORK_ORG` / `SENSITIVE_LOCAL_USER` で上書き可(set-but-empty で無効化)。`id -un` が CI runner やコンテナの汎用アカウント名(`runner`/`node`/`root` 等)を返した場合は**識別子として扱わない** — これらは repo 内に普通の単語として頻出し、狩ると CI が無意味に赤くなる(実測で 14 行以上)。明示的な上書きは常に優先されるので、この除外が本当に守りたい名前を隠すことはない。マシンから引けない文字列(改名前のアカウント名や、システムが保持していない実名など)は gitignore 済みの `scripts/sensitive-patterns.local.txt` に書く — **その文字列はここに書けない**(書けば漏洩そのもの)ので、この CLAUDE.md も含め commit されるファイルには具体例を残さない。**このファイルは自己ブートストラップできない**(seed のために commit したら、それがまさに防ぎたい漏洩)ので、新しいマシンでは手で作り直す。
-
-**出力の作法。** パターンは行頭 `@redact ` で出力モードを切り替える。redact は `file:line` だけを出力する — public リポの Actions ログにマッチ行を出すと、ガードが守っている文字列をガード自身が公開してしまうため。redaction は*マッチ内容*に対するもので、commit 済みパターン自体は既に公開なので**パターン名は出す** — これが「1行に2ガードが当たった」のか「別々の2件」なのかの区別になる。形を表すパターンでも、マッチ行に識別子そのものが出るもの((1) の 2 つ)は redact にする。それ以外の形のパターンは既定の show のまま(マッチ行が見えないと修正できない)。識別子が解決できないときは黙って exit 0 せず、**どの resolver がなぜ skip されたかを名前で**出す — 静かな pass は「clean」に見えるうえ、resolver が複数ある状態で「何かが skip された」だけでは片方だけ解決した実行を誤って説明してしまう。
-
-**強制点。** CI は (1) だけを強制する(chezmoi 設定も実ユーザー名も無い)。(2) の強制点はローカルの pre-commit フックと `just lint`。意図的に公開している情報(公開済みの commit identity・SSH 公開鍵・このリポの公開アカウント名)は `scripts/sensitive-allowlist.txt` に `<path-suffix or *>:<regex>` 形式で例外登録する。識別子そのものはこのファイルに書けない(書けば漏洩そのもの)ことが設計上の制約。
+**Identity leak guard(`scripts/scan-sensitive-info.sh`)** — このリポジトリは public なので、work 用 GitHub org 名とローカルアカウント名を git 管理下のファイルに**書かない**(散文中の言及・プロジェクトスラグ `-Users-<user>--` の形も含む。例示はプレースホルダにする)。ガードの 2 層の仕組み・出力の redact・allowlist の書式は `.claude/rules/identity-leak-guard.md`(ガードを触るときだけ読み込まれる)にある。
 
 **Claude Code sandbox (nono)** — `claude-nono` in `dot_config/zsh/sandbox.zsh` (on trial; plain `claude` is unwrapped) runs Claude Code inside [nono](https://github.com/nolabs-ai/nono) (Homebrew, macOS Seatbelt / Linux Landlock, deny-all default), extending the official `claude-code` pack via `dot_config/nono/profiles/claude-seal.json`. See `dot_config/nono/CLAUDE.md` for the full policy detail (egress control, git/gh-inside-the-boundary, 1Password signing, accepted security residuals, the native Bash sandbox).
 
