@@ -23,7 +23,8 @@ in `~/.local/share/chezmoi` itself (that worktree stays on `main` because
 ネイティブの Bash サンドボックスでも、元の checkout の `.git/config` に書けない
 (`~/.claude/rules/claude-code/bash-tool.md`)。nono ではさらに `.git/` に書ける範囲が限られ
 (`dot_config/nono/CLAUDE.md` の "Write-side git needed filesystem grants")、`.git/FETCH_HEAD`
-にも書けない。fetch は新しい worktree の中で、週次ジョブの `prepare_worktree` と同じ順に行う。
+にも書けない。fetch は新しい worktree の中で、週次ジョブの worktree の準備(Loop PR の module
+`lib/harness-loop-pr.bash` の `_harness_loop_pr_make_worktree`)と同じ順に行う。
 worktree の置き場所 `~/.claude/harness/manual-review-worktree` はどちらのサンドボックスの内側
 でも書け、週次ジョブの `review-worktree` とは別の場所である。Bash ツールの呼び出しを跨ぐと
 シェル変数が残らないので、どのコマンドにもこのパスを省略せずに書く:
