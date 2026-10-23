@@ -21,23 +21,45 @@ const ARG_KEYS = [
 ];
 const BUDGET_FLOOR = 100000;
 
+// mattpocock の code-review は対話と issue tracker を前提にした手順なので、Workflow の中で止まる箇所を上書きする。
+// 2 軸を 1 体に実行させないのは、skill が中で起動するサブエージェントが Workflow のエージェントから動くか
+// 確かめていないため(ADR 0020)。軸ごとに別のレビュアーにして、並列化と軸の分離を Workflow 側で持つ。
+const mattpocockNote = (axis) =>
+  `この skill の手順のうち、${axis} 軸だけを自分で実行する。手順 1 の固定点は差分の基点で、尋ねない。手順 2 の issue tracker の検索と /setup-matt-pocock-skills の案内はせず、spec は要件文書とする。手順 4 のサブエージェントの起動と手順 5 の集約はせず、${axis} 軸の brief を自分で実行する。brief の語数制限は無視し、全ての指摘を返す。`;
+
 // built-in の code-review は fork 型の skill で、Workflow のエージェントから Skill で呼ぶと
 // 本文が返らず別エージェントとして起動するだけなので使えない(2026-09-25 実測。spec の「試作で実測すること」)。
+// 構成の理由は ADR 0020。mattpocock の 2 軸はバグもセキュリティも探さないので、ecc と silent-failure がその枠を持つ。
 const REVIEWERS = [
+  {
+    id: "mattpocock-standards",
+    skill: "mattpocock-skills:code-review",
+    severities: ["hard", "judgement"],
+    blocking: ["hard"],
+    reportsSmells: true,
+    // ユーザーのグローバル規約(~/.claude など)は、リポジトリの規約ではないので含めない。
+    note: `${mattpocockNote("Standards")}規約の出所は、リポジトリにある CODING_STANDARDS.md・CONTRIBUTING.md・CLAUDE.md・AGENTS.md・.claude/rules/ の配下と、サブディレクトリの CLAUDE.md / AGENTS.md とする。文書化された規約への違反は severity="hard"、判断の分かれるものは "judgement" にする。smell の基準で挙げた指摘は、smell にその名前(例: Feature Envy)を入れ、severity="judgement" にする。規約違反の指摘では smell を空にする。`,
+  },
+  {
+    id: "mattpocock-spec",
+    skill: "mattpocock-skills:code-review",
+    severities: ["hard", "judgement"],
+    blocking: ["hard"],
+    // scope creep を修正エージェントに渡すと、要件文書に書かれていないだけの、人間が意図した機能を消しうる。
+    note: `${mattpocockNote("Spec")}要件文書とのずれを指摘する。実装が要件文書と食い違う・欠けているものは severity="hard"、判断の分かれるものは "judgement" にする。要件文書に書かれていない振る舞い(scope creep)は、コードを消す指摘にせず target="requirements"・requirementsBreaking=false にする。`,
+  },
   {
     id: "ecc",
     skill: "ecc-code-review",
     severities: ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
     blocking: ["CRITICAL", "HIGH"],
-    // ecc の「Code Quality (HIGH)」は行数・console.log などの機械的な基準を含み、そのままだと修正必須になって
-    // 指示の無いリファクタリングを招くので、不具合に繋がるもの以外は MEDIUM 以下で報告させる。
-    note: "ecc の「Code Quality (HIGH)」のうち、関数の行数・ファイルの行数・ネストの深さ・console.log・TODO/FIXME・JSDoc の欠落といった機械的な基準は、それ自体が不具合に繋がる場合を除き MEDIUM 以下で報告する。",
+    note: "見るのは正しさとセキュリティだけにする。Security Issues の節と Code Quality の Missing error handling に加えて、差分が誤動作する箇所(条件の取り違え、境界値、例外、回帰)を指摘する。Code Quality のそれ以外の項目(行数、ネスト、console.log、TODO/FIXME、JSDoc)と Best Practices の節は、規約を見るレビュアーが別にいるので指摘しない。",
   },
   {
-    id: "requesting",
-    skill: "superpowers:requesting-code-review",
-    severities: ["Critical", "Important", "Minor"],
-    blocking: ["Critical", "Important"],
+    id: "silent-failure",
+    agentType: "pr-review-toolkit:silent-failure-hunter",
+    severities: ["CRITICAL", "HIGH", "MEDIUM"],
+    blocking: ["CRITICAL", "HIGH"],
   },
 ];
 
@@ -91,6 +113,7 @@ const reviewSchema = (reviewer) => ({
           severity: { type: "string", enum: reviewer.severities },
           target: { type: "string", enum: ["code", "requirements"] },
           requirementsBreaking: { type: "boolean" },
+          ...(reviewer.reportsSmells && { smell: { type: "string" } }),
         },
         required: ["file", "summary", "severity", "target"],
       },
@@ -217,6 +240,7 @@ function newState(config) {
     deferredKeys: new Set(),
     requirementsConcerns: [],
     advisory: [],
+    smells: [],
     advisoryClosedKeys: new Set(),
     advisoryReappearedKeys: new Set(),
     advisoryEscalatedKeys: new Set(),
@@ -256,7 +280,11 @@ function collectObservations(state, source, result) {
   for (const o of result.observations) state.observations.push(`${source}: ${o}`);
 }
 
+// smell は判断の分かれる指摘なので、申告された重大度にかかわらず修正必須にしない(ADR 0020)。
+const isSmell = (finding) => typeof finding.smell === "string" && finding.smell !== "";
+
 function isBlocking(finding) {
+  if (isSmell(finding)) return false;
   const reviewer = REVIEWERS.find((r) => r.id === finding.reviewer);
   return Boolean(reviewer && reviewer.blocking.includes(finding.severity));
 }
@@ -271,6 +299,7 @@ function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys)
     requirementsConcerns: [],
     requirementsBreaking: [],
     advisory: [],
+    smells: [],
     closedRepeats: [],
     dropped: [],
   };
@@ -301,6 +330,12 @@ function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys)
     }
     if (codeMembers.length === 0) continue;
     const item = toItem(c.key, codeMembers);
+    // 元の指摘がすべて smell なら Smell Finding にし、修正にも収束の判定にも入れない。
+    // 他のレビュアーの指摘と統合されていれば、その重大度でいつもどおり判定する。
+    if (codeMembers.every(isSmell)) {
+      out.smells.push(item);
+      continue;
+    }
     if (closedKeys.has(c.key)) {
       if (codeMembers.some(isBlocking)) out.closedRepeats.push(item);
       continue;
@@ -356,9 +391,12 @@ ${reportChanges}
 function reviewPrompt(reviewer, config) {
   // ブランチの変更と修正は毎回コミットされるので、未コミットの変更だけを集める skill の手順では差分が空になる。
   const note = reviewer.note ? `\n- ${reviewer.note}` : "";
-  return `Skill ツールで「${reviewer.skill}」を読み込み、その手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。
-- 差分の収集だけは skill の手順を上書きする: 対象ファイルは「git diff --name-only ${config.baseRef}...HEAD」、差分は「git diff ${config.baseRef}...HEAD」で集める。変更はコミット済みなので、未コミットの変更が無くても「Nothing to review」で止まらない。
-- 要件は要件文書 ${config.requirementsPath}。要件文書とのずれも指摘の対象にする。
+  const start = reviewer.skill
+    ? `Skill ツールで「${reviewer.skill}」を読み込み、その手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。`
+    : `あなたの役割の手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。`;
+  return `${start}
+- 差分の収集だけは手順を上書きする: 対象ファイルは「git diff --name-only ${config.baseRef}...HEAD」、差分は「git diff ${config.baseRef}...HEAD」で集める。変更はコミット済みなので、未コミットの変更が無くても「Nothing to review」で止まらない。
+- 要件文書は ${config.requirementsPath}。
 - ファイルの修正、コミット、PR へのコメント投稿、ReportFindings ツールの呼び出しはしない。結果は StructuredOutput だけで返す。
 - severity には skill 自身の尺度をそのまま使う: ${reviewer.severities.join(" / ")}
 - 指摘が実装ではなく要件文書そのものに向く場合は target="requirements" とし、要件文書どおりに作ると壊れる場合だけ requirementsBreaking=true にする。
@@ -410,7 +448,9 @@ function verifyPrompt(config) {
 
 function fixVerifyPrompt(result, config) {
   return `動作確認が失敗した。結果(JSON): ${JSON.stringify(result)}
-原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}
+Skill ツールで「mattpocock-skills:diagnosing-bugs」を読み込み、その手順で原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}
+- この実行は非対話で、人間に質問できない。skill が人間に相談するとする場面(失敗を再現する手順が作れない、人間の操作が要る)では、直さずに fixed=false とし、試したことを summary に書く。仮説の一覧は人間に見せず、自分の順位どおりに確かめる。
+- 回帰テストを追加してよい。
 ${reportChanges}${keepRequirements(config)}${unstartedScope("それを実装しない。未着手の項目を実装しないと直らない場合は、fixed=false とし、その旨を summary に書く。")}`;
 }
 
@@ -464,7 +504,7 @@ function renderStats(state) {
   lines.push(`- レビューラウンド: ${state.rounds.length}`);
   for (const r of state.rounds) {
     lines.push(
-      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正に回した ${r.advisorySent}: 修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined}、報告のみ ${r.advisoryReportOnly})`,
+      `  - ラウンド ${r.round}: 修正必須 ${r.blocking} / 再出現 ${r.repeated} / 参考 ${r.advisory}(修正に回した ${r.advisorySent}: 修正 ${r.advisoryFixed} / 見送り ${r.advisoryDeclined}、報告のみ ${r.advisoryReportOnly}) / Smell ${r.smells}`,
     );
   }
   lines.push(
@@ -556,6 +596,7 @@ function renderReport(state) {
         ? `${formatItem(i)}(直したと回答した後、再レビューで再指摘された)`
         : formatItem(i),
   );
+  pushSection("Smell Finding", uniqueByKey(state.smells), formatItem);
   pushSection(
     "見送った参考指摘",
     state.advisoryDeclined.filter((d) => !escalated.has(d.key)),
@@ -611,6 +652,7 @@ async function runReviewers(state, roundNo) {
           label: `review:${r.id}`,
           phase: "Review",
           schema: reviewSchema(r),
+          ...(r.agentType && { agentType: r.agentType }),
         }),
     ),
   );
@@ -839,6 +881,7 @@ async function reviewRounds(state, tracker) {
       advisoryReportOnly: pendingAdvisory.length - advisorySent,
       advisoryFixed: 0,
       advisoryDeclined: 0,
+      smells: result.smells.length,
       missingReviewers: state.lastMissingReviewers,
     });
     if (result.closedRepeats.length > 0)
@@ -848,6 +891,7 @@ async function reviewRounds(state, tracker) {
     state.closedRepeats.push(...result.closedRepeats);
     markUnresolved(state, result.repeated);
     state.advisory.push(...advisory);
+    state.smells.push(...result.smells);
     state.requirementsConcerns.push(...result.requirementsConcerns);
     if (result.requirementsBreaking.length > 0) {
       markUnresolved(state, result.blocking);

@@ -31,7 +31,7 @@ Workflows は実行中に人間へ質問できないので、質問は必ず入�
 2. **実装**: タスクごとに新しい実装エージェントを順に起動する。各エージェントは TDD で進め、テスト/lint コマンドを通してからコミットする。この段ではレビューをしない。タスクが続行不能になったら、その場で停止して報告する。
 3. **レビューループ**(修正ラウンドの上限 `maxReviewRounds`、既定 3。修正のたびに再レビューするので、レビューは最大で上限+1回。上限はループに入るたびに数え直す)。各ラウンドは次の順で進む。
    1. テスト/lint コマンドを通す。落ちていれば修正してから進む(落ちたままレビューすると、指摘が lint エラーの言い換えで埋まるため)。
-   2. 2本のレビュアーを並列に実行する: `ecc-code-review`、`superpowers:requesting-code-review`。built-in の `code-review` も合意時点では含めていたが、Workflow のエージェントからは使えないと実測で分かったため外した(下の「試作で実測すること」)。
+   2. 2本のレビュアーを並列に実行する: `ecc-code-review`、`superpowers:requesting-code-review`。built-in の `code-review` も合意時点では含めていたが、Workflow のエージェントからは使えないと実測で分かったため外した(下の「試作で実測すること」)。現在のレビュアーの構成は [ADR 0020](../../adr/0020-review-verify-reviewers-center-on-mattpocock-code-review.md)。
    3. 統合エージェントが重複をまとめ、指摘ごとに識別子(ファイル・位置・種類)を振る。統合エージェントに任せるのは重複をまとめることだけで、判定の入力(重大度・code か plan か・planBreaking)は元の指摘からコードが導く。統合エージェントがどの cluster にも入れなかった指摘は、単独の cluster として扱う。Deferred / Unresolved 済みの識別子に統合された修正必須指摘は、判定からは外すが、元の指摘の内容を報告に残す。
    4. 判定はコードで行う。修正必須になるのは、ecc の CRITICAL/HIGH、requesting の Critical/Important のいずれかを含む指摘。それ以外は参考扱いとし、報告にだけ載せる。
    5. plan 自体に向けた指摘は Plan Concern とし、修正しない。そのうち「plan どおりに作ると壊れる」ものがあれば即座に停止する。
