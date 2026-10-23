@@ -221,7 +221,7 @@ fi
 printf '%s\n' "$*" >>"$GH_LOG"
 if [[ "$1 $2" == "pr list" && "$*" == *'--state open'* ]]; then
     # 開いているループの PR の一覧(Metrics-only PR を作るかの判定)。いつも無し。開いている PR があるときの判定は
-    # test/harness-publish.bats が公開の module の interface で検査する
+    # test/harness-loop-pr.bats が Loop PR の module の interface で検査する
     exit 0
 fi
 if [[ "$1 $2" == "pr list" ]]; then
@@ -1977,45 +1977,56 @@ weekly_without_integrity_lib() {
     assert_output --partial 'Verdict CLI を確かめられなかった'
 }
 
-# 公開の lib だけが無いか壊れた(健全性の lib と Integrity Snapshot の lib は在る)入口スクリプトの複製で起動する
-weekly_without_publish_lib() { # [<lib に置く中身>]
-    local dir="$BATS_TEST_TMPDIR/nopublish"
+# Loop PR の module だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
+weekly_without_loop_pr_lib() { # [<lib に置く中身>]
+    local dir="$BATS_TEST_TMPDIR/noloop-pr"
     mkdir -p "$dir/lib"
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" "$dir/lib/"
-    [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-publish.bash"
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-review-outcome.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-pr-body.bash" "$dir/lib/"
+    [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-loop-pr.bash"
     bash "$dir/harness-weekly.sh"
 }
 
-@test "公開の lib が無くて止まった run も、失敗の Issue を作る" {
-    run weekly_without_publish_lib
+@test "Loop PR の module が無くて止まった run も、失敗の Issue を作る" {
+    run weekly_without_loop_pr_lib
     assert_failure
-    assert_output --partial 'harness-publish.bash is missing or broken'
+    assert_output --partial 'harness-loop-pr.bash is missing or broken'
     refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
 }
 
-@test "公開の lib の構文が壊れていれば、読み込まずに止まる" {
-    run weekly_without_publish_lib 'harness_publish_init() {'
+@test "Loop PR の module の構文が壊れていれば、読み込まずに止まる" {
+    run weekly_without_loop_pr_lib 'harness_loop_pr_init() {'
     assert_failure
-    assert_output --partial 'harness-publish.bash is missing or broken'
+    assert_output --partial 'harness-loop-pr.bash is missing or broken'
     refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
 }
 
-@test "公開の lib に綴りの関数か定数が欠けていれば止まる" {
-    run weekly_without_publish_lib '# empty'
+@test "Loop PR の module に綴りや公開の関数が欠けていれば止まる" {
+    run weekly_without_loop_pr_lib '# empty'
     assert_failure
-    assert_output --partial 'harness-publish.bash lacks the publish steps'
+    assert_output --partial 'harness-loop-pr.bash lacks the publish steps'
     refute_output --partial 'command not found'
-    run weekly_without_publish_lib "$(grep -v '^HARNESS_PUBLISH_METRICS_ONLY_WEEKS=' "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash")"
+    run weekly_without_loop_pr_lib "$(sed 's/^harness_loop_pr_review_instructions() {/_removed() {/' "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash")"
     assert_failure
-    assert_output --partial 'harness-publish.bash lacks the publish steps'
+    assert_output --partial 'harness-loop-pr.bash lacks the publish steps'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+@test "Loop PR の module を読めずに止まった run も、起動時に読んだ前の成功の古さを、この run の失敗の Issue に任せたと出す" {
+    # 前の成功の日数は Loop PR の module を読み込む前に読むので、その読み込みで止まった run の report_stops も使う
+    seed_heartbeat "$(($(date +%s) - 9 * 86400))"
+    run weekly_without_loop_pr_lib
+    assert_failure
+    assert_output --partial 'harness-loop-pr.bash is missing or broken'
+    assert_output --partial 'last success was 9 days ago; the failure issue of this run reports it'
 }
 
 # Review Outcome の lib だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
@@ -2025,7 +2036,7 @@ weekly_without_review_outcome_lib() { # [<lib に置く中身>]
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
         "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash" "$dir/lib/"
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash" "$dir/lib/"
     [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-review-outcome.bash"
     bash "$dir/harness-weekly.sh"
 }
@@ -2052,7 +2063,7 @@ weekly_without_pr_body_lib() { # [<lib に置く中身>]
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
         "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash" \
         "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-review-outcome.bash" "$dir/lib/"
     [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-pr-body.bash"
     bash "$dir/harness-weekly.sh"
@@ -2074,21 +2085,21 @@ weekly_without_pr_body_lib() { # [<lib に置く中身>]
     assert [ ! -f "$ARGV_LOG" ]
 }
 
-@test "公開の lib を読み込む前に止まった run のブランチの Issue も、lib が組み立てるのと同じ綴りで公開の手順を書く" {
+@test "Loop PR の module を読み込む前に止まった run のブランチの Issue も、lib が組み立てるのと同じ綴りで公開の手順を書く" {
     mv "$HARNESS_WEEKLY_REPO" "$HOME/repo"
     export HARNESS_WEEKLY_REPO="$HOME/repo"
     leftover_branch harness/review-2026-09-01
     # 綴りの正本(lib)で組み立てた手順。report_stops は lib が無い run では自分の写しで同じ文を作る
     expected=$(
-        # shellcheck source=../dot_claude/scripts/lib/harness-publish.bash
-        source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-publish.bash"
+        # shellcheck source=../dot_claude/scripts/lib/harness-loop-pr.bash
+        source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash"
         printf -- '- 公開する: `%s` の後に、`~/repo` で `%s`' \
-            "$(harness_publish_push_command harness/review-2026-09-01 '~/repo')" \
-            "$(harness_publish_pr_command harness/review-2026-09-01)"
+            "$(harness_loop_pr_push_command harness/review-2026-09-01 '~/repo')" \
+            "$(harness_loop_pr_create_command harness/review-2026-09-01)"
     )
-    run weekly_without_publish_lib
+    run weekly_without_loop_pr_lib
     assert_failure
-    assert_output --partial 'harness-publish.bash is missing or broken'
+    assert_output --partial 'harness-loop-pr.bash is missing or broken'
     run cat "$ALERT_LOG"
     assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
     run cat "$ALERT_BODIES"

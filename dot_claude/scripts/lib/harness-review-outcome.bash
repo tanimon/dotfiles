@@ -10,19 +10,19 @@
 #   どの失敗の判定よりも先に残す。
 # - 選別が残したもの(worktree・結果ファイル・queue・判定の記録・本文)の分類(harness_review_outcome_classify)。
 # - 結果ファイル由来の本文の 2 節(harness_review_outcome_sections)。本文への追記は呼び出し側が行う。
-# 持たないもの: Metrics-only PR の要否と公開(公開の lib)、ほかの本文の節、手で公開する手順の案内(週次ジョブ)。
+# 持たないもの: Metrics-only PR の要否と公開(Loop PR の module)、ほかの本文の節、手で公開する手順の案内(週次ジョブ)。
 #
 # 分類の値(標準出力に 1 行)と週次ジョブの振り分け:
 #   publish              本文の節を足して公開する
-#   no-change            Metrics-only PR の要否を公開の lib に尋ねる(要らなければ片付けて成功)
+#   no-change            Metrics-only PR の要否を Loop PR の module に尋ねる(要らなければ片付けて成功)
 #   failed               失敗(理由は stderr に出る。git と jq 自身の失敗は、そのコマンドのエラー文だけになる)
 #   failed-with-commits  選別の claude が失敗した(か照合に落ちた)が commit が残っている。週次ジョブが案内を出す
 # Verdict の CLI の照合に落ちたら値を出さずに HARNESS_INTEGRITY_FAILED(3)で終わる。使い方の誤りは 2。
 # 理由の行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤りだけを harness-review-outcome: で出す。
 #
-# 週次ジョブは claude の起動前に、Integrity Snapshot の lib と公開の lib の後でこの lib を読み込む(harness_integrity_run と
-# HARNESS_PUBLISH_RATES_REPO_DIR / HARNESS_PUBLISH_LEDGER_REPO_DIR を使う)。メモリに載った後は claude がファイルを書き換えても
-# その run に効かないので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので Guarded Path(scripts/guarded-paths.txt)に載せてある。
+# 週次ジョブは claude の起動前に、Integrity Snapshot の lib の後でこの lib を読み込む(harness_integrity_run を使う)。
+# 初期化は Loop PR の module(lib/harness-loop-pr.bash)の初期化が呼び、記録の置き場もそこから受け取る。
+# メモリに載った後は claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので Guarded Path(scripts/guarded-paths.txt)に載せてある。
 # queue・判定の記録・Deploy-only Fix の記録・Verdict の CLI のパスは、呼び出しのたびに $HOME から作る(Verdict の CLI は
 # harness_integrity_executables の行と一致しなければ実行されない)。
 #
@@ -35,6 +35,8 @@ _HARNESS_REVIEW_OUTCOME_RESULT=""
 _HARNESS_REVIEW_OUTCOME_PR_BODY=""
 _HARNESS_REVIEW_OUTCOME_RUN=""
 _HARNESS_REVIEW_OUTCOME_DATE=""
+_HARNESS_REVIEW_OUTCOME_RATES_REPO_DIR=""
+_HARNESS_REVIEW_OUTCOME_LEDGER_REPO_DIR=""
 
 _harness_review_outcome_queue() {
     printf '%s\n' "$HOME/.claude/harness/queue.md"
@@ -58,8 +60,10 @@ _harness_review_outcome_usage() {
 }
 
 # harness_review_outcome_init --worktree <dir> --review-result <file> --pr-body <file> --run <採用の印> --date <YYYY-MM-DD>
+#   --rates-repo-dir <週の再発率の記録のリポジトリ内の置き場> --ledger-repo-dir <Rule Ledger の記録のリポジトリ内の置き場>
+# 置き場は、選別の commit が触れてはいけない(週次ジョブだけが commit する)パス
 harness_review_outcome_init() {
-    local worktree="" result="" pr_body="" run="" date=""
+    local worktree="" result="" pr_body="" run="" date="" rates_dir="" ledger_dir=""
     while [[ $# -gt 0 ]]; do
         [[ $# -ge 2 ]] || {
             _harness_review_outcome_usage "init: $1 needs a value"
@@ -71,6 +75,8 @@ harness_review_outcome_init() {
         --pr-body) pr_body=$2 ;;
         --run) run=$2 ;;
         --date) date=$2 ;;
+        --rates-repo-dir) rates_dir=$2 ;;
+        --ledger-repo-dir) ledger_dir=$2 ;;
         *)
             _harness_review_outcome_usage "init: unknown argument $1"
             return
@@ -78,12 +84,8 @@ harness_review_outcome_init() {
         esac
         shift 2
     done
-    if [[ -z "$worktree" || -z "$result" || -z "$pr_body" || -z "$run" || -z "$date" ]]; then
-        _harness_review_outcome_usage 'init needs --worktree, --review-result, --pr-body, --run and --date'
-        return
-    fi
-    if [[ -z "${HARNESS_PUBLISH_RATES_REPO_DIR:-}" || -z "${HARNESS_PUBLISH_LEDGER_REPO_DIR:-}" ]]; then
-        _harness_review_outcome_usage 'init needs HARNESS_PUBLISH_RATES_REPO_DIR and HARNESS_PUBLISH_LEDGER_REPO_DIR; source lib/harness-publish.bash first'
+    if [[ -z "$worktree" || -z "$result" || -z "$pr_body" || -z "$run" || -z "$date" || -z "$rates_dir" || -z "$ledger_dir" ]]; then
+        _harness_review_outcome_usage 'init needs --worktree, --review-result, --pr-body, --run, --date, --rates-repo-dir and --ledger-repo-dir'
         return
     fi
     _HARNESS_REVIEW_OUTCOME_WORKTREE=$worktree
@@ -91,6 +93,8 @@ harness_review_outcome_init() {
     _HARNESS_REVIEW_OUTCOME_PR_BODY=$pr_body
     _HARNESS_REVIEW_OUTCOME_RUN=$run
     _HARNESS_REVIEW_OUTCOME_DATE=$date
+    _HARNESS_REVIEW_OUTCOME_RATES_REPO_DIR=$rates_dir
+    _HARNESS_REVIEW_OUTCOME_LEDGER_REPO_DIR=$ledger_dir
 }
 
 _harness_review_outcome_ready() {
@@ -172,7 +176,7 @@ _harness_review_outcome_record_deploy_only() {
 #   - harness-review は処理した項目をすべて判定の記録に移すので、queue に残ってよいのは落とした
 #     変更だけ。残数が dropped の件数より多ければ、申告しなかった項目がある
 #   - 判定の記録にこの run の採用(Verdict の CLI の adopted)があるのに commit が 0 件なら、採用を commit していない。
-#     陳腐化の修正には印が付かないので、採用と区別できる。公開の lib が印を置き換える前に呼ぶ
+#     陳腐化の修正には印が付かないので、採用と区別できる。Loop PR の module が印を置き換える前に呼ぶ
 # 項目はタイトルではなく件数で比べる(commit の件名に queue のタイトルがそのまま入る保証は無い)。
 # そのため、採用の一部だけを commit せず陳腐化の修正の commit で件数が埋まる週は見分けられない。
 # dropped の要素は queue の項目ではなく変更の単位なので、queue に項目を持たない陳腐化の修正を
@@ -219,7 +223,7 @@ _harness_review_outcome_check_claims() { # <commit の件数> <dropped の件数
 #   - commit 1 件以上 → publish。dropped は queue に残っており、次の選別にかけ直される
 # 次はどれも failed: commit されていない変更が残った / 結果ファイルが無いか決めた形でない / commit があるのに本文が無い /
 # 選別の commit が週の再発率の記録か Rule Ledger の置き場に触れた(どちらも週次ジョブだけが書く)。
-# 置き場の検査は費用のかかる評価より前に済ませるため、公開の lib ではなくここで行う。
+# 置き場の検査は費用のかかる評価より前に済ませるため、Loop PR の module の公開の手順ではなくここで行う。
 # Deploy-only Fix は、結果ファイルを読めた時点で、未 commit の変更を含むどの失敗の判定よりも先に残す
 _harness_review_outcome_classify_ok() { # <base>
     local base=$1 worktree=$_HARNESS_REVIEW_OUTCOME_WORKTREE commits dropped_count dropped_items touched dir status=0
@@ -270,13 +274,13 @@ _harness_review_outcome_classify_ok() { # <base>
         printf 'failed\n'
         return 0
     fi
-    for dir in "$HARNESS_PUBLISH_RATES_REPO_DIR" "$HARNESS_PUBLISH_LEDGER_REPO_DIR"; do
+    for dir in "$_HARNESS_REVIEW_OUTCOME_RATES_REPO_DIR" "$_HARNESS_REVIEW_OUTCOME_LEDGER_REPO_DIR"; do
         touched=$(git -C "$worktree" diff --name-only "$base" HEAD -- "$dir") || {
             printf 'failed\n'
             return 0
         }
         if [[ -n "$touched" ]]; then
-            if [[ "$dir" == "$HARNESS_PUBLISH_RATES_REPO_DIR" ]]; then
+            if [[ "$dir" == "$_HARNESS_REVIEW_OUTCOME_RATES_REPO_DIR" ]]; then
                 printf 'harness-weekly: review commits touched %s (only this job writes the weekly failure rate records); no PR created\n' "$dir" >&2
             else
                 printf 'harness-weekly: review commits touched %s (only this job writes the Rule Ledger); no PR created\n' "$dir" >&2

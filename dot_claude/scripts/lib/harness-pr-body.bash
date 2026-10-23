@@ -4,7 +4,7 @@
 #
 # 持つもの:
 # - 本文の 3 種類それぞれの組み立て: 採用のある Loop PR(harness_pr_body_review)、Metrics-only PR
-#   (harness_pr_body_metrics_only。公開の lib が記録の commit の後に呼ぶ)、選別の claude が commit の後に失敗した run の
+#   (harness_pr_body_metrics_only。Loop PR の module が記録の commit の後に呼ぶ)、選別の claude が commit の後に失敗した run の
 #   手で公開するための本文(harness_pr_body_failed_review)。節の順序と節ごとの失敗の扱いの正本はそれぞれの入口のコメント。
 # - ジョブが足す節: Review Outcome の節の取り込み、失敗の検出件数、Failure Pattern の再発率の推移、評価が失敗したときの
 #   ルールの効果、純増、Rule Ledger。
@@ -12,7 +12,7 @@
 # - 選別の prompt の、本文に書かせるものと書かせないものの指示(harness_pr_body_review_instructions)。ジョブが足す節を
 #   claude に書かせないための一覧なので、節を足すときはここも直す。
 # 持たないもの: 本文の先頭(選別の claude が書く)、Eval Case の評価の実行と結果の封印(週次ジョブ。成功した評価の節の
-# 文字列を受け取るだけ)、Dropped Change と Deploy-only Fix の節の中身(Review Outcome の lib)、本文を消すこと(公開の lib)。
+# 文字列を受け取るだけ)、Dropped Change と Deploy-only Fix の節の中身(Review Outcome の lib)、本文を消すこと(Loop PR の module)。
 #
 # 返り値は 0(成功)・1(失敗)・2(この lib の使い方の誤り)・HARNESS_INTEGRITY_FAILED(Integrity Snapshot の照合に
 # 落ちた)。ただし harness_pr_body_adopted_titles は Verdict の CLI の終了コードをそのまま返す(CLI の引数の誤りも 2)。
@@ -20,8 +20,9 @@
 # (harness_pr_body_review と harness_pr_body_metrics_only)が非 0 を返すときは、PR を作らない理由の行をこの lib が出す。
 # 出す行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤りだけを harness-pr-body: で出す。
 #
-# 週次ジョブは claude の起動前に、Integrity Snapshot の lib・公開の lib・Review Outcome の lib の後でこの lib を読み込む
-# (harness_integrity_run・HARNESS_PUBLISH_LEDGER_REPO_DIR・harness_review_outcome_sections を使う)。メモリに載った後は
+# 週次ジョブは claude の起動前に、Integrity Snapshot の lib・Review Outcome の lib の後でこの lib を読み込む
+# (harness_integrity_run・harness_review_outcome_sections を使う)。初期化は Loop PR の module(lib/harness-loop-pr.bash)の
+# 初期化が呼び、Rule Ledger の記録の置き場もそこから受け取る。メモリに載った後は
 # claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので
 # Guarded Path(scripts/guarded-paths.txt)に載せてある。判定の記録・再発率のスクリプト・Verdict の CLI のパスは、呼び出しの
 # たびに $HOME から作る(2 つのスクリプトは harness_integrity_executables の行と一致しなければ実行されない)。
@@ -37,6 +38,7 @@ _HARNESS_PR_BODY_REVIEW_RESULT=""
 _HARNESS_PR_BODY_DETECTIONS=""
 _HARNESS_PR_BODY_DETECTION_SINCE=""
 _HARNESS_PR_BODY_RUN=""
+_HARNESS_PR_BODY_LEDGER_REPO_DIR=""
 
 _harness_pr_body_archive() {
     printf '%s\n' "$HOME/.claude/harness/queue-archive.md"
@@ -56,10 +58,10 @@ _harness_pr_body_usage() {
 }
 
 # harness_pr_body_init --pr-body <file> --worktree <dir> --review-result <file> --detections <file> --detection-since <epoch>
-#   --run <採用の印>
+#   --run <採用の印> --ledger-repo-dir <Rule Ledger の記録のリポジトリ内の置き場>
 # <epoch> は検出件数の節の期間の始まり(前の成功した run の時刻。週次ジョブが決める)
 harness_pr_body_init() {
-    local pr_body="" worktree="" result="" detections="" since="" run=""
+    local pr_body="" worktree="" result="" detections="" since="" run="" ledger_dir=""
     while [[ $# -gt 0 ]]; do
         [[ $# -ge 2 ]] || {
             _harness_pr_body_usage "init: $1 needs a value"
@@ -72,6 +74,7 @@ harness_pr_body_init() {
         --detections) detections=$2 ;;
         --detection-since) since=$2 ;;
         --run) run=$2 ;;
+        --ledger-repo-dir) ledger_dir=$2 ;;
         *)
             _harness_pr_body_usage "init: unknown argument $1"
             return
@@ -79,13 +82,13 @@ harness_pr_body_init() {
         esac
         shift 2
     done
-    if [[ -z "$pr_body" || -z "$worktree" || -z "$result" || -z "$detections" || -z "$since" || -z "$run" ]]; then
-        _harness_pr_body_usage 'init needs --pr-body, --worktree, --review-result, --detections, --detection-since and --run'
+    if [[ -z "$pr_body" || -z "$worktree" || -z "$result" || -z "$detections" || -z "$since" || -z "$run" || -z "$ledger_dir" ]]; then
+        _harness_pr_body_usage 'init needs --pr-body, --worktree, --review-result, --detections, --detection-since, --run and --ledger-repo-dir'
         return
     fi
-    if [[ -z "${HARNESS_PUBLISH_LEDGER_REPO_DIR:-}" || -z "${HARNESS_INTEGRITY_FAILED:-}" ]] ||
+    if [[ -z "${HARNESS_INTEGRITY_FAILED:-}" ]] ||
         ! declare -F harness_integrity_run harness_review_outcome_sections >/dev/null; then
-        _harness_pr_body_usage 'init needs lib/harness-integrity.bash, lib/harness-publish.bash and lib/harness-review-outcome.bash; source them first'
+        _harness_pr_body_usage 'init needs lib/harness-integrity.bash and lib/harness-review-outcome.bash; source them first'
         return
     fi
     _HARNESS_PR_BODY_FILE=$pr_body
@@ -94,6 +97,7 @@ harness_pr_body_init() {
     _HARNESS_PR_BODY_DETECTIONS=$detections
     _HARNESS_PR_BODY_DETECTION_SINCE=$since
     _HARNESS_PR_BODY_RUN=$run
+    _HARNESS_PR_BODY_LEDGER_REPO_DIR=$ledger_dir
 }
 
 _harness_pr_body_ready() {
@@ -232,14 +236,14 @@ _harness_pr_body_append_rates_for_pr() {
 }
 
 # この run の選別が採用した項目の見出しを 1 行ずつ出す(Verdict の CLI の adopted)。Rule Ledger の節と、週次ジョブが
-# Eval Case の評価の節を作るときに使う。公開の lib が印を PR の URL に置き換える前に読む。終了コードは Verdict の CLI の
+# Eval Case の評価の節を作るときに使う。Loop PR の module が印を PR の URL に置き換える前に読む。終了コードは Verdict の CLI の
 # もの(照合に落ちたら予約コード)
 harness_pr_body_adopted_titles() {
     _harness_pr_body_ready || return
     harness_integrity_run "$(_harness_pr_body_verdict_cli)" adopted --run "$_HARNESS_PR_BODY_RUN"
 }
 
-# Rule Ledger の節。記録は PR 番号が要るので、PR を作った後の commit で足す(公開の lib の harness_publish_review)。
+# Rule Ledger の節。記録は PR 番号が要るので、PR を作った後の commit で足す(Loop PR の module の harness_loop_pr_publish_review)。
 # 足せなかったことは本文では知らせられないので、ログの WARN と、PR の commit に記録が無いことで分かる。
 # 採用を読めなければ節を省く(評価の節と同じく、PR の公開は止めない)。Verdict の CLI の照合に落ちたら予約コードを返す
 _harness_pr_body_append_rule_ledger() {
@@ -253,7 +257,7 @@ _harness_pr_body_append_rule_ledger() {
             "$(_harness_pr_body_archive)" "$_HARNESS_PR_BODY_FILE" >&2
     elif [[ -n "$titles" ]]; then
         printf '\n## Rule Ledger\n\n採用したルールの記録(%s)は、この PR を作った後に週次ジョブが「harness: Rule Ledger の記録を足す」の commit で足す。その commit が無ければ、記録はローカルに残っていて、この PR がマージされた後の PR に載る(マージせずに閉じたら載らない)。\n' \
-            "$HARNESS_PUBLISH_LEDGER_REPO_DIR" >>"$_HARNESS_PR_BODY_FILE"
+            "$_HARNESS_PR_BODY_LEDGER_REPO_DIR" >>"$_HARNESS_PR_BODY_FILE"
     fi
 }
 
@@ -262,7 +266,7 @@ _harness_pr_body_append_rule_ledger() {
 #   この順に足す。<base> は選別の前の worktree の HEAD。<評価の節> は週次ジョブが評価の工程(harness-eval-cases.sh section)から
 #   受け取った文字列(末尾の改行なし)で、改行を 1 つ付けて足す。空なら評価の工程が失敗したとして、効果を測っていないことを
 #   書いた節を足す(黙って節を省くと、効果が測られていないことが PR から見えない)。
-#   純増は選別の commit だけで数えるので、公開の lib が記録の commit を足す前に呼ぶ。
+#   純増は選別の commit だけで数えるので、Loop PR の module が記録の commit を足す前に呼ぶ。
 #   失敗の扱い: Review Outcome の節・純増を作れなければ 1。推移と Rule Ledger の節は Verdict の CLI と再発率のスクリプトの
 #   照合に落ちたら、PR を作らない理由を出して予約コード。検出件数・推移・採用の読み取りのほかの失敗は WARN で節を省く
 harness_pr_body_review() {
@@ -287,9 +291,9 @@ harness_pr_body_review() {
 
 # harness_pr_body_metrics_only <週の再発率の記録の件数> <持ち越した Rule Ledger の記録の件数>
 #   Metrics-only PR の本文を書く(前の内容は捨てる)。件数の文・推移・検出件数の順。件数は記録の commit の後にしか
-#   決まらないので、公開の lib の harness_publish_metrics_only が commit の後に呼ぶ。推移の節の入口の照合も記録の commit より
+#   決まらないので、Loop PR の module の harness_loop_pr_publish_metrics_only が commit の後に呼ぶ。推移の節の入口の照合も記録の commit より
 #   後に保つ(先に呼ぶと、実行物が書き換えられた run のログと、ローカルに残る commit が変わる)。
-#   失敗の扱い: 推移が照合に落ちたら予約コード(公開の lib は PR を作らない)。件数の文を書けなければ 1。どちらも
+#   失敗の扱い: 推移が照合に落ちたら予約コード(Loop PR の module は PR を作らない)。件数の文を書けなければ 1。どちらも
 #   PR を作らない理由を出す
 harness_pr_body_metrics_only() {
     local rate_records=${1:-} ledger_records=${2:-}
@@ -311,7 +315,7 @@ _harness_pr_body_metrics_only_counts() { # <週の再発率の記録の件数> <
         "$1" >"$_HARNESS_PR_BODY_FILE" || return 1
     [[ "$2" -eq 0 ]] ||
         printf '\nマージ済みの PR の Rule Ledger の記録のうち、まだ載っていなかった %s 件も足した(%s)。\n' \
-            "$2" "$HARNESS_PUBLISH_LEDGER_REPO_DIR" >>"$_HARNESS_PR_BODY_FILE"
+            "$2" "$_HARNESS_PR_BODY_LEDGER_REPO_DIR" >>"$_HARNESS_PR_BODY_FILE"
 }
 
 # harness_pr_body_failed_review <データを信頼できるか(1/0)>

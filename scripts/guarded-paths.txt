@@ -35,14 +35,14 @@ dot_claude/scripts/lib/harness-health.bash
 # 選別の claude が書き換えた Evaluator を週次ジョブが信頼して使う
 dot_claude/scripts/lib/harness-integrity.bash
 test/harness-integrity.bats
-# 週次ジョブが読み込む公開の module。公開の定数・run ごとの値・手で公開するコマンドの綴りを書き換えると、
-# 週次ジョブの記録の置き場や、失敗した run の後に人が貼り付けて実行するコマンドを変えられる
-dot_claude/scripts/lib/harness-publish.bash
+# 週次ジョブが読み込む Loop PR の module。公開に使う値・run ごとの値・選別の prompt の指示・手で公開するコマンドの綴りを
+# 書き換えると、週次ジョブの記録の置き場や、選別に触れさせない置き場や、失敗した run の後に人が貼り付けて実行するコマンドを変えられる
+dot_claude/scripts/lib/harness-loop-pr.bash
 # 週次ジョブが読み込む Review Outcome の module。選別の結果ファイルの検査と申告の突き合わせを書き換えると、
 # 採用を落とした選別や Dropped Change だけの週を成功として扱わせられる
 dot_claude/scripts/lib/harness-review-outcome.bash
 test/harness-review-outcome.bats
-test/harness-publish.bats
+test/harness-loop-pr.bats
 # 週次ジョブが読み込む Loop PR の本文の module。節と節ごとの失敗の扱いを書き換えると、純増・失敗の検出件数・
 # 再発率の推移を PR から隠したり、照合に落ちた推移を省いて PR を作らせたりできる
 dot_claude/scripts/lib/harness-pr-body.bash
@@ -102,7 +102,7 @@ test/harness-select-pending.bats
 test/fixtures/harness-detect-failures/
 
 # Failure Pattern の一覧と分類器・再発率の集計(ADR 0011)。一覧や分類の手順を書き換えると、失敗を
-# 「未分類」や別の類型に寄せて再発率を動かせる。週の再発率の記録(lib/harness-publish.bash の HARNESS_PUBLISH_RATES_REPO_DIR)は
+# 「未分類」や別の類型に寄せて再発率を動かせる。週の再発率の記録(lib/harness-loop-pr.bash の _HARNESS_LOOP_PR_RATES_REPO_DIR)は
 # 週次ジョブがループの PR で commit するので載せない(載せるとループの PR が必ず落ちる)。選別の claude の
 # commit が記録に触れたら週次ジョブが PR を作らずに失敗する(harness-weekly.sh の publish_review)
 dot_claude/scripts/harness-failure-patterns.json
