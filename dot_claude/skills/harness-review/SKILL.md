@@ -21,12 +21,12 @@ When run by hand, operate in a linked worktree of the chezmoi source repo, never
 in `~/.local/share/chezmoi` itself (that worktree stays on `main` because
 `chezmoi apply` deploys from it). サンドボックスの内側では、nono でも素の `claude` が動く
 ネイティブの Bash サンドボックスでも、元の checkout の `.git/config` に書けない
-(`~/.claude/rules/claude-code/bash-tool.md`)。nono ではさらに `.git/` の書き込みが
-`objects`/`refs`/`logs`/`worktrees` に限られ、`.git/FETCH_HEAD` にも書けない。fetch は
-新しい worktree の中で、週次ジョブの `prepare_worktree` と同じ順に行う。The worktree path
-`~/.claude/harness/manual-review-worktree` is writable inside nono and is not the
-weekly job's `review-worktree`. It is written out in full in every command because
-shell variables do not survive between separate Bash tool calls:
+(`~/.claude/rules/claude-code/bash-tool.md`)。nono ではさらに `.git/` に書ける範囲が限られ
+(`dot_config/nono/CLAUDE.md` の "Write-side git needed filesystem grants")、`.git/FETCH_HEAD`
+にも書けない。fetch は新しい worktree の中で、週次ジョブの `prepare_worktree` と同じ順に行う。
+worktree の置き場所 `~/.claude/harness/manual-review-worktree` はどちらのサンドボックスの内側
+でも書け、週次ジョブの `review-worktree` とは別の場所である。Bash ツールの呼び出しを跨ぐと
+シェル変数が残らないので、どのコマンドにもこのパスを省略せずに書く:
 
 ```sh
 git -C "$(chezmoi source-path)" worktree add --detach ~/.claude/harness/manual-review-worktree HEAD
