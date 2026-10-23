@@ -10,6 +10,8 @@ plan を受け取り、実装、レビュー修正ループ、動作確認を経
 
 > **注記(2026-10-17)**: Deliver(plan からの実装の段と `/deliver`)は [ADR 0019](../../adr/0019-retire-deliver-keep-only-review-verify.md) で廃止した。Workflow は `dot_claude/workflows/review-verify.js` に改名し、現行なのはレビューループと動作確認の段だけである。用語は `GLOSSARY.md` の「Autonomous review」節を参照。
 
+> **注記(2026-10-23)**: レビュアーの構成(「フロー」3 の 2)と修正必須の判定(同 3 の 4)は [ADR 0020](../../adr/0020-review-verify-reviewers-center-on-mattpocock-code-review.md) で置き換えた。`superpowers:requesting-code-review` を外し、`mattpocock-skills:code-review` の Standards 軸と Spec 軸、`ecc-code-review`、`pr-review-toolkit:silent-failure-hunter` の4体にしている。Smell Finding は報告にだけ載せる。
+
 ## 適用範囲
 
 - 対象は個人リポジトリと仕事リポジトリの両方。リポジトリごとに違うもの(動作確認 skill、テスト/lint コマンド)は起動時の引数で受け取る。

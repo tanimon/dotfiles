@@ -193,12 +193,16 @@ _Avoid_: 見送り(無限定)、スキップした指摘、却下
 _Avoid_: 見送り、残課題(無限定)
 
 **Advisory Finding**:
-修正必須の重大度を含まない Review Finding。最初のレビューラウンドで出たものだけを修正エージェントに渡し、ループの収束条件にも上限到達時の Unresolved Finding にも数えない。
+修正必須の重大度を含まない Review Finding(Smell Finding を除く)。最初のレビューラウンドで出たものだけを修正エージェントに渡し、ループの収束条件にも上限到達時の Unresolved Finding にも数えない。
 _Avoid_: nit(重大度を問わず使われる)、参考指摘(報告の節名としては使う)
 
 **Declined Advisory Finding**:
 修正エージェントが直さないと判断した Advisory Finding。Deferred Finding と違い検証者の同意を要さず、理由付きで最終報告に載る。
 _Avoid_: Deferred Finding(検証者の同意を経たものに限る)
+
+**Smell Finding**:
+コード規約のレビューが Fowler の code smell を基準に挙げ、smell 以外の指摘と統合されなかった Review Finding。人間の判断材料として最終報告に載せるだけで、修正エージェントには渡さず、ループの収束条件にも数えない。
+_Avoid_: nit、参考指摘(Advisory Finding の節名)
 
 **Requirements Document**:
 何を作るつもりかを人間が書いた、レビュー・修正・動作確認が意図の正本として読む文書。plan と spec のどちらもこの一種。
