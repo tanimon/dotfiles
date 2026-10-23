@@ -43,18 +43,17 @@ run_smoke() {
     assert_output --partial 'SMOKE-SEED-LOADED'
 }
 
-# module.registerHooks の無い Node(22.15.0 / 23.5.0 より前)では、Playwright は TS の変換に非同期の ESM ローダーを使う。
-# この経路では "type" 指定の無いパッケージの .ts を動的 import() すると、変換されずに読まれて SyntaxError になる。
-# CI の Node にはその API があるので、Playwright の環境変数で非同期の経路を強制して同じ条件を作る
+# 古い Node で import() が落ちる理由は seed/modules.ts の loadSeedModules のコメントにある。
+# CI の Node は同期の経路を通るので、Playwright の環境変数で非同期の ESM ローダーを強制して同じ条件を作る
 @test "非同期の ESM ローダーでも globalSetup が seed を読み込む" {
     PLAYWRIGHT_FORCE_ASYNC_LOADER=1 run run_smoke
     assert_failure
     assert_output --partial 'SMOKE-SEED-LOADED'
 }
 
-# 振る舞いではなく、直前のテストが成り立つ前提の検査。PLAYWRIGHT_FORCE_ASYNC_LOADER は Playwright 内部の
-# 環境変数なので、効かなくなると直前のテストは同期の経路で黙って通る。import() で読む modules.ts が
-# この環境変数で落ちることを確かめ、効かなくなったらここで気づけるようにする
+# 振る舞いではなく、「非同期の ESM ローダーでも globalSetup が seed を読み込む」が成り立つ前提の検査。
+# PLAYWRIGHT_FORCE_ASYNC_LOADER は Playwright 内部の環境変数なので、効かなくなるとそのテストは同期の経路で
+# 黙って通る。import() で読む modules.ts がこの環境変数で落ちることを確かめ、効かなくなったらここで気づけるようにする
 @test "PLAYWRIGHT_FORCE_ASYNC_LOADER で import() の seed 読み込みが落ちる" {
     sed -i.bak -e 's|require(\("./common"\))|(await import(\1))|' -e 's|require(file)|(await import(file))|' "$SUITE/seed/modules.ts"
     run grep -c 'await import(' "$SUITE/seed/modules.ts"
@@ -62,6 +61,7 @@ run_smoke() {
 
     PLAYWRIGHT_FORCE_ASYNC_LOADER=1 run run_smoke
     assert_failure
-    assert_output --partial 'SyntaxError'
+    assert_output --partial "SyntaxError: Unexpected token 'export'"
+    assert_output --partial 'at seed/modules.ts:'
     refute_output --partial 'SMOKE-SEED-LOADED'
 }
