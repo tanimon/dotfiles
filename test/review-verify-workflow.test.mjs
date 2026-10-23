@@ -1865,3 +1865,33 @@ test("動作確認の失敗の修正は、diagnosing-bugs を読み込めなけ�
   const prompt = calls.find((c) => c.label === "fix-verify:1").prompt;
   assert.match(prompt, /読み込めなければ.*fixed=false/);
 });
+
+test("skill を読み込めなかったレビュアーのエラーは Observations に残し、統計には固定の文言だけを出す", async () => {
+  const base = scenario({ skillMissing: ["mattpocock-spec"] });
+  const respond = (label, calls) => {
+    const result = base(label, calls);
+    if (label === "review:mattpocock-spec")
+      return { ...result, observations: ["Unknown skill: mattpocock-skills:code-review"] };
+    return result;
+  };
+  const { result } = await runWorkflow({ respond });
+  assert.match(
+    section(result.report, "Observations"),
+    /review:mattpocock-spec: Unknown skill: mattpocock-skills:code-review/,
+  );
+  assert.match(result.stats, /mattpocock-spec\(ラウンド 1、skill を読み込めなかった\)/);
+  assert.doesNotMatch(result.stats, /Unknown skill/);
+});
+
+test("smell を報告する役割でないレビュアーが smell を付けても、修正必須の指摘は修正に回す", async () => {
+  const { result, calls } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ ecc: [finding("HIGH", { smell: "Feature Envy" })] }, {}],
+      merges: [[cluster("a.js::bug", ["ecc#0"])]],
+      fixes: [{ results: [{ key: "a.js::bug", action: "fixed" }], changes: [], observations: [] }],
+    }),
+  });
+  const fixPrompt = calls.find((c) => c.label === "fix:1").prompt;
+  assert.match(fixPrompt.slice(0, fixPrompt.indexOf("参考指摘(JSON)")), /a\.js::bug/);
+  assert.equal(section(result.report, "Smell Finding").trim(), "なし");
+});

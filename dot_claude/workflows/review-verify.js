@@ -24,7 +24,7 @@ const BUDGET_FLOOR = 100000;
 // mattpocock の code-review は対話と issue tracker を前提にした手順なので、Workflow の中で止まる箇所を上書きする。
 // 2 軸を別々のレビュアーにする理由は ADR 0020。
 const mattpocockNote = (axis) =>
-  `この skill の手順のうち、${axis} 軸だけを自分で実行する。手順 1 の固定点は差分の基点で、尋ねない。手順 2 の issue tracker の検索と /setup-matt-pocock-skills の案内はせず、spec は要件文書とする。手順 4 のサブエージェントの起動と手順 5 の集約はせず、${axis} 軸の brief を自分で実行する。brief の語数制限は無視し、全ての指摘を返す。`;
+  `この skill の手順のうち、${axis} 軸だけを自分で実行する。手順 1 の固定点は差分の基点で、尋ねない。冒頭の /setup-matt-pocock-skills の案内と、手順 2 の issue tracker の検索はせず、spec は要件文書とする。手順 4 のサブエージェントの起動と手順 5 の集約はせず、${axis} 軸の brief を自分で実行する。brief の語数制限は無視し、全ての指摘を返す。`;
 
 // built-in の code-review は fork 型の skill で、Workflow のエージェントから Skill で呼ぶと
 // 本文が返らず別エージェントとして起動するだけなので使えない(2026-09-25 実測。spec の「試作で実測すること」)。
@@ -284,12 +284,19 @@ function collectObservations(state, source, result) {
   for (const o of result.observations) state.observations.push(`${source}: ${o}`);
 }
 
+const reviewerOf = (finding) => REVIEWERS.find((r) => r.id === finding.reviewer);
+
 // smell は判断の分かれる指摘なので、申告された重大度にかかわらず修正必須にしない(ADR 0020)。
-const isSmell = (finding) => typeof finding.smell === "string" && finding.smell !== "";
+// schema は追加のプロパティを拒まないので、smell を報告する役割のレビュアーの指摘に限る。
+// そうしないと、別のレビュアーが smell を付けた修正必須の指摘が黙って修正から外れる。
+const isSmell = (finding) =>
+  Boolean(reviewerOf(finding)?.reportsSmells) &&
+  typeof finding.smell === "string" &&
+  finding.smell !== "";
 
 function isBlocking(finding) {
   if (isSmell(finding)) return false;
-  const reviewer = REVIEWERS.find((r) => r.id === finding.reviewer);
+  const reviewer = reviewerOf(finding);
   return Boolean(reviewer && reviewer.blocking.includes(finding.severity));
 }
 
@@ -666,15 +673,22 @@ async function runReviewers(state, roundNo) {
     ),
   );
   // skill を読み込めないまま自己流でレビューした結果は、その軸のレビューとして扱えないので、結果が無いのと同じにする。
+  // 読み込めなかった原因はエージェントが observations に書くので、指摘を捨てる前に報告へ残す。
+  const skillMissing = new Set();
   results.forEach((result, i) => {
-    if (result && REVIEWERS[i].skill && !result.skillLoaded) results[i] = null;
+    if (!result || !REVIEWERS[i].skill || result.skillLoaded) return;
+    collectObservations(state, `review:${REVIEWERS[i].id}`, result);
+    skillMissing.add(i);
+    results[i] = null;
   });
   const findings = [];
   state.lastMissingReviewers = REVIEWERS.filter((r, i) => !results[i]).map((r) => r.id);
   results.forEach((result, i) => {
     const reviewer = REVIEWERS[i];
     if (!result) {
-      state.reviewerFailures.push(`${reviewer.id}(ラウンド ${roundNo})`);
+      // 統計に出るので、エージェントの自由記述ではなく固定の文言だけを添える。
+      const cause = skillMissing.has(i) ? "、skill を読み込めなかった" : "";
+      state.reviewerFailures.push(`${reviewer.id}(ラウンド ${roundNo}${cause})`);
       return;
     }
     collectObservations(state, `review:${reviewer.id}`, result);
