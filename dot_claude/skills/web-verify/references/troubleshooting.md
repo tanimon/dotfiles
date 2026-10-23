@@ -61,6 +61,11 @@ fail は必ず次の 3 分類のどれかに切り分けてから報告する。
 - **別の機能の seed が落ちる(まだ無いテーブル・カラムを参照している)**
   → `VERIFY_FEATURE` を付けずに全体実行している。未マージの機能の seed も流れるので、
   今回の機能だけを `VERIFY_FEATURE=<feature>` で実行する
+- **globalSetup が `SyntaxError: Unexpected token 'export'`(`at seed/modules.ts`)で止まる**
+  → スイートの `seed/modules.ts` が seed を `await import(...)` で読んでいる。古いテンプレートから
+  scaffold したスイートで、Node が 22.15.0 / 23.5.0 より前だと起きる(理由は
+  `<skill-dir>/assets/seed/modules.ts` の `loadSeedModules` のコメント)。`loadSeedModules` の 2 か所の
+  `(await import(...)) as SeedModule` を、現行テンプレートと同じ `require(...) as SeedModule` に書き換える
 - **保存場所への書き込みが `Operation not permitted` で失敗する**
   → リポの外の保存場所がサンドボックスの書き込み許可の外にある。迂回せず止めて報告し、
   許可を広げるか保存場所を変えるかをユーザーに決めてもらう
