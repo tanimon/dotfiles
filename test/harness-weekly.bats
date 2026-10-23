@@ -2029,14 +2029,14 @@ weekly_without_loop_pr_lib() { # [<lib に置く中身>]
     assert_output --partial 'last success was 9 days ago; the failure issue of this run reports it'
 }
 
-# Review Outcome の lib だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
+# Review Outcome の lib だけが無いか壊れた(それより前に読む健全性の lib と Integrity Snapshot の lib は在る)入口スクリプトの
+# 複製で起動する
 weekly_without_review_outcome_lib() { # [<lib に置く中身>]
     local dir="$BATS_TEST_TMPDIR/nooutcome"
     mkdir -p "$dir/lib"
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash" "$dir/lib/"
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" "$dir/lib/"
     [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-review-outcome.bash"
     bash "$dir/harness-weekly.sh"
 }
@@ -2056,14 +2056,13 @@ weekly_without_review_outcome_lib() { # [<lib に置く中身>]
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
 }
 
-# 本文の lib だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
+# 本文の lib だけが無いか壊れた(それより前に読む lib は在る)入口スクリプトの複製で起動する
 weekly_without_pr_body_lib() { # [<lib に置く中身>]
     local dir="$BATS_TEST_TMPDIR/noprbody"
     mkdir -p "$dir/lib"
     cp "$SCRIPT" "$dir/harness-weekly.sh"
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
         "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash" \
         "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-review-outcome.bash" "$dir/lib/"
     [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-pr-body.bash"
     bash "$dir/harness-weekly.sh"
