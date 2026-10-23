@@ -13,8 +13,8 @@
 # thing the guard exists to prevent.
 
 # The GitHub account this repository is published under. Its ghq path is what
-# the personal-repo `includeIf` rule keys on (see the includeIf section in
-# CLAUDE.md), so it cannot become a template variable.
+# the personal-repo `includeIf` rule keys on (see
+# `.claude/rules/gitignore-includeif.md`), so it cannot become a template variable.
 *:ghq/github\.com/tanimon
 
 # Commit identity and the SSH *public* signing key. Both are attached to every
