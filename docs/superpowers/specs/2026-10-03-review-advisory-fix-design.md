@@ -2,6 +2,8 @@
 
 レビューループで修正必須にならない指摘(参考指摘)も、修正エージェントに渡して直させる。判断は `superpowers:receiving-code-review` に委ねる。決定と理由は [ADR 0014](../../adr/0014-advisory-findings-go-to-the-fixer.md)、現行のループは [deliver ワークフロー設計](2026-09-25-deliver-workflow-design.md) の「フロー」3。
 
+> **注記(2026-10-23)**: 「判定」節の ecc の `note`(機械的な Code Quality 指摘を MEDIUM 以下で報告させる指示)は、[ADR 0020](../../adr/0020-review-verify-reviewers-center-on-mattpocock-code-review.md) で ecc の範囲を正しさとセキュリティに絞る指示に置き換えた。レビュアーの構成もこの ADR で変わっている。
+
 ## 目的と成功条件
 
 - 修正する価値のある参考指摘が、報告に並ぶだけで残らない。
