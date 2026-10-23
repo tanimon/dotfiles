@@ -11,10 +11,10 @@
 #   2. 選別: queue に項目があれば、chezmoi の source リポジトリの使い捨ての worktree で
 #      harness-review スキルを行い、採用した変更を commit させる(queue が空なら省く)
 # 採用した commit があれば(または採用が無くても週の再発率の記録がたまっていれば)、push と
-# `gh pr create --draft` はこのジョブが固定の引数で行う。選別の claude の後の処理(分類・評価・本文・公開・失敗した選別の
-# 案内)の正本は Loop PR の module(lib/harness-loop-pr.bash)、本文の節の正本はその内側の本文の lib(lib/harness-pr-body.bash)で、
-# このスクリプトは選別の工程の終了コードを Loop PR の module の入口に渡す。claude にさせないのは、headless では PreToolUse フックの ask が
-# 拒否になり、git push guard が変数を含む push に ask を返すため(#429)。
+# `gh pr create --draft` はこのジョブが固定の引数で行う。選別の経路と Metrics-only PR の手順の正本は Loop PR の module
+# (lib/harness-loop-pr.bash)の入口のコメント、本文の節の正本はその内側の本文の lib(lib/harness-pr-body.bash)で、
+# このスクリプトは選別の claude を走らせるコマンドを Loop PR の module の入口に渡す。claude にさせないのは、headless では
+# PreToolUse フックの ask が拒否になり、git push guard が変数を含む push に ask を返すため(#429)。
 # PR を作った後に、採用ごとの Rule Ledger の記録を作り(harness-rule-ledger.sh)、このジョブの
 # commit で同じブランチに足して push し直す(PR 番号は PR を作るまで決まらないため)。
 # 抽出と選別の claude は ~/.claude に書けるので、claude の後に使うスクリプトとデータは Integrity Snapshot
@@ -388,7 +388,7 @@ main() {
     # 選別の採用の印。選別の claude に環境変数 HARNESS_REVIEW_RUN で渡し、Verdict の CLI の settle が採用に付ける
     # (ADR 0017。prompt には書かない)。印の書式は CLI だけが持ち、このスクリプトは印の値で CLI を呼ぶ。
     # run ごとの印(選別の session id)を入れるのは、同じ日の前の run が失敗して残した採用を、今回の PR の URL で
-    # 上書きしないため(Loop PR の module の harness_loop_pr_conclude_review)。前の run の記録は残り、finish_run が知らせる
+    # 上書きしないため(Loop PR の module の harness_loop_pr_run_review)。前の run の記録は残り、finish_run が知らせる
     REVIEW_RUN="$BRANCH run $REVIEW_SESSION_ID"
 
     # 停止の判定(前の成功の古さ・PR の放置・PR にならないループのブランチ)と heartbeat の読み書きは健全性の lib にある。
@@ -427,8 +427,8 @@ main() {
     LAST_SUCCESS=$(harness_health_heartbeat_epoch) || LAST_SUCCESS=""
     # PR の本文の検出件数の期間の始まり(Loop PR の module の初期化に渡す)。前の成功が無ければ直近 7 日にする
     DETECTION_SINCE=${LAST_SUCCESS:-$(($(date +%s) - 7 * 24 * 60 * 60))}
-    # Loop PR の module。選別の prompt の指示・手で公開するコマンドの綴り・Metrics-only PR の要否の判定・選別の claude の後の
-    # 処理と公開(選別の結果と Metrics-only PR)の正本。読み込むときに Review Outcome の lib と本文の lib を読み込み、読めなければ
+    # Loop PR の module。選別の prompt の指示・手で公開するコマンドの綴り・選別の経路(作業場所の準備・選別の claude の実行・
+    # その後の処理と公開)・Metrics-only PR の正本。読み込むときに Review Outcome の lib と本文の lib を読み込み、読めなければ
     # 理由を出して止まる(このスクリプトはその 2 つを読まない)。ほかの lib と同じく、claude の起動前に読んでメモリに載せる。
     # 最後に読むので、この lib を読めずに止まった run の report_stops は綴りの関数を持たない(report_stops がその場合の綴りを
     # 持つ)。このジョブが呼ぶ初期化はこの lib のものだけ
@@ -441,8 +441,8 @@ main() {
     # shellcheck source=lib/harness-loop-pr.bash
     source "$LOOP_PR_LIB" || exit 1
     if ! declare -F harness_loop_pr_init harness_loop_pr_review_instructions harness_loop_pr_push_command \
-        harness_loop_pr_create_command harness_loop_pr_record_command harness_loop_pr_clear_review_files \
-        harness_loop_pr_conclude_review harness_loop_pr_metrics_only_maybe_due harness_loop_pr_publish_metrics_only_if_due >/dev/null; then
+        harness_loop_pr_create_command harness_loop_pr_record_command harness_loop_pr_run_review \
+        harness_loop_pr_publish_metrics_only_if_due >/dev/null; then
         printf 'harness-weekly: %s lacks the publish steps; run chezmoi apply\n' "$LOOP_PR_LIB" >&2
         exit 1
     fi
@@ -458,7 +458,7 @@ main() {
     # permission_denials は headless で拒否されたツール呼び出し。PreToolUse フックの ask も
     # ここに入る(確認する人がいないため)。エージェントが別の形で再試行して進むこともあるので
     # 失敗にはしないが、黙って成功扱いにしないよう警告を出す
-    # shellcheck disable=SC2317,SC2329 # 抽出では工程の入口に関数名で渡し、選別では review_in_worktree から呼ぶ
+    # shellcheck disable=SC2317,SC2329 # 抽出では工程の入口に、選別では Loop PR の module の選別の経路の入口に関数名で渡す
     run_claude() {
         local stage=$1 session_id=$2 budget=$3 prompt=$4 status=0 result denials
         result=$(claude -p "$prompt" \
@@ -496,47 +496,6 @@ main() {
         fi
     }
 
-    # 前回の実行が止まって残した worktree(ディレクトリと .git/worktrees の登録のどちらか、
-    # または両方)を片付けてから作り直す。ブランチは origin/main の最新から切る。
-    # 登録だけが残った自分のパスは add / move の -f で上書きし、git worktree prune は使わない。
-    # prune はリポジトリのすべての linked worktree を見るが、nono の内側からは付与の外にある
-    # 他の worktree(~/orca/workspaces/… など)の .git を stat できず、git はそれを「存在しない」と
-    # 読んで作業中の worktree の登録を消す(nono 0.79.0 で prune --dry-run を実測)。
-    # 残存: fetch や claude の commit が起動する gc --auto も prune --expire を走らせるので、
-    # 登録から gc.worktreePruneExpire(既定 3 か月)より古い worktree は消えうる
-    # fetch を linked worktree の中で行うのは、FETCH_HEAD が worktree ごとの git dir に
-    # 書かれるため(元の checkout の .git 直下は nono の内側から書けない)。
-    # --no-track は追跡の設定を .git/config に書かせないため(nono の内側から書けない)。
-    # 同じ日のブランチが残っていれば -C で作り直すが、origin/main に無い commit を持つなら
-    # 作り直さずに失敗する。push か PR の作成に失敗した run の commit は、そのブランチから
-    # 手で push / PR を作るよう案内しているので、同じ日の再実行で消してはいけない。
-    # その判定は fetch の要る新しい worktree($WORKTREE.new)で行い、通ってから前回の
-    # worktree を消して置き換える。判定の前に消すと、失敗した run を調べるための状態を失う
-    prepare_worktree() {
-        local ahead fresh="$WORKTREE.new"
-        git -C "$REPO" worktree remove --force "$fresh" >/dev/null 2>&1 || true
-        rm -rf "$fresh"
-        git -C "$REPO" worktree add --quiet --force --detach "$fresh" HEAD || return 1
-        git -C "$fresh" fetch --quiet origin main || return 1
-        if git -C "$fresh" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
-            ahead=$(git -C "$fresh" rev-list --count "FETCH_HEAD..refs/heads/$BRANCH") || return 1
-            if [[ "$ahead" -gt 0 ]]; then
-                git -C "$REPO" worktree remove --force "$fresh" >/dev/null 2>&1 || rm -rf "$fresh"
-                printf 'harness-weekly: local branch %s in %s has %s commit(s) not on origin/main; push / open the PR by hand (PR body %s, if present) or delete the branch, then rerun\n' \
-                    "$BRANCH" "$REPO" "$ahead" "$PR_BODY" >&2
-                return 1
-            fi
-        fi
-        git -C "$REPO" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
-        rm -rf "$WORKTREE"
-        git -C "$REPO" worktree move --force "$fresh" "$WORKTREE" || return 1
-        git -C "$WORKTREE" switch --quiet --no-track -C "$BRANCH" FETCH_HEAD || {
-            printf 'harness-weekly: could not reset branch %s (is it checked out in another worktree of %s?)\n' \
-                "$BRANCH" "$REPO" >&2
-            return 1
-        }
-    }
-
     # 検出した失敗を Failure Pattern に分類し、この run の週の再発率を記録する。期間は分類に成功した
     # 前の週の記録の終わりから(harness-failure-rates.sh の since)。分類に失敗した週も、失敗したことを記録し
     # (推移では「記録なし」になる)、その週の失敗は次の run の期間に含めて分類し直すので、分類の失敗は
@@ -564,43 +523,10 @@ main() {
         }
     }
 
-    # queue が空で選別を省いた週に、Metrics-only PR が要るかを確かめて作る。要否の判定と公開は Loop PR の module が行い、
-    # worktree を作る前の絞り込みと、base を使った判定の 2 段で尋ねる。当日のブランチが origin に
-    # あれば、その日の PR は作成済みか手で作るのを待っているので作らない。依存は、要ると決まった後にだけ入れる
-    publish_metrics_if_due() {
-        local remote_status=0 base
-        harness_loop_pr_metrics_only_maybe_due || return 0
-        git -C "$REPO" ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null || remote_status=$?
-        if [[ "$remote_status" -ne 2 ]]; then
-            [[ "$remote_status" -eq 0 ]] ||
-                printf 'harness-weekly: WARN failed to query origin for %s (git ls-remote exit %s); no metrics-only PR this week\n' \
-                    "$BRANCH" "$remote_status" >&2
-            return 0
-        fi
-        command -v pnpm >/dev/null 2>&1 || {
-            printf 'harness-weekly: pnpm not found on PATH (%s); add the directory that holds it (e.g. ~/.local/share/mise/shims) to PATH in the launchd plist; no metrics-only PR\n' \
-                "$PATH" >&2
-            return 1
-        }
-        prepare_worktree || {
-            printf 'harness-weekly: failed to prepare the worktree %s for a metrics-only PR\n' "$WORKTREE" >&2
-            return 1
-        }
-        base=$(git -C "$WORKTREE" rev-parse HEAD) || return 1
-        harness_loop_pr_publish_metrics_only_if_due "$base" install_metrics_only_deps
-    }
-    # shellcheck disable=SC2317,SC2329 # Loop PR の module に関数名で渡し、Metrics-only PR が要ると決まった後に呼ばれる
-    install_metrics_only_deps() {
-        (cd "$WORKTREE" && pnpm install --frozen-lockfile --prefer-offline) || {
-            printf 'harness-weekly: pnpm install failed in %s; no metrics-only PR\n' "$WORKTREE" >&2
-            return 1
-        }
-    }
-
     # 成功した run の締め。前の run が採用を記録したまま PR にできなかった(push・PR の作成・
     # 選別の claude のどれかが失敗した)ことを、次の週の run が見落とさないよう、heartbeat を
     # 書く前に判定の記録を確かめる(Verdict の CLI の unpublished)。選別は採用に run の印を付けて記録し、PR を
-    # 作れた run だけが自分の印を PR の URL に置き換える(Loop PR の module の harness_loop_pr_conclude_review)。手動の /harness-review は最初から
+    # 作れた run だけが自分の印を PR の URL に置き換える(Loop PR の module の harness_loop_pr_run_review)。手動の /harness-review は最初から
     # PR の URL で記録するので当たらない。ブランチで絞らないので、ループ以外の印(手で書いた `adopted (by hand)` など)
     # も PR になっていない採用として止まる。そうした印には push するブランチが無いので、案内の publish で記録するか
     # queue に戻す。ローカルの harness/review-* ブランチの有無で
@@ -681,62 +607,15 @@ ${WRITE_RULE}
     QUEUE_ENTRIES=$(count_queue)
     if [[ "$QUEUE_ENTRIES" -eq 0 ]]; then
         printf 'harness-weekly: queue is empty; skipped review\n'
-        publish_metrics_if_due || exit 1
+        # 選別を省いた週の Metrics-only PR(要否の判定・作業場所の準備・公開は Loop PR の module)
+        harness_loop_pr_publish_metrics_only_if_due || exit 1
         finish_run || exit 1
         exit 0
     fi
-
-    # 当日のブランチが origin にあれば、その日のループの PR は作成済みか、push 後に PR の作成が
-    # 失敗している(その run のログが手で開くよう促しているか、公開の直前の関門で止まってブランチを消すよう促している)。作り直したブランチは
-    # non-fast-forward で push できず、選別の費用が無駄になるので起動しない
-    REMOTE_STATUS=0
-    git -C "$REPO" ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null || REMOTE_STATUS=$?
-    if [[ "$REMOTE_STATUS" -eq 0 ]]; then
-        # PR が無いまま(push 後に gh pr create が失敗した)なら、健全に見せないよう失敗させる
-        EXISTING_PR=$(cd "$REPO" && gh pr list --head "$BRANCH" --state all --json url --jq '.[0].url // empty') || {
-            printf 'harness-weekly: %s exists on origin but listing its PR failed; skipped review\n' "$BRANCH" >&2
-            exit 1
-        }
-        if [[ -z "$EXISTING_PR" ]]; then
-            printf 'harness-weekly: %s exists on origin but has no PR; skipped review. Check the log of the run that pushed it: if it stopped before gh pr create because the scripts could not be trusted, delete the branch (git push origin --delete %s); otherwise open the PR by hand (%s)\n' \
-                "$BRANCH" "$BRANCH" "$(harness_loop_pr_create_command "$BRANCH" "$PR_BODY")" >&2
-            exit 1
-        fi
-        printf 'harness-weekly: %s already exists on origin (PR %s); skipped review\n' "$BRANCH" "$EXISTING_PR"
-        finish_run || exit 1
-        exit 0
-    elif [[ "$REMOTE_STATUS" -ne 2 ]]; then
-        printf 'harness-weekly: failed to query origin for %s (git ls-remote exit %s)\n' "$BRANCH" "$REMOTE_STATUS" >&2
-        exit 1
-    fi
-
-    # pnpm(と選別の claude が走らせる commit フックの prek・node)は mise の shims にしか無い
-    # マシンがある。launchd の PATH に shims が無いと pnpm install が「失敗」としか出ないので、
-    # 選別の前に原因を名指しして止める(plist の EnvironmentVariables の PATH)
-    command -v pnpm >/dev/null 2>&1 || {
-        printf 'harness-weekly: pnpm not found on PATH (%s); add the directory that holds it (e.g. ~/.local/share/mise/shims) to PATH in the launchd plist; skipped review\n' \
-            "$PATH" >&2
-        exit 1
-    }
-    printf 'harness-weekly: review session=%s queue=%s branch=%s\n' "$REVIEW_SESSION_ID" "$QUEUE_ENTRIES" "$BRANCH"
-    prepare_worktree || {
-        printf 'harness-weekly: failed to prepare the review worktree %s\n' "$WORKTREE" >&2
-        exit 1
-    }
-    # 前回の本文・結果ファイル・Eval Case の依頼と結果を消すのは prepare_worktree の判定を通った後(理由は Loop PR の module の
-    # harness_loop_pr_clear_review_files のコメント)
-    harness_loop_pr_clear_review_files
-    REVIEW_BASE=$(git -C "$WORKTREE" rev-parse HEAD)
-    # commit フック(prek)と just lint-fast が node_modules を要るので、claude の前に入れる。
-    # claude に入れさせないのは、失敗したときに予算を使って直そうとさせないため
-    (cd "$WORKTREE" && pnpm install --frozen-lockfile --prefer-offline) || {
-        printf 'harness-weekly: pnpm install failed in %s; skipped review\n' "$WORKTREE" >&2
-        exit 1
-    }
 
     # 手順は harness-review スキルのまま使い、手動の /harness-review と同じ queue と判定の
     # 記録(queue-archive.md・state.json)を更新させる。変えるのは、作業場所と、push と PR を
-    # このスクリプトが行う点だけ。節は番号ではなく見出しで指す(番号は SKILL.md の変更で黙ってずれる)
+    # このジョブが行う点だけ。節は番号ではなく見出しで指す(番号は SKILL.md の変更で黙ってずれる)
     # 結果ファイル・本文・このジョブが commit する記録の置き場の指示は Loop PR の module が持つ(2 行目に続けて書く)
     REVIEW_INSTRUCTIONS=$(harness_loop_pr_review_instructions) || exit 1
     REVIEW_PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
@@ -751,19 +630,11 @@ ${REVIEW_INSTRUCTIONS} If nothing is adopted and nothing is stale, make no commi
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
 - Finish with a one-line summary: entries adopted, rejected, handed off."
-    # HARNESS_REVIEW_RUN は選別の claude にだけ渡す(抽出・分類・評価には渡さない)
-    # shellcheck disable=SC2317,SC2329 # Integrity Snapshot の工程の入口に関数名で渡して呼ぶ
-    review_in_worktree() {
-        (cd "$WORKTREE" && export HARNESS_REVIEW_RUN="$REVIEW_RUN" &&
-            run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT")
-    }
-    # 抽出と同じく、工程の入口が選別の claude の成否に関わらず直後にデータを照合する。失敗で終わる経路(選別の claude の
-    # 失敗・結果ファイルの不正・未 commit の変更)も repo に写す工程を通らないので、照合しないと書き換えがログに出ないまま
-    # 次の run のスナップショットが正として持ち越す。入口の終了コードは見分けずに Loop PR の module に渡し、照合に落ちた
-    # run の扱いと失敗した選別の案内も module に任せる(harness_loop_pr_conclude_review)
-    REVIEW_STATUS=0
-    harness_integrity_run_untrusted review_in_worktree || REVIEW_STATUS=$?
-    harness_loop_pr_conclude_review "$REVIEW_BASE" "$REVIEW_STATUS" || exit 1
+    # 選別の経路の手順は Loop PR の module の harness_loop_pr_run_review のコメントが正本で、入口は成功か失敗かだけを返す。
+    # 開始の行は、前提の確認を通った後に module が出す
+    harness_loop_pr_run_review \
+        "$(printf 'harness-weekly: review session=%s queue=%s branch=%s' "$REVIEW_SESSION_ID" "$QUEUE_ENTRIES" "$BRANCH")" \
+        run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT" || exit 1
 
     finish_run || exit 1
 }
