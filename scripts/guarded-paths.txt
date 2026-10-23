@@ -104,7 +104,7 @@ test/fixtures/harness-detect-failures/
 # Failure Pattern の一覧と分類器・再発率の集計(ADR 0011)。一覧や分類の手順を書き換えると、失敗を
 # 「未分類」や別の類型に寄せて再発率を動かせる。週の再発率の記録(lib/harness-loop-pr.bash の _HARNESS_LOOP_PR_RATES_REPO_DIR)は
 # 週次ジョブがループの PR で commit するので載せない(載せるとループの PR が必ず落ちる)。選別の claude の
-# commit が記録に触れたら週次ジョブが PR を作らずに失敗する(harness-weekly.sh の publish_review)
+# commit が記録に触れたら週次ジョブが PR を作らずに失敗する(lib/harness-loop-pr.bash が呼ぶ Review Outcome の lib の分類)
 dot_claude/scripts/harness-failure-patterns.json
 dot_claude/scripts/executable_harness-classify-failures.sh
 dot_claude/scripts/executable_harness-failure-rates.sh
@@ -122,7 +122,7 @@ test/fixtures/harness-eval-cases/
 # Rule Ledger(採用したルールごとの記録。Eval Case の目録を兼ねる。ADR 0011)。記録の作り方・形の検査・伏せ字を
 # 書き換えると、効果の記録を都合よく残せる。記録の置き場は追加だけを許す: 週次ジョブがループの PR で新しい記録を
 # 足すが、ループに過去の記録(Eval Case の id や得点)を書き換えさせない。選別の claude の commit が置き場に
-# 触れたら週次ジョブが PR を作らずに失敗する(harness-weekly.sh の publish_review)
+# 触れたら週次ジョブが PR を作らずに失敗する(lib/harness-loop-pr.bash が呼ぶ Review Outcome の lib の分類)
 dot_claude/scripts/executable_harness-rule-ledger.sh
 test/harness-rule-ledger.bats
 # Verdict の CLI(ADR 0017)。判定の記録の読み方を書き換えると、Rule Ledger が記録する採用を選び替えられる。
