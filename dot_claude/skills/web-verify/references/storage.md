@@ -35,13 +35,14 @@
 
 取得はディレクトリの作成で行う(`mkdir` は既にあれば失敗するので、取得と確認が 1 回で済む)。
 `owner` の git 情報は対象 worktree から取る(保存場所が別の git リポジトリの中にあると、カレントディレクトリでは
-そちらのブランチが記録される):
+そちらのブランチが記録される)。`owner` の書き込みは `mkdir` と `&&` で繋ぐ(別の行にすると、取れなかったときも
+相手の `owner` を上書きし、終了コードも 0 になる):
 
 ```sh
 DIR="<保存場所の絶対パス>"
 REPO="<対象 worktree の絶対パス>"
-mkdir -p "${DIR}" && mkdir "${DIR}/.web-verify-lock"
-printf 'branch: %s\nworktree: %s\nstarted: %s\n' "$(git -C "${REPO}" branch --show-current)" "${REPO}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"${DIR}/.web-verify-lock/owner"
+mkdir -p "${DIR}" && mkdir "${DIR}/.web-verify-lock" &&
+  printf 'branch: %s\nworktree: %s\nstarted: %s\n' "$(git -C "${REPO}" branch --show-current)" "${REPO}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"${DIR}/.web-verify-lock/owner"
 ```
 
 - **`File exists` で取れなければ**、別のセッションが作業中か、中断したセッションの残骸。`owner` の中身を
@@ -53,7 +54,7 @@ printf 'branch: %s\nworktree: %s\nstarted: %s\n' "$(git -C "${REPO}" branch --sh
   (`test-results/` などの生成)も同じ許可で書けるので、書き込みの確認は起動時の 1 回でよい
 - **解放**は次のコマンドで行う。scaffold・旧レイアウトの更新・移管では完了マーカーを置いてから、共通化では
   書き換え後の再実行で一致を確かめてから解放する。途中で止めるときも、完了マーカーを置かずに解放してから報告する。
-  解放が拒否されたら(リポの `.claude/` 配下など)、ユーザーに `! rm -rf "<保存場所>/.web-verify-lock"` を案内する
+  ロックを取れなかったときは解放しない(相手のロックを消すことになる)。解放が拒否されたら(リポの `.claude/` 配下など)、ユーザーに `! rm -rf "<保存場所>/.web-verify-lock"` を案内する
 
   ```sh
   rm -f "${DIR}/.web-verify-lock/owner" && rmdir "${DIR}/.web-verify-lock"
@@ -70,7 +71,8 @@ printf 'branch: %s\nworktree: %s\nstarted: %s\n' "$(git -C "${REPO}" branch --sh
 
 ## 分類
 
-ロックを取った状態で、保存場所を次のどれかに分類する:
+web-verify 自身は、ロックを取った状態で保存場所を次のどれかに分類する(質問できない呼び出し元が起動前に行う
+分類はロックを取らない事前の確認で、web-verify が起動時に分類し直す):
 
 - **スイートがある** → 既存スイートへの追加
   - 新レイアウト: `playwright.config.ts`・`profile.md`・`support/run.ts`・`.web-verify-suite` がそろっている
@@ -83,7 +85,9 @@ printf 'branch: %s\nworktree: %s\nstarted: %s\n' "$(git -C "${REPO}" branch --sh
   あるときは、報告に「`.claude/verify/` に既存のスイートがある。移管は `/web-verify` の引数で指示すれば行う」と 1 行書く
 - **それ以外** → 上書きせずに止める。空とみなすファイル以外があるのに上のどれにも当たらない場合で、
   ファイル名が scaffold と衝突しなくても止める。`support/run.ts` があって `.web-verify-suite` が無いもの
-  (scaffold・更新・移管の途中で止まった、または別の書き込みが混ざった)もここに入る。対話中なら、別の場所
+  (scaffold・更新・移管の途中で止まった、または別の書き込みが混ざった)もここに入る。これが完了マーカーより前に
+  作り終えていたスイートなら、ユーザーが `! touch "<保存場所>/.web-verify-suite"` で使えるようになることを報告に添える
+  (途中で止まったものかはユーザーが判断するので、自分では置かない)。対話中なら、別の場所
   (そのサブディレクトリ・別の空ディレクトリ・`.claude/verify/`)を `AskUserQuestion` で提案してよい。
   ユーザーが明示した場所でも同じ。質問できなければ blocked として報告する
 

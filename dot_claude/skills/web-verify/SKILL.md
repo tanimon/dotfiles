@@ -171,7 +171,7 @@ profile.md のコマンドを対象 worktree(`VERIFY_REPO_DIR`)で実行して�
 - pass/fail 一覧、fail の 3 分類(実装バグ / シナリオ誤り / 環境問題)→ references/troubleshooting.md
 - 今回追加した観点(承認なしで追加したもの・未承認のものは明示する)
 - 共通化・旧レイアウト更新・移管で書き換えた既存ファイルと、その後の再実行結果
-- 分類で見つけた旧スイート、取れなかったロックの `owner`
+- `.claude/verify/` の既存スイート、取れなかったロックの `owner`
 - レポートの開き方(`npx playwright show-report report/<feature>`)
 - 呼び出し元(review-verify など)が summary しか受け取らないなら、保存場所・未承認の観点・書き換えたファイルを summary に入れる
 - 呼び出し元(review-verify など)が結果に `blocked` を求めている場合: fail の分類が「環境問題」
