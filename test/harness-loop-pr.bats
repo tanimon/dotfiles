@@ -112,6 +112,26 @@ init_loop_pr() { # [<上書きする引数>…]
     assert_output --partial 'harness/review-'
 }
 
+@test "初期化は公開に使う値が空か壊れていれば失敗する" {
+    local name
+    for name in _HARNESS_LOOP_PR_RATES_REPO_DIR _HARNESS_LOOP_PR_LEDGER_REPO_DIR _HARNESS_LOOP_PR_AGENT_GIT_CONFIG \
+        _HARNESS_LOOP_PR_METRICS_ONLY_WEEKS; do
+        run bash -c 'set -euo pipefail
+            for lib in integrity review-outcome pr-body loop-pr; do source "$1/harness-$lib.bash"; done
+            printf -v "$2" "%s" ""
+            harness_loop_pr_init --repo /work/repo --worktree /h/review-worktree \
+                --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
+                --pr-body /h/body.md --review-result /h/result.json --eval-results /h/eval-results.json \
+                --date 2026-10-17 --run mark --detections /h/detections.jsonl --detection-since 1760000000' _ "$LIB_DIR" "$name"
+        assert_failure
+        assert_output 'harness-loop-pr: the publish values of this lib are empty or broken; run chezmoi apply'
+    done
+    _HARNESS_LOOP_PR_METRICS_ONLY_WEEKS=four
+    run init_loop_pr
+    assert_failure
+    assert_output --partial 'the publish values of this lib are empty or broken'
+}
+
 @test "初期化は Review Outcome の lib と本文の lib が読み込まれていなければ失敗する" {
     run bash -c 'set -euo pipefail
         source "$1/harness-integrity.bash"
@@ -710,7 +730,8 @@ review_ready() {
         init_real
         run --separate-stderr harness_review_outcome_classify "$BASE" ok
         assert_output failed
-        [[ "$stderr" == *"review commits touched $dir"* ]]
+        # ループの途中の [[ ]] は bash 3.2 の set -e で落ちないので || false を付ける
+        [[ "$stderr" == *"review commits touched $dir"* ]] || false
     done
 }
 

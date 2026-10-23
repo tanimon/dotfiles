@@ -117,6 +117,13 @@ harness_loop_pr_init() {
         printf 'harness-loop-pr: harness_loop_pr_init needs lib/harness-review-outcome.bash and lib/harness-pr-body.bash; source them first\n' >&2
         return 1
     fi
+    # 公開に使う値は interface に出さないので、週次ジョブではなくここで確かめる。空の週数は数の比較で 0 と読まれ、
+    # 記録の無い週にも Metrics-only PR を作ってしまう
+    if [[ -z "${_HARNESS_LOOP_PR_RATES_REPO_DIR:-}" || -z "${_HARNESS_LOOP_PR_LEDGER_REPO_DIR:-}" ||
+        -z "${_HARNESS_LOOP_PR_AGENT_GIT_CONFIG:-}" || ! "${_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS:-}" =~ ^[1-9][0-9]*$ ]]; then
+        printf 'harness-loop-pr: the publish values of this lib are empty or broken; run chezmoi apply\n' >&2
+        return 1
+    fi
     harness_review_outcome_init --worktree "$worktree" --review-result "$review_result" --pr-body "$pr_body" --run "$run" \
         --date "$date" --rates-repo-dir "$_HARNESS_LOOP_PR_RATES_REPO_DIR" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
         return 1
