@@ -21,6 +21,8 @@ web-verify skill が動作確認の再実行時に読む、プロジェクト固
 
 - ベースURL: (`.env` の `VERIFY_BASE_URL` と一致させる)
 - readiness 条件: (例: `GET /` が HTTP 200 を返す)
+- ビルド済みアセットのパス: (例: `public/build`。鮮度の確認に使う。HMR で配信する構成なら「なし」)
+- 常駐ワーカーの再起動コマンド: (例: `docker compose restart queue`。ワーカーが無ければ「なし」)
 
 ## ログイン方式
 

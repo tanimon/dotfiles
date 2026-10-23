@@ -49,9 +49,7 @@ references はこのパスで参照し、`~/.claude/skills/` などの配置場�
    保存場所が未決定であることを報告する。組み込みの既定値に黙って書かない
    (リポの中に置きたくない人のリポに書いてしまうため)
 
-個人設定の書式・パスの解決規則(相対パス・`{repo}`・`~`)・決まった保存場所の分類
-(スイートあり / 空 / それ以外)・書き込み確認は references/storage.md。保存場所が決まったら
-必ずこの順で解決 → 分類 → 書き込み確認を行う。分類が「スイートあり」で `support/run.ts` が無ければ旧レイアウト。
+保存場所が決まったら、references/storage.md の順で **解決 → ロック → 分類** を必ず行う。
 
 ## 起動前に人間が確かめる事項
 
@@ -59,7 +57,7 @@ references はこのパスで参照し、`~/.claude/skills/` などの配置場�
 web-verify 自身の起動時にもこの順で確かめる。
 
 1. **保存場所**: 上の「保存場所の決め方」の 1〜4 と、references/storage.md の解決規則・分類まで
-   (書き込み確認は副作用があるので web-verify 自身が行う)。分類が「それ以外」なら別の場所を選び直してもらう。個人設定で決まった場合も、
+   (ロックの取得は副作用があるので web-verify 自身が行う)。分類が「それ以外」なら別の場所を選び直してもらう。個人設定で決まった場合も、
    解決後の絶対パスを渡す
 2. **資格情報**: 認証のあるアプリで、保存場所に `.env` が無ければ動作確認は blocked になる。
    認証の有無が保存場所の `profile.md` から分からない(新規の保存場所など)ときはユーザーに聞く。ユーザーに `<保存場所>/.env` を用意してもらうか(項目は `<skill-dir>/assets/env.example`)、
@@ -84,7 +82,8 @@ web-verify はこの「決まり方」をそのまま報告に使う(呼び出�
 ├── seed/setup.ts / cleanup.ts / modules.ts  # globalSetup / Teardown(common → 機能の順に呼ぶ)
 ├── seed/common.ts             # 全機能共通のデータ準備・片付け
 ├── seed/features/<feature>.ts # その機能のデータ準備・片付け
-└── .gitignore                 # 生成物(録画・レポート・.auth・.env)を除外
+├── .web-verify-suite          # 完了マーカー
+└── .gitignore                 # 生成物(録画・レポート・.auth・.env)とロックを除外
 ```
 
 **`<feature>`** はブランチ名の `/` を `-` に置き換えた slug。`support/run.ts` は英数字で始まり
@@ -171,7 +170,8 @@ profile.md のコマンドを対象 worktree(`VERIFY_REPO_DIR`)で実行して�
 - 保存場所とその決まり方、`<feature>`
 - pass/fail 一覧、fail の 3 分類(実装バグ / シナリオ誤り / 環境問題)→ references/troubleshooting.md
 - 今回追加した観点(承認なしで追加したもの・未承認のものは明示する)
-- 共通化・旧レイアウト更新で書き換えた既存ファイルと、その後の再実行結果
+- 共通化・旧レイアウト更新・移管で書き換えた既存ファイルと、その後の再実行結果
+- 分類で見つけた旧スイート、取れなかったロックの `owner`
 - レポートの開き方(`npx playwright show-report report/<feature>`)
 - 呼び出し元(review-verify など)が summary しか受け取らないなら、保存場所・未承認の観点・書き換えたファイルを summary に入れる
 - 呼び出し元(review-verify など)が結果に `blocked` を求めている場合: fail の分類が「環境問題」
@@ -185,8 +185,9 @@ profile.md のコマンドを対象 worktree(`VERIFY_REPO_DIR`)で実行して�
 | ステージ | リファレンス |
 |---|---|
 | 観点導出・承認・spec 記述・探索・共通化 | references/scenario-authoring.md |
-| 保存場所の解決・分類・書き込み確認 | references/storage.md |
+| 保存場所の解決・ロック・完了マーカー・分類・追加で書く範囲 | references/storage.md |
 | profile 調査・scaffold・テンプレート適合・旧レイアウトの更新 | references/scaffold.md |
+| 別の保存場所への移管(`/web-verify` の引数で指示されたときだけ) | references/scaffold.md |
 | 環境起動・readiness(ポート・アセット・ワーカーの鮮度) | references/environment.md |
 | fail の切り分け・症状別対処 | references/troubleshooting.md |
 
