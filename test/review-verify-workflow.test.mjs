@@ -55,6 +55,7 @@ function scenario({
   verdicts = {},
   verifies = [{ passed: true, summary: "ok" }],
   fixVerify = () => ({ fixed: true, summary: "fixed", changes: [], observations: [] }),
+  skillMissing = [],
 } = {}) {
   let mergeIndex = 0;
   let fixIndex = 0;
@@ -67,7 +68,7 @@ function scenario({
       const round = calls.filter((c) => c.label.startsWith("checks:")).length - 1;
       const result = reviews[round]?.[id];
       if (result === null) return null;
-      return { findings: result ?? [], observations: [] };
+      return { findings: result ?? [], observations: [], skillLoaded: !skillMissing.includes(id) };
     }
     if (label === "merge") return { clusters: merges[mergeIndex++] ?? [] };
     if (label.startsWith("fix:")) return fixes[fixIndex++];
@@ -1792,4 +1793,75 @@ test("skill を使わないレビュアーには skill の尺度とは言わな�
   const prompt = calls.find((c) => c.label === "review:silent-failure").prompt;
   assert.doesNotMatch(prompt, /skill/);
   assert.match(prompt, /CRITICAL \/ HIGH \/ MEDIUM/);
+});
+
+test("直したと回答した参考指摘が smell として再指摘されたら、直ったとは報告せず、再指摘として残す", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [
+        { "mattpocock-standards": [finding("judgement", { summary: "命名" })] },
+        {
+          "mattpocock-standards": [
+            finding("judgement", { summary: "命名", smell: "Mysterious Name" }),
+          ],
+        },
+      ],
+      merges: [
+        [cluster("a.js::naming", ["mattpocock-standards#0"])],
+        [cluster("a.js::naming", ["mattpocock-standards#0"])],
+      ],
+      fixes: [
+        { results: [{ key: "a.js::naming", action: "fixed" }], changes: [], observations: [] },
+      ],
+    }),
+  });
+  assert.doesNotMatch(section(result.report, "修正した指摘"), /a\.js::naming/);
+  assert.match(
+    section(result.report, "参考指摘(修正必須ではない)"),
+    /a\.js::naming.*再レビューで再指摘された/,
+  );
+  assert.match(section(result.report, "Smell Finding"), /a\.js::naming/);
+});
+
+test("silent-failure には、エージェント定義にある別プロジェクトの仕組みを当てはめさせず、修正必須を誤動作に繋がるものに限らせる", async () => {
+  const { calls } = await runWorkflow();
+  const prompt = calls.find((c) => c.label === "review:silent-failure").prompt;
+  assert.match(prompt, /errorIds.*当てはめない/);
+  assert.match(prompt, /CRITICAL と HIGH は.*誤動作/);
+});
+
+test("skill を読み込めなかったレビュアーは、結果を返さなかったレビュアーとして扱い、その指摘を使わない", async () => {
+  const { result, labels } = await runWorkflow({
+    respond: scenario({
+      reviews: [{ "mattpocock-spec": [finding("hard")] }],
+      merges: [[cluster("a.js::spec", ["mattpocock-spec#0"])]],
+      skillMissing: ["mattpocock-spec"],
+    }),
+  });
+  assert.ok(!labels.some((l) => l.startsWith("fix:")));
+  assert.match(result.report, /結果を返さなかったレビュアーがいる\(ラウンド 1: mattpocock-spec\)/);
+  assert.match(result.stats, /結果を返さなかったレビュアー: mattpocock-spec/);
+});
+
+test("skill を使うレビュアーにだけ skill を読み込めたかを必ず返させる", async () => {
+  const { calls } = await runWorkflow();
+  for (const c of calls.filter((c) => c.label.startsWith("review:"))) {
+    const required = c.opts.schema.required;
+    if (c.label === "review:silent-failure") assert.ok(!required.includes("skillLoaded"));
+    else
+      assert.ok(required.includes("skillLoaded"), `${c.label} が skillLoaded を必須にしていない`);
+  }
+});
+
+test("動作確認の失敗の修正は、diagnosing-bugs を読み込めなければ直さずに返させる", async () => {
+  const { calls } = await runWorkflow({
+    respond: scenario({
+      verifies: [
+        { passed: false, summary: "画面が真っ白" },
+        { passed: true, summary: "ok" },
+      ],
+    }),
+  });
+  const prompt = calls.find((c) => c.label === "fix-verify:1").prompt;
+  assert.match(prompt, /読み込めなければ.*fixed=false/);
 });

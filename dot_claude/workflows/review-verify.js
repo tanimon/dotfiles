@@ -58,6 +58,9 @@ const REVIEWERS = [
     agentType: "pr-review-toolkit:silent-failure-hunter",
     severities: ["CRITICAL", "HIGH", "MEDIUM"],
     blocking: ["CRITICAL", "HIGH"],
+    // エージェント定義は別プロジェクト(Claude Code 本体)のロガーとエラー ID を前提にしており、
+    // そのまま当てはめると、その仕組みの無いリポジトリで修正必須の指摘が出る。
+    note: "エージェント定義の Special Considerations と、それに基づく確認項目(constants/errorIds.ts のエラー ID、logForDebugging / logError / logEvent、Sentry、Statsig)は、このリポジトリに当てはめない。CRITICAL と HIGH は、失敗の握りつぶし・フェイルオープン・根拠の無いフォールバックのように誤動作に繋がるものに限り、エラーメッセージの文言の改善は MEDIUM にする。",
   },
 ];
 
@@ -117,8 +120,9 @@ const reviewSchema = (reviewer) => ({
       },
     },
     observations: STRINGS,
+    ...(reviewer.skill && { skillLoaded: { type: "boolean" } }),
   },
-  required: ["findings"],
+  required: reviewer.skill ? ["findings", "skillLoaded"] : ["findings"],
 });
 
 const MERGE_SCHEMA = {
@@ -239,7 +243,8 @@ function newState(config) {
     requirementsConcerns: [],
     advisory: [],
     smells: [],
-    nonSmellKeys: new Set(),
+    // key ごとの、smell 以外(修正必須・参考)として判定された最後のラウンド。
+    lastNonSmellRound: {},
     advisoryClosedKeys: new Set(),
     advisoryReappearedKeys: new Set(),
     advisoryEscalatedKeys: new Set(),
@@ -390,7 +395,8 @@ function reviewPrompt(reviewer, config) {
   // ブランチの変更と修正は毎回コミットされるので、未コミットの変更だけを集める skill の手順では差分が空になる。
   const note = reviewer.note ? `\n- ${reviewer.note}` : "";
   const start = reviewer.skill
-    ? `Skill ツールで「${reviewer.skill}」を読み込み、その手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。`
+    ? `Skill ツールで「${reviewer.skill}」を読み込み、その手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。
+- skill を読み込めたら skillLoaded=true にする。読み込めなければ、自分の判断でレビューせずに skillLoaded=false・findings を空にして返し、エラーを observations に書く。`
     : `あなたの役割の手順に従って「${config.baseRef}...HEAD」の差分をレビューせよ。`;
   return `${start}
 - 差分の収集だけは手順を上書きする: 対象ファイルは「git diff --name-only ${config.baseRef}...HEAD」、差分は「git diff ${config.baseRef}...HEAD」で集める。変更はコミット済みなので、未コミットの変更が無くても「Nothing to review」で止まらない。
@@ -447,6 +453,7 @@ function verifyPrompt(config) {
 function fixVerifyPrompt(result, config) {
   return `動作確認が失敗した。結果(JSON): ${JSON.stringify(result)}
 Skill ツールで「mattpocock-skills:diagnosing-bugs」を読み込み、その手順で原因を調べて直し、次のコマンドを全て成功させてから1コミットにせよ(push はしない): ${commands(config)}
+- skill を読み込めなければ、直さずに fixed=false とし、エラーを summary に書く。
 - この実行は非対話で、人間に質問できない。skill が人間に相談するとする場面(失敗を再現する手順が作れない、人間の操作が要る)では、直さずに fixed=false とし、試したことを summary に書く。仮説の一覧は人間に見せず、自分の順位どおりに確かめる。
 - 回帰テストを追加してよい。
 ${reportChanges}${keepRequirements(config)}${unstartedScope("それを実装しない。未着手の項目を実装しないと直らない場合は、fixed=false とし、その旨を summary に書く。")}`;
@@ -462,7 +469,6 @@ function ledgerJson(state) {
       advisoryClosedKeys: [...state.advisoryClosedKeys],
       advisoryReappearedKeys: [...state.advisoryReappearedKeys],
       advisoryEscalatedKeys: [...state.advisoryEscalatedKeys],
-      nonSmellKeys: [...state.nonSmellKeys],
     },
     null,
     2,
@@ -597,7 +603,7 @@ function renderReport(state) {
   );
   pushSection(
     "Smell Finding",
-    uniqueByKey(state.smells).filter((i) => !state.nonSmellKeys.has(i.key)),
+    uniqueByKey(state.smells.filter((i) => !(state.lastNonSmellRound[i.key] >= i.round))),
     formatItem,
   );
   pushSection(
@@ -659,6 +665,10 @@ async function runReviewers(state, roundNo) {
         }),
     ),
   );
+  // skill を読み込めないまま自己流でレビューした結果は、その軸のレビューとして扱えないので、結果が無いのと同じにする。
+  results.forEach((result, i) => {
+    if (result && REVIEWERS[i].skill && !result.skillLoaded) results[i] = null;
+  });
   const findings = [];
   state.lastMissingReviewers = REVIEWERS.filter((r, i) => !results[i]).map((r) => r.id);
   results.forEach((result, i) => {
@@ -855,17 +865,20 @@ async function reviewRounds(state, tracker) {
     const advisory = uniqueByKey(result.advisory).filter((i) => !blockingKeys.has(i.key));
     // 直したと回答した参考指摘が再指摘されたら、修正には回さないが、直ったとは報告しない。
     const declinedKeys = new Set(state.advisoryDeclined.map((d) => d.key));
-    for (const i of advisory)
+    for (const i of [...advisory, ...result.smells])
       if (state.advisoryClosedKeys.has(i.key) && !declinedKeys.has(i.key))
         state.advisoryReappearedKeys.add(i.key);
     // 修正必須の重大度で出直したら、直した・見送ったという参考指摘としての回答では報告しない。
     // こちらは修正必須として修正に回り、その結果で報告する。
     for (const key of blockingKeys)
       if (state.advisoryClosedKeys.has(key)) state.advisoryEscalatedKeys.add(key);
-    // 同じ key が smell 以外としても判定されたら、そちら(修正必須・参考)の結果で報告する。
+    // 同じラウンドか後のラウンドで smell 以外としても判定された key は、そちら(修正必須・参考)の結果で報告する。
+    // smell 以外として判定された後に smell として再指摘された key は、Smell Finding としても残す。
     for (const i of [...result.blocking, ...result.repeated, ...advisory, ...result.closedRepeats])
-      state.nonSmellKeys.add(i.key);
-    const smells = uniqueByKey(result.smells).filter((i) => !state.nonSmellKeys.has(i.key));
+      state.lastNonSmellRound[i.key] = roundNo;
+    const smells = uniqueByKey(result.smells)
+      .filter((i) => state.lastNonSmellRound[i.key] !== roundNo)
+      .map((i) => ({ ...i, round: roundNo }));
     const pendingAdvisory = advisory.filter((i) => !state.advisoryClosedKeys.has(i.key));
     // 参考指摘を修正に回すのは実行全体の最初のラウンドだけ(ADR 0016)。以降に出たものは修正で生まれた
     // nit が多く、回し続けるとループが上限まで回りやすい。再入後のパスでも数え直さない。
