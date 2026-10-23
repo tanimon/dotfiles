@@ -840,7 +840,7 @@ PRE
     seed_queue
     printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (%s run old)\n' "$BRANCH" >"$HDIR/queue-archive.md"
     STUB_REVIEW_MODE=none run weekly
-    # 前の run の印は finish_run が知らせる(この run の publish_review は成功する)
+    # 前の run の印は finish_run が知らせる(この run の Loop PR の module の選別の後の処理は成功する)
     assert_failure
     assert_output --partial 'review committed no changes; no PR created'
     assert_output --partial "never became a PR"
@@ -1572,6 +1572,18 @@ commit_on_main() {
     assert [ ! -d "$WT" ]
 }
 
+# 依存を入れるのは週次ジョブで、要否の判定と公開は Loop PR の module(test/harness-loop-pr.bats)。ここでは、要ると決まった
+# 後に依存を入れるコマンドを module に渡す配線を見る
+@test "採用 0 件の週に Metrics-only PR を作るときは、worktree に依存を入れてから記録を整形する" {
+    old_record 2026-09-12
+    old_record 2026-09-19
+    old_record 2026-09-26
+    run weekly
+    assert_success
+    run cat "$PNPM_LOG"
+    assert_output "$(printf '%s\n' "$WT install --frozen-lockfile --prefer-offline" "$WT exec oxfmt $RATES_REPO_DIR")"
+}
+
 @test "選別が何も commit しなかった週も、記録がたまっていれば Metrics-only PR を作る" {
     seed_queue
     old_record 2026-09-12
@@ -1868,7 +1880,7 @@ rewrite_record_in() {
     run_in "$1" "printf '{\"tampered\":true}\n' >\"$RATES/$2.json\""
 }
 
-# 選別の claude が commit の後に失敗する run(report_failed_review が手で作る PR の本文を残す)
+# 選別の claude が commit の後に失敗する run(Loop PR の module の失敗した選別の案内が、手で作る PR の本文を残す)
 review_fails_after_commit() {
     cat >"$STUBS/claude-pre" <<'PRE'
 [[ "$*" == *'harness-review skill'* ]] && export STUB_CLAUDE_MODE=is_error
@@ -2020,12 +2032,17 @@ weekly_without_loop_pr_lib() { # [<lib に置く中身>]
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
 }
 
-@test "Loop PR の module を読めずに止まった run も、起動時に読んだ前の成功の古さを、この run の失敗の Issue に任せたと出す" {
-    # 前の成功の日数は Loop PR の module を読み込む前に読むので、その読み込みで止まった run の report_stops も使う
+@test "Loop PR の module か Review Outcome の lib を読めずに止まった run も、起動時に読んだ前の成功の古さを、この run の失敗の Issue に任せたと出す" {
+    # 前の成功の日数は Loop PR の module(Review Outcome の lib はその中で読む)を読み込む前に読むので、その読み込みで
+    # 止まった run の report_stops も使う
     seed_heartbeat "$(($(date +%s) - 9 * 86400))"
     run weekly_without_loop_pr_lib
     assert_failure
     assert_output --partial 'harness-loop-pr.bash is missing or broken'
+    assert_output --partial 'last success was 9 days ago; the failure issue of this run reports it'
+    run weekly_without_review_outcome_lib
+    assert_failure
+    assert_output --partial 'harness-review-outcome.bash is missing or broken'
     assert_output --partial 'last success was 9 days ago; the failure issue of this run reports it'
 }
 
@@ -2194,8 +2211,8 @@ PRE
     refute_heartbeat_written
 }
 
-# 選別の claude が成功していても、照合に落ちた run は publish_review(未 commit の変更の確認)を通らず
-# report_failed_review に回る。commit が 0 件なので、claude の失敗ではなく記録の書き換えを告げる文面を出す
+# 選別の claude が成功していても、照合に落ちた run は選別の結果の振り分け(未 commit の変更の確認)を通らず
+# Loop PR の module の失敗した選別の案内に回る。commit が 0 件なので、claude の失敗ではなく記録の書き換えを告げる文面を出す
 @test "選別の claude が commit されていない変更を残した run で週の記録が書き換えられていたら、書き換えをログに出す" {
     seed_queue
     old_record 2026-09-26
@@ -2208,7 +2225,7 @@ PRE
     refute_heartbeat_written
 }
 
-# 選別の claude が失敗した run(report_failed_review)のデータの照合。書き換えが無い側は
+# 選別の claude が失敗した run(Loop PR の module の失敗した選別の案内)のデータの照合。書き換えが無い側は
 # 「選別の claude が commit の前に失敗したら、claude の失敗として告げる」と
 # 「選別の claude が commit の後に失敗したら、手で作る PR の本文に検出の節を足す」
 
