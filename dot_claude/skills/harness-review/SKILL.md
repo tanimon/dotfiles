@@ -19,10 +19,11 @@ description: |
 
 When run by hand, operate in a linked worktree of the chezmoi source repo, never
 in `~/.local/share/chezmoi` itself (that worktree stays on `main` because
-`chezmoi apply` deploys from it). Inside nono the original checkout's `.git/`
-is writable only under `objects`/`refs`/`logs`/`worktrees`, so `.git/config` and
-`.git/FETCH_HEAD` cannot be written there; fetch inside the new worktree instead,
-in the same order as the weekly job's `prepare_worktree`. The worktree path
+`chezmoi apply` deploys from it). サンドボックスの内側では、nono でも素の `claude` が動く
+ネイティブの Bash サンドボックスでも、元の checkout の `.git/config` に書けない
+(`~/.claude/rules/claude-code/bash-tool.md`)。nono ではさらに `.git/` の書き込みが
+`objects`/`refs`/`logs`/`worktrees` に限られ、`.git/FETCH_HEAD` にも書けない。fetch は
+新しい worktree の中で、週次ジョブの `prepare_worktree` と同じ順に行う。The worktree path
 `~/.claude/harness/manual-review-worktree` is writable inside nono and is not the
 weekly job's `review-worktree`. It is written out in full in every command because
 shell variables do not survive between separate Bash tool calls:
