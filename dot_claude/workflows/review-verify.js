@@ -22,14 +22,13 @@ const ARG_KEYS = [
 const BUDGET_FLOOR = 100000;
 
 // mattpocock の code-review は対話と issue tracker を前提にした手順なので、Workflow の中で止まる箇所を上書きする。
-// 2 軸を 1 体に実行させないのは、skill が中で起動するサブエージェントが Workflow のエージェントから動くか
-// 確かめていないため(ADR 0020)。軸ごとに別のレビュアーにして、並列化と軸の分離を Workflow 側で持つ。
+// 2 軸を別々のレビュアーにする理由は ADR 0020。
 const mattpocockNote = (axis) =>
   `この skill の手順のうち、${axis} 軸だけを自分で実行する。手順 1 の固定点は差分の基点で、尋ねない。手順 2 の issue tracker の検索と /setup-matt-pocock-skills の案内はせず、spec は要件文書とする。手順 4 のサブエージェントの起動と手順 5 の集約はせず、${axis} 軸の brief を自分で実行する。brief の語数制限は無視し、全ての指摘を返す。`;
 
 // built-in の code-review は fork 型の skill で、Workflow のエージェントから Skill で呼ぶと
 // 本文が返らず別エージェントとして起動するだけなので使えない(2026-09-25 実測。spec の「試作で実測すること」)。
-// 構成の理由は ADR 0020。mattpocock の 2 軸はバグもセキュリティも探さないので、ecc と silent-failure がその枠を持つ。
+// 構成の理由は ADR 0020。
 const REVIEWERS = [
   {
     id: "mattpocock-standards",
@@ -37,16 +36,15 @@ const REVIEWERS = [
     severities: ["hard", "judgement"],
     blocking: ["hard"],
     reportsSmells: true,
-    // ユーザーのグローバル規約(~/.claude など)は、リポジトリの規約ではないので含めない。
-    note: `${mattpocockNote("Standards")}規約の出所は、リポジトリにある CODING_STANDARDS.md・CONTRIBUTING.md・CLAUDE.md・AGENTS.md・.claude/rules/ の配下と、サブディレクトリの CLAUDE.md / AGENTS.md とする。文書化された規約への違反は severity="hard"、判断の分かれるものは "judgement" にする。smell の基準で挙げた指摘は、smell にその名前(例: Feature Envy)を入れ、severity="judgement" にする。規約違反の指摘では smell を空にする。`,
+    // エージェントは ~/.claude の規約も自動で読み込むので、出所を列挙するだけでは除外にならない。
+    note: `${mattpocockNote("Standards")}規約の出所は、リポジトリにある CODING_STANDARDS.md・CONTRIBUTING.md・CLAUDE.md・AGENTS.md・.claude/rules/ の配下と、サブディレクトリの CLAUDE.md / AGENTS.md とする。~/.claude などリポジトリの外にあるユーザーのグローバル規約は、コンテキストに読み込まれていても規約の出所にしない。文書化された規約への違反は severity="hard"、判断の分かれるものは "judgement" にする。smell の基準で挙げた指摘は、smell にその名前(例: Feature Envy)を入れ、severity="judgement" にする。規約違反の指摘では smell を空にする。`,
   },
   {
     id: "mattpocock-spec",
     skill: "mattpocock-skills:code-review",
     severities: ["hard", "judgement"],
     blocking: ["hard"],
-    // scope creep を修正エージェントに渡すと、要件文書に書かれていないだけの、人間が意図した機能を消しうる。
-    note: `${mattpocockNote("Spec")}要件文書とのずれを指摘する。実装が要件文書と食い違う・欠けているものは severity="hard"、判断の分かれるものは "judgement" にする。要件文書に書かれていない振る舞い(scope creep)は、コードを消す指摘にせず target="requirements"・requirementsBreaking=false にする。`,
+    note: `${mattpocockNote("Spec")}要件文書とのずれを指摘する。ブランチが着手した項目について、実装が要件文書と食い違う・欠けているものは severity="hard"、判断の分かれるものは "judgement" にする。要件文書に書かれていない振る舞い(scope creep)は、コードを消す指摘にせず target="requirements"・requirementsBreaking=false にする。`,
   },
   {
     id: "ecc",
@@ -241,6 +239,7 @@ function newState(config) {
     requirementsConcerns: [],
     advisory: [],
     smells: [],
+    nonSmellKeys: new Set(),
     advisoryClosedKeys: new Set(),
     advisoryReappearedKeys: new Set(),
     advisoryEscalatedKeys: new Set(),
@@ -330,8 +329,7 @@ function classifyRound(clusters, findingsById, previousBlockingKeys, closedKeys)
     }
     if (codeMembers.length === 0) continue;
     const item = toItem(c.key, codeMembers);
-    // 元の指摘がすべて smell なら Smell Finding にし、修正にも収束の判定にも入れない。
-    // 他のレビュアーの指摘と統合されていれば、その重大度でいつもどおり判定する。
+    // smell と他のレビュアーの指摘が統合されていれば、smell 以外の重大度でいつもどおり判定する。
     if (codeMembers.every(isSmell)) {
       out.smells.push(item);
       continue;
@@ -398,7 +396,7 @@ function reviewPrompt(reviewer, config) {
 - 差分の収集だけは手順を上書きする: 対象ファイルは「git diff --name-only ${config.baseRef}...HEAD」、差分は「git diff ${config.baseRef}...HEAD」で集める。変更はコミット済みなので、未コミットの変更が無くても「Nothing to review」で止まらない。
 - 要件文書は ${config.requirementsPath}。
 - ファイルの修正、コミット、PR へのコメント投稿、ReportFindings ツールの呼び出しはしない。結果は StructuredOutput だけで返す。
-- severity には skill 自身の尺度をそのまま使う: ${reviewer.severities.join(" / ")}
+- severity は次の尺度のどれかにする: ${reviewer.severities.join(" / ")}
 - 指摘が実装ではなく要件文書そのものに向く場合は target="requirements" とし、要件文書どおりに作ると壊れる場合だけ requirementsBreaking=true にする。
 - レビューの範囲外で気づいた問題は observations に書く。${unstartedScope("それが無いことを修正必須として指摘せず、observations に書く。未着手の項目だけに向く Requirements Concern は、requirementsBreaking=false にする(作業を止める理由にしない)。")}${note}`;
 }
@@ -464,6 +462,7 @@ function ledgerJson(state) {
       advisoryClosedKeys: [...state.advisoryClosedKeys],
       advisoryReappearedKeys: [...state.advisoryReappearedKeys],
       advisoryEscalatedKeys: [...state.advisoryEscalatedKeys],
+      nonSmellKeys: [...state.nonSmellKeys],
     },
     null,
     2,
@@ -596,7 +595,11 @@ function renderReport(state) {
         ? `${formatItem(i)}(直したと回答した後、再レビューで再指摘された)`
         : formatItem(i),
   );
-  pushSection("Smell Finding", uniqueByKey(state.smells), formatItem);
+  pushSection(
+    "Smell Finding",
+    uniqueByKey(state.smells).filter((i) => !state.nonSmellKeys.has(i.key)),
+    formatItem,
+  );
   pushSection(
     "見送った参考指摘",
     state.advisoryDeclined.filter((d) => !escalated.has(d.key)),
@@ -859,6 +862,10 @@ async function reviewRounds(state, tracker) {
     // こちらは修正必須として修正に回り、その結果で報告する。
     for (const key of blockingKeys)
       if (state.advisoryClosedKeys.has(key)) state.advisoryEscalatedKeys.add(key);
+    // 同じ key が smell 以外としても判定されたら、そちら(修正必須・参考)の結果で報告する。
+    for (const i of [...result.blocking, ...result.repeated, ...advisory, ...result.closedRepeats])
+      state.nonSmellKeys.add(i.key);
+    const smells = uniqueByKey(result.smells).filter((i) => !state.nonSmellKeys.has(i.key));
     const pendingAdvisory = advisory.filter((i) => !state.advisoryClosedKeys.has(i.key));
     // 参考指摘を修正に回すのは実行全体の最初のラウンドだけ(ADR 0016)。以降に出たものは修正で生まれた
     // nit が多く、回し続けるとループが上限まで回りやすい。再入後のパスでも数え直さない。
@@ -881,7 +888,7 @@ async function reviewRounds(state, tracker) {
       advisoryReportOnly: pendingAdvisory.length - advisorySent,
       advisoryFixed: 0,
       advisoryDeclined: 0,
-      smells: result.smells.length,
+      smells: smells.length,
       missingReviewers: state.lastMissingReviewers,
     });
     if (result.closedRepeats.length > 0)
@@ -891,7 +898,7 @@ async function reviewRounds(state, tracker) {
     state.closedRepeats.push(...result.closedRepeats);
     markUnresolved(state, result.repeated);
     state.advisory.push(...advisory);
-    state.smells.push(...result.smells);
+    state.smells.push(...smells);
     state.requirementsConcerns.push(...result.requirementsConcerns);
     if (result.requirementsBreaking.length > 0) {
       markUnresolved(state, result.blocking);

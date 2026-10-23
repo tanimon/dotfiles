@@ -10,6 +10,8 @@ plan を受け取り、実装、レビュー修正ループ、動作確認を経
 
 > **注記(2026-10-17)**: Deliver(plan からの実装の段と `/deliver`)は [ADR 0019](../../adr/0019-retire-deliver-keep-only-review-verify.md) で廃止した。Workflow は `dot_claude/workflows/review-verify.js` に改名し、現行なのはレビューループと動作確認の段だけである。用語は `GLOSSARY.md` の「Autonomous review」節を参照。
 
+> **注記(2026-10-23)**: レビュアーの構成(レビューループの手順 2)と修正必須の判定(手順 4)は [ADR 0020](../../adr/0020-review-verify-reviewers-center-on-mattpocock-code-review.md) で置き換えた。`superpowers:requesting-code-review` を外し、`mattpocock-skills:code-review` の Standards 軸と Spec 軸、`ecc-code-review`、`pr-review-toolkit:silent-failure-hunter` の4体にしている。Smell Finding は報告にだけ載せる。
+
 ## 適用範囲
 
 - 対象は個人リポジトリと仕事リポジトリの両方。リポジトリごとに違うもの(動作確認 skill、テスト/lint コマンド)は起動時の引数で受け取る。
@@ -31,7 +33,7 @@ Workflows は実行中に人間へ質問できないので、質問は必ず入�
 2. **実装**: タスクごとに新しい実装エージェントを順に起動する。各エージェントは TDD で進め、テスト/lint コマンドを通してからコミットする。この段ではレビューをしない。タスクが続行不能になったら、その場で停止して報告する。
 3. **レビューループ**(修正ラウンドの上限 `maxReviewRounds`、既定 3。修正のたびに再レビューするので、レビューは最大で上限+1回。上限はループに入るたびに数え直す)。各ラウンドは次の順で進む。
    1. テスト/lint コマンドを通す。落ちていれば修正してから進む(落ちたままレビューすると、指摘が lint エラーの言い換えで埋まるため)。
-   2. 2本のレビュアーを並列に実行する: `ecc-code-review`、`superpowers:requesting-code-review`。built-in の `code-review` も合意時点では含めていたが、Workflow のエージェントからは使えないと実測で分かったため外した(下の「試作で実測すること」)。現在のレビュアーの構成は [ADR 0020](../../adr/0020-review-verify-reviewers-center-on-mattpocock-code-review.md)。
+   2. 2本のレビュアーを並列に実行する: `ecc-code-review`、`superpowers:requesting-code-review`。built-in の `code-review` も合意時点では含めていたが、Workflow のエージェントからは使えないと実測で分かったため外した(下の「試作で実測すること」)。
    3. 統合エージェントが重複をまとめ、指摘ごとに識別子(ファイル・位置・種類)を振る。統合エージェントに任せるのは重複をまとめることだけで、判定の入力(重大度・code か plan か・planBreaking)は元の指摘からコードが導く。統合エージェントがどの cluster にも入れなかった指摘は、単独の cluster として扱う。Deferred / Unresolved 済みの識別子に統合された修正必須指摘は、判定からは外すが、元の指摘の内容を報告に残す。
    4. 判定はコードで行う。修正必須になるのは、ecc の CRITICAL/HIGH、requesting の Critical/Important のいずれかを含む指摘。それ以外は参考扱いとし、報告にだけ載せる。
    5. plan 自体に向けた指摘は Plan Concern とし、修正しない。そのうち「plan どおりに作ると壊れる」ものがあれば即座に停止する。

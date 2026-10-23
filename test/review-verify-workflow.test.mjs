@@ -152,8 +152,8 @@ test("修正必須の指摘を直したら再レビューし、ゼロになれ�
 test("修正必須が無くても参考指摘を修正に回し、その後に checks とレビューをもう1回通す", async () => {
   const { result, labels, calls } = await runWorkflow({
     respond: scenario({
-      reviews: [{ ecc: [finding("MEDIUM")], "silent-failure": [finding("MEDIUM")] }, {}],
-      merges: [[cluster("a.js::style", ["ecc#0", "silent-failure#0"])]],
+      reviews: [{ ecc: [finding("MEDIUM")], "mattpocock-standards": [finding("judgement")] }, {}],
+      merges: [[cluster("a.js::style", ["ecc#0", "mattpocock-standards#0"])]],
       fixes: [
         {
           results: [{ key: "a.js::style", action: "fixed" }],
@@ -176,7 +176,7 @@ test("修正必須が無くても参考指摘を修正に回し、その後に c
   assert.equal(result.stopReason, null);
   assert.match(
     section(result.report, "修正した指摘"),
-    /\[参考\] `a\.js:1` issue a\.js::style \[ecc:MEDIUM, silent-failure:MEDIUM\]/,
+    /\[参考\] `a\.js:1` issue a\.js::style \[ecc:MEDIUM, mattpocock-standards:judgement\]/,
   );
   assert.equal(section(result.report, "参考指摘(修正必須ではない)").trim(), "なし");
   assert.match(result.report, /参考 1\(修正に回した 1: 修正 1 \/ 見送り 0、報告のみ 0\)/);
@@ -674,9 +674,9 @@ test("検証者が同意しなかった見送りは、却下理由を添えて�
 test("Requirements Concern は修正せずに報告し、requirementsBreaking なら動作確認をせずに停止する", async () => {
   const concern = await runWorkflow({
     respond: scenario({
-      reviews: [{ "silent-failure": [finding("HIGH", { target: "requirements" })] }],
+      reviews: [{ "mattpocock-spec": [finding("hard", { target: "requirements" })] }],
       merges: [
-        [cluster("requirements::ambiguous", ["silent-failure#0"], { target: "requirements" })],
+        [cluster("requirements::ambiguous", ["mattpocock-spec#0"], { target: "requirements" })],
       ],
     }),
   });
@@ -833,11 +833,13 @@ test("merge が code の修正必須指摘を requirements の cluster に入れ
       reviews: [
         {
           ecc: [finding("HIGH")],
-          "silent-failure": [finding("MEDIUM", { target: "requirements" })],
+          "mattpocock-spec": [finding("judgement", { target: "requirements" })],
         },
         {},
       ],
-      merges: [[cluster("a.js::mixed", ["ecc#0", "silent-failure#0"], { target: "requirements" })]],
+      merges: [
+        [cluster("a.js::mixed", ["ecc#0", "mattpocock-spec#0"], { target: "requirements" })],
+      ],
       fixes: [{ results: [{ key: "a.js::mixed", action: "fixed", reason: "" }], observations: [] }],
     }),
   });
@@ -848,10 +850,10 @@ test("merge が code の修正必須指摘を requirements の cluster に入れ
 test("merge の requirementsBreaking 申告だけでは停止しない(元の指摘が requirementsBreaking のときだけ止まる)", async () => {
   const { result } = await runWorkflow({
     respond: scenario({
-      reviews: [{ "silent-failure": [finding("MEDIUM", { target: "requirements" })] }],
+      reviews: [{ "mattpocock-spec": [finding("judgement", { target: "requirements" })] }],
       merges: [
         [
-          cluster("requirements::x", ["silent-failure#0"], {
+          cluster("requirements::x", ["mattpocock-spec#0"], {
             target: "requirements",
             requirementsBreaking: true,
           }),
@@ -1091,12 +1093,16 @@ async function assertRejectedGoesBackToFix(reviews, merges) {
 
 test("見送りを却下された key を merge が中身の無い cluster で再申告しても、修正に戻す", async () => {
   await assertRejectedGoesBackToFix(
-    [{ ecc: [finding("HIGH")] }, { "silent-failure": [finding("MEDIUM", { file: "c.js" })] }, {}],
+    [
+      { ecc: [finding("HIGH")] },
+      { "mattpocock-standards": [finding("judgement", { file: "c.js" })] },
+      {},
+    ],
     [
       [cluster("a.js::bug", ["ecc#0"])],
       [
         cluster("a.js::bug", ["bogus#1"]),
-        cluster("c.js::nit", ["silent-failure#0"], { file: "c.js" }),
+        cluster("c.js::nit", ["mattpocock-standards#0"], { file: "c.js" }),
       ],
     ],
   );
@@ -1114,10 +1120,10 @@ test("見送りを却下された key が Requirements Document 向けの指摘�
   await assertRejectedGoesBackToFix(
     [
       { ecc: [finding("HIGH")] },
-      { "silent-failure": [finding("MEDIUM", { target: "requirements" })] },
+      { "mattpocock-spec": [finding("judgement", { target: "requirements" })] },
       {},
     ],
-    [[cluster("a.js::bug", ["ecc#0"])], [cluster("a.js::bug", ["silent-failure#0"])]],
+    [[cluster("a.js::bug", ["ecc#0"])], [cluster("a.js::bug", ["mattpocock-spec#0"])]],
   );
 });
 
@@ -1721,4 +1727,69 @@ test("動作確認の失敗の修正は diagnosing-bugs で行い、再現でき
   assert.match(prompt, /「mattpocock-skills:diagnosing-bugs」/);
   assert.match(prompt, /再現.*fixed=false/);
   assert.match(prompt, /回帰テスト/);
+});
+
+test("Smell Finding だった key が後のラウンドで修正必須になったら、Smell Finding としては報告しない", async () => {
+  const fixed = (key) => ({ results: [{ key, action: "fixed" }], changes: [], observations: [] });
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [
+        {
+          "mattpocock-standards": [finding("judgement", { smell: "Duplicated Code" })],
+          ecc: [finding("HIGH", { file: "b.js" })],
+        },
+        { ecc: [finding("HIGH")] },
+        {},
+      ],
+      merges: [
+        [
+          cluster("a.js::duplicated", ["mattpocock-standards#0"]),
+          cluster("b.js::bug", ["ecc#0"], { file: "b.js" }),
+        ],
+        [cluster("a.js::duplicated", ["ecc#0"])],
+      ],
+      fixes: [fixed("b.js::bug"), fixed("a.js::duplicated")],
+    }),
+  });
+  assert.equal(section(result.report, "Smell Finding").trim(), "なし");
+  assert.match(section(result.report, "修正した指摘"), /a\.js::duplicated/);
+});
+
+test("同じラウンドで同じ key が smell だけの cluster と修正必須の cluster に分かれたら、Smell Finding に数えない", async () => {
+  const { result } = await runWorkflow({
+    respond: scenario({
+      reviews: [
+        {
+          "mattpocock-standards": [finding("judgement", { smell: "Duplicated Code" })],
+          ecc: [finding("HIGH")],
+        },
+        {},
+      ],
+      merges: [
+        [
+          cluster("a.js::duplicated", ["mattpocock-standards#0"]),
+          cluster("a.js::duplicated", ["ecc#0"]),
+        ],
+      ],
+      fixes: [
+        { results: [{ key: "a.js::duplicated", action: "fixed" }], changes: [], observations: [] },
+      ],
+    }),
+  });
+  assert.equal(section(result.report, "Smell Finding").trim(), "なし");
+  assert.match(result.stats, /ラウンド 1: .*Smell 0/);
+});
+
+test("Standards 軸にはユーザーのグローバル規約を規約として扱わせず、Spec 軸の欠落の指摘は着手済みの項目に限らせる", async () => {
+  const { calls } = await runWorkflow();
+  const prompt = (id) => calls.find((c) => c.label === `review:${id}`).prompt;
+  assert.match(prompt("mattpocock-standards"), /~\/\.claude.*規約の出所にしない/);
+  assert.match(prompt("mattpocock-spec"), /着手した項目/);
+});
+
+test("skill を使わないレビュアーには skill の尺度とは言わない", async () => {
+  const { calls } = await runWorkflow();
+  const prompt = calls.find((c) => c.label === "review:silent-failure").prompt;
+  assert.doesNotMatch(prompt, /skill/);
+  assert.match(prompt, /CRITICAL \/ HIGH \/ MEDIUM/);
 });

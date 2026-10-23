@@ -201,7 +201,7 @@ _Avoid_: nit(重大度を問わず使われる)、参考指摘(報告の節名�
 _Avoid_: Deferred Finding(検証者の同意を経たものに限る)
 
 **Smell Finding**:
-コード規約のレビューが Fowler の code smell を基準に挙げた Review Finding で、人間の判断材料として最終報告に載せるだけのもの。修正エージェントには渡さず、ループの収束条件にも数えない。
+コード規約のレビューが Fowler の code smell を基準に挙げ、smell 以外の指摘と統合されなかった Review Finding。人間の判断材料として最終報告に載せるだけで、修正エージェントには渡さず、ループの収束条件にも数えない。
 _Avoid_: nit、参考指摘(Advisory Finding の節名)
 
 **Requirements Document**:
