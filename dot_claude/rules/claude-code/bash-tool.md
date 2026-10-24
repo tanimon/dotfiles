@@ -105,5 +105,8 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
   認証の確認は `gh auth status` か `gh auth token >/dev/null 2>&1 && echo ok` で行う。
 - **`git diff` は difftastic で表示される。** このマシンは `diff.external = difft` なので、出力に `+` / `-` の行頭記号が無い。
   grep や wc で機械処理するときは `git diff --no-ext-diff` を使う。行頭記号の grep が 0 行でも「差分なし」の証拠にならない。
+- **`chezmoi diff` の出力に `diff --git` ヘッダは無い。** このマシンの chezmoi は `[diff] command` が `chezmoi-json-diff`
+  (`diff -u --label`)なので、`chezmoi diff | grep '^diff --git'` は差分があっても 0 件になる。apply で変わるファイルの一覧は
+  `chezmoi status` で見て、差分の中身は `chezmoi diff` をそのまま読む。
 - **Bash で読んだだけのファイルは Edit できない。** `Edit` / `Write` は `Read` ツールで読んだファイルにしか使えず、
   `cat` や `sed -n` で読んでも `File has not been read yet` で失敗する。直前に `Read` するか、編集も Bash で行う。
