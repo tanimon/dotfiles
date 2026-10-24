@@ -23,6 +23,10 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
   この option は配列も bash と同じ扱い(添字は 0 から、`$arr` は先頭の要素だけ。全要素は `"${arr[@]}"`)にする。
   `$VAR:` の後ろが化けたら、最新のスナップショットに `ksharrays` が写っているかを確かめる。
   他のシェルでも同じ意味になるよう、`$VAR` の直後に `:` が続くときは `${VAR}` で閉じる。
+- **コマンドと引数を 1 つの文字列変数に入れて `$G add …` と実行しない。** zsh はクォートしない `$VAR` を単語分割しないので、
+  `G="git -c core.fsmonitor=false"; $G add x` は `command not found: git -c core.fsmonitor=false`(exit 127)で止まる。
+  同じオプションを繰り返したいときは配列にして `G=(git -c core.fsmonitor=false); "${G[@]}" add x` と書くか、毎回書き下す。
+  **理由:** この形の `command not found` が 8 つの transcript で 40 回出ていた。
 
 ## 権限とサンドボックス除外はコマンド文字列の前方一致
 
