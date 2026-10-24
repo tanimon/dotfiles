@@ -1,0 +1,14 @@
+{
+  "id": "pr576-8bcb5bd6",
+  "adopted": "2026-10-24",
+  "title": "[2026-10-18] サンドボックス内の `git worktree add -b` は cwd の外に作ると、ブランチだけ残して止まることを書く",
+  "failure_patterns": ["sandbox-boundary", "unclassified"],
+  "eval": {
+    "status": "invalid",
+    "case_id": "2026-10-24-8bcb5bd6",
+    "with": 1,
+    "without": 1
+  },
+  "pr": 576,
+  "via": "weekly"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "pr576-5c8cadde",
+  "adopted": "2026-10-24",
+  "title": "[2026-10-18] Workflow の出力ファイルからは返り値を `.result` の下で取り出す",
+  "failure_patterns": ["sandbox-boundary", "tool-contract", "unclassified"],
+  "eval": {
+    "status": "invalid",
+    "case_id": "2026-10-24-5c8cadde",
+    "with": 1,
+    "without": 1
+  },
+  "pr": 576,
+  "via": "weekly"
+}
