@@ -79,6 +79,11 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
   push guard が止める。既存 PR へ push するときは `gh pr view --json headRefName -q .headRefName` で head を引き、
   `git push origin HEAD:<headRefName>` と明示する。
 
+`git worktree add -b <b> <path>` は、`<path>` が書き込み許可の外(cwd の兄弟ディレクトリ `../<name>` など)だと
+`could not create leading directories … Operation not permitted` で失敗するが、ブランチ `<b>` は先に作られて残る。
+やり直すときは `-b` を外して `git worktree add <書ける path> <b>` とする(`-b` のままだと `already exists` で失敗する)。
+作業ツリーは scratchpad など書ける場所に置くか、兄弟ディレクトリに置きたいならサンドボックス外で作る。
+
 ## 一時ファイルとファイルの置き場所
 
 - **`$TMPDIR` はサンドボックスの有無で変わる。** サンドボックス内で `$TMPDIR` に書いたファイルは、
