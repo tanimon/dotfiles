@@ -82,7 +82,10 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 `git worktree add -b <b> <path>` は、`<path>` が書き込み許可の外(cwd の兄弟ディレクトリ `../<name>` など)だと
 `could not create leading directories … Operation not permitted` で失敗するが、ブランチ `<b>` は先に作られて残る。
 やり直すときは `-b` を外して `git worktree add <書ける path> <b>` とする(`-b` のままだと `already exists` で失敗する)。
-作業ツリーは scratchpad など書ける場所に置くか、兄弟ディレクトリに置きたいならサンドボックス外で作る。
+後で使い続ける作業ツリーは、サンドボックス外で兄弟ディレクトリに作る。scratchpad は数日で消える(「一時ファイルとファイルの置き場所」節)ので、
+置くのはその場で捨てる検証用だけにし、残す変更をコミットしてから `git worktree remove <path>` で登録ごと消す。
+ディレクトリだけが消えると未コミットの変更が失われ、`git worktree prune` するまで登録が残って、
+そのブランチは別の path でも `is already used by worktree` で使えない。
 
 ## 一時ファイルとファイルの置き場所
 
