@@ -44,10 +44,14 @@ setup() {
 @test "ディレクトリが無ければ通さずに落ちる" {
     run bash "$SCRIPT" "$BATS_TEST_TMPDIR/missing"
     assert_failure
+    assert_output --partial "is not a directory"
 }
 
-@test "引数を省くとリポジトリの docs/adr を検査し、重複は無い" {
-    cd "${BATS_TEST_DIRNAME}/.."
+@test "引数を省くとカレントディレクトリの docs/adr を検査する" {
+    mkdir -p "$BATS_TEST_TMPDIR/repo/docs/adr"
+    touch "$BATS_TEST_TMPDIR/repo/docs/adr/0001-a.md" "$BATS_TEST_TMPDIR/repo/docs/adr/0001-b.md"
+    cd "$BATS_TEST_TMPDIR/repo"
     run bash "$SCRIPT"
-    assert_success
+    assert_failure
+    assert_output --partial "0001-b.md"
 }

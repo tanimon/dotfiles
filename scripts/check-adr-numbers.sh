@@ -16,7 +16,7 @@ if [ ! -d "$dir" ]; then
     exit 1
 fi
 
-# 番号ごとの「番号<TAB>ファイル名」。配列に取らないのは、bash 3.2 の set -u が空配列の展開で落ちるため。
+# ファイルごとの「番号<TAB>ファイル名」。配列に取らないのは、bash 3.2 の set -u が空配列の展開で落ちるため。
 shopt -s nullglob
 listing=""
 for file in "$dir"/[0-9][0-9][0-9][0-9]-*.md; do
@@ -25,7 +25,7 @@ for file in "$dir"/[0-9][0-9][0-9][0-9]-*.md; do
 done
 shopt -u nullglob
 
-count=$(printf '%s' "$listing" | grep -c . || true)
+adr_count=$(printf '%s' "$listing" | grep -c . || true)
 
 # 2 つ以上のファイルを持つ番号だけを出す。
 duplicates=$(
@@ -41,4 +41,4 @@ if [ -n "$duplicates" ]; then
     exit 1
 fi
 
-echo "PASS: ${count} ADRs in $dir have unique numbers"
+echo "PASS: ${adr_count} ADRs in $dir have unique numbers"
