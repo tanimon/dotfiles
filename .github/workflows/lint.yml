@@ -299,6 +299,19 @@ jobs:
           pnpm: 'true'
       - run: just test-comment-noise
 
+  check-adr-numbers:
+    name: Check ADR numbers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+      - run: just check-adr-numbers
+      - run: just test-adr-numbers
+
   test-pr-context:
     name: pr-context smoke tests
     runs-on: ubuntu-latest

@@ -105,7 +105,7 @@ silence itself signals a dead hook. Design:
 
 **Global agent instructions (`~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md`)** — グローバル指示は `harness/` を通らず、chezmoi テンプレートだけで合成する(ADR 0005)。合成の構成・rules の取り込み方・検査は `.claude/rules/global-agent-instructions.md`(その rule の `paths` に挙げたファイルを扱うときだけ読み込まれる)。
 
-**Autonomous review (`review-verify`)** — 入口 skill `dot_claude/skills/review-verify/` が Workflow `dot_claude/workflows/review-verify.js` を起動し、既存のブランチにレビュー修正ループと動作確認だけをかける。実装・push・PR の作成はしない(実装の段を持っていた Deliver を廃止した理由は ADR 0019)。ループの判定はコードで行う(ADR 0007、`just test-review-verify`)。ループの設計は `docs/superpowers/specs/2026-09-25-deliver-workflow-design.md`。
+**Autonomous review (`review-verify`)** — 入口 skill `dot_claude/skills/review-verify/` が Workflow `dot_claude/workflows/review-verify.js` を起動し、既存のブランチにレビュー修正ループと動作確認だけをかける。実装・push・PR の作成はしない(実装の段を持っていた Deliver を廃止した理由は ADR 0022)。ループの判定はコードで行う(ADR 0007、`just test-review-verify`)。ループの設計は `docs/superpowers/specs/2026-09-25-deliver-workflow-design.md`。
 
 ## Verification
 

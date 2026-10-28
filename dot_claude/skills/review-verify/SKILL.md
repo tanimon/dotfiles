@@ -6,7 +6,7 @@ argument-hint: "<要件文書のパス> [base=] [verify=] [rounds=] [stats-issue
 
 # review-verify
 
-`~/.claude/workflows/review-verify.js` を起動する前に、Workflow の中ではできない確認と質問をすべて済ませる。Workflow は実行中に質問できないので、ここで欠けた引数は後から補えない。レビューループの設計は chezmoi リポジトリの `docs/superpowers/specs/2026-09-25-deliver-workflow-design.md`、実装をしない理由は同じく `docs/adr/0019-retire-deliver-keep-only-review-verify.md`。
+`~/.claude/workflows/review-verify.js` を起動する前に、Workflow の中ではできない確認と質問をすべて済ませる。Workflow は実行中に質問できないので、ここで欠けた引数は後から補えない。レビューループの設計は chezmoi リポジトリの `docs/superpowers/specs/2026-09-25-deliver-workflow-design.md`、実装をしない理由は同じく `docs/adr/0022-retire-deliver-keep-only-review-verify.md`。
 
 Workflow は実装も push も PR の作成もしない。修正エージェントのコミットはローカルのブランチに残る。
 

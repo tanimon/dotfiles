@@ -17,6 +17,8 @@
 
 `NNNN-kebab-case-title.md`（例: `0001-manage-mcp-servers-via-apm.md`）。`docs/adr/` の最大番号を見て +1 する。この README は採番の対象外。
 
+同じ番号の ADR が2つあると `just check-adr-numbers`（`just lint` と CI）が落ちる。並行する PR が同じ番号を取ったら、後からマージする側が空いている次の番号に振り直し、その ADR を指す参照も直す。
+
 ## フォーマット
 
 ```md
