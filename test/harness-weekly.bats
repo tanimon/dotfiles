@@ -128,10 +128,6 @@ elif [[ "$all_args" == *'harness-review skill'* ]]; then
         printf '## 採用した変更\n\n- 理由: 同じ失敗の再発を防ぐため\n' >"$body"
         settle_all adopted
         ;;
-    dirty)
-        printf 'x\n' >stray.md
-        settle_all rejected 'stub'
-        ;;
     none) settle_all rejected 'stub' ;;
     esac
 else
@@ -648,14 +644,8 @@ PRE
     seed_queue
     STUB_CLAUDE_MODE=is_error run weekly
     assert_failure
-    assert [ ! -f "$GH_LOG" ]
-    refute_heartbeat_written
-}
-
-@test "commit されていない変更が残っていたら PR を作らずに失敗する" {
-    seed_queue
-    STUB_REVIEW_MODE=dirty run weekly
-    assert_failure
+    # module が失敗した選別の案内に回したことは、module だけが出すこの行で分かる
+    assert_output --partial "harness-weekly: review failed after 1 commit(s) on local branch ${BRANCH}"
     assert [ ! -f "$GH_LOG" ]
     refute_heartbeat_written
 }

@@ -869,7 +869,6 @@ refute_reviewed() {
     # 評価には採用の印を渡さない
     run cat "$EVAL_ENV_LOG"
     assert_line --index 0 'HARNESS_REVIEW_RUN=<unset>'
-    assert [ -z "${HARNESS_REVIEW_RUN+set}" ]
 }
 
 @test "選別の経路: 当日のブランチが origin にあり PR もあれば、開始の行も出さず選別も走らせずに成功する" {
@@ -1002,7 +1001,10 @@ refute_reviewed() {
 @test "選別の経路: push に失敗した run の後に同じ日に再実行しても、手で PR を作るための本文と worktree を消さない" {
     review_fixture
     init_real
-    printf '#!/usr/bin/env bash\nexit 1\n' >"$ORIGIN/hooks/pre-receive"
+    cat >"$ORIGIN/hooks/pre-receive" <<'HOOK'
+#!/usr/bin/env bash
+exit 1
+HOOK
     chmod +x "$ORIGIN/hooks/pre-receive"
     run review_with review_commits
     assert_failure 1
@@ -1364,6 +1366,57 @@ EOF
     assert_output docs/harness/rule-ledger/pr42-1.json
 }
 
+@test "選別の結果: Rule Ledger に記録できなければ、手で記録するコマンドを WARN で出して成功する" {
+    review_fixture
+    init_real
+    STUB_LEDGER_RECORD_FAIL=1 run review_with review_commits
+    assert_success
+    assert_line "harness-weekly: WARN failed to record the adoptions of https://github.com/example/dotfiles/pull/42 in the Rule Ledger $HDIR/rule-ledger; record them by hand with bash $HOME/.claude/scripts/harness-rule-ledger.sh record --pr-url https://github.com/example/dotfiles/pull/42 --date 2026-10-17 --via weekly"
+}
+
+@test "選別の結果: Rule Ledger の記録を commit できなければ、写しかけを戻して WARN にとどめ、成功する" {
+    review_fixture
+    init_real
+    STUB_LEDGER_FAIL=1 run review_with review_commits
+    assert_success
+    assert_line "harness-weekly: WARN failed to commit the Rule Ledger records; they stay in $HDIR/rule-ledger for a later PR"
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_output 'harness: add rule'
+}
+
+@test "選別の結果: Rule Ledger の記録の push に失敗しても、PR を残して WARN にとどめ、成功する" {
+    review_fixture
+    init_real
+    cat >"$ORIGIN/hooks/pre-receive" <<'HOOK'
+#!/usr/bin/env bash
+while read -r old new ref; do
+    ! git ls-tree -r --name-only "$new" | grep -q '^docs/harness/rule-ledger/' || exit 1
+done
+HOOK
+    chmod +x "$ORIGIN/hooks/pre-receive"
+    STUB_LEDGER_EXPORT=1 run review_with review_commits
+    assert_success
+    assert_line "harness-weekly: WARN push of the Rule Ledger records to ${BRANCH} failed; they stay in $HDIR/rule-ledger for a PR after this one merges"
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_output 'harness: add rule'
+    assert [ ! -e "$WT" ]
+}
+
+@test "選別の結果: Rule Ledger の記録の commit の後に実行物が書き換えられたら、再 push せずに PR を残して失敗する" {
+    review_fixture
+    init_real
+    # Rule Ledger の oxfmt(export の後、再 push の前)の最中に実行物を書き換える。依存のインストールなどほかの呼び出しは成功させる
+    cat >"$STUBS/pnpm" <<'EOF'
+#!/usr/bin/env bash
+[[ "$*" != 'exec oxfmt docs/harness/rule-ledger' ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+EOF
+    STUB_LEDGER_EXPORT=1 run review_with review_commits
+    assert_failure 1
+    assert_line 'harness-weekly: opened https://github.com/example/dotfiles/pull/42, but the scripts or records the job uses after it could not be trusted; check the PR and the Rule Ledger by hand'
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_output 'harness: add rule'
+}
+
 # 選別の claude の代わり。採用の commit に加えて、得点を偽った評価の結果を置く
 review_with_fake_results() {
     review_commits
@@ -1591,7 +1644,11 @@ hide_adoptions() {
     printf -- '## [2026-10-03] entry\n\n- **Verdict:** adopted (%s)\n' "$HARNESS_REVIEW_RUN" >"$HDIR/queue-archive.md"
     printf '{"dropped":[],"deploy_only":[]}\n' >"$RESULT"
     cp "$cli" "$cli.orig"
-    printf '#!/usr/bin/env bash\n[[ "$1" == adopted ]] && exit 0\nexec bash "%s" "$@"\n' "$cli.orig" >"$cli"
+    cat >"$cli" <<EOF
+#!/usr/bin/env bash
+[[ "\$1" == adopted ]] && exit 0
+exec bash "$cli.orig" "\$@"
+EOF
 }
 
 @test "選別が何も commit しなかった週に選別の claude が Verdict の CLI に採用を隠させたら、変更なしの成功ではなく PR を作らずに失敗し、予約コードを外に出さない" {

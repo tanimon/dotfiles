@@ -632,8 +632,8 @@ ${WRITE_RULE}
 - Finish with a one-line summary: entries adopted, rejected, handed off."
     # 選別の経路の手順は Loop PR の module の harness_loop_pr_run_review のコメントが正本で、入口は成功か失敗かだけを返す。
     # 開始の行は、前提の確認を通った後に module が出す
-    harness_loop_pr_run_review \
-        "$(printf 'harness-weekly: review session=%s queue=%s branch=%s' "$REVIEW_SESSION_ID" "$QUEUE_ENTRIES" "$BRANCH")" \
+    printf -v REVIEW_START_LINE 'harness-weekly: review session=%s queue=%s branch=%s' "$REVIEW_SESSION_ID" "$QUEUE_ENTRIES" "$BRANCH"
+    harness_loop_pr_run_review "$REVIEW_START_LINE" \
         run_claude review "$REVIEW_SESSION_ID" "$REVIEW_BUDGET_USD" "$REVIEW_PROMPT" || exit 1
 
     finish_run || exit 1

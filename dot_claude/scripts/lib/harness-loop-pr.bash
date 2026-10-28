@@ -880,7 +880,7 @@ _harness_loop_pr_run_in_worktree() { # <コマンド> [<引数>…]
 #   4. 振り分けと公開、または失敗した選別の案内(_harness_loop_pr_conclude_review)
 # 返り値は 0(公開した、変更が無かった、当日の PR が既にあった、Metrics-only PR が要らなかった)と 1(失敗)
 harness_loop_pr_run_review() { # <開始の行> <コマンド> [<引数>…]
-    local start_line=${1:-} remote_status=0 existing_pr base stage_status=0 skipped='skipped review'
+    local start_line=${1:-} remote_status=0 existing_pr create_command base stage_status=0 skipped='skipped review'
     if [[ $# -lt 2 || -z "$start_line" ]]; then
         printf 'harness-loop-pr: harness_loop_pr_run_review needs <start line> and the command that runs the review\n' >&2
         return 1
@@ -893,8 +893,9 @@ harness_loop_pr_run_review() { # <開始の行> <コマンド> [<引数>…]
             return 1
         }
         if [[ -z "$existing_pr" ]]; then
+            create_command=$(harness_loop_pr_create_command "$_HARNESS_LOOP_PR_BRANCH" "$_HARNESS_LOOP_PR_PR_BODY") || return 1
             printf 'harness-weekly: %s exists on origin but has no PR; skipped review. Check the log of the run that pushed it: if it stopped before gh pr create because the scripts could not be trusted, delete the branch (git push origin --delete %s); otherwise open the PR by hand (%s)\n' \
-                "$_HARNESS_LOOP_PR_BRANCH" "$_HARNESS_LOOP_PR_BRANCH" "$(harness_loop_pr_create_command "$_HARNESS_LOOP_PR_BRANCH" "$_HARNESS_LOOP_PR_PR_BODY")" >&2
+                "$_HARNESS_LOOP_PR_BRANCH" "$_HARNESS_LOOP_PR_BRANCH" "$create_command" >&2
             return 1
         fi
         printf 'harness-weekly: %s already exists on origin (PR %s); skipped review\n' "$_HARNESS_LOOP_PR_BRANCH" "$existing_pr"
