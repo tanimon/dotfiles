@@ -14,7 +14,7 @@ PR 本文を現在の差分と照らし、Stale PR Body なら食い違う箇所
 gh pr view <引数> --json number,url,title,state,baseRefName,headRefName,commits
 ```
 
-引数が無ければ `<引数>` を省き、現在のブランチの PR を対象にする。PR が無い・特定できないときは、理由を伝えて止まる。`state` が `MERGED` / `CLOSED` なら、そのことを伝えて続けるかを聞く(マージ済みの PR の AC 対応表は ticket スキルの照合モードが根拠として読むので、直す意味はある)。
+引数が無ければ `<引数>` を省き、現在のブランチの PR を対象にする。PR が無い・特定できないときは、理由を伝えて止まる。`state` が `MERGED` / `CLOSED` なら、そのことを伝えて続けるかを聞く(マージ済みの PR の AC 対応表は issue を解決したことの記録として後から読まれるので、直す意味はある。chezmoi リポジトリの `docs/adr/0021-ac-mapping-table-is-the-completion-record.md`)。
 
 以降のコマンドの `<PR>` には、ここで得た `url` を使う。番号を渡すと `gh` は現在のディレクトリのリポジトリで PR を探すので、別のリポジトリの URL で起動したときに別の PR を読み書きしてしまう。以降の `<owner>` / `<repo>` / `<number>` も、この `url`(`https://github.com/<owner>/<repo>/pull/<number>`)から取る。
 

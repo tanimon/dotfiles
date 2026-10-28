@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# issue 本文の節を読む関数。audit.sh と create-issue.sh が source する。
+# issue 本文の節を読む関数。create-issue.sh が source する。
 # 見出しは `#` で始まり空白が続く行で、小文字にした行を pattern(awk の正規表現)と比べる。
-# 節は、同じかより上位(`#` が同数以下)の見出しで閉じる。下位の見出し(AC 節の中の `### 補足` など)では閉じない。
+# 節は、同じかより上位(`#` が同数以下)の見出しで閉じる。下位の見出し(節の中の `### 補足` など)では閉じない。
 # コードブロック(``` か ~~~ で囲んだ範囲)の中の `# …` はシェルのコメントでありうるので見出しとみなさない。
 # 呼び出し側は LC_ALL=C で動かす(tolower と日本語の見出しをバイト単位で扱うため)。
 
-# 両関数が共有する awk の前置き。heading(line) は見出しなら `#` の数、そうでなければ 0 を返し、フェンスの開閉を追う。
+# section_refs の awk の前置き。heading(line) は見出しなら `#` の数、そうでなければ 0 を返し、フェンスの開閉を追う。
 # enter_or_leave(line, pattern) は見出し行で節の出入りを更新し、入ったときは見出しの一致位置を RSTART / RLENGTH に残す。
 _SECTIONS_AWK_PRELUDE='
     function heading(line) {
@@ -43,12 +43,4 @@ section_refs() {
             next
         }
         in_section && !in_fence { leading_refs($0) }'
-}
-
-# unchecked_items <pattern>: 見出しが pattern に一致する節の中の未チェック項目の文を 1 行 1 項目で出す。
-# 箇条書きの記号は section_refs と揃える(`-` / `*` / `+` / `1.` / `1)`)。
-unchecked_items() {
-    awk -v pattern="$1" "$_SECTIONS_AWK_PRELUDE"'
-        (level = heading($0)) > 0 { enter_or_leave($0, pattern, level); next }
-        in_section && !in_fence && /^[ \t]*([-*+]|[0-9]+[.)]) \[ \] / { sub(/^[ \t]*([-*+]|[0-9]+[.)]) \[ \] /, ""); print }'
 }
