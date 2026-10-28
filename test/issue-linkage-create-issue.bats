@@ -85,6 +85,8 @@ STUB
     assert_failure 1
     assert_output --partial 'https://github.com/tanimon/sample/issues/450'
     assert_output --partial 'blocked-by #401'
+    # 張り直すコマンドの正本へ案内する
+    assert_output --partial 'references/relationship-api.md'
 }
 
 @test "同じ番号が節に 2 回あっても relationship は 1 回だけ張る" {

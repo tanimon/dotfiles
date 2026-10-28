@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook: 個人リポジトリでの `gh pr create` を、issue-linkage スキルの作成モードを経た本文(マーカー
+# PreToolUse hook: 個人リポジトリでの `gh pr create` を、issue-linkage スキルの手順を経た本文(マーカー
 # `<!-- issue-linkage -->` を含む)でなければ deny する。`gh issue create` は常に deny し、作成と native relationship の
 # 設定を一度に行う create-issue.sh へ案内する(作成後の設定を別の手順にすると、それだけが漏れるため)。
 # 設計: chezmoi リポジトリの docs/superpowers/specs/2026-10-04-ticket-skill-design.md
@@ -203,7 +203,7 @@ shell_reader_each_segment check_segment && exit 0
 jq -n --arg detail "$DENY_DETAIL" '{hookSpecificOutput: {hookEventName: "PreToolUse",
     permissionDecision: "deny",
     permissionDecisionReason: ("issue-linkage-guard: " + $detail
-        + " issue-linkage スキル(~/.claude/skills/issue-linkage/SKILL.md)の作成モードで本文を作り"
+        + " issue-linkage スキル(~/.claude/skills/issue-linkage/SKILL.md)の手順で本文を作り"
         + "(関連 issue のメンション、relationship、PR なら Closes と AC 対応表)、末尾に <!-- issue-linkage --> を付ける。"
         + "本文ファイルは git rev-parse --absolute-git-dir の出力の下の issue-linkage/ に置き、PR は gh pr create --body-file <絶対パス>、"
         + "issue は bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh --title <title> --body-file <絶対パス> で作る。")}}'

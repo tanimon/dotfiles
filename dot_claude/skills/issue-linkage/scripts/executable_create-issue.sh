@@ -52,7 +52,7 @@ case "$body_file" in
     ;;
 esac
 if [[ ! -r "$body_file" ]] || ! grep -qF -- "$MARKER" "$body_file"; then
-    echo "create-issue.sh: 本文ファイルが読めないか、マーカー $MARKER が無い(issue-linkage スキルの作成モードで本文を作る): $body_file" >&2
+    echo "create-issue.sh: 本文ファイルが読めないか、マーカー $MARKER が無い(issue-linkage スキルの手順で本文を作る): $body_file" >&2
     exit 2
 fi
 
@@ -91,6 +91,6 @@ if [[ -z "$failed" ]]; then
     done
 fi
 if [[ -n "$failed" ]]; then
-    echo "create-issue.sh: $url は作成済み。次の relationship を張れなかった(issue-linkage スキルの作成モード手順3のコマンドで張り直す):$failed" >&2
+    echo "create-issue.sh: $url は作成済み。次の relationship を張れなかった(issue-linkage スキルの references/relationship-api.md のコマンドで張り直す):$failed" >&2
     exit 1
 fi

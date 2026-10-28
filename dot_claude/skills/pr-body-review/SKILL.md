@@ -1,6 +1,6 @@
 ---
 name: pr-body-review
-description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。「PR の本文が古くなっていないか見て」「push したので PR 本文を見直して」「PR description を差分に合わせて直して」「/pr-body-review」など。PR を新しく作るとき(個人リポジトリなら issue-linkage スキル)や、レビューコメントへの対応には使わない。
+description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。「PR の本文が古くなっていないか見て」「push したので PR 本文を見直して」「PR description を差分に合わせて直して」「/pr-body-review」など。PR を新しく作るとき(骨格は /pr スキル、個人リポジトリの関係づけの節は issue-linkage スキル)や、レビューコメントへの対応には使わない。
 argument-hint: "[<PR 番号 | PR の URL>]"
 ---
 
@@ -31,7 +31,7 @@ gh pr view <PR> --json body | jq -j .body > <dir>/original.md
 
 本文をどう書くべきかは、このスキルに写さず正本を読む。
 
-- **個人リポジトリ**: `bash ~/.claude/scripts/lib/issue-linkage-scope.bash "$(pwd)" <owner/repo>`(`<owner/repo>` は PR の URL から取る)の終了コードが 0 なら、issue-linkage スキル(`~/.claude/skills/issue-linkage/SKILL.md`)の作成モードの手順4・5が規約。
+- **個人リポジトリ**: `bash ~/.claude/scripts/lib/issue-linkage-scope.bash "$(pwd)" <owner/repo>`(`<owner/repo>` は PR の URL から取る)の終了コードが 0 なら、issue-linkage スキル(`~/.claude/skills/issue-linkage/SKILL.md`)の「PR を作る」節が規約(骨格は `/pr` スキルのテンプレート、その後ろに関係づけの節)。
 - **それ以外**: 対象リポジトリの既定ブランチにある PR テンプレートが規約。手元の作業ツリーは古いことがあるので GitHub から読む。
 
   ```bash
