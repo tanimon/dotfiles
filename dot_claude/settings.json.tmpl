@@ -350,6 +350,22 @@
         ]
       }
     ],
+    "Elicitation": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {{ template "orca-agent-hook" . }}
+        ]
+      }
+    ],
+    "ElicitationResult": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {{ template "orca-agent-hook" . }}
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "permission_prompt|idle_prompt|agent_needs_input",
