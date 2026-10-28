@@ -89,3 +89,9 @@ bin/cco
 # 週次ジョブの公開の lib は Loop PR の module(lib/harness-loop-pr.bash)に改名した。source から消しただけでは
 # 配置済みの旧い名前のファイルが ~/.claude/scripts/lib/ に残るので、ここで消す。
 .claude/scripts/lib/harness-publish.bash
+
+# ticket スキルとそのガード・範囲の判定は issue-linkage に改名した。source から消しただけでは配置済みの
+# 旧い名前のスキルとフックが ~/.claude/ に残り、旧スキルが新スキルと並んで起動されるので、ここで消す。
+.claude/skills/ticket
+.claude/scripts/ticket-guard.sh
+.claude/scripts/lib/ticket-scope.bash

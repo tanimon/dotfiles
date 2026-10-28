@@ -1,6 +1,6 @@
 # ~/.claude/settings.json の hook 配線の契約テスト。
 #
-# guard hook(git-push-guard / curl-localhost-guard / ticket-guard)は ADR 0009 の強制点だが、
+# guard hook(git-push-guard / curl-localhost-guard / issue-linkage-guard)は ADR 0009 の強制点だが、
 # 未配線だと無出力=判定なしでフェイルオープンする。script 単体のテスト
 # (test/git-push-guard.bats / test/curl-localhost-guard.bats)は配線を見ないので、
 # hooks ブロックから登録を消しても他の suite は緑のまま通る。この suite がその穴を塞ぐ。
@@ -77,8 +77,8 @@ assert_guard_wired() {
     assert_guard_wired curl-localhost-guard
 }
 
-@test "ticket-guard が PreToolUse の Bash に直接配線されている" {
-    assert_guard_wired ticket-guard
+@test "issue-linkage-guard が PreToolUse の Bash に直接配線されている" {
+    assert_guard_wired issue-linkage-guard
 }
 
 @test "hook が呼ぶ script はすべて chezmoi が実行可能として配置する" {
@@ -90,7 +90,7 @@ assert_guard_wired() {
     # 抽出が空なら検査が空振りする。guard 3 本は必ず含まれる
     assert_line git-push-guard.sh
     assert_line curl-localhost-guard.sh
-    assert_line ticket-guard.sh
+    assert_line issue-linkage-guard.sh
     local name source
     while IFS= read -r name; do
         # Source の有無を自前の命名規則で推測せず chezmoi に解決させる。
@@ -118,9 +118,9 @@ assert_guard_wired() {
 
 # create-issue.sh は内部で gh issue create を呼び、前方一致の ask に当たらない。スクリプトの綴りで承認ゲートを保つ
 @test "create-issue.sh の呼び出しが ~ 形と展開形の両方で permissions.ask にある" {
-    jq -e '.permissions.ask | index("Bash(bash ~/.claude/skills/ticket/scripts/create-issue.sh:*)") != null' "$SETTINGS" >/dev/null ||
+    jq -e '.permissions.ask | index("Bash(bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh:*)") != null' "$SETTINGS" >/dev/null ||
         fail "permissions.ask に ~ 形の create-issue.sh が無い"
-    jq -e '.permissions.ask | map(select(test("^Bash\\(bash /.+/\\.claude/skills/ticket/scripts/create-issue\\.sh:\\*\\)$"))) | length == 1' "$SETTINGS" >/dev/null ||
+    jq -e '.permissions.ask | map(select(test("^Bash\\(bash /.+/\\.claude/skills/issue-linkage/scripts/create-issue\\.sh:\\*\\)$"))) | length == 1' "$SETTINGS" >/dev/null ||
         fail "permissions.ask に homeDir 展開形の create-issue.sh が無い"
 }
 

@@ -1,6 +1,6 @@
 ---
 name: pr-body-review
-description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。「PR の本文が古くなっていないか見て」「push したので PR 本文を見直して」「PR description を差分に合わせて直して」「/pr-body-review」など。PR を新しく作るとき(個人リポジトリなら ticket スキル)や、レビューコメントへの対応には使わない。
+description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。「PR の本文が古くなっていないか見て」「push したので PR 本文を見直して」「PR description を差分に合わせて直して」「/pr-body-review」など。PR を新しく作るとき(個人リポジトリなら issue-linkage スキル)や、レビューコメントへの対応には使わない。
 argument-hint: "[<PR 番号 | PR の URL>]"
 ---
 
@@ -31,7 +31,7 @@ gh pr view <PR> --json body | jq -j .body > <dir>/original.md
 
 本文をどう書くべきかは、このスキルに写さず正本を読む。
 
-- **個人リポジトリ**: `bash ~/.claude/scripts/lib/ticket-scope.bash "$(pwd)" <owner/repo>`(`<owner/repo>` は PR の URL から取る)の終了コードが 0 なら、ticket スキル(`~/.claude/skills/ticket/SKILL.md`)の作成モードの手順4・5が規約。
+- **個人リポジトリ**: `bash ~/.claude/scripts/lib/issue-linkage-scope.bash "$(pwd)" <owner/repo>`(`<owner/repo>` は PR の URL から取る)の終了コードが 0 なら、issue-linkage スキル(`~/.claude/skills/issue-linkage/SKILL.md`)の作成モードの手順4・5が規約。
 - **それ以外**: 対象リポジトリの既定ブランチにある PR テンプレートが規約。手元の作業ツリーは古いことがあるので GitHub から読む。
 
   ```bash
@@ -77,7 +77,7 @@ gh api repos/<owner>/<repo>/commits/<sha> --jq '.files[] | {filename, patch}'
 
 ## 5. 直した本文を作り、承認を求める
 
-`cp <dir>/original.md <dir>/edited.md` で複写し、Read ツールで読んでから、食い違う箇所だけを Edit ツールで直す。手順2の規約の見出し・順序・節構成、規約が「原文のまま残す」とする節、不可視のコメント(`<!-- ticket-skill -->` など)は変えない。
+`cp <dir>/original.md <dir>/edited.md` で複写し、Read ツールで読んでから、食い違う箇所だけを Edit ツールで直す。手順2の規約の見出し・順序・節構成、規約が「原文のまま残す」とする節、不可視のコメント(`<!-- issue-linkage -->` など)は変えない。
 
 食い違いを節ごとにまとめた一覧(節・食い違いの内容・根拠のコミットか差分)と、次の差分を示す。
 

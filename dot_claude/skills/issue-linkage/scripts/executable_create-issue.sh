@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # issue を作り、本文の `## Parent` / `## Blocked by` に書いた関係を native の sub-issue と依存関係にも張る。
 # 作成と設定を 1 つにしているのは、作成後の設定を別の手順にするとそれだけが漏れるため(本文は正しいのに
-# native が未設定、という形)。このスクリプト内の gh は ticket-guard の対象にならない。
+# native が未設定、という形)。このスクリプト内の gh は issue-linkage-guard の対象にならない。
 #
 # 使い方: create-issue.sh --title <title> --body-file <絶対パス> [gh issue create に渡すその他の引数...]
 # 終了コード: 0 成功 / 1 issue は作ったが relationship の一部を張れなかった / 2 引数か本文の不備(何も作らない)
 set -uo pipefail
 export LC_ALL=C
 
-MARKER='<!-- ticket-skill -->'
+MARKER='<!-- issue-linkage -->'
 
-# shellcheck source=dot_claude/skills/ticket/scripts/sections.bash
+# shellcheck source=dot_claude/skills/issue-linkage/scripts/sections.bash
 source "$(dirname "${BASH_SOURCE[0]}")/sections.bash"
 
 body_file=''
@@ -52,7 +52,7 @@ case "$body_file" in
     ;;
 esac
 if [[ ! -r "$body_file" ]] || ! grep -qF -- "$MARKER" "$body_file"; then
-    echo "create-issue.sh: 本文ファイルが読めないか、マーカー $MARKER が無い(ticket スキルの作成モードで本文を作る): $body_file" >&2
+    echo "create-issue.sh: 本文ファイルが読めないか、マーカー $MARKER が無い(issue-linkage スキルの作成モードで本文を作る): $body_file" >&2
     exit 2
 fi
 
@@ -91,6 +91,6 @@ if [[ -z "$failed" ]]; then
     done
 fi
 if [[ -n "$failed" ]]; then
-    echo "create-issue.sh: $url は作成済み。次の relationship を張れなかった(ticket スキルの作成モード手順3のコマンドで張り直す):$failed" >&2
+    echo "create-issue.sh: $url は作成済み。次の relationship を張れなかった(issue-linkage スキルの作成モード手順3のコマンドで張り直す):$failed" >&2
     exit 1
 fi

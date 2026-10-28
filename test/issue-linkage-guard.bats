@@ -1,16 +1,16 @@
-# ticket-guard: 範囲内のリポジトリで、マーカーの無い gh issue/pr create を deny する。
+# issue-linkage-guard: 範囲内のリポジトリで、マーカーの無い gh issue/pr create を deny する。
 setup() {
     load 'helpers/setup'
-    SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_ticket-guard.sh"
+    SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_issue-linkage-guard.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$HOME"
-    unset TICKET_GUARD_OWNERS GH_REPO
+    unset ISSUE_LINKAGE_GUARD_OWNERS GH_REPO
     REPO_DIR="$BATS_TEST_TMPDIR/repo"
     git init -q "$REPO_DIR"
     git -C "$REPO_DIR" remote add origin https://github.com/tanimon/sample.git
     BODY_DIR="$BATS_TEST_TMPDIR/body"
     mkdir -p "$BODY_DIR"
-    MARKER='<!-- ticket-skill -->'
+    MARKER='<!-- issue-linkage -->'
 }
 
 # Claude Code と同じく、判定のすべてを stdin の PreToolUse payload から得る。
@@ -41,7 +41,10 @@ reason() {
     run hook "gh pr create --title t --body-file $BODY_DIR/pr.md"
     assert_success
     [ "$(decision "$output")" = deny ]
-    [[ "$(reason "$output")" == ticket-guard:* ]]
+    [[ "$(reason "$output")" == issue-linkage-guard:* ]]
+    # 理由は改名後のスキルとマーカーを案内する
+    [[ "$(reason "$output")" == *'~/.claude/skills/issue-linkage/SKILL.md'* ]]
+    [[ "$(reason "$output")" == *"$MARKER"* ]]
 }
 
 @test "--body にマーカーがある pr create は通す" {
@@ -59,7 +62,7 @@ reason() {
 @test "範囲内の issue create はマーカーがあっても create-issue.sh へ案内して deny" {
     run hook "gh issue create --title t --body 'x $MARKER'"
     [ "$(decision "$output")" = deny ]
-    [[ "$(reason "$output")" == *create-issue.sh* ]]
+    [[ "$(reason "$output")" == *'bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh'* ]]
 }
 
 @test "-F 短縮形と --body-file= 形も読む" {

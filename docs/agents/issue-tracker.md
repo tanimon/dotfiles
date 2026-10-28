@@ -9,7 +9,7 @@ spec の置き場所は、作ったスキルで決まる。
 
 ## Conventions
 
-- **Create an issue**: `ticket` スキルの作成モードに従い、`bash ~/.claude/skills/ticket/scripts/create-issue.sh --title "..." --body-file <絶対パス>` で作る。
+- **Create an issue**: `issue-linkage` スキルの作成モードに従い、`bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh --title "..." --body-file <絶対パス>` で作る。
 - **Read an issue**: `gh issue view <number> --comments`。ラベルも併せて取得し、コメントは `jq` で絞る。
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`。必要に応じて `--label` / `--state` で絞る。
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
@@ -44,13 +44,13 @@ GitHub issue を作成する。
 
 `/wayfinder` が使う。**map** は単一の issue、**child** issue が ticket。
 
-- **Map**: `wayfinder:map` ラベルを付けた単一 issue に Notes / Decisions-so-far / Fog の body を持たせる。`bash ~/.claude/skills/ticket/scripts/create-issue.sh … --label wayfinder:map`
-- **Child ticket**: map の GitHub sub-issue としてリンクした issue（API の手順は `ticket` スキルの `references/relationship-api.md`）。sub-issues が有効でない場合は map の body の task list に追加し、child の body 冒頭に `Part of #<map>` を書く。ラベルは `wayfinder:<type>`（`research` / `prototype` / `grilling` / `task`）。claim 後は担当開発者に assign する。
-- **Blocking**: GitHub の **native issue dependencies** を使う（UI から見える正式表現）。API の手順は `ticket` スキルの `references/relationship-api.md`（blocker の database id を使う）。GitHub は `issue_dependencies_summary.blocked_by`（open な blocker のみ）を返し、これが実際のゲートになる。blocker は child の本文の `## Blocked by` 節にも書く(書式の正本は `ticket` スキルの作成モードの手順3)。dependencies が使えない場合はこの節がフォールバックになる。全 blocker が close された時点で unblock。
+- **Map**: `wayfinder:map` ラベルを付けた単一 issue に Notes / Decisions-so-far / Fog の body を持たせる。`bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh … --label wayfinder:map`
+- **Child ticket**: map の GitHub sub-issue としてリンクした issue（API の手順は `issue-linkage` スキルの `references/relationship-api.md`）。sub-issues が有効でない場合は map の body の task list に追加し、child の body 冒頭に `Part of #<map>` を書く。ラベルは `wayfinder:<type>`（`research` / `prototype` / `grilling` / `task`）。claim 後は担当開発者に assign する。
+- **Blocking**: GitHub の **native issue dependencies** を使う（UI から見える正式表現）。API の手順は `issue-linkage` スキルの `references/relationship-api.md`（blocker の database id を使う）。GitHub は `issue_dependencies_summary.blocked_by`（open な blocker のみ）を返し、これが実際のゲートになる。blocker は child の本文の `## Blocked by` 節にも書く(書式の正本は `issue-linkage` スキルの作成モードの手順3)。dependencies が使えない場合はこの節がフォールバックになる。全 blocker が close された時点で unblock。
 - **Frontier query**: map の open な child を列挙し（`gh issue list --state open` を map の sub-issues / task list に絞る）、open な blocker を持つもの（`issue_dependencies_summary.blocked_by > 0`、または本文の `## Blocked by` 節に open issue があるもの）と assignee が付いているものを落とす。map の順で先頭が勝ち。
 - **Claim**: `gh issue edit <n> --add-assignee @me`。セッション最初の書き込み。
 - **Resolve**: `gh issue comment <n> --body "<answer>"` → `gh issue close <n>` → map の Decisions-so-far に context pointer（gist + link）を追記。
 
 ## issue / PR を作るとき
 
-`ticket` スキル(`~/.claude/skills/ticket/SKILL.md`)の作成モードに従う。関連 issue のメンション、parent / blocked-by の native 設定、PR の `Closes #N` と AC 対応表の手順の正本はそちらにある。ticket-guard フックは、`gh issue create` を `create-issue.sh` へ案内して deny し、本文にマーカー `<!-- ticket-skill -->` が無い `gh pr create` を deny する。
+`issue-linkage` スキル(`~/.claude/skills/issue-linkage/SKILL.md`)の作成モードに従う。関連 issue のメンション、parent / blocked-by の native 設定、PR の `Closes #N` と AC 対応表の手順の正本はそちらにある。issue-linkage-guard フックは、`gh issue create` を `create-issue.sh` へ案内して deny し、本文にマーカー `<!-- issue-linkage -->` が無い `gh pr create` を deny する。

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse hook: 個人リポジトリでの `gh pr create` を、ticket スキルの作成モードを経た本文(マーカー
-# `<!-- ticket-skill -->` を含む)でなければ deny する。`gh issue create` は常に deny し、作成と native relationship の
+# PreToolUse hook: 個人リポジトリでの `gh pr create` を、issue-linkage スキルの作成モードを経た本文(マーカー
+# `<!-- issue-linkage -->` を含む)でなければ deny する。`gh issue create` は常に deny し、作成と native relationship の
 # 設定を一度に行う create-issue.sh へ案内する(作成後の設定を別の手順にすると、それだけが漏れるため)。
 # 設計: chezmoi リポジトリの docs/superpowers/specs/2026-10-04-ticket-skill-design.md
 #
@@ -12,7 +12,7 @@
 #   deny        — 範囲内のリポジトリの gh issue create、または本文にマーカーを確認できない gh pr create
 #   (no output) — それ以外。allow / ask は返さない
 #
-# 範囲は lib/ticket-scope.bash が判定する(gh と同じ優先順で、-R / --repo、前置の GH_REPO=、フック自身の環境の GH_REPO、
+# 範囲は lib/issue-linkage-scope.bash が判定する(gh と同じ優先順で、-R / --repo、前置の GH_REPO=、フック自身の環境の GH_REPO、
 # 無ければフックの cwd の remote から gh が既定にする作成先)。
 # 残存: 先頭の `VAR=` と制御語・`command` / `time` は読み飛ばすが、`sudo` / `env` / `nice` などの前置詞、
 # オプション付きの `time`(`time -p`)、`bash -c` の内側は見ない(`sudo gh pr create --fill` は判定せずに通る)。
@@ -26,13 +26,13 @@
 set -uo pipefail
 
 LOG_DIR="${HOME:-}/.claude/logs"
-LOG_FILE="$LOG_DIR/ticket-guard-errors.log"
+LOG_FILE="$LOG_DIR/issue-linkage-guard-errors.log"
 if [[ -n "${HOME:-}" ]] && mkdir -p "$LOG_DIR" 2>/dev/null &&
     (: >>"$LOG_FILE") 2>/dev/null; then
     exec 2>>"$LOG_FILE"
 fi
 
-MARKER='<!-- ticket-skill -->'
+MARKER='<!-- issue-linkage -->'
 
 STDIN_JSON=$(cat) || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
@@ -44,12 +44,12 @@ case "$COMMAND" in
 esac
 
 script_dir=$(dirname "${BASH_SOURCE[0]}")
-for library in "$script_dir/lib/shell-reader.bash" "$script_dir/lib/ticket-scope.bash"; do
+for library in "$script_dir/lib/shell-reader.bash" "$script_dir/lib/issue-linkage-scope.bash"; do
     [[ -r "$library" ]] && "$BASH" -n "$library" 2>/dev/null || exit 0
     # shellcheck source=/dev/null
     source "$library" || exit 0
 done
-declare -F shell_reader_read shell_reader_each_segment ticket_scope_in_scope >/dev/null || exit 0
+declare -F shell_reader_read shell_reader_each_segment issue_linkage_scope_in_scope >/dev/null || exit 0
 
 shell_reader_read "$COMMAND"
 if [[ $SHELL_READER_TOO_LONG -eq 1 || $SHELL_READER_SEP_IN_INPUT -eq 1 ||
@@ -154,7 +154,7 @@ check_segment() {
 
     # gh は -R を GH_REPO より優先する。前置の GH_REPO= が無ければ、Bash ツールが引き継ぐフック自身の環境の値を見る。
     [[ -n "$repo" ]] || repo=${env_repo:-${GH_REPO:-}}
-    ticket_scope_in_scope "${CWD:-.}" "$repo" || return 0
+    issue_linkage_scope_in_scope "${CWD:-.}" "$repo" || return 0
     if [[ "${tokens[$((i + 1))]}" == issue ]]; then
         DENY_DETAIL='issue は create-issue.sh で作る(作成と relationship の native 設定を一度に行うため)。'
         return 1
@@ -202,8 +202,8 @@ shell_reader_each_segment check_segment && exit 0
 
 jq -n --arg detail "$DENY_DETAIL" '{hookSpecificOutput: {hookEventName: "PreToolUse",
     permissionDecision: "deny",
-    permissionDecisionReason: ("ticket-guard: " + $detail
-        + " ticket スキル(~/.claude/skills/ticket/SKILL.md)の作成モードで本文を作り"
-        + "(関連 issue のメンション、relationship、PR なら Closes と AC 対応表)、末尾に <!-- ticket-skill --> を付ける。"
-        + "本文ファイルは git rev-parse --absolute-git-dir の出力の下の ticket/ に置き、PR は gh pr create --body-file <絶対パス>、"
-        + "issue は bash ~/.claude/skills/ticket/scripts/create-issue.sh --title <title> --body-file <絶対パス> で作る。")}}'
+    permissionDecisionReason: ("issue-linkage-guard: " + $detail
+        + " issue-linkage スキル(~/.claude/skills/issue-linkage/SKILL.md)の作成モードで本文を作り"
+        + "(関連 issue のメンション、relationship、PR なら Closes と AC 対応表)、末尾に <!-- issue-linkage --> を付ける。"
+        + "本文ファイルは git rev-parse --absolute-git-dir の出力の下の issue-linkage/ に置き、PR は gh pr create --body-file <絶対パス>、"
+        + "issue は bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh --title <title> --body-file <絶対パス> で作る。")}}'
