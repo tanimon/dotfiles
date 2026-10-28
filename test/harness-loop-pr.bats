@@ -411,10 +411,12 @@ assert_discarded() {
 
 # pnpm を除いた PATH(git と jq と偽の gh だけを置いたディレクトリと、システムのディレクトリ)
 path_without_pnpm() {
-    local dir="$BATS_TEST_TMPDIR/no-pnpm"
+    local dir="$BATS_TEST_TMPDIR/no-pnpm" git_bin jq_bin
+    git_bin=$(command -v git) || return 1
+    jq_bin=$(command -v jq) || return 1
     mkdir -p "$dir"
-    ln -sf "$(command -v git)" "$dir/git"
-    ln -sf "$(command -v jq)" "$dir/jq"
+    ln -sf "$git_bin" "$dir/git"
+    ln -sf "$jq_bin" "$dir/jq"
     ln -sf "$STUBS/gh" "$dir/gh"
     printf '%s\n' "$dir:/usr/bin:/bin"
 }
@@ -1477,7 +1479,7 @@ review_with_fake_results() {
 @test "選別の結果: 選別の claude が公開の後に使うスクリプトか Failure Pattern の一覧を書き換えたら、PR を作らずに失敗し、変わったパスだけを出す" {
     review_fixture
     printf '{}\n' >"$HOME/.claude/scripts/harness-failure-patterns.json"
-    local file
+    local file hash
     for file in harness-rule-ledger.sh harness-verdict.sh harness-failure-rates.sh harness-failure-patterns.json; do
         cp "$HOME/.claude/scripts/$file" "$BATS_TEST_TMPDIR/$file.orig"
     done
@@ -1490,7 +1492,8 @@ review_with_fake_results() {
         run review_with rewriting "$HOME/.claude/scripts/$file" review_commits
         assert_failure 1
         assert_output --partial "changed: $HOME/.claude/scripts/$file"
-        refute_output --partial "$(git hash-object -- "$HOME/.claude/scripts/$file")"
+        hash=$(git hash-object -- "$HOME/.claude/scripts/$file")
+        refute_output --partial "$hash"
         refute_published
     done
 }
