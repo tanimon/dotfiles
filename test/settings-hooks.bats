@@ -134,7 +134,7 @@ assert_guard_wired() {
 @test "orca の agent-hook は Notification を除く全 event に 1 つずつあり、PostCompact 以外は同一" {
     # 描画結果に現れた event だけを数えると、event ブロックごと消えたときに素通りする。
     # 期待する event を literal で持ち、orca hook を持つ event の集合と完全一致を見る
-    local expected=(PermissionRequest PostCompact PostToolUse PostToolUseFailure PreToolUse Stop StopFailure SubagentStart SubagentStop TeammateIdle UserPromptSubmit SessionStart SessionEnd)
+    local expected=(Elicitation ElicitationResult PermissionRequest PostCompact PostToolUse PostToolUseFailure PreToolUse Stop StopFailure SubagentStart SubagentStop TeammateIdle UserPromptSubmit SessionStart SessionEnd)
     run jq -r '[.hooks | to_entries[]
         | select([.value[].hooks[] | select((.command // "") | test("orca/agent-hooks"))] | length == 1)
         | .key] | sort | join(" ")' "$SETTINGS"
