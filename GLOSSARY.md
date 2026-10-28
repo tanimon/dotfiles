@@ -212,7 +212,11 @@ _Avoid_: 仕様書(無限定)、入力
 実装ではなく Requirements Document そのものに向けられた Review Finding で、何を作るかを agent は決めないため修正せずに人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
 _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正
 
-### Pull requests
+### Issues and pull requests
+
+**Issue Linkage**:
+issue と issue、issue と PR の間の参照と関係。関連 issue への言及、parent、blocked-by、PR から issue を閉じる参照(Closes)、PR が issue の Acceptance criteria の各項目をどう満たしたかの対応を含む。
+_Avoid_: ticket(作業単位の issue を指す語と衝突する)、紐付け(無限定)
 
 **PR Body Review**:
 agent が PR 本文を現在の差分と照らし、食い違う記述があれば本文を直す行為。食い違いが無ければ本文を変えずに終わる。
