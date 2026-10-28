@@ -20,9 +20,11 @@
 #   記録の件数と開いている Loop PR)と、base を使った判定(_harness_loop_pr_metrics_only_due。origin/main に無い週の件数と
 #   開いている Loop PR)の 2 段。gh の失敗は WARN を出して「要らない」に倒す。当日のブランチが origin にあるかの照会、
 #   worktree の準備、依存のインストール、選別の claude の実行は週次ジョブが行う。
-# - 本文・選別の結果ファイル・Eval Case の依頼と結果を消すこと。消すのは、選別の前(同じ日の前の run が残したもの。
-#   harness_loop_pr_clear_review_files)、選別を省いた週の Metrics-only PR の判定の前、公開した後、公開しない週の片付けだけで、
-#   失敗した run(選別の失敗・照合の失敗・公開の失敗)のものは調べられるように残す。
+# - 本文・選別の結果ファイル・Eval Case の依頼と結果を消すこと。消すのは次の場面だけで、失敗した run(選別の失敗・照合の
+#   失敗・公開の失敗)のものは調べられるように残す。
+#   - 選別の前(同じ日の前の run が残したもの。harness_loop_pr_clear_review_files): 本文・結果ファイル・Eval Case の依頼と結果
+#   - 選別を省いた週の Metrics-only PR の判定の前、公開した後、公開しない週の片付け: 本文と結果ファイルだけ
+#   - 評価の前(_harness_loop_pr_evaluate_rules): Eval Case の結果だけ(選別の claude が置いたものを記録しないため)
 # 入口ごとの手順と失敗の扱いの正本は、それぞれの入口の関数のコメント。本文の中身はこの lib では書かず、本文の lib
 # (lib/harness-pr-body.bash)が書く。
 #
@@ -55,7 +57,7 @@ if [[ ! -r "$_HARNESS_LOOP_PR_LIB_DIR/harness-review-outcome.bash" ]] ||
 fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=harness-review-outcome.bash
-source "$_HARNESS_LOOP_PR_LIB_DIR/harness-review-outcome.bash"
+source "$_HARNESS_LOOP_PR_LIB_DIR/harness-review-outcome.bash" || return 1
 if ! declare -F harness_review_outcome_init harness_review_outcome_result_instructions harness_review_outcome_classify \
     harness_review_outcome_sections >/dev/null; then
     printf 'harness-weekly: %s lacks the review outcome checks; run chezmoi apply\n' "$_HARNESS_LOOP_PR_LIB_DIR/harness-review-outcome.bash" >&2
@@ -68,7 +70,7 @@ if [[ ! -r "$_HARNESS_LOOP_PR_LIB_DIR/harness-pr-body.bash" ]] ||
 fi
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=harness-pr-body.bash
-source "$_HARNESS_LOOP_PR_LIB_DIR/harness-pr-body.bash"
+source "$_HARNESS_LOOP_PR_LIB_DIR/harness-pr-body.bash" || return 1
 if ! declare -F harness_pr_body_init harness_pr_body_review_instructions harness_pr_body_adopted_titles harness_pr_body_review \
     harness_pr_body_metrics_only harness_pr_body_failed_review >/dev/null; then
     printf 'harness-weekly: %s lacks the PR body sections; run chezmoi apply\n' "$_HARNESS_LOOP_PR_LIB_DIR/harness-pr-body.bash" >&2
@@ -602,17 +604,18 @@ _harness_loop_pr_discard() {
 }
 
 # 採用の無い週の振り分け。選別を省いた週(harness_loop_pr_publish_metrics_only_if_due)と、選別が何も commit しなかった週
-# (_harness_loop_pr_publish_review_outcome)が共有する。要否の 2 段目で要れば <要ると決まった後のコマンド> を行ってから
-# Metrics-only PR を作り、要らなければ <要らないときの行>(空なら出さない)を出して、公開しないで片付けて成功する。
-# 片付けの失敗は run を失敗させない(worktree は次の run の準備が作り直す)
-_harness_loop_pr_metrics_only_or_discard() { # <base> <要らないときの行> [<要ると決まった後のコマンド> [<引数>…]]
-    local base=$1 not_due_line=$2
-    shift 2
+# (_harness_loop_pr_publish_review_outcome)が共有する。要否の 2 段目で要れば <要るときの行>(空なら出さない)を出し、
+# <要ると決まった後のコマンド> を行ってから Metrics-only PR を作る。要らなければ <要らないときの行>(空なら出さない)を出して、
+# 公開しないで片付けて成功する。片付けの失敗は run を失敗させない(worktree は次の run の準備が作り直す)
+_harness_loop_pr_metrics_only_or_discard() { # <base> <要らないときの行> <要るときの行> [<要ると決まった後のコマンド> [<引数>…]]
+    local base=$1 not_due_line=$2 due_line=$3
+    shift 3
     if ! _harness_loop_pr_metrics_only_due "$base"; then
         [[ -z "$not_due_line" ]] || printf '%s\n' "$not_due_line"
         _harness_loop_pr_discard || true
         return 0
     fi
+    [[ -z "$due_line" ]] || printf '%s\n' "$due_line"
     if [[ $# -gt 0 ]]; then
         "$@" || return 1
     fi
@@ -631,7 +634,7 @@ harness_loop_pr_publish_metrics_only_if_due() { # <base> [<要ると決まった
     fi
     shift
     _harness_loop_pr_remove_review_files || true
-    _harness_loop_pr_metrics_only_or_discard "$base" '' "$@"
+    _harness_loop_pr_metrics_only_or_discard "$base" '' '' "$@"
 }
 
 # 選別の前に、本文・選別の結果ファイル・Eval Case の依頼と結果を消す。同じ日の前の run が残したものを、この run の
@@ -713,7 +716,7 @@ _harness_loop_pr_publish_review_outcome() { # <base>
     publish) ;;
     no-change)
         _harness_loop_pr_metrics_only_or_discard "$base" 'harness-weekly: review committed no changes; no PR created' \
-            printf 'harness-weekly: review committed no changes; opening a metrics-only PR\n'
+            'harness-weekly: review committed no changes; opening a metrics-only PR'
         return
         ;;
     *) return 1 ;;
