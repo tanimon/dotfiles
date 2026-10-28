@@ -128,11 +128,11 @@ function section(report, title) {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-test("指摘ゼロなら修正せずに動作確認まで進み、push も PR の作成もしない(ADR 0019)", async () => {
+test("指摘ゼロなら修正せずに動作確認まで進み、push も PR の作成もしない(ADR 0022)", async () => {
   const { result, labels } = await runWorkflow();
   assert.deepEqual(labels, ["checks:1", ...REVIEW_LABELS, "verify:1"]);
   assert.equal(result.stopReason, null);
-  // 返り値は ledger / report / stats / stopReason だけで、公開の結果を含まない(ADR 0019)。
+  // 返り値は ledger / report / stats / stopReason だけで、公開の結果を含まない(ADR 0022)。
   assert.deepEqual(Object.keys(result).sort(), ["ledger", "report", "stats", "stopReason"]);
   assert.match(section(result.report, "Unresolved Finding"), /なし/);
 });
@@ -1241,7 +1241,7 @@ test("報告の統計の節は上限を示し、mode 行も帰属行も付けな
   assert.doesNotMatch(result.report, /Generated with/);
 });
 
-test("mode を渡されたら、廃止した Deliver として走らせず、知らない引数として agent を呼ぶ前に拒否する(ADR 0019)", async () => {
+test("mode を渡されたら、廃止した Deliver として走らせず、知らない引数として agent を呼ぶ前に拒否する(ADR 0022)", async () => {
   // agent が先に呼ばれると、その throw は stopReason=error として捕まって resolve するので、rejects が落ちる。
   const respond = (label) => {
     throw new Error(`agent が呼ばれた: ${label}`);
