@@ -1,0 +1,15 @@
+{
+  "id": "pr576-4b1ff14b",
+  "adopted": "2026-10-24",
+  "title": "[2026-10-24] コマンドと引数を 1 つの文字列変数に入れて `$G add …` と実行しない",
+  "failure_patterns": ["shell-pitfall", "unclassified"],
+  "eval": {
+    "status": "evaluated",
+    "case_id": "2026-10-24-4b1ff14b",
+    "with": 0.5,
+    "without": 0.75,
+    "delta": -0.25
+  },
+  "pr": 576,
+  "via": "weekly"
+}

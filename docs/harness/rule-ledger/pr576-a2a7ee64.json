@@ -1,0 +1,15 @@
+{
+  "id": "pr576-a2a7ee64",
+  "adopted": "2026-10-24",
+  "title": "[2026-10-18] `chezmoi diff` の出力を `^diff --git` で grep しない",
+  "failure_patterns": ["sandbox-boundary", "unclassified"],
+  "eval": {
+    "status": "evaluated",
+    "case_id": "2026-10-24-a2a7ee64",
+    "with": 0.5,
+    "without": 0.5,
+    "delta": 0
+  },
+  "pr": 576,
+  "via": "weekly"
+}

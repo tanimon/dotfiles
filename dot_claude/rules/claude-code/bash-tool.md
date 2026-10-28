@@ -23,6 +23,10 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
   この option は配列も bash と同じ扱い(添字は 0 から、`$arr` は先頭の要素だけ。全要素は `"${arr[@]}"`)にする。
   `$VAR:` の後ろが化けたら、最新のスナップショットに `ksharrays` が写っているかを確かめる。
   他のシェルでも同じ意味になるよう、`$VAR` の直後に `:` が続くときは `${VAR}` で閉じる。
+- **コマンドと引数を 1 つの文字列変数に入れて `$G add …` と実行しない。** zsh はクォートしない `$VAR` を単語分割しないので、
+  `G="git -c core.fsmonitor=false"; $G add x` は `command not found: git -c core.fsmonitor=false`(exit 127)で止まる。
+  同じオプションを繰り返したいときは配列にして `G=(git -c core.fsmonitor=false); "${G[@]}" add x` と書くか、毎回書き下す。
+  **理由:** この形の `command not found` が 8 つの transcript で 40 回出ていた。
 
 ## 権限とサンドボックス除外はコマンド文字列の前方一致
 
@@ -55,6 +59,14 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 `git merge` / `rebase` / `checkout` は、保護されたパス(他ディレクトリの `.claude/agents` など)への書き込みで
 `Operation not permitted` になり、作業ツリーに untracked の残骸を残して止まる。
 `--abort` で戻ったと思わず `git status` で残骸を確認し、サンドボックス外でやり直す。
+
+`git worktree add -b <b> <path>` は、`<path>` が書き込み許可の外(cwd の兄弟ディレクトリ `../<name>` など)だと
+`could not create leading directories … Operation not permitted` で失敗するが、ブランチ `<b>` は先に作られて残る。
+やり直すときは `-b` を外して `git worktree add <書ける path> <b>` とする(`-b` のままだと `already exists` で失敗する)。
+後で使い続ける作業ツリーは、サンドボックス外で兄弟ディレクトリに作る。scratchpad は数日で消える(「一時ファイルとファイルの置き場所」節)ので、
+置くのはその場で捨てる検証用だけにし、残す変更をコミットしてから `git worktree remove <path>` で登録ごと消す。
+ディレクトリだけが消えると未コミットの変更が失われ、`git worktree prune` するまで登録が残って、
+そのブランチは別の path でも `is already used by worktree` で使えない。
 
 `.git/config` もサンドボックス内では書けない(nono・ネイティブのどちらの境界でも。nono 側の意図は dotfiles リポジトリの `dot_config/nono/CLAUDE.md`)。
 `.git/config` を書き換える操作は `could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
@@ -96,5 +108,9 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
   認証の確認は `gh auth status` か `gh auth token >/dev/null 2>&1 && echo ok` で行う。
 - **`git diff` は difftastic で表示される。** このマシンは `diff.external = difft` なので、出力に `+` / `-` の行頭記号が無い。
   grep や wc で機械処理するときは `git diff --no-ext-diff` を使う。行頭記号の grep が 0 行でも「差分なし」の証拠にならない。
+- **`chezmoi diff` の出力に `diff --git` ヘッダは無い。** このマシンの chezmoi は `[diff] command` が `chezmoi-json-diff`
+  (`diff -u --label`)なので、`chezmoi diff | grep '^diff --git'` は差分があっても 0 件になる。apply で変わるファイルの一覧は
+  `chezmoi status` で見て、差分の中身は `chezmoi diff` をそのまま読む。chezmoi-json-diff は JSON のキーの並びとファイルモードの差を
+  出さないので、status に載っても diff が空のファイルがある(apply でバイト列やモードは変わる)。
 - **Bash で読んだだけのファイルは Edit できない。** `Edit` / `Write` は `Read` ツールで読んだファイルにしか使えず、
   `cat` や `sed -n` で読んでも `File has not been read yet` で失敗する。直前に `Read` するか、編集も Bash で行う。
