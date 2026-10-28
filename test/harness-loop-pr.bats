@@ -1296,6 +1296,7 @@ review_no_commit() {
     assert_output 'harness-loop-pr: harness_loop_pr_conclude_review needs <base> and the exit status of the review stage'
     run harness_loop_pr_conclude_review "$BASE"
     assert_failure 1
+    assert_output 'harness-loop-pr: harness_loop_pr_conclude_review needs <base> and the exit status of the review stage'
     refute_published
 }
 
