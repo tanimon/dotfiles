@@ -88,6 +88,9 @@ fi
 # Weekly Rate Record(1 週 1 ファイル)のリポジトリ内の置き場。週次ジョブの commit だけが書く。
 # harness-failure-rates.sh の export が書き出す先と同じでなければならない
 _HARNESS_LOOP_PR_RATES_REPO_DIR="docs/harness/failure-pattern-rates"
+# ローカルの Weekly Rate Record の置き場。人が見る場所を案内するログの文言にだけ使う(module はここを読み書きしない)。
+# 置き場の正本は harness-failure-rates.sh の RATES_DIR
+_HARNESS_LOOP_PR_LOCAL_RATES_DIR="$HOME/.claude/harness/failure-pattern-rates"
 # Rule Ledger の記録のリポジトリ内の置き場。harness-rule-ledger.sh の export が書き出す先と同じでなければならない
 _HARNESS_LOOP_PR_LEDGER_REPO_DIR="docs/harness/rule-ledger"
 # origin/main に無い週の記録がこの件数たまったら、採用が無くても Metrics-only PR を作る
@@ -363,7 +366,11 @@ _harness_loop_pr_export_rate_records() { # <base> [--dry-run]
     output=$(harness_integrity_run "$failure_rates" export "$_HARNESS_LOOP_PR_DATE" --base "$base" \
         --worktree "$_HARNESS_LOOP_PR_WORKTREE" "$@") || return $?
     count=$(sed -n "s/^harness-failure-rates: $verb \\([0-9][0-9]*\\) record(s)\$/\\1/p" <<<"$output")
-    [[ "$count" =~ ^[0-9]+$ ]] || return 1
+    # 件数は呼び出し側の行がログに出すので、CLI の出力をそのまま出すのは件数の行を読めなかったときだけにする
+    if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+        printf 'harness-weekly: unexpected output from %s export: %s\n' "$failure_rates" "$output" >&2
+        return 1
+    fi
     printf '%s\n' "$count"
 }
 
@@ -380,7 +387,7 @@ _harness_loop_pr_commit_rate_records() { # <base>
     local base=$1 count status=0
     _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED=0
     if ! harness_integrity_check_data; then
-        printf 'harness-weekly: no PR created; check %s by hand\n' "$HOME/.claude/harness/failure-pattern-rates" >&2
+        printf 'harness-weekly: no PR created; check %s by hand\n' "$_HARNESS_LOOP_PR_LOCAL_RATES_DIR" >&2
         return "$HARNESS_INTEGRITY_FAILED"
     fi
     count=$(_harness_loop_pr_export_rate_records "$base") || status=$?
@@ -509,7 +516,7 @@ _harness_loop_pr_metrics_only_due() { # <base>
     fi
     if [[ "$count" -lt "$_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS" ]]; then
         printf 'harness-weekly: %s weekly failure rate record(s) not on origin/main; carried over in %s (a metrics-only PR needs %s)\n' \
-            "$count" "$HOME/.claude/harness/failure-pattern-rates" "$_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS"
+            "$count" "$_HARNESS_LOOP_PR_LOCAL_RATES_DIR" "$_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS"
         return 1
     fi
     _harness_loop_pr_no_open_loop_pr 'harness-weekly: %s weekly failure rate record(s) not on origin/main, but loop PR %s is open; carried over\n' \
@@ -611,7 +618,7 @@ _harness_loop_pr_publish_review() { # <base>
             printf 'harness-weekly: committed %s weekly failure rate record(s)\n' "$_HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED"
     else
         printf 'harness-weekly: WARN failed to commit the weekly failure rate records; they stay in %s for the next PR\n' \
-            "$HOME/.claude/harness/failure-pattern-rates" >&2
+            "$_HARNESS_LOOP_PR_LOCAL_RATES_DIR" >&2
         _harness_loop_pr_reset_worktree HEAD "$_HARNESS_LOOP_PR_RATES_REPO_DIR" || return 1
     fi
     _harness_loop_pr_push_and_create "harness: 週次レビュー $_HARNESS_LOOP_PR_DATE" \
@@ -768,8 +775,9 @@ _harness_loop_pr_evaluate_rules() {
 
 # 選別の claude が成功し、データの照合も通った run の振り分け。選別が残したものの分類(Review Outcome の lib の
 # harness_review_outcome_classify)で振り分ける:
-#   - no-change → 成功。PR は作らない(deploy-only だけの週を含む)。ただし origin/main に無い週の再発率の記録が
-#     たまっていれば、Metrics-only PR を作る(選別を省いた週と同じ判定。_harness_loop_pr_metrics_only_or_discard)
+#   - no-change → PR は作らずに成功する(deploy-only だけの週を含む)。ただし origin/main に無い週の再発率の記録が
+#     たまっていれば、Metrics-only PR を作る(選別を省いた週と同じ判定。_harness_loop_pr_metrics_only_or_discard)。
+#     その判定で再発率の CLI を呼ぶ入口が照合に落ちたら、PR を作らずに失敗する(worktree は調べられるように残す)
 #   - publish → Eval Case を評価し、本文の lib の harness_pr_body_review で本文に節を足し、_harness_loop_pr_publish_review で
 #     PR を作る。評価を本文より先に行っても、入口(harness_integrity_run)は呼ぶたびに実行物の全部を照合するので、
 #     推移の節のスクリプトが書き換えられた run は評価の前に止まる

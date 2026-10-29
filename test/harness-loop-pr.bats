@@ -238,7 +238,7 @@ guarded() { # <Source> <一覧のファイル>
 publish_fixture() {
     unset STUB_GH_OPEN_PRS STUB_GH_LIST_FAIL STUB_GH_HEAD_PRS STUB_GH_HEAD_LIST_FAIL STUB_GH_FAIL STUB_PNPM_FAIL \
         STUB_PNPM_INSTALL_FAIL STUB_LEDGER_EXPORT STUB_LEDGER_FAIL STUB_LEDGER_TAMPER_RATES STUB_RATES_TAMPER_LEDGER STUB_EVAL_FAIL \
-        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
+        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
     export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
     export GIT_CONFIG_SYSTEM=/dev/null
     printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
@@ -332,6 +332,7 @@ EOF
     # Weekly Rate Record をローカルの置き場から worktree の置き場に写し(--dry-run なら写さない)、件数の行を本物の CLI と
     # 同じ文言で出す(記録を選ぶ規則は test/harness-failure-rates.bats が本物の CLI で検査する)。STUB_RATES_EXPORT で
     # ローカルの件数と違う答えを返させると、module が CLI の答えで決めていることを確かめられる。
+    # STUB_RATES_EXPORT_OUTPUT なら、何も写さずに件数の行の代わりにその文字列を出して成功する(CLI の文言が変わった run の再現)。
     # STUB_EXPORT_TAMPER_LEDGER なら、--dry-run でない export の後に Rule Ledger のスクリプトを
     # 書き換える(再発率の記録の commit の後、Rule Ledger の記録の commit の前に実行物が書き換えられた run の再現)。
     # STUB_RATES_TAMPER_LEDGER なら detections(Metrics-only PR の本文で最後に呼ばれる)の後に Rule Ledger のスクリプトを
@@ -340,6 +341,10 @@ EOF
 #!/usr/bin/env bash
 case "$1" in
 export)
+    if [[ -n "${STUB_RATES_EXPORT_OUTPUT:-}" ]]; then
+        printf '%s\n' "$STUB_RATES_EXPORT_OUTPUT"
+        exit 0
+    fi
     worktree="" dry_run="" count=0 rates="$HOME/.claude/harness/failure-pattern-rates"
     while [[ $# -gt 0 ]]; do
         [[ "$1" != --worktree ]] || worktree=$2
@@ -405,15 +410,6 @@ EOF
 # <日付>: ローカルに週の記録を置く
 local_record() {
     printf '{"date":"%s"}\n' "$1" >"$RATES/$1.json"
-}
-
-# <日付>: ローカルの週の記録を origin/main にも commit する(マージ済みの記録の再現)
-merged_record() {
-    mkdir -p "$REPO/docs/harness/failure-pattern-rates"
-    cp "$RATES/$1.json" "$REPO/docs/harness/failure-pattern-rates/"
-    git -C "$REPO" add -A
-    git -C "$REPO" commit -qm "record $1"
-    git -C "$REPO" push -q origin main
 }
 
 # スナップショットを取ってから、実際のパスと既定と違う Loop PR の prefix で初期化する
@@ -571,6 +567,18 @@ unpushed_branch() {
     assert_discarded
 }
 
+@test "選別を省いた週: 再発率の CLI の出力から件数の行を読めなければ、受け取った出力と WARN を出し、PR を作らずに片付けて成功する" {
+    publish_fixture
+    four_local_records
+    init_real
+    STUB_RATES_EXPORT_OUTPUT='harness-failure-rates: counted 4 record(s)' run harness_loop_pr_publish_metrics_only_if_due
+    assert_success
+    assert_line "harness-weekly: unexpected output from $HOME/.claude/scripts/harness-failure-rates.sh export: harness-failure-rates: counted 4 record(s)"
+    assert_line 'harness-weekly: WARN counting the weekly failure rate records not on origin/main failed; no metrics-only PR this week'
+    assert [ ! -e "$PNPM_LOG" ]
+    assert_discarded
+}
+
 @test "選別を省いた週: 要ると決まったら、worktree に依存を入れてから記録を整形して Metrics-only PR を作る。前の run の本文と結果ファイルは使わない" {
     publish_fixture
     four_local_records
@@ -602,10 +610,9 @@ unpushed_branch() {
 @test "Metrics-only PR: 記録を commit して push し、commit した件数を書いた本文で draft PR を作って片付ける" {
     publish_fixture
     four_local_records
-    merged_record 2026-09-26
     local_record 2026-09-19
     init_real
-    # ローカルには 5 週分あり、CLI は origin/main にある 2026-09-26 を除いた 4 件を書き出す
+    # ローカルには 5 週分あるが、module は CLI が書き出した 4 件(STUB_RATES_EXPORT)を commit する
     STUB_RATES_EXPORT='2026-09-19 2026-10-03 2026-10-10 2026-10-17' run harness_loop_pr_publish_metrics_only_if_due
     assert_success
     assert_line 'harness-weekly: opened metrics-only draft PR https://github.com/example/dotfiles/pull/42 (4 weekly record(s))'

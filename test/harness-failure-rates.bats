@@ -345,6 +345,24 @@ local_week() { # <日付> <JSON>
     assert_output ''
 }
 
+@test "書き出しは、ローカルの Weekly Rate Record を列挙できなければ、--dry-run でも 0 件とは出さずに何も写さずに失敗する" {
+    [[ "$EUID" -ne 0 ]] || skip 'root はディレクトリの mode を無視する'
+    local_week 2026-10-10 '{"date":"2026-10-10"}'
+    export_worktree
+    chmod 000 "$RATES"
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" --dry-run
+    local dry_run_status=$status dry_run_output=$output
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    chmod 755 "$RATES"
+    assert_failure 1
+    assert_output --partial 'cannot list the local weekly rate records'
+    refute_output --partial 'record(s)'
+    assert_equal "$dry_run_status" 1
+    [[ "$dry_run_output" != *'record(s)'* ]]
+    run git -C "$WT" status --porcelain --untracked-files=all
+    assert_output ''
+}
+
 @test "書き出しは、base を引けなければ何も写さずに失敗し、base か worktree が無ければ使い方の誤りとして 2 で終わる" {
     local_week 2026-10-10 '{"date":"2026-10-10"}'
     export_worktree

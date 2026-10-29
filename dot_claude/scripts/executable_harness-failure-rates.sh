@@ -258,13 +258,16 @@ cmd_detections() {
         fail "cannot build the detection section for $date"
 }
 
-# 写す Weekly Rate Record(ローカルのパス)を 1 行に 1 つ出す。選び方はヘッダの「export の選び方」
-records_to_export() { # <日付> <revision> <作業ツリー>
-    local date=$1 base=$2 worktree=$3 file name committed local_record
+# 写す Weekly Rate Record(ローカルのパス)を 1 行に 1 つ出す。選び方はヘッダの「export の選び方」。
+# <ローカルの一覧> は record_files の出力、<base の一覧> は <revision> の置き場にあるファイルのリポジトリ内のパス。
+# どちらも呼び出し側が失敗を確かめてから渡す(ここで列挙すると、プロセス置換やコマンド置換の中の失敗が
+# 「0 件」や「base に無い」に化ける)
+records_to_export() { # <日付> <revision> <作業ツリー> <ローカルの一覧> <base の一覧>
+    local date=$1 base=$2 worktree=$3 local_files=$4 base_paths=$5 file name committed local_record
     while IFS= read -r file; do
         [[ -n "$file" ]] || continue
         name=$(basename "$file")
-        if ! git -C "$worktree" cat-file -e "$base:$RATES_REPO_DIR/$name" 2>/dev/null; then
+        if ! grep -Fxq -- "$RATES_REPO_DIR/$name" <<<"$base_paths"; then
             printf '%s\n' "$file"
         elif [[ "$name" == "$date.json" ]]; then
             if ! committed=$(git -C "$worktree" show "$base:$RATES_REPO_DIR/$name" | jq -S -c . 2>/dev/null) ||
@@ -272,11 +275,11 @@ records_to_export() { # <日付> <revision> <作業ツリー>
                 printf '%s\n' "$file"
             fi
         fi
-    done < <(record_files)
+    done <<<"$local_files"
 }
 
 cmd_export() {
-    local date=$1 base="" worktree="" dry_run=0 files file count=0
+    local date=$1 base="" worktree="" dry_run=0 local_files base_paths files file count=0
     shift
     [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
     while [[ $# -gt 0 ]]; do
@@ -301,7 +304,11 @@ cmd_export() {
     [[ -n "$base" && -n "$worktree" ]] || usage
     # 引けない revision では、どの記録も「base に無い」と読んで全部を写してしまう
     git -C "$worktree" rev-parse --verify --quiet "$base^{commit}" >/dev/null || fail "cannot resolve $base in $worktree"
-    files=$(records_to_export "$date" "$base" "$worktree") || fail "cannot compare the weekly rate records with $base"
+    local_files=$(record_files) || fail "cannot list the local weekly rate records in $RATES_DIR"
+    # ls-tree は置き場が <revision> に無ければ空を出して成功し、git 自体の失敗だけを非 0 で返す
+    base_paths=$(git -C "$worktree" ls-tree --name-only "$base" -- "$RATES_REPO_DIR/") ||
+        fail "cannot list the weekly rate records in $base"
+    files=$(records_to_export "$date" "$base" "$worktree" "$local_files" "$base_paths")
     if [[ "$dry_run" -eq 1 ]]; then
         count=$(grep -c . <<<"$files" || true)
         printf 'harness-failure-rates: would export %s record(s)\n' "$count"
