@@ -31,6 +31,24 @@
 #                                      (detection_counts)。そのため分類に失敗した週の次の週は、since が
 #                                      失敗した週の期間も含めるので、この節も前の週の PR と同じ期間を重ねて
 #                                      数える(record の detections と同じ。節の 1 行目に期間が出る)
+#   export <日付> --base <revision> --worktree <リポジトリの作業ツリー> [--dry-run]
+#                                      ローカルの Weekly Rate Record のうち、<revision> の
+#                                      docs/harness/failure-pattern-rates/ に無いものを、<作業ツリー> の同じ置き場に
+#                                      そのまま写し、写した件数を「harness-failure-rates: exported <N> record(s)」
+#                                      の 1 行で出す。--dry-run は
+#                                      何も写さず(置き場も作らず)、写す件数を「harness-failure-rates: would export
+#                                      <N> record(s)」の 1 行で出す。整形(oxfmt)・git add・commit と、写す直前の
+#                                      データの照合は呼び出し側(週次ジョブの Loop PR の module)が行う
+#
+# export の選び方: <revision> に同じ名前の Weekly Rate Record が無ければ写す。閉じた PR や未マージの PR に
+# 入っていた週も、<revision> に無ければ写す(ローカルの印では判定しない)。<日付>(その run の日付)の
+# Weekly Rate Record だけは、<revision> にあっても中身が違えば写す。同じ日の再実行がその日の Weekly Rate Record を書き直すため
+# (since は同じ日の Weekly Rate Record を見ない)。リポジトリ側は oxfmt を通してあるので、バイト列ではなく JSON として
+# 比べ、どちらかが JSON として読めなければ違うものとして写す。ほかの日付は中身を比べない: <revision> の
+# Weekly Rate Record を人が直したときにローカルの古い写しで戻さないためと、前の週の claude が書き換えた
+# Weekly Rate Record(その週の後の run の Integrity Snapshot は書き換えた後の値を正として取るので見つけられない)で
+# マージ済みのものを上書きしないため。同じ日の再実行が書き直した Weekly Rate Record を写さない週があることは、
+# 呼び出し側(lib/harness-loop-pr.bash の harness_loop_pr_run_review)のコメントにある
 #
 # 週の記録は id と数値だけを持つ(仕事の文脈を含まないので、週次ジョブがリポジトリに commit する)。
 #   sessions        期間に detections.jsonl に行があるセッション数。harness-select-pending.sh は、
@@ -53,12 +71,14 @@ set -euo pipefail
 
 HARNESS_DIR="$HOME/.claude/harness"
 RATES_DIR="$HARNESS_DIR/failure-pattern-rates"
+# Weekly Rate Record のリポジトリ内の置き場。export が写す先
+RATES_REPO_DIR="docs/harness/failure-pattern-rates"
 LEDGER="$HARNESS_DIR/detections.jsonl"
 RECORDS="$HARNESS_DIR/classifications.jsonl"
 PATTERNS="$HOME/.claude/scripts/harness-failure-patterns.json"
 
 usage() {
-    printf 'usage: harness-failure-rates.sh since <date> | record <date> --since <epoch> --classification ok|failed | trend <date> [--weeks <n>] | detections <date>\n' >&2
+    printf 'usage: harness-failure-rates.sh since <date> | record <date> --since <epoch> --classification ok|failed | trend <date> [--weeks <n>] | detections <date> | export <date> --base <revision> --worktree <dir> [--dry-run]\n' >&2
     exit 2
 }
 
@@ -238,10 +258,79 @@ cmd_detections() {
         fail "cannot build the detection section for $date"
 }
 
+# 写す Weekly Rate Record(ローカルのパス)を 1 行に 1 つ出す。選び方はヘッダの「export の選び方」。
+# <ローカルの一覧> は record_files の出力、<base の一覧> は <revision> の置き場にあるファイルのリポジトリ内のパス。
+# どちらも呼び出し側が失敗を確かめてから渡す(ここで列挙すると、プロセス置換やコマンド置換の中の失敗が
+# 「0 件」や「base に無い」に化ける)。<base の一覧> にある記録を git で読めなければ失敗する(JSON として
+# 読めない場合と違い、「中身が違う」に倒すと git の異常が件数に紛れる)。コマンド置換の中で呼ぶので、
+# 呼び出し側は終了ステータスを確かめる
+records_to_export() { # <日付> <revision> <作業ツリー> <ローカルの一覧> <base の一覧>
+    local date=$1 base=$2 worktree=$3 local_files=$4 base_paths=$5 file name blob committed local_record
+    while IFS= read -r file; do
+        [[ -n "$file" ]] || continue
+        name=$(basename "$file")
+        if ! grep -Fxq -- "$RATES_REPO_DIR/$name" <<<"$base_paths"; then
+            printf '%s\n' "$file"
+        elif [[ "$name" == "$date.json" ]]; then
+            blob=$(git -C "$worktree" show "$base:$RATES_REPO_DIR/$name") || fail "cannot read $RATES_REPO_DIR/$name in $base"
+            if ! committed=$(jq -S -c . <<<"$blob" 2>/dev/null) ||
+                ! local_record=$(jq -S -c . "$file" 2>/dev/null) || [[ "$committed" != "$local_record" ]]; then
+                printf '%s\n' "$file"
+            fi
+        fi
+    done <<<"$local_files"
+}
+
+cmd_export() {
+    local date=$1 base="" worktree="" dry_run=0 local_files base_paths files file count=0
+    shift
+    [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --base)
+            [[ $# -ge 2 ]] || usage
+            base=$2
+            shift 2
+            ;;
+        --worktree)
+            [[ $# -ge 2 ]] || usage
+            worktree=$2
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        *) usage ;;
+        esac
+    done
+    [[ -n "$base" && -n "$worktree" ]] || usage
+    # 引けない revision では、どの記録も「base に無い」と読んで全部を写してしまう
+    git -C "$worktree" rev-parse --verify --quiet "$base^{commit}" >/dev/null || fail "cannot resolve $base in $worktree"
+    local_files=$(record_files) || fail "cannot list the local weekly rate records in $RATES_DIR"
+    # ls-tree は置き場が <revision> に無ければ空を出して成功し、git 自体の失敗だけを非 0 で返す
+    base_paths=$(git -C "$worktree" ls-tree --name-only "$base" -- "$RATES_REPO_DIR/") ||
+        fail "cannot list the weekly rate records in $base"
+    files=$(records_to_export "$date" "$base" "$worktree" "$local_files" "$base_paths") || exit 1
+    if [[ "$dry_run" -eq 1 ]]; then
+        count=$(grep -c . <<<"$files" || true)
+        printf 'harness-failure-rates: would export %s record(s)\n' "$count"
+        return 0
+    fi
+    while IFS= read -r file; do
+        [[ -n "$file" ]] || continue
+        mkdir -p "$worktree/$RATES_REPO_DIR" || fail "cannot create $worktree/$RATES_REPO_DIR"
+        cp "$file" "$worktree/$RATES_REPO_DIR/" || fail "cannot copy $file to $worktree/$RATES_REPO_DIR"
+        count=$((count + 1))
+    done <<<"$files"
+    printf 'harness-failure-rates: exported %s record(s)\n' "$count"
+}
+
 case "${1:-}" in
 since) [[ $# -eq 2 ]] || usage && cmd_since "$2" ;;
 record) [[ $# -ge 2 ]] || usage && shift && cmd_record "$@" ;;
 trend) [[ $# -ge 2 ]] || usage && shift && cmd_trend "$@" ;;
 detections) [[ $# -eq 2 ]] || usage && cmd_detections "$2" ;;
+export) [[ $# -ge 2 ]] || usage && shift && cmd_export "$@" ;;
 *) usage ;;
 esac

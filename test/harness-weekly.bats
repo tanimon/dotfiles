@@ -188,8 +188,9 @@ if [[ "$1" == issue || "$*" == *createdAt* || "$*" == *'--json number '* ]]; the
 fi
 printf '%s\n' "$*" >>"$GH_LOG"
 if [[ "$1 $2" == "pr list" && "$*" == *'--state open'* ]]; then
-    # 開いているループの PR の一覧(Metrics-only PR を作るかの判定)。いつも無し。開いている PR があるときの判定は
-    # test/harness-loop-pr.bats が Loop PR の module の interface で検査する
+    # 開いているループの PR の一覧(Metrics-only PR を作るかの判定)。STUB_GH_OPEN_LOOP_PR の URL を出し、既定は無し。
+    # 開いている PR があるときの判定は test/harness-loop-pr.bats が Loop PR の module の interface で検査する
+    [[ -z "${STUB_GH_OPEN_LOOP_PR:-}" ]] || printf '%s\n' "$STUB_GH_OPEN_LOOP_PR"
     exit 0
 fi
 if [[ "$1 $2" == "pr list" ]]; then
@@ -587,7 +588,9 @@ PRE
     assert_output --partial 'queue is empty; skipped review'
     run cat "$STAGE_LOG"
     assert_output 'reflect'
-    assert [ ! -f "$GH_LOG" ]
+    # Metrics-only PR の判定は開いている Loop PR を照会するが、記録が 4 週分に満たないので PR は作らない
+    run cat "$GH_LOG"
+    refute_output --partial 'pr create'
 }
 
 @test "pending が空でも queue に項目があれば選別を起動する" {
@@ -847,6 +850,8 @@ PRE
     run weekly
     assert_failure
     assert_output --partial 'never became a PR'
+    # Loop PR の module が本物の再発率の CLI の件数の行を読めている(test/harness-loop-pr.bats は CLI を stub にする)
+    assert_output --partial 'committed 1 weekly failure rate record(s)'
     refute_heartbeat_written
     run cat "$GH_BODY"
     assert_line '| `user_negation` | 5 |'
@@ -1250,7 +1255,9 @@ rewrite_record_in() {
 
 @test "queue が空の週に抽出の claude が Verdict の CLI を書き換えたら、finish_run は CLI を呼ばずに失敗する" {
     tamper_in reflect harness-verdict.sh
-    run weekly
+    # Loop PR が開いていれば Metrics-only PR の判定は再発率の CLI を呼ばずに終わり、finish_run が最初に実行物を照合する
+    # (開いていなければ、判定が入口を通して CLI を呼ぶときに照合に落ちて、finish_run の前に止まる)
+    STUB_GH_OPEN_LOOP_PR=https://github.com/example/dotfiles/pull/40 run weekly
     assert_failure
     assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
     assert_output --partial 'failed to read the unpublished verdicts'
