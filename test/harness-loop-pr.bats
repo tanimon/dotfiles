@@ -238,7 +238,7 @@ guarded() { # <Source> <一覧のファイル>
 publish_fixture() {
     unset STUB_GH_OPEN_PRS STUB_GH_LIST_FAIL STUB_GH_HEAD_PRS STUB_GH_HEAD_LIST_FAIL STUB_GH_FAIL STUB_PNPM_FAIL \
         STUB_PNPM_INSTALL_FAIL STUB_LEDGER_EXPORT STUB_LEDGER_FAIL STUB_LEDGER_TAMPER_RATES STUB_RATES_TAMPER_LEDGER STUB_EVAL_FAIL \
-        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
+        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_RATES_EXPORT_FAIL STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
     export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
     export GIT_CONFIG_SYSTEM=/dev/null
     printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
@@ -333,6 +333,7 @@ EOF
     # 同じ文言で出す(記録を選ぶ規則は test/harness-failure-rates.bats が本物の CLI で検査する)。STUB_RATES_EXPORT で
     # ローカルの件数と違う答えを返させると、module が CLI の答えで決めていることを確かめられる。
     # STUB_RATES_EXPORT_OUTPUT なら、何も写さずに件数の行の代わりにその文字列を出して成功する(CLI の文言が変わった run の再現)。
+    # STUB_RATES_EXPORT_FAIL なら、本物の CLI がローカルの置き場を列挙できないときと同じ行を出して 1 で終わる。
     # STUB_EXPORT_TAMPER_LEDGER なら、--dry-run でない export の後に Rule Ledger のスクリプトを
     # 書き換える(再発率の記録の commit の後、Rule Ledger の記録の commit の前に実行物が書き換えられた run の再現)。
     # STUB_RATES_TAMPER_LEDGER なら detections(Metrics-only PR の本文で最後に呼ばれる)の後に Rule Ledger のスクリプトを
@@ -341,6 +342,10 @@ EOF
 #!/usr/bin/env bash
 case "$1" in
 export)
+    if [[ -n "${STUB_RATES_EXPORT_FAIL:-}" ]]; then
+        printf 'harness-failure-rates: cannot list the local weekly rate records\n' >&2
+        exit 1
+    fi
     if [[ -n "${STUB_RATES_EXPORT_OUTPUT:-}" ]]; then
         printf '%s\n' "$STUB_RATES_EXPORT_OUTPUT"
         exit 0
@@ -567,16 +572,30 @@ unpushed_branch() {
     assert_discarded
 }
 
-@test "選別を省いた週: 再発率の CLI の出力から件数の行を読めなければ、受け取った出力と WARN を出し、PR を作らずに片付けて成功する" {
+@test "選別を省いた週: 再発率の CLI の出力から件数の行を読めなければ、受け取った出力を出し、PR を作らずに失敗する" {
     publish_fixture
     four_local_records
     init_real
     STUB_RATES_EXPORT_OUTPUT='harness-failure-rates: counted 4 record(s)' run harness_loop_pr_publish_metrics_only_if_due
-    assert_success
+    assert_failure 1
     assert_line "harness-weekly: unexpected output from $HOME/.claude/scripts/harness-failure-rates.sh export: harness-failure-rates: counted 4 record(s)"
-    assert_line 'harness-weekly: WARN counting the weekly failure rate records not on origin/main failed; no metrics-only PR this week'
+    assert_line "harness-weekly: no metrics-only PR; counting the weekly failure rate records not on origin/main failed (records stay in $RATES)"
     assert [ ! -e "$PNPM_LOG" ]
-    assert_discarded
+    refute_published
+}
+
+@test "選別を省いた週: 再発率の CLI が件数を数えられずに失敗したら、要らないことにせず、PR を作らずに失敗する" {
+    publish_fixture
+    four_local_records
+    init_real
+    STUB_RATES_EXPORT_FAIL=1 run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_line 'harness-failure-rates: cannot list the local weekly rate records'
+    assert_line "harness-weekly: no metrics-only PR; counting the weekly failure rate records not on origin/main failed (records stay in $RATES)"
+    refute_output --partial 'WARN'
+    assert [ ! -e "$PNPM_LOG" ]
+    refute_published
+    assert [ -d "$WT" ]
 }
 
 @test "選別を省いた週: 要ると決まったら、worktree に依存を入れてから記録を整形して Metrics-only PR を作る。前の run の本文と結果ファイルは使わない" {
@@ -1635,6 +1654,18 @@ review_hiding_record() {
     assert_line 'harness-weekly: 4 weekly failure rate record(s) not on origin/main, but loop PR https://github.com/example/dotfiles/pull/40 is open; carried over'
     assert_line 'harness-weekly: review committed no changes; no PR created'
     assert_discarded
+}
+
+@test "選別が何も commit しなかった週: 再発率の CLI が件数を数えられずに失敗したら、要らないことにせず、PR を作らずに失敗する" {
+    review_fixture
+    four_local_records
+    init_real
+    STUB_RATES_EXPORT_FAIL=1 run review_with review_no_commits
+    assert_failure 1
+    assert_line "harness-weekly: no metrics-only PR; counting the weekly failure rate records not on origin/main failed (records stay in $RATES)"
+    refute_output --partial 'review committed no changes; no PR created'
+    refute_published
+    assert [ -d "$WT" ]
 }
 
 @test "選別が何も commit しなかった週: 開いている PR を調べられなければ WARN を出して片付けて成功する" {
