@@ -102,10 +102,13 @@ week_record() {
     week_record 2026-09-26 2 3
     week_record 2026-10-03 3 4 failed
     week_record 2026-10-10 4 5
-    run --separate-stderr bash "$SCRIPT" trend --weeks 4
+    # 渡した日付より後の記録は見ない
+    week_record 2026-10-17 5 6
+    run --separate-stderr bash "$SCRIPT" trend 2026-10-10 --weeks 4
     assert_success
     assert_line '## Failure Pattern の再発率'
     assert_line '| Failure Pattern | 2026-09-19 | 2026-09-26 | 2026-10-03 | 2026-10-10 |'
+    refute_output --partial '2026-10-17'
     assert_line '| `shell-pitfall` | 25% (2) | 25% (2) | 記録なし | 25% (2) |'
     assert_line '| 未分類 | 0% (0) | 0% (0) | 記録なし | 0% (0) |'
     # その週の一覧に無かった Failure Pattern(後から足したもの)は - にする
@@ -116,7 +119,7 @@ week_record() {
 }
 
 @test "週の記録が無ければ推移の節は記録が無いことを書く" {
-    run --separate-stderr bash "$SCRIPT" trend --weeks 4
+    run --separate-stderr bash "$SCRIPT" trend 2026-10-10 --weeks 4
     assert_success
     assert_line '## Failure Pattern の再発率'
     assert_output --partial '週の記録はまだ無い'
@@ -126,9 +129,87 @@ week_record() {
     mkdir -p "$RATES"
     printf '{"date":"2026-10-10","since":0,"until":1,"sessions":0,"detections":0,"classified":0,"classification":"ok","patterns":{"unclassified":{"occurrences":0,"sessions":0,"rate":null}}}\n' \
         >"$RATES/2026-10-10.json"
-    run --separate-stderr bash "$SCRIPT" trend --weeks 4
+    run --separate-stderr bash "$SCRIPT" trend 2026-10-10 --weeks 4
     assert_success
     assert_line '| 未分類 | - |'
+}
+
+# 失敗の検出の節。期間の時刻は UTC で書かせて、文字列をそのまま比べる
+@test "失敗の検出の節は、その日の Weekly Rate Record の期間の検出を、記録した実行を問わずに数える" {
+    export TZ=UTC
+    week_record 2026-10-24 1792800000 1793408400
+    week_record 2026-10-31 1793408400 1794013200
+    # 期間の始まりちょうどは前の週の Weekly Rate Record の分なので数えない。終わりちょうどは数える
+    detection before 1792800000 '{"user_negation":7}'
+    detection w1 1792800100 '{"tool_error":3,"ci_failure":2}'
+    printf 'broken line\n' >>"$HDIR/detections.jsonl"
+    printf '{"session_id":"m1","run":"manual","date":"d","epoch":1793000000,"counts":{"user_negation":2}}\n' >>"$HDIR/detections.jsonl"
+    detection clean 1793100000 '{}'
+    detection w2 1793408400 '{"repeat":2}'
+    detection after 1793408401 '{"hook_deny":4}'
+    run --separate-stderr bash "$SCRIPT" detections 2026-10-24
+    assert_success
+    assert_output "$(printf '%s\n' '' '## 失敗の検出' '' \
+        '2026-10-24 00:00 から 2026-10-31 01:00 までに検出器にかけたセッション: 4 件(失敗あり 3 件)。' '' \
+        '| 信号 | 件数 |' '|---|---:|' '| `tool_error` | 3 |' '| `ci_failure` | 2 |' '| `repeat` | 2 |' \
+        '| `user_negation` | 2 |' '| 合計 | 9 |')"
+}
+
+@test "失敗の検出の節は、期間に検出が 1 件も無ければ表を出さずに合計 0 を書く" {
+    export TZ=UTC
+    week_record 2026-10-24 1792800000 1793408400
+    detection clean 1792800100 '{}'
+    detection after 1793408401 '{"hook_deny":4}'
+    run --separate-stderr bash "$SCRIPT" detections 2026-10-24
+    assert_success
+    assert_output "$(printf '%s\n' '' '## 失敗の検出' '' \
+        '2026-10-24 00:00 から 2026-10-31 01:00 までに検出器にかけたセッション: 1 件(失敗あり 0 件)。' '' '合計: 0')"
+}
+
+# record が書いた Weekly Rate Record の期間をそのまま失敗の検出の節に読ませ、2 つの数え方を同じ期間で比べる
+@test "失敗の検出の節の合計は、同じ日の Weekly Rate Record の detections と一致する" {
+    since=$((NOW - 3600))
+    detection s1 "$((NOW - 60))" '{"tool_error":2,"ci_failure":1}'
+    detection s2 "$((NOW - 60))" '{"repeat":3}'
+    detection s3 "$((NOW - 60))" '{}'
+    detection old "$((since - 1))" '{"tool_error":5}'
+    run bash "$SCRIPT" record "$TODAY" --since "$since" --classification ok
+    assert_success
+    run jq '.detections' "$RATES/$TODAY.json"
+    assert_output '6'
+    run --separate-stderr bash "$SCRIPT" detections "$TODAY"
+    assert_success
+    assert_line '| 合計 | 6 |'
+}
+
+@test "数値でない件数と object でない counts は、Weekly Rate Record の detections でも失敗の検出の節でも数えない" {
+    since=$((NOW - 3600))
+    detection s1 "$((NOW - 60))" '{"tool_error":2}'
+    detection odd "$((NOW - 60))" '{"tool_error":"3","hook_deny":1}'
+    detection list "$((NOW - 60))" '[4]'
+    run bash "$SCRIPT" record "$TODAY" --since "$since" --classification ok
+    assert_success
+    run jq '.detections' "$RATES/$TODAY.json"
+    assert_output '3'
+    run --separate-stderr bash "$SCRIPT" detections "$TODAY"
+    assert_success
+    assert_line '| `tool_error` | 2 |'
+    assert_line '| `hook_deny` | 1 |'
+    assert_line '| 合計 | 3 |'
+}
+
+@test "失敗の検出の節は、その日の Weekly Rate Record が無いか期間を読めなければ失敗する" {
+    week_record 2026-10-17 100 200
+    detection w1 150 '{"tool_error":1}'
+    run --separate-stderr bash "$SCRIPT" detections 2026-10-24
+    assert_failure 1
+    assert_output ''
+    assert_equal "$stderr" "harness-failure-rates: no weekly rate record for 2026-10-24 ($RATES/2026-10-24.json)"
+    printf 'broken\n' >"$RATES/2026-10-24.json"
+    run --separate-stderr bash "$SCRIPT" detections 2026-10-24
+    assert_failure 1
+    assert_output ''
+    assert_equal "$stderr" "harness-failure-rates: cannot read .since from $RATES/2026-10-24.json"
 }
 
 @test "分類に失敗した週の期間は、次の週の期間に含めてもう一度分類させる" {

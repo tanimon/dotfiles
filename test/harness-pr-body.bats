@@ -1,5 +1,6 @@
 # 週次ジョブの Loop PR の本文の module(lib/harness-pr-body.bash)の interface の検査。lib を直接 source する。
-# 本文の 3 種類の節の順序・節ごとの失敗の扱い・純増の表・検出件数の期間と表・選別の prompt の本文の指示はここで検査する。
+# 本文の 3 種類の節の順序・節ごとの失敗の扱い・純増の表・選別の prompt の本文の指示はここで検査する。失敗の検出と推移の
+# 節の中身(期間と表)は test/harness-failure-rates.bats が再発率のスクリプトで検査する。
 # 週次ジョブがこの lib を読み込めないときに止まることと、PR を作る run の本文に節が付く配線は test/harness-weekly.bats、
 # Metrics-only PR の入口が commit の後に件数を渡すことは test/harness-loop-pr.bats が検査する。
 bats_require_minimum_version 1.5.0
@@ -11,15 +12,24 @@ setup() {
     HDIR="$HOME/.claude/harness"
     SCRIPTS="$HOME/.claude/scripts"
     mkdir -p "$SCRIPTS" "$HDIR"
-    unset STUB_TREND_STATUS STUB_TAMPER_VERDICT STUB_ADOPTED STUB_ADOPTED_STATUS
-    # 偽の再発率のスクリプト。trend は推移の節を出し、STUB_TREND_STATUS があればその値で失敗する。STUB_TAMPER_VERDICT が
-    # あれば Verdict の CLI を書き換える(推移の照合を通った後に実行物が書き換えられた run の再現)
+    unset STUB_TREND_STATUS STUB_DETECTIONS_STATUS STUB_TAMPER_VERDICT STUB_ADOPTED STUB_ADOPTED_STATUS
+    # 偽の再発率のスクリプト。detections は失敗の検出の節を出し、STUB_DETECTIONS_STATUS があればその値で失敗する。trend は
+    # 推移の節を出し、STUB_TREND_STATUS があればその値で失敗する。STUB_TAMPER_VERDICT があれば Verdict の CLI を書き換える
+    # (推移の照合を通った後に実行物が書き換えられた run の再現)
     cat >"$SCRIPTS/harness-failure-rates.sh" <<'EOF'
 #!/usr/bin/env bash
-[[ "$1" == trend ]] || exit 1
-[[ -z "${STUB_TAMPER_VERDICT:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
-[[ -z "${STUB_TREND_STATUS:-}" ]] || exit "$STUB_TREND_STATUS"
-printf '\n## 推移\n\n直近 4 週\n'
+case "$1" in
+detections)
+    [[ -z "${STUB_DETECTIONS_STATUS:-}" ]] || exit "$STUB_DETECTIONS_STATUS"
+    printf '\n## 失敗の検出\n\n合計: 0\n'
+    ;;
+trend)
+    [[ -z "${STUB_TAMPER_VERDICT:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+    [[ -z "${STUB_TREND_STATUS:-}" ]] || exit "$STUB_TREND_STATUS"
+    printf '\n## 推移\n\n直近 4 週\n'
+    ;;
+*) exit 1 ;;
+esac
 EOF
     # 偽の Verdict の CLI。adopted は印が渡されたことを確かめて STUB_ADOPTED を出し、STUB_ADOPTED_STATUS があればその値で失敗する
     cat >"$SCRIPTS/harness-verdict.sh" <<'EOF'
@@ -47,20 +57,16 @@ EOF
     BASE=$(git -C "$WT" rev-parse HEAD)
     RESULT="$HDIR/review-result-2026-10-20.json"
     BODY="$HDIR/review-pr-body-2026-10-20.md"
-    DETECTIONS="$HDIR/detections.jsonl"
     RUN_MARK="harness/review-2026-10-20 run 0f0e"
-    NOW=$(date +%s)
-    SINCE=$((NOW - 3600))
     printf '{"dropped":[],"deploy_only":[]}\n' >"$RESULT"
     harness_review_outcome_init --worktree "$WT" --review-result "$RESULT" --pr-body "$BODY" --run "$RUN_MARK" --date 2026-10-20 \
         --rates-repo-dir docs/harness/failure-pattern-rates --ledger-repo-dir docs/harness/rule-ledger
-    init_body "$SINCE"
+    init_body
 }
 
-# <期間の始まり> で初期化する(スナップショットは記録を置いた後に取る)
-init_body() { # <期間の始まり>
+init_body() {
     harness_pr_body_init --pr-body "$BODY" --worktree "$WT" --review-result "$RESULT" \
-        --detections "$DETECTIONS" --detection-since "$1" --run "$RUN_MARK" --ledger-repo-dir docs/harness/rule-ledger
+        --date 2026-10-20 --run "$RUN_MARK" --ledger-repo-dir docs/harness/rule-ledger
 }
 
 # 選別の commit を 1 件足す
@@ -69,10 +75,6 @@ review_commit() { # <件名> <パス> <中身>
     printf '%s' "$3" >>"$WT/$2"
     git -C "$WT" add -A
     git -C "$WT" commit -qm "$1"
-}
-
-detection() { # <session_id> <epoch> <counts の JSON>
-    printf '{"session_id":"%s","run":"manual","date":"2026-01-01","epoch":%s,"counts":%s}\n' "$1" "$2" "$3" >>"$DETECTIONS"
 }
 
 claude_head() {
@@ -167,62 +169,23 @@ headings() {
     assert_output 0
 }
 
-@test "検出件数: 期間の始まりより後の記録を、記録した実行を問わずに数え、読めない行は飛ばす" {
-    detection old "$((NOW - 7200))" '{"tool_error":9}'
-    detection m1 "$((NOW - 60))" '{"user_negation":2}'
-    printf 'broken line\n' >>"$DETECTIONS"
-    detection w1 "$((NOW - 30))" '{"tool_error":3,"ci_failure":2}'
-    detection clean "$((NOW - 20))" '{}'
+@test "失敗の検出の節を組み立てられなければ(その日の Weekly Rate Record が無い、など)、WARN を出して節を省き、ほかの節は足す" {
+    export STUB_DETECTIONS_STATUS=1
     review
     assert_success
-    run cat "$BODY"
-    assert_line --partial '以降に検出器にかけたセッション: 3 件(失敗あり 2 件)。'
-    assert_line '| `tool_error` | 3 |'
-    assert_line '| `ci_failure` | 2 |'
-    assert_line '| `user_negation` | 2 |'
-    assert_line '| `repeat` | 0 |'
-    assert_line '| 合計 | 7 |'
-}
-
-@test "検出件数: 記録が無ければ 0 件の表を載せる" {
-    review
-    assert_success
-    run cat "$BODY"
-    assert_line --partial '以降に検出器にかけたセッション: 0 件(失敗あり 0 件)。'
-    assert_line '| 合計 | 0 |'
-}
-
-@test "検出件数: 表の信号の行は検出器の信号とちょうど一致する" {
-    local signal signals
-    signals=$(grep -o 'signal: "[a-z_]*"' "$REPO_ROOT/dot_claude/scripts/executable_harness-detect-failures.sh" |
-        sed 's/signal: "\(.*\)"/\1/' | sort -u)
-    [[ -n "$signals" ]]
-    for signal in $signals; do
-        detection "s-$signal" "$((NOW - 60))" "{\"$signal\":1}"
-    done
-    review
-    assert_success
-    # 検出器に無い信号の行も、検出器の信号の欠けも落とす
-    run bash -c 'sed -n "s/^| \`\([a-z_]*\)\` | [0-9]* |$/\1/p" "$1" | sort' _ "$BODY"
-    assert_output "$signals"
-    run cat "$BODY"
-    for signal in $signals; do
-        assert_line "| \`$signal\` | 1 |"
-    done
-    assert_line "| 合計 | $(wc -l <<<"$signals" | tr -d ' ') |"
-}
-
-@test "検出件数の節を組み立てられなければ、WARN を出して節を省き、ほかの節は足す" {
-    detection m1 "$((NOW - 60))" '{"repeat":1}'
-    harness_integrity_snapshot
-    chmod 000 "$DETECTIONS"
-    run --separate-stderr harness_pr_body_review "$BASE" ''
-    chmod 644 "$DETECTIONS"
-    assert_success
-    run grep -Fx "harness-weekly: WARN failed to build the detection counts from $DETECTIONS; left them out of $BODY" <<<"$stderr"
-    assert_success
+    assert_equal "$stderr" "harness-weekly: WARN failed to build the failure detection counts; left it out of $BODY"
     run headings
     assert_output "$(printf '%s\n' '## 推移' '## ルールの効果' '## 純増')"
+}
+
+@test "Metrics-only PR の本文: 失敗の検出の節を組み立てられなくても、WARN を出して節を省き成功する" {
+    export STUB_DETECTIONS_STATUS=1
+    harness_integrity_snapshot
+    run --separate-stderr harness_pr_body_metrics_only 4 0
+    assert_success
+    assert_equal "$stderr" "harness-weekly: WARN failed to build the failure detection counts; left it out of $BODY"
+    run headings
+    assert_output '## 推移'
 }
 
 @test "推移がほかの理由で作れなければ、WARN を出して節を省き、PR の公開は止めない" {
@@ -236,14 +199,18 @@ headings() {
     assert_output 1
 }
 
-@test "推移のスクリプトが書き換えられていたら、PR を作らない理由を出して予約コードを返し、後ろの節を足さない" {
+@test "再発率のスクリプトが書き換えられていたら、PR を作らない理由を出して予約コードを返し、後ろの節を足さない" {
     harness_integrity_snapshot
     printf '# tampered\n' >>"$SCRIPTS/harness-failure-rates.sh"
     run --separate-stderr harness_pr_body_review "$BASE" $'\n## ルールの効果'
     assert_failure "$HARNESS_INTEGRITY_FAILED"
-    run grep -F 'harness-weekly: no PR created; the failure rate trend could not be trusted' <<<"$stderr"
+    # 失敗の検出の節が推移より先に呼ぶので、その照合で止まる
+    local errors=$stderr
+    run grep -F "harness-weekly: the failure detection counts could not be trusted; left it out of $BODY" <<<"$errors"
     assert_success
-    run grep -c '^## ルールの効果\|^## 純増' "$BODY"
+    run grep -F 'harness-weekly: no PR created; the failure detection counts could not be trusted' <<<"$errors"
+    assert_success
+    run grep -c '^## 失敗の検出\|^## 推移\|^## ルールの効果\|^## 純増' "$BODY"
     assert_output 0
 }
 
@@ -312,7 +279,7 @@ headings() {
 
 @test "Metrics-only PR の本文: 件数の文を書けなければ、PR を作らない理由を出して 1 を返し、推移の節に進まない" {
     BODY="$BATS_TEST_TMPDIR/missing/review-pr-body.md"
-    init_body "$SINCE"
+    init_body
     export STUB_TAMPER_VERDICT=1
     harness_integrity_snapshot
     run --separate-stderr harness_pr_body_metrics_only 4 2
@@ -400,9 +367,10 @@ EOF
 @test "初期化は値が欠けているか知らない引数なら使い方の誤りで終わり、初期化の前の入口も使い方の誤りになる" {
     run harness_pr_body_init --pr-body "$BODY"
     assert_failure 2
-    run harness_pr_body_init --pr-body "$BODY" --worktree "$WT" --review-result "$RESULT" --detections "$DETECTIONS" \
-        --detection-since "$SINCE" --run "$RUN_MARK" --ledger-repo-dir docs/harness/rule-ledger --date 2026-10-20
+    run harness_pr_body_init --pr-body "$BODY" --worktree "$WT" --review-result "$RESULT" --date 2026-10-20 \
+        --run "$RUN_MARK" --ledger-repo-dir docs/harness/rule-ledger --detection-since 1760000000
     assert_failure 2
+    assert_output --partial 'unknown argument --detection-since'
     # 初期化していない lib は、週次ジョブと同じ順に読み込み直した別の bash で作る
     run bash -c 'for lib in integrity review-outcome pr-body; do source "$1/harness-$lib.bash"; done
         harness_pr_body_metrics_only 4 0' _ "$REPO_ROOT/dot_claude/scripts/lib"

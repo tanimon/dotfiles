@@ -109,10 +109,9 @@ main() {
 
     PENDING="$HARNESS_DIR/pending.jsonl"
     JOB_SESSIONS="$HARNESS_DIR/weekly-sessions.txt"
-    # 失敗の検出器で抽出の入力を選ぶスクリプトと、それが書くセッションごとの検出件数の記録
+    # 失敗の検出器で抽出の入力を選ぶスクリプト(セッションごとの検出件数を記録する)
     SELECT_PENDING="$HOME/.claude/scripts/harness-select-pending.sh"
-    DETECTIONS="$HARNESS_DIR/detections.jsonl"
-    # 失敗を Failure Pattern に分類するスクリプトと、週の再発率を記録して推移の節を作るスクリプト
+    # 失敗を Failure Pattern に分類するスクリプトと、週の再発率を記録するスクリプト(PR の本文の推移と失敗の検出の節も作る)
     CLASSIFY_FAILURES="$HOME/.claude/scripts/harness-classify-failures.sh"
     FAILURE_RATES="$HOME/.claude/scripts/harness-failure-rates.sh"
     # 週の再発率の記録(1 週 1 ファイル)。ローカルに全週を持ち、PR を作る run がリポジトリに無い週の分を、
@@ -425,8 +424,6 @@ main() {
     MISSED_DAYS=$(harness_health_missed_run_days)
     # 前の成功の時刻。失敗の Issue がそれより後に更新されていれば、走らなかった週はその Issue が知らせている
     LAST_SUCCESS=$(harness_health_heartbeat_epoch) || LAST_SUCCESS=""
-    # PR の本文の検出件数の期間の始まり(Loop PR の module の初期化に渡す)。前の成功が無ければ直近 7 日にする
-    DETECTION_SINCE=${LAST_SUCCESS:-$(($(date +%s) - 7 * 24 * 60 * 60))}
     # Loop PR の module。選別の prompt の指示・手で公開するコマンドの綴り・選別の経路(作業場所の準備・選別の claude の実行・
     # その後の処理と公開)・Metrics-only PR の正本。読み込むときに Review Outcome の lib と本文の lib を読み込み、読めなければ
     # 理由を出して止まる(このスクリプトはその 2 つを読まない)。ほかの lib と同じく、claude の起動前に読んでメモリに載せる。
@@ -448,8 +445,7 @@ main() {
     fi
     harness_loop_pr_init --repo "$REPO" --worktree "$WORKTREE" --branch "$BRANCH" --loop-branch-prefix "$LOOP_BRANCH_PREFIX" \
         --pr-body "$PR_BODY" --review-result "$REVIEW_RESULT" --eval-requests "$EVAL_REQUESTS" --eval-results "$EVAL_RESULTS" \
-        --eval-budget-usd "$EVAL_BUDGET_USD" --date "$REVIEW_DATE" --run "$REVIEW_RUN" --detections "$DETECTIONS" \
-        --detection-since "$DETECTION_SINCE" || exit 1
+        --eval-budget-usd "$EVAL_BUDGET_USD" --date "$REVIEW_DATE" --run "$REVIEW_RUN" || exit 1
 
     # headless の claude を 1 回起動し、結果をログに残してから成否を返す。
     # 非 0 で終わっても結果(費用・エラーの種類)を先に出す。予算の上限などで止まった run も
@@ -561,7 +557,7 @@ main() {
     # 両方の工程を省いた週も、finish_run の確認を通れば heartbeat は書く(「ジョブが健全に
     # 回った」の意味。分類する失敗も無ければ、その週は claude と認証の経路を通らない)
     # 抽出の入力は失敗の検出器で選ぶ(ADR 0011)。失敗の無いセッションは claude にかけずに pending から外し、
-    # セッションごとの件数を $DETECTIONS に残す。選別が失敗したら抽出に進まない(選ばれていない入力で
+    # セッションごとの件数を検出件数の記録に残す。選別が失敗したら抽出に進まない(選ばれていない入力で
     # 抽出すると、検出件数の無いセッションが混ざる)
     bash "$SELECT_PENDING" --run "$SESSION_ID" || {
         printf 'harness-weekly: selecting pending sessions with %s failed; skipped reflect\n' "$SELECT_PENDING" >&2

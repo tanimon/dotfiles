@@ -816,66 +816,6 @@ PRE
     refute_heartbeat_written
 }
 
-# 期間の切り方・読めない行・表の形は test/harness-pr-body.bats が検査する。ここでは、この run の検出器が記録した件数と、
-# 前回の heartbeat から決めた期間の始まりが、本文の lib に届くことを見る
-@test "PR の本文に、この run の検出器の件数と前回の heartbeat より後の手動の reflect の記録を載せる" {
-    : >"$HDIR/pending.jsonl"
-    now=$(date +%s)
-    seed_heartbeat "$((now - 3600))"
-    {
-        # 前回の run より前の記録は数えない
-        printf '{"session_id":"old","run":"earlier-run","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
-        # 週の途中で手動の reflect が先に選別したセッションは数える
-        printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"user_negation":2}}\n' "$((now - 60))"
-    } >"$HDIR/detections.jsonl"
-    add_session clean1 clean
-    add_session err1 tool-error
-    add_session ci1 ci-failure
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$GH_BODY"
-    assert_output --partial '以降に検出器にかけたセッション: 4 件(失敗あり 3 件)。'
-    assert_line '| `tool_error` | 3 |'
-    assert_line '| `ci_failure` | 2 |'
-    assert_line '| `user_negation` | 2 |'
-    assert_line '| 合計 | 7 |'
-}
-
-@test "heartbeat が無ければ直近 7 日の記録を数える" {
-    : >"$HDIR/pending.jsonl"
-    now=$(date +%s)
-    {
-        printf '{"session_id":"old","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 8 * 86400))"
-        printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"repeat":1}}\n' "$((now - 86400))"
-    } >"$HDIR/detections.jsonl"
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$GH_BODY"
-    assert_line '| `repeat` | 1 |'
-    assert_line '| `tool_error` | 0 |'
-    assert_line '| 合計 | 1 |'
-}
-
-@test "先頭 0 付きの heartbeat も 10 進数の epoch として期間の始まりに使う" {
-    : >"$HDIR/pending.jsonl"
-    now=$(date +%s)
-    seed_heartbeat "0$((now - 3600))"
-    {
-        printf '{"session_id":"old","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"tool_error":9}}\n' "$((now - 7200))"
-        printf '{"session_id":"m1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"repeat":1}}\n' "$((now - 60))"
-    } >"$HDIR/detections.jsonl"
-    seed_queue
-    run weekly
-    assert_success
-    refute_output --partial 'failed to build the detection counts'
-    run cat "$GH_BODY"
-    assert_line '| `repeat` | 1 |'
-    assert_line '| `tool_error` | 0 |'
-    assert_line '| 合計 | 1 |'
-}
-
 @test "検出件数の記録を読めなければ、照合できないとして claude を起動せずに失敗し、PR を作らない" {
     : >"$HDIR/pending.jsonl"
     seed_queue
@@ -890,6 +830,47 @@ PRE
     assert [ ! -f "$ARGV_LOG" ]
     assert [ ! -f "$GH_LOG" ]
     refute_heartbeat_written
+}
+
+# 失敗の検出の節の期間の中身(期間の切り方・読めない行・表の形)は test/harness-failure-rates.bats が再発率の CLI で検査する。
+# ここでは、PR を作った後に失敗した run(heartbeat を書かない)の次の run の PR が、前の PR の期間を重ねて数えないことを見る。
+# 1 回目の run は Weekly Rate Record を書いた後で PR を作り、finish_run が前の run の採用の残りで失敗する
+@test "PR を作った後に失敗した run の次の run の PR は、前の PR が数えた期間の検出を数えない" {
+    : >"$HDIR/pending.jsonl"
+    now=$(date +%s)
+    # 前の成功は検出より前。期間を heartbeat で決めると、1 回目の期間が 2 回目にも入る
+    seed_heartbeat "$((now - 3 * 86400))"
+    printf '{"session_id":"d1","run":"manual","date":"2026-01-01","epoch":%s,"counts":{"user_negation":5}}\n' \
+        "$((now - 600))" >"$HDIR/detections.jsonl"
+    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
+    seed_queue
+    run weekly
+    assert_failure
+    assert_output --partial 'never became a PR'
+    refute_heartbeat_written
+    run cat "$GH_BODY"
+    assert_line '| `user_negation` | 5 |'
+    # 1 回目の run を前の日の run にする(同じ日の run は同じ期間の始まりで記録を書き直すため): 記録を前の日付に移し、
+    # origin のブランチを消す(残すと 2 回目は当日の PR が既にあるとして選別を省く)
+    local previous=2000-01-01 until
+    jq --arg date "$previous" '.date = $date' "$RATES/$TODAY.json" >"$RATES/$previous.json"
+    rm "$RATES/$TODAY.json" "$GH_BODY"
+    git -C "$ORIGIN" branch -q -D "$BRANCH"
+    # 2 回目の検出の epoch が 1 回目の記録の終わりと同じ秒にならないようにする
+    until=$(jq -e '.until' "$RATES/$previous.json")
+    while [[ "$(date +%s)" -le "$until" ]]; do sleep 0.1; done
+    add_session err1 tool-error
+    # 1 回目の項目は判定の記録に移っているので、別の見出しの項目を置く
+    printf '# Harness improvement queue\n\n## [2026-10-04] next entry\n\n- **Scope:** global\n' >"$HDIR/queue.md"
+    run weekly
+    assert_output --partial 'opened draft PR'
+    run cat "$GH_BODY"
+    refute_line '| `user_negation` | 5 |'
+    assert_line '| `tool_error` | 3 |'
+    assert_line '| 合計 | 3 |'
+    # 本文の lib が推移の節を本物の再発率の CLI に渡す形(日付の引数)も、ここでしか本物どうしで繋がらない。
+    # 呼び方がずれると CLI は使い方の誤りで終わり、本文の lib は節を WARN で省くだけなので、節の列の並びで確かめる
+    assert_line "| Failure Pattern | $previous | $TODAY |"
 }
 
 # 停止を GitHub Issue で知らせる(#402、ADR 0012 の Consequences)。Issue のタイトルが重複を避ける

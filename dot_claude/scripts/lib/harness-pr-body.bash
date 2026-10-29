@@ -12,11 +12,13 @@
 # - 選別の prompt の、本文に書かせるものと書かせないものの指示(harness_pr_body_review_instructions)。ジョブが足す節を
 #   claude に書かせないための一覧なので、節を足すときはここも直す。
 # 持たないもの: 本文の先頭(選別の claude が書く)、Eval Case の評価の実行と結果の封印(Loop PR の module。成功した評価の節の
-# 文字列を受け取るだけ)、Dropped Change と Deploy-only Fix の節の中身(Review Outcome の lib)、本文を消すこと(Loop PR の module)。
+# 文字列を受け取るだけ)、Dropped Change と Deploy-only Fix の節の中身(Review Outcome の lib)、本文を消すこと(Loop PR の module)、
+# 失敗の検出と推移の節の中身(再発率のスクリプト。この lib は run の日付を渡して節の文字列を受け取る。検出件数の記録の
+# 読み方と期間も持たない)。
 #
 # 返り値は 0(成功)・1(失敗)・2(この lib の使い方の誤り)・HARNESS_INTEGRITY_FAILED(Integrity Snapshot の照合に
 # 落ちた)。ただし harness_pr_body_adopted_titles は Verdict の CLI の終了コードをそのまま返す(CLI の引数の誤りも 2)。
-# 指標の節(検出件数と、照合のほかで失敗した推移)は WARN を出して節を省き、成功を返す。PR を作る本文の入口
+# 指標の節(失敗の検出と推移)は、照合のほかで失敗したら WARN を出して節を省き、成功を返す。PR を作る本文の入口
 # (harness_pr_body_review と harness_pr_body_metrics_only)が非 0 を返すときは、PR を作らない理由の行をこの lib が出す。
 # 出す行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤りだけを harness-pr-body: で出す。
 #
@@ -35,8 +37,7 @@
 _HARNESS_PR_BODY_FILE=""
 _HARNESS_PR_BODY_WORKTREE=""
 _HARNESS_PR_BODY_REVIEW_RESULT=""
-_HARNESS_PR_BODY_DETECTIONS=""
-_HARNESS_PR_BODY_DETECTION_SINCE=""
+_HARNESS_PR_BODY_DATE=""
 _HARNESS_PR_BODY_RUN=""
 _HARNESS_PR_BODY_LEDGER_REPO_DIR=""
 
@@ -57,11 +58,11 @@ _harness_pr_body_usage() {
     return 2
 }
 
-# harness_pr_body_init --pr-body <file> --worktree <dir> --review-result <file> --detections <file> --detection-since <epoch>
+# harness_pr_body_init --pr-body <file> --worktree <dir> --review-result <file> --date <YYYY-MM-DD>
 #   --run <採用の印> --ledger-repo-dir <Rule Ledger の記録のリポジトリ内の置き場>
-# <epoch> は検出件数の節の期間の始まり(前の成功した run の時刻。週次ジョブが決める)
+# <YYYY-MM-DD> は run の日付。失敗の検出と推移の節の両方に渡し、2 つの節にその日の Weekly Rate Record を読ませる
 harness_pr_body_init() {
-    local pr_body="" worktree="" result="" detections="" since="" run="" ledger_dir=""
+    local pr_body="" worktree="" result="" date="" run="" ledger_dir=""
     while [[ $# -gt 0 ]]; do
         [[ $# -ge 2 ]] || {
             _harness_pr_body_usage "init: $1 needs a value"
@@ -71,8 +72,7 @@ harness_pr_body_init() {
         --pr-body) pr_body=$2 ;;
         --worktree) worktree=$2 ;;
         --review-result) result=$2 ;;
-        --detections) detections=$2 ;;
-        --detection-since) since=$2 ;;
+        --date) date=$2 ;;
         --run) run=$2 ;;
         --ledger-repo-dir) ledger_dir=$2 ;;
         *)
@@ -82,8 +82,8 @@ harness_pr_body_init() {
         esac
         shift 2
     done
-    if [[ -z "$pr_body" || -z "$worktree" || -z "$result" || -z "$detections" || -z "$since" || -z "$run" || -z "$ledger_dir" ]]; then
-        _harness_pr_body_usage 'init needs --pr-body, --worktree, --review-result, --detections, --detection-since, --run and --ledger-repo-dir'
+    if [[ -z "$pr_body" || -z "$worktree" || -z "$result" || -z "$date" || -z "$run" || -z "$ledger_dir" ]]; then
+        _harness_pr_body_usage 'init needs --pr-body, --worktree, --review-result, --date, --run and --ledger-repo-dir'
         return
     fi
     if [[ -z "${HARNESS_INTEGRITY_FAILED:-}" ]] ||
@@ -94,8 +94,7 @@ harness_pr_body_init() {
     _HARNESS_PR_BODY_FILE=$pr_body
     _HARNESS_PR_BODY_WORKTREE=$worktree
     _HARNESS_PR_BODY_REVIEW_RESULT=$result
-    _HARNESS_PR_BODY_DETECTIONS=$detections
-    _HARNESS_PR_BODY_DETECTION_SINCE=$since
+    _HARNESS_PR_BODY_DATE=$date
     _HARNESS_PR_BODY_RUN=$run
     _HARNESS_PR_BODY_LEDGER_REPO_DIR=$ledger_dir
 }
@@ -167,71 +166,41 @@ _harness_pr_body_net_change() { # <base>
     }'
 }
 
-# 失敗の検出件数の節。期間は前回の成功した run(heartbeat)より後で、検出の記録の epoch で切る。
-# 記録した実行(週次ジョブか手動の /harness-reflect か)は問わない。手動の reflect が週の途中で先に選別した
-# セッションも、その週の件数に入れるため。選別は増えた分だけを記録する(harness-select-pending.sh のヘッダ)ので、
-# 期間で足せば重ねて数えない。失敗した run の後は heartbeat が進まないので、次の run の期間はその分も含む。
-# 抽出を省いた週(pending が空)も表を出す。採用 0 件で PR を作らない週の件数は検出の記録にだけ残る。
-# JSON として読めない行は飛ばす。
-# 信号の一覧は harness-detect-failures.sh の信号の写し。一覧に無い信号は表に出ず合計にだけ入るので、
-# 検出器に信号を足したらここにも足す(test/harness-pr-body.bats が検出器の信号すべてが表に出ることを確かめる)
-_HARNESS_PR_BODY_DETECTION_SIGNALS="user_negation user_interrupt user_rejection hook_deny ci_failure tool_error repeat"
-_harness_pr_body_detection() {
-    local rows="[]" signal count sessions failing total since_label since=$_HARNESS_PR_BODY_DETECTION_SINCE
-    if [[ -f "$_HARNESS_PR_BODY_DETECTIONS" ]]; then
-        rows=$(jq -R -s -c --argjson since "$since" \
-            '[split("\n")[] | (try fromjson catch null)
-          | select(type == "object" and ((.epoch // 0) | type) == "number" and (.epoch // 0) > $since)]' \
-            "$_HARNESS_PR_BODY_DETECTIONS") || return 1
-    fi
-    sessions=$(jq '[.[].session_id] | unique | length' <<<"$rows") || return 1
-    failing=$(jq 'map(select(.counts != {}) | .session_id) | unique | length' <<<"$rows") || return 1
-    total=$(jq 'map(.counts | add // 0) | add // 0' <<<"$rows") || return 1
-    since_label=$(date -r "$since" '+%Y-%m-%d %H:%M' 2>/dev/null ||
-        date -d "@$since" '+%Y-%m-%d %H:%M') || return 1
-    printf '\n## 失敗の検出\n\n%s 以降に検出器にかけたセッション: %s 件(失敗あり %s 件)。\n\n| 信号 | 件数 |\n|---|---:|\n' \
-        "$since_label" "$sessions" "$failing"
-    for signal in $_HARNESS_PR_BODY_DETECTION_SIGNALS; do
-        count=$(jq --arg signal "$signal" 'map(.counts[$signal] // 0) | add // 0' <<<"$rows") || return 1
-        # shellcheck disable=SC2016 # バッククォートは Markdown のコードスパン
-        printf '| `%s` | %s |\n' "$signal" "$count"
-    done
-    printf '| 合計 | %s |\n' "$total"
-}
-
-# 検出件数の節を、組み立てに成功したときだけ本文に足す。指標の節の失敗で PR の公開を止めない
-_harness_pr_body_append_detection() {
-    local section
-    if section=$(_harness_pr_body_detection); then
-        printf '%s\n' "$section" >>"$_HARNESS_PR_BODY_FILE"
-    else
-        printf 'harness-weekly: WARN failed to build the detection counts from %s; left them out of %s\n' \
-            "$_HARNESS_PR_BODY_DETECTIONS" "$_HARNESS_PR_BODY_FILE" >&2
-    fi
-}
-
-# 再発率の推移の節を、組み立てに成功したときだけ本文に足す(検出件数の節と同じ扱い)。ただし入口の照合に
-# 落ちたら節を省いたうえで予約コードを返す(呼び出し元は PR を作らない)
-_harness_pr_body_append_rates() {
-    local section status=0
-    section=$(harness_integrity_run "$(_harness_pr_body_failure_rates)" trend --weeks 4) || status=$?
+# 再発率のスクリプトが出す指標の節を、組み立てに成功したときだけ本文に足す。<節> は再発率のスクリプトのサブコマンドで、
+# 節ごとの、ログの行で節を指す語とスクリプトの引数はここにだけ書く。
+# - detections: 失敗の検出の節。抽出を省いた週(pending が空)も節を出す。採用 0 件で PR を作らない週の件数は検出件数の
+#   記録にだけ残る
+# - trend: Failure Pattern の再発率の推移の節(直近 4 週)
+# 2 つの節には同じ run の日付を渡すので、どちらもその日の Weekly Rate Record の期間を数える。スクリプトは Integrity Snapshot の
+# 入口を通して呼ぶ。スクリプトの失敗(その日の Weekly Rate Record が無い、など)は WARN を出して節を省き、指標の節の失敗で
+# PR の公開を止めない。入口の照合に落ちたら節を省いたうえで予約コードを返す。--for-pr は PR を作る本文(採用のある Loop PR と
+# Metrics-only PR)が付け、照合に落ちたときに PR を作らない理由の行も出させる
+_harness_pr_body_append_metric() { # <detections|trend> [--for-pr]
+    local metric=${1:-} for_pr=${2:-} name section status=0
+    local -a args
+    case "$metric" in
+    detections)
+        name='failure detection counts'
+        args=(detections "$_HARNESS_PR_BODY_DATE")
+        ;;
+    trend)
+        name='failure rate trend'
+        args=(trend "$_HARNESS_PR_BODY_DATE" --weeks 4)
+        ;;
+    *)
+        _harness_pr_body_usage "unknown metric section: $metric"
+        return
+        ;;
+    esac
+    section=$(harness_integrity_run "$(_harness_pr_body_failure_rates)" "${args[@]}") || status=$?
     if [[ "$status" -eq 0 ]]; then
         printf '%s\n' "$section" >>"$_HARNESS_PR_BODY_FILE"
     elif [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
-        printf 'harness-weekly: the failure rate trend could not be trusted; left it out of %s\n' "$_HARNESS_PR_BODY_FILE" >&2
+        printf 'harness-weekly: the %s could not be trusted; left it out of %s\n' "$name" "$_HARNESS_PR_BODY_FILE" >&2
+        [[ "$for_pr" != --for-pr ]] || printf 'harness-weekly: no PR created; the %s could not be trusted\n' "$name" >&2
         return "$status"
     else
-        printf 'harness-weekly: WARN failed to build the failure rate trend; left it out of %s\n' "$_HARNESS_PR_BODY_FILE" >&2
-    fi
-}
-
-# PR を作る本文(採用のある Loop PR と Metrics-only PR)に推移の節を足す。照合に落ちたら PR を作らない理由を出して予約コード
-_harness_pr_body_append_rates_for_pr() {
-    local status=0
-    _harness_pr_body_append_rates || status=$?
-    if [[ "$status" -ne 0 ]]; then
-        printf 'harness-weekly: no PR created; the failure rate trend could not be trusted\n' >&2
-        return "$status"
+        printf 'harness-weekly: WARN failed to build the %s; left it out of %s\n' "$name" "$_HARNESS_PR_BODY_FILE" >&2
     fi
 }
 
@@ -267,8 +236,8 @@ _harness_pr_body_append_rule_ledger() {
 #   受け取った文字列(末尾の改行なし)で、改行を 1 つ付けて足す。空なら評価の工程が失敗したとして、効果を測っていないことを
 #   書いた節を足す(黙って節を省くと、効果が測られていないことが PR から見えない)。
 #   純増は選別の commit だけで数えるので、Loop PR の module が記録の commit を足す前に呼ぶ。
-#   失敗の扱い: Review Outcome の節・純増を作れなければ 1。推移と Rule Ledger の節は Verdict の CLI と再発率のスクリプトの
-#   照合に落ちたら、PR を作らない理由を出して予約コード。検出件数・推移・採用の読み取りのほかの失敗は WARN で節を省く
+#   失敗の扱い: Review Outcome の節・純増を作れなければ 1。検出件数・推移・Rule Ledger の節は Verdict の CLI と再発率の
+#   スクリプトの照合に落ちたら、PR を作らない理由を出して予約コード。検出件数・推移・採用の読み取りのほかの失敗は WARN で節を省く
 harness_pr_body_review() {
     local base=${1:-} eval_section=${2:-}
     _harness_pr_body_ready || return
@@ -277,8 +246,8 @@ harness_pr_body_review() {
         return
     }
     harness_review_outcome_sections >>"$_HARNESS_PR_BODY_FILE" || return 1
-    _harness_pr_body_append_detection
-    _harness_pr_body_append_rates_for_pr || return
+    _harness_pr_body_append_metric detections --for-pr || return
+    _harness_pr_body_append_metric trend --for-pr || return
     if [[ -n "$eval_section" ]]; then
         printf '%s\n' "$eval_section" >>"$_HARNESS_PR_BODY_FILE"
     else
@@ -293,8 +262,8 @@ harness_pr_body_review() {
 #   Metrics-only PR の本文を書く(前の内容は捨てる)。件数の文・推移・検出件数の順。件数は記録の commit の後にしか
 #   決まらないので、Loop PR の module の Metrics-only PR の公開の手順が commit の後に呼ぶ。推移の節の入口の照合も記録の commit より
 #   後に保つ(先に呼ぶと、実行物が書き換えられた run のログと、ローカルに残る commit が変わる)。
-#   失敗の扱い: 推移が照合に落ちたら予約コード(Loop PR の module は PR を作らない)。件数の文を書けなければ 1。どちらも
-#   PR を作らない理由を出す
+#   失敗の扱い: 推移か検出件数が照合に落ちたら予約コード(Loop PR の module は PR を作らない)。件数の文を書けなければ 1。
+#   どれも PR を作らない理由を出す
 harness_pr_body_metrics_only() {
     local rate_records=${1:-} ledger_records=${2:-}
     _harness_pr_body_ready || return
@@ -306,8 +275,8 @@ harness_pr_body_metrics_only() {
         printf 'harness-weekly: failed to write the record counts to %s; no PR created\n' "$_HARNESS_PR_BODY_FILE" >&2
         return 1
     }
-    _harness_pr_body_append_rates_for_pr || return
-    _harness_pr_body_append_detection
+    _harness_pr_body_append_metric trend --for-pr || return
+    _harness_pr_body_append_metric detections --for-pr
 }
 
 _harness_pr_body_metrics_only_counts() { # <週の再発率の記録の件数> <持ち越した Rule Ledger の記録の件数>
@@ -322,8 +291,8 @@ _harness_pr_body_metrics_only_counts() { # <週の再発率の記録の件数> <
 #   選別の claude が commit の後に失敗した run の、手で作る PR の本文に節を足す。claude には Dropped Change と
 #   Deploy-only Fix を本文に書かせないので、足さないと落とした変更の一覧が結果ファイルにしか残らない。
 #   データの照合(工程の入口が選別の claude の直後に済ませている)に落ちた run(引数 0)では検出件数と推移の節を省く。
-#   返り値: 推移の節まで信頼できたら 0。データか再発率のスクリプトを信頼できなければ予約コード(呼び出し元は手で公開する
-#   手順の代わりに、そのまま公開しないよう案内する)。Review Outcome の節を足せなくても、その旨を出して続ける
+#   返り値: 検出件数と推移の節まで信頼できたら 0。データか再発率のスクリプトを信頼できなければ予約コード(呼び出し元は手で
+#   公開する手順の代わりに、そのまま公開しないよう案内する)。Review Outcome の節を足せなくても、その旨を出して続ける
 harness_pr_body_failed_review() {
     local data_trusted=${1:-}
     _harness_pr_body_ready || return
@@ -334,6 +303,6 @@ harness_pr_body_failed_review() {
     harness_review_outcome_sections >>"$_HARNESS_PR_BODY_FILE" ||
         printf 'harness-weekly: failed to add the sections from %s to %s\n' "$_HARNESS_PR_BODY_REVIEW_RESULT" "$_HARNESS_PR_BODY_FILE" >&2
     [[ "$data_trusted" -eq 1 ]] || return "$HARNESS_INTEGRITY_FAILED"
-    _harness_pr_body_append_detection
-    _harness_pr_body_append_rates || return "$HARNESS_INTEGRITY_FAILED"
+    _harness_pr_body_append_metric detections || return "$HARNESS_INTEGRITY_FAILED"
+    _harness_pr_body_append_metric trend || return "$HARNESS_INTEGRITY_FAILED"
 }
