@@ -2,7 +2,8 @@
 # PreToolUse hook: 個人リポジトリでの `gh pr create` を、issue-linkage スキルの手順を経た本文(マーカー
 # `<!-- issue-linkage -->` を含む)でなければ deny する。`gh issue create` は常に deny し、作成と native relationship の
 # 設定を一度に行う create-issue.sh へ案内する(作成後の設定を別の手順にすると、それだけが漏れるため)。
-# 設計: chezmoi リポジトリの docs/superpowers/specs/2026-10-04-ticket-skill-design.md
+# 設計: chezmoi リポジトリの spec #577。ガードを採った理由は同じリポジトリの
+# docs/superpowers/specs/2026-10-04-ticket-skill-design.md
 #
 # 目的はスキルの起動忘れを防ぐことで、迂回を防ぐことではない(マーカーは手で書ける)。
 # そのため reader が読み切れない入力(長すぎる・引用符が閉じない・番兵の byte を含む)は判定せずに通す。

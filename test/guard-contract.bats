@@ -20,7 +20,7 @@
 #
 # 起動時に失敗したら判定せずに通す(フェイルオープン)と設計で決めた guard は、上の約束ではなく
 # fail_open_guard の一覧に載せる(issue-linkage-guard がそう決めた理由は、その guard のヘッダと
-# docs/superpowers/specs/2026-10-04-ticket-skill-design.md)。こちらは、起動時の失敗では判定を返す入力
+# docs/superpowers/specs/2026-10-04-ticket-skill-design.md。現行の設計は spec #577)。こちらは、起動時の失敗では判定を返す入力
 # (DECISION_INPUT)も無出力になり、HOME の問題では判定が変わらないことを確かめる。
 #
 # 一覧(guard / fail_open_guard の呼び出し)は配線の正本ではない。描画した settings.json の PreToolUse に

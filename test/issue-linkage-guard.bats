@@ -42,7 +42,7 @@ reason() {
     assert_success
     [ "$(decision "$output")" = deny ]
     [[ "$(reason "$output")" == issue-linkage-guard:* ]]
-    # 理由は改名後のスキルとマーカーを案内する
+    # 理由は issue-linkage スキルの SKILL.md とマーカーを案内する
     [[ "$(reason "$output")" == *'~/.claude/skills/issue-linkage/SKILL.md'* ]]
     [[ "$(reason "$output")" == *"$MARKER"* ]]
 }
