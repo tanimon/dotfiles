@@ -40,7 +40,6 @@ setup() {
     mkdir -p "$STUBS"
     export ARGV_LOG="$BATS_TEST_TMPDIR/argv.log"
     export ENV_LOG="$BATS_TEST_TMPDIR/env.log"
-    export CWD_LOG="$BATS_TEST_TMPDIR/cwd.log"
     export STAGE_LOG="$BATS_TEST_TMPDIR/stage.log"
     export GH_LOG="$BATS_TEST_TMPDIR/gh.log"
     export GH_BODY="$BATS_TEST_TMPDIR/gh-body.md"
@@ -84,7 +83,6 @@ printf 'claude' >>"$ARGV_LOG"
 printf ' %s' "$@" >>"$ARGV_LOG"
 printf '\n' >>"$ARGV_LOG"
 printf 'HARNESS_DISABLE=%s\n' "${HARNESS_DISABLE:-}" >>"$ENV_LOG"
-pwd >>"$CWD_LOG"
 all_args="$*"
 case "$all_args" in
 *'--no-session-persistence'*) stage=classify ;;
@@ -195,26 +193,24 @@ if [[ "$1 $2" == "pr list" && "$*" == *'--state open'* ]]; then
     exit 0
 fi
 if [[ "$1 $2" == "pr list" ]]; then
-    printf '%s\n' "${STUB_GH_PR_LIST-https://github.com/example/dotfiles/pull/41}"
+    printf 'https://github.com/example/dotfiles/pull/41\n'
     exit 0
 fi
 if [[ "$1 $2" == "pr view" && "$*" == *'--json state'* ]]; then
-    # Rule Ledger の書き出しが引く PR の状態。STUB_GH_STATE_<番号>(既定 MERGED)
-    var="STUB_GH_STATE_$3"
-    printf '%s\n' "${!var:-MERGED}"
+    # Rule Ledger の書き出しが引く PR の状態
+    printf 'MERGED\n'
     exit 0
 fi
 while [[ $# -gt 0 ]]; do
     [[ "$1" == "--body-file" ]] && cp "$2" "$GH_BODY"
     shift
 done
-[[ -z "${STUB_GH_FAIL:-}" ]] || exit 1
 printf 'https://github.com/example/dotfiles/pull/42\n'
 EOF
     install_exec "$STUBS/pnpm" <<'EOF'
 #!/usr/bin/env bash
 printf '%s %s\n' "$(pwd)" "$*" >>"$PNPM_LOG"
-[[ -z "${STUB_PNPM_FAIL:-}" ]]
+exit 0
 EOF
     export PATH="$STUBS:$PATH"
     # 失敗の検出器と選別のスクリプトは本物を本来の配置先に置く(週次ジョブが ~/.claude/scripts から呼ぶ)
@@ -256,10 +252,6 @@ EOF
     TEST_START=$(date +%s)
     # shellcheck source=../dot_claude/scripts/lib/harness-health.bash
     source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash"
-}
-
-teardown() {
-    [[ -z "${LOCKED_DIR:-}" ]] || chmod 755 "$LOCKED_DIR"
 }
 
 weekly() {
