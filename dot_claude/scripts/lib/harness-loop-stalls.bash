@@ -16,9 +16,8 @@
 # Issue を送る処理(タイトルでの重複の回避)は持たず、呼び出し元から送る関数を受け取る。lib を読めずに止まった run でも
 # 失敗の Issue を作るため、送る処理は週次ジョブの入口スクリプトにだけ置く。
 #
-# 前提: Integrity Snapshot の lib(harness-integrity.bash)と Loop PR の module がこの順に読み込まれていること。週次ジョブは
-# Loop PR の module の後にこの lib を読み込み、Loop PR の module を読めずに止まった run ではこの lib を呼ばない(その週の
-# Loop Stall は、lib を直した後の次の run が知らせる)。メモリに載った後は claude がファイルを書き換えてもその run に効かない
+# 前提: Integrity Snapshot の lib(harness-integrity.bash)と Loop PR の module がこの順に読み込まれていること。どの run で
+# 呼ばれるかの正本は週次ジョブの report_stops のコメント。メモリに載った後は claude がファイルを書き換えてもその run に効かない
 # ので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので、この lib は Guarded Path(scripts/guarded-paths.txt)に
 # 載せてある。
 # interface を引数 3 つに保つため、ほかの入力はこの lib の中で決める:

@@ -23,8 +23,8 @@
 # ~/.claude/scripts のスクリプトを呼ぶときは、必ず実行物の入口(harness_integrity_run)を通す。
 # 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
 # heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
-# 停止は EXIT trap の report_stops が GitHub Issue で知らせる。週次ジョブ自身の停止(この run の失敗・前の週に
-# 成功しなかったこと)は report_stops が、Loop Stall(放置された Loop PR と PR にならないループのブランチ)は
+# 週次ジョブ自身の停止と Loop Stall は、EXIT trap の report_stops が GitHub Issue で知らせる。週次ジョブ自身の停止
+# (この run の失敗・前の週に成功しなかったこと)は report_stops が、Loop Stall(放置された Loop PR と PR にならないループのブランチ)は
 # Loop Stall の module(lib/harness-loop-stalls.bash)が判定し、Issue を送る alert_issue を report_stops から受け取る。
 #
 # PR のブランチ名は `harness/review-<日付>`。CI はこの prefix で自己改善ループの PR を
@@ -179,8 +179,8 @@ main() {
     printf 'harness-weekly: start %s session=%s pending=%s\n' \
         "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$PENDING_BEFORE"
 
-    # 停止を GitHub Issue で知らせる(ADR 0012 の Consequences)。タイトルを重複を避ける鍵にし、同じ
-    # タイトルの Issue が開いていればコメントにする(CI の scheduled workflow が使う
+    # 週次ジョブ自身の停止と Loop Stall を GitHub Issue で知らせる(ADR 0012 の Consequences)。タイトルを重複を
+    # 避ける鍵にし、同じタイトルの Issue が開いていればコメントにする(CI の scheduled workflow が使う
     # .github/actions/harness-issue-alert と同じ規則とラベル。ジョブはローカルで走るので gh で同じことをする)。
     # Issue は公開リポジトリに作るので、本文にログの行やエラー文は貼らない(ローカルのパスを含む)。
     # 固定の文言・日時・session id・~ で書いたパスだけにし、詳細はログ(session id で引ける)に任せる
@@ -219,7 +219,7 @@ main() {
         return 1
     }
 
-    # 停止を Issue で知らせる。EXIT trap から呼ぶので、trap が入った後のすべての run(成功・失敗・
+    # 週次ジョブ自身の停止と Loop Stall を Issue で知らせる。EXIT trap から呼ぶので、trap が入った後のすべての run(成功・失敗・
     # 工程を省いた exit 0)で走る。trap より前の exit(nono の外での起動・jq が無い・lock の取り合い・
     # pending の読み取りの失敗)は知らせない。そのときは次の run が「成功していなかった」を知らせ、
     # briefing が heartbeat の古さを表示する。
@@ -231,8 +231,9 @@ main() {
     #   - この run の失敗
     #   - 前の成功が 1 周期より古い(起動時に健全性の lib から MISSED_DAYS に読んだもの。読む前に止まった run では空)
     #   - Loop Stall(何をどの条件で知らせるかの正本は Loop Stall の module のヘッダ)。module を読み込んだ run でだけ、
-    #     送る関数に alert_issue を渡して呼ぶ。Loop PR の module を読めずに止まった run は module を読み込まないので、
-    #     その週の Loop Stall は lib を直した後の次の run が知らせる(lib の故障は失敗の Issue が知らせる)
+    #     送る関数に alert_issue を渡して呼ぶ。module を読み込む前に止まった run(module か、その前に読む lib のどれかを
+    #     読めなかった run)では呼ばないので、その週の Loop Stall は lib を直した後の次の run が知らせる(lib の故障は
+    #     失敗の Issue が知らせる)
     # 本文の `…` は Markdown のコードスパンで、~ と $(id -u) は人が貼り付けて実行するコマンドの一部なので展開しない
     # shellcheck disable=SC2016,SC2088,SC2317,SC2329 # SC2317・SC2329 の理由は cleanup のコメント
     report_stops() { # <この run の終了コード>

@@ -94,7 +94,11 @@ adopted_verdict() { # <ブランチ>
 
 # Verdict の CLI を、呼ばれたら印のファイルを残して何も返さない偽物に差し替える(採用を隠す書き換え)
 hide_adoptions_in_verdict_cli() {
-    printf '#!/usr/bin/env bash\ntouch "%s"\nexit 0\n' "$BATS_TEST_TMPDIR/verdict-called" >"$SCRIPTS/harness-verdict.sh"
+    cat >"$SCRIPTS/harness-verdict.sh" <<EOF
+#!/usr/bin/env bash
+touch "$BATS_TEST_TMPDIR/verdict-called"
+exit 0
+EOF
 }
 
 @test "Loop PR が 14 日以上開いたままなら、PR ごとにタイトルと対処を載せた本文を送る" {
@@ -243,7 +247,10 @@ hide_adoptions_in_verdict_cli() {
 @test "Verdict の CLI が失敗したら、そのブランチは送らずに WARN を出して 1 を返す" {
     branch=harness/review-$(day_ago 8)
     branch_ahead "$branch"
-    printf '#!/usr/bin/env bash\nexit 2\n' >"$SCRIPTS/harness-verdict.sh"
+    cat >"$SCRIPTS/harness-verdict.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 2
+EOF
     harness_integrity_snapshot
     run report
     assert_failure 1

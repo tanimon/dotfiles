@@ -16,8 +16,8 @@
 # GIT_CONFIG_SYSTEM を潰すのは、このマシンの署名や push の設定を持ち込まないため。
 # gh と pnpm はスタブで、gh は呼ばれた引数と --body-file の中身を記録する。
 #
-# 検査するのは入口スクリプトの振る舞い: 工程の順序、早期に終わる分岐、lib の読み込みの失敗、停止の通知(失敗の Issue・
-# 走らなかった週の Issue と、EXIT trap が Loop Stall の module を呼ぶ配線)、選別の prompt と claude の起動。Loop Stall の
+# 検査するのは入口スクリプトの振る舞い: 工程の順序、早期に終わる分岐、lib の読み込みの失敗、週次ジョブ自身の停止の通知
+# (失敗の Issue・走らなかった週の Issue)と EXIT trap が Loop Stall の module を呼ぶ配線、選別の prompt と claude の起動。Loop Stall の
 # 判定と文面は test/harness-loop-stalls.bats が Loop Stall の module の interface で検査する。Loop PR の経路(当日のブランチの照会・worktree の準備・依存のインストール・本文・公開・
 # Metrics-only PR・評価・Rule Ledger・失敗した選別の案内)は test/harness-loop-pr.bats が Loop PR の module の interface で
 # 検査する。ここに残す Loop PR の経路の通し実行は、入口スクリプトの配線(選別の claude の失敗が module に届くこと、
@@ -879,8 +879,8 @@ PRE
     assert_line "| Failure Pattern | $previous | $TODAY |"
 }
 
-# 停止を GitHub Issue で知らせる(#402、ADR 0012 の Consequences)。Issue のタイトルが重複を避ける
-# 鍵で、同じタイトルの Issue が開いていればコメントにする
+# 週次ジョブ自身の停止と Loop Stall を GitHub Issue で知らせる(#402、ADR 0012 の Consequences)。Issue の
+# タイトルが重複を避ける鍵で、同じタイトルの Issue が開いていればコメントにする
 
 FAILED_TITLE='harness: 週次ジョブが失敗した'
 
