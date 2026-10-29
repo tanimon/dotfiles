@@ -345,7 +345,7 @@ export)
     ;;
 trend) printf '\n## 推移\n\n直近 4 週\n' ;;
 detections)
-    printf '\n## 失敗の検出\n\n%s の週の記録の期間\n' "$2"
+    printf '\n## 失敗の検出\n\n%s の Weekly Rate Record の期間\n' "$2"
     [[ -z "${STUB_RATES_TAMPER_LEDGER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
     ;;
 *) exit 1 ;;
@@ -589,7 +589,7 @@ unpushed_branch() {
     assert_line --index 0 "$(metrics_only_counts 4)"
     assert_line '## 推移'
     assert_line '## 失敗の検出'
-    assert_line '2026-10-17 の週の記録の期間'
+    assert_line '2026-10-17 の Weekly Rate Record の期間'
     refute_output --partial 'Rule Ledger'
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_output 'harness: Failure Pattern の再発率の週の記録を足す'
@@ -1697,7 +1697,7 @@ review_with_dropped() {
     assert_output --partial '~/.claude/harness/deploy-only.md にも記録した'
     refute_output --partial "$HOME"
     assert_line '## 失敗の検出'
-    assert_line '2026-10-17 の週の記録の期間'
+    assert_line '2026-10-17 の Weekly Rate Record の期間'
 }
 
 @test "選別の claude が commit の後に失敗した run で再発率のスクリプトが書き換えられていたら、推移の節を足さず、手で公開する手順を案内しない" {

@@ -166,43 +166,41 @@ _harness_pr_body_net_change() { # <base>
     }'
 }
 
-# 再発率のスクリプトが出す指標の節(失敗の検出と推移)を、組み立てに成功したときだけ本文に足す。<名前> はログの行で節を
-# 指す語、<引数> は再発率のスクリプトのサブコマンドと引数。スクリプトは Integrity Snapshot の入口を通して呼ぶ。
-# スクリプトの失敗(その日の週の記録が無い、など)は WARN を出して節を省き、指標の節の失敗で PR の公開を止めない。
-# 入口の照合に落ちたら節を省いたうえで予約コードを返す(呼び出し元は PR を作らない)。
-# 2 つの節には同じ run の日付を渡すので、どちらもその日の週の記録(Weekly Rate Record)の期間を数える
-_harness_pr_body_append_metric() { # <名前> <引数>…
-    local name=$1 section status=0
-    shift
-    section=$(harness_integrity_run "$(_harness_pr_body_failure_rates)" "$@") || status=$?
+# 再発率のスクリプトが出す指標の節を、組み立てに成功したときだけ本文に足す。<節> は再発率のスクリプトのサブコマンドで、
+# 節ごとの、ログの行で節を指す語とスクリプトの引数はここにだけ書く。
+# - detections: 失敗の検出の節。抽出を省いた週(pending が空)も節を出す。採用 0 件で PR を作らない週の件数は検出件数の
+#   記録にだけ残る
+# - trend: Failure Pattern の再発率の推移の節(直近 4 週)
+# 2 つの節には同じ run の日付を渡すので、どちらもその日の Weekly Rate Record の期間を数える。スクリプトは Integrity Snapshot の
+# 入口を通して呼ぶ。スクリプトの失敗(その日の Weekly Rate Record が無い、など)は WARN を出して節を省き、指標の節の失敗で
+# PR の公開を止めない。入口の照合に落ちたら節を省いたうえで予約コードを返す。--for-pr は PR を作る本文(採用のある Loop PR と
+# Metrics-only PR)が付け、照合に落ちたときに PR を作らない理由の行も出させる
+_harness_pr_body_append_metric() { # <detections|trend> [--for-pr]
+    local metric=${1:-} for_pr=${2:-} name section status=0
+    local -a args
+    case "$metric" in
+    detections)
+        name='failure detection counts'
+        args=(detections "$_HARNESS_PR_BODY_DATE")
+        ;;
+    trend)
+        name='failure rate trend'
+        args=(trend "$_HARNESS_PR_BODY_DATE" --weeks 4)
+        ;;
+    *)
+        _harness_pr_body_usage "unknown metric section: $metric"
+        return
+        ;;
+    esac
+    section=$(harness_integrity_run "$(_harness_pr_body_failure_rates)" "${args[@]}") || status=$?
     if [[ "$status" -eq 0 ]]; then
         printf '%s\n' "$section" >>"$_HARNESS_PR_BODY_FILE"
     elif [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         printf 'harness-weekly: the %s could not be trusted; left it out of %s\n' "$name" "$_HARNESS_PR_BODY_FILE" >&2
+        [[ "$for_pr" != --for-pr ]] || printf 'harness-weekly: no PR created; the %s could not be trusted\n' "$name" >&2
         return "$status"
     else
         printf 'harness-weekly: WARN failed to build the %s; left it out of %s\n' "$name" "$_HARNESS_PR_BODY_FILE" >&2
-    fi
-}
-
-# 失敗の検出の節。抽出を省いた週(pending が空)も節を出す。採用 0 件で PR を作らない週の件数は検出件数の記録にだけ残る
-_harness_pr_body_append_detection() {
-    _harness_pr_body_append_metric 'failure detection counts' detections "$_HARNESS_PR_BODY_DATE"
-}
-
-# 再発率の推移の節
-_harness_pr_body_append_rates() {
-    _harness_pr_body_append_metric 'failure rate trend' trend "$_HARNESS_PR_BODY_DATE" --weeks 4
-}
-
-# PR を作る本文(採用のある Loop PR と Metrics-only PR)に指標の節を足す(<関数> は _harness_pr_body_append_detection か
-# _harness_pr_body_append_rates)。照合に落ちたら PR を作らない理由を出して予約コード
-_harness_pr_body_append_metric_for_pr() { # <関数> <名前>
-    local status=0
-    "$1" || status=$?
-    if [[ "$status" -ne 0 ]]; then
-        printf 'harness-weekly: no PR created; the %s could not be trusted\n' "$2" >&2
-        return "$status"
     fi
 }
 
@@ -248,8 +246,8 @@ harness_pr_body_review() {
         return
     }
     harness_review_outcome_sections >>"$_HARNESS_PR_BODY_FILE" || return 1
-    _harness_pr_body_append_metric_for_pr _harness_pr_body_append_detection 'failure detection counts' || return
-    _harness_pr_body_append_metric_for_pr _harness_pr_body_append_rates 'failure rate trend' || return
+    _harness_pr_body_append_metric detections --for-pr || return
+    _harness_pr_body_append_metric trend --for-pr || return
     if [[ -n "$eval_section" ]]; then
         printf '%s\n' "$eval_section" >>"$_HARNESS_PR_BODY_FILE"
     else
@@ -277,8 +275,8 @@ harness_pr_body_metrics_only() {
         printf 'harness-weekly: failed to write the record counts to %s; no PR created\n' "$_HARNESS_PR_BODY_FILE" >&2
         return 1
     }
-    _harness_pr_body_append_metric_for_pr _harness_pr_body_append_rates 'failure rate trend' || return
-    _harness_pr_body_append_metric_for_pr _harness_pr_body_append_detection 'failure detection counts'
+    _harness_pr_body_append_metric trend --for-pr || return
+    _harness_pr_body_append_metric detections --for-pr
 }
 
 _harness_pr_body_metrics_only_counts() { # <週の再発率の記録の件数> <持ち越した Rule Ledger の記録の件数>
@@ -305,6 +303,6 @@ harness_pr_body_failed_review() {
     harness_review_outcome_sections >>"$_HARNESS_PR_BODY_FILE" ||
         printf 'harness-weekly: failed to add the sections from %s to %s\n' "$_HARNESS_PR_BODY_REVIEW_RESULT" "$_HARNESS_PR_BODY_FILE" >&2
     [[ "$data_trusted" -eq 1 ]] || return "$HARNESS_INTEGRITY_FAILED"
-    _harness_pr_body_append_detection || return "$HARNESS_INTEGRITY_FAILED"
-    _harness_pr_body_append_rates || return "$HARNESS_INTEGRITY_FAILED"
+    _harness_pr_body_append_metric detections || return "$HARNESS_INTEGRITY_FAILED"
+    _harness_pr_body_append_metric trend || return "$HARNESS_INTEGRITY_FAILED"
 }

@@ -11,38 +11,43 @@
 #                                      のままなので二重には数えない)。成功した週が無ければ最も古い
 #                                      失敗した週の since、記録が無ければ直近 7 日。期間を
 #                                      heartbeat で決めないのは、heartbeat を書くのが run が最後まで成功したとき
-#                                      だけだから。週の記録を書いた後に失敗した run は、PR を作る前でも作った後でも
-#                                      heartbeat を進めないので、heartbeat から数えると次の run の期間が前の記録の
-#                                      期間(作った PR の本文の節が数えた期間)と重なって二重に数える。同じ日の
+#                                      だけだから。Weekly Rate Record を書いた後に失敗した run は、PR を作る前でも
+#                                      作った後でも heartbeat を進めないので、heartbeat から数えると次の run の
+#                                      期間が前の記録の期間(作った PR の本文の節が数えた期間)と重なって二重に
+#                                      数える。同じ日の
 #                                      記録は見ないので、同じ日の再実行はその日の記録を同じ期間の
 #                                      始まりで書き直す
 #   record <日付> --since <epoch> --classification ok|failed
 #                                      期間(since, 今]の週の記録を
 #                                      ~/.claude/harness/failure-pattern-rates/<日付>.json に書く
 #   trend <日付> [--weeks <N>]         <日付> 以前の直近 N 週(既定 4)の記録から推移の節(Markdown)を出す
-#   detections <日付>                  <日付> の週の記録の期間(since, until]に検出した失敗から、失敗の検出の節
-#                                      (Markdown)を出す。表の行は期間に検出のあった信号だけで、件数の多い順
-#                                      (同数なら信号名の順)。期間に 1 件も無ければ表を出さずに合計 0 を書く。
-#                                      記録した実行(週次ジョブか手動の /harness-reflect か)は問わない。選別は
-#                                      増えた分だけを記録する(harness-select-pending.sh のヘッダ)ので、期間で
-#                                      足せば重ねて数えない。<日付> の週の記録が無いか期間を読めなければ失敗する。
-#                                      推移の節と同じ <日付> で呼べば、2 つの節は同じ週の記録の期間を数える
+#   detections <日付>                  <日付> の Weekly Rate Record の期間(since, until]に検出した失敗から、
+#                                      失敗の検出の節(Markdown)を出す。表の行は期間に検出のあった信号だけで、
+#                                      件数の多い順(同数なら信号名の順)。期間に 1 件も無ければ表を出さずに
+#                                      合計 0 を書く。記録した実行(週次ジョブか手動の /harness-reflect か)は
+#                                      問わない。選別は増えた分だけを記録する(harness-select-pending.sh の
+#                                      ヘッダ)ので、期間で足せば重ねて数えない。<日付> の Weekly Rate Record が
+#                                      無いか期間を読めなければ失敗する。推移の節と同じ <日付> で呼べば、2 つの
+#                                      節は同じ Weekly Rate Record の期間を数え、件数の数え方も record と同じ
+#                                      (detection_counts)
 #   export <日付> --base <revision> --worktree <リポジトリの作業ツリー> [--dry-run]
-#                                      ローカルの週の記録のうち、<revision> の docs/harness/failure-pattern-rates/ に
-#                                      無いものを、<作業ツリー> の同じ置き場にそのまま写し、写した件数を
-#                                      「harness-failure-rates: exported <N> record(s)」の 1 行で出す。--dry-run は
+#                                      ローカルの Weekly Rate Record のうち、<revision> の
+#                                      docs/harness/failure-pattern-rates/ に無いものを、<作業ツリー> の同じ置き場に
+#                                      そのまま写し、写した件数を「harness-failure-rates: exported <N> record(s)」
+#                                      の 1 行で出す。--dry-run は
 #                                      何も写さず(置き場も作らず)、写す件数を「harness-failure-rates: would export
 #                                      <N> record(s)」の 1 行で出す。整形(oxfmt)・git add・commit と、写す直前の
 #                                      データの照合は呼び出し側(週次ジョブの Loop PR の module)が行う
 #
-# export の選び方: <revision> に同じ名前の記録が無ければ写す。閉じた PR や未マージの PR に入っていた週も、
-# <revision> に無ければ写す(ローカルの印では判定しない)。<日付>(その run の日付)の記録だけは、<revision> に
-# あっても中身が違えば写す。同じ日の再実行がその日の記録を書き直すため(since は同じ日の記録を見ない)。
-# リポジトリ側は oxfmt を通してあるので、バイト列ではなく JSON として比べ、どちらかが JSON として読めなければ
-# 違うものとして写す。ほかの日付は中身を比べない: <revision> の記録を人が直したときにローカルの古い写しで
-# 戻さないためと、前の週の claude が書き換えた記録(その週の後の run の Integrity Snapshot は書き換えた後の値を
-# 正として取るので見つけられない)でマージ済みの記録を上書きしないため。再実行が選別を省いた(当日のブランチが
-# origin にある)週は、書き直した記録はローカルにだけ残る
+# export の選び方: <revision> に同じ名前の Weekly Rate Record が無ければ写す。閉じた PR や未マージの PR に
+# 入っていた週も、<revision> に無ければ写す(ローカルの印では判定しない)。<日付>(その run の日付)の
+# Weekly Rate Record だけは、<revision> にあっても中身が違えば写す。同じ日の再実行がその日の Weekly Rate Record を書き直すため
+# (since は同じ日の Weekly Rate Record を見ない)。リポジトリ側は oxfmt を通してあるので、バイト列ではなく JSON として
+# 比べ、どちらかが JSON として読めなければ違うものとして写す。ほかの日付は中身を比べない: <revision> の
+# Weekly Rate Record を人が直したときにローカルの古い写しで戻さないためと、前の週の claude が書き換えた
+# Weekly Rate Record(その週の後の run の Integrity Snapshot は書き換えた後の値を正として取るので見つけられない)で
+# マージ済みのものを上書きしないため。再実行が選別を省いた(当日のブランチが origin にある)週は、書き直した
+# Weekly Rate Record はローカルにだけ残る
 #
 # 週の記録は id と数値だけを持つ(仕事の文脈を含まないので、週次ジョブがリポジトリに commit する)。
 #   sessions        期間に detections.jsonl に行があるセッション数。harness-select-pending.sh は、
@@ -65,7 +70,7 @@ set -euo pipefail
 
 HARNESS_DIR="$HOME/.claude/harness"
 RATES_DIR="$HARNESS_DIR/failure-pattern-rates"
-# 週の記録のリポジトリ内の置き場。export が写す先
+# Weekly Rate Record のリポジトリ内の置き場。export が写す先
 RATES_REPO_DIR="docs/harness/failure-pattern-rates"
 LEDGER="$HARNESS_DIR/detections.jsonl"
 RECORDS="$HARNESS_DIR/classifications.jsonl"
@@ -89,7 +94,7 @@ record_files() {
     find "$RATES_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json' | sort
 }
 
-# 週の記録のうち、日付が <日付> 以前のものを古い順に出す
+# Weekly Rate Record のうち、日付が <日付> 以前のものを古い順に出す
 record_files_up_to() { # <日付>
     local file
     while IFS= read -r file; do
@@ -107,6 +112,12 @@ rows_in_period() {
         printf '[]\n'
     fi
 }
+
+# 検出件数の記録の 1 行の counts から、値が数値の信号だけを {key, value} の配列で出す jq の定義。record の detections と
+# 失敗の検出の節は、どちらもこの定義で数える(数え方が 2 つあると、同じ期間でも推移の節と失敗の検出の節の合計が食い違う)。
+# counts が object でない行と数値でない値は数えない(読めない行を飛ばす rows_in_period と同じ扱い)
+DETECTION_COUNTS_JQ='def detection_counts:
+    .counts // {} | if type == "object" then to_entries | map(select(.value | type == "number")) else [] end;'
 
 cmd_since() {
     local date=$1 file name earlier=() i until status oldest_failed="" now
@@ -163,10 +174,10 @@ cmd_record() {
     mkdir -p "$RATES_DIR"
     tmp=$(mktemp "$RATES_DIR/.record.XXXXXX")
     jq -n --arg date "$date" --argjson since "$since" --argjson until "$until" --arg status "$status" \
-        --argjson ids "$ids" --argjson detections "$detections" --argjson classifications "$classifications" '
+        --argjson ids "$ids" --argjson detections "$detections" --argjson classifications "$classifications" "$DETECTION_COUNTS_JQ"'
         ($detections | map(.session_id) | unique | length) as $sessions
         | {date: $date, since: $since, until: $until, sessions: $sessions,
-           detections: ($detections | map(.counts // {} | add // 0) | add // 0),
+           detections: ($detections | map(detection_counts[].value) | add // 0),
            classified: ($classifications | length), classification: $status,
            patterns: ([$ids[], "unclassified"] | map(. as $id
                | ($classifications | map(select(.pattern == $id))) as $hits
@@ -231,13 +242,12 @@ cmd_detections() {
     rows=$(rows_in_period "$LEDGER" "$since" "$until") || fail "cannot read $LEDGER"
     # 時刻は jq で書く(date の -r と -d は BSD と GNU で違う)
     # shellcheck disable=SC2016 # jq のプログラム。バッククォートは Markdown のコードスパン
-    jq -r --argjson since "$since" --argjson until "$until" '
+    jq -r --argjson since "$since" --argjson until "$until" "$DETECTION_COUNTS_JQ"'
         def time_label: localtime | strftime("%Y-%m-%d %H:%M");
-        def counts: .counts // {} | if type == "object" then to_entries | map(select(.value | type == "number")) else [] end;
         . as $rows
         | ($rows | map(.session_id) | unique | length) as $sessions
-        | ($rows | map(select((counts | map(.value) | add // 0) > 0) | .session_id) | unique | length) as $failing
-        | ($rows | map(counts[]) | group_by(.key) | map({signal: .[0].key, count: (map(.value) | add)})
+        | ($rows | map(select((detection_counts | map(.value) | add // 0) > 0) | .session_id) | unique | length) as $failing
+        | ($rows | map(detection_counts[]) | group_by(.key) | map({signal: .[0].key, count: (map(.value) | add)})
             | map(select(.count > 0)) | sort_by([-.count, .signal])) as $signals
         | ($signals | map(.count) | add // 0) as $total
         | "", "## 失敗の検出", "",
@@ -247,7 +257,7 @@ cmd_detections() {
         fail "cannot build the detection section for $date"
 }
 
-# 写す週の記録(ローカルのパス)を 1 行に 1 つ出す。選び方はヘッダの「export の選び方」
+# 写す Weekly Rate Record(ローカルのパス)を 1 行に 1 つ出す。選び方はヘッダの「export の選び方」
 records_to_export() { # <日付> <revision> <作業ツリー>
     local date=$1 base=$2 worktree=$3 file name committed local_record
     while IFS= read -r file; do

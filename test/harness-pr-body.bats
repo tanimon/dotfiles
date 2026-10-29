@@ -178,7 +178,7 @@ headings() {
     assert_output "$(printf '%s\n' 'detections 2026-10-20' 'trend 2026-10-20 --weeks 4')"
 }
 
-@test "失敗の検出の節を組み立てられなければ(その日の週の記録が無い、など)、WARN を出して節を省き、ほかの節は足す" {
+@test "失敗の検出の節を組み立てられなければ(その日の Weekly Rate Record が無い、など)、WARN を出して節を省き、ほかの節は足す" {
     export STUB_DETECTIONS_STATUS=1
     review
     assert_success

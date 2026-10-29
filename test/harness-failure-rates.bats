@@ -1,7 +1,7 @@
 # 週ごとの Failure Pattern の再発率(harness-failure-rates.sh)の振る舞い検査。
 #
 # 偽の $HOME に検出の記録(detections.jsonl)と分類の記録(classifications.jsonl)を書き、
-# 週の記録(failure-pattern-rates/<日付>.json)と PR 本文の推移の節を確かめる。export は base にする git の作業ツリーを
+# Weekly Rate Record(failure-pattern-rates/<日付>.json)と PR 本文の推移の節を確かめる。export は base にする git の作業ツリーを
 # 作り、書き出した記録・件数の行を確かめる(記録を選ぶ規則の検査はここだけで、Loop PR の module の bats は配線だけを見る)。
 bats_require_minimum_version 1.5.0
 
@@ -136,11 +136,11 @@ week_record() {
 }
 
 # 失敗の検出の節。期間の時刻は UTC で書かせて、文字列をそのまま比べる
-@test "失敗の検出の節は、その日の週の記録の期間の検出を、記録した実行を問わずに数える" {
+@test "失敗の検出の節は、その日の Weekly Rate Record の期間の検出を、記録した実行を問わずに数える" {
     export TZ=UTC
     week_record 2026-10-24 1792800000 1793408400
     week_record 2026-10-31 1793408400 1794013200
-    # 期間の始まりちょうどは前の週の記録の分なので数えない。終わりちょうどは数える
+    # 期間の始まりちょうどは前の週の Weekly Rate Record の分なので数えない。終わりちょうどは数える
     detection before 1792800000 '{"user_negation":7}'
     detection w1 1792800100 '{"tool_error":3,"ci_failure":2}'
     printf 'broken line\n' >>"$HDIR/detections.jsonl"
@@ -167,7 +167,39 @@ week_record() {
         '2026-10-24 00:00 から 2026-10-31 01:00 までに検出器にかけたセッション: 1 件(失敗あり 0 件)。' '' '合計: 0')"
 }
 
-@test "失敗の検出の節は、その日の週の記録が無いか期間を読めなければ失敗する" {
+# record が書いた Weekly Rate Record の期間をそのまま失敗の検出の節に読ませ、2 つの数え方を同じ期間で比べる
+@test "失敗の検出の節の合計は、同じ日の Weekly Rate Record の detections と一致する" {
+    since=$((NOW - 3600))
+    detection s1 "$((NOW - 60))" '{"tool_error":2,"ci_failure":1}'
+    detection s2 "$((NOW - 60))" '{"repeat":3}'
+    detection s3 "$((NOW - 60))" '{}'
+    detection old "$((since - 1))" '{"tool_error":5}'
+    run bash "$SCRIPT" record "$TODAY" --since "$since" --classification ok
+    assert_success
+    run jq '.detections' "$RATES/$TODAY.json"
+    assert_output '6'
+    run --separate-stderr bash "$SCRIPT" detections "$TODAY"
+    assert_success
+    assert_line '| 合計 | 6 |'
+}
+
+@test "数値でない件数と object でない counts は、Weekly Rate Record の detections でも失敗の検出の節でも数えない" {
+    since=$((NOW - 3600))
+    detection s1 "$((NOW - 60))" '{"tool_error":2}'
+    detection odd "$((NOW - 60))" '{"tool_error":"3","hook_deny":1}'
+    detection list "$((NOW - 60))" '[4]'
+    run bash "$SCRIPT" record "$TODAY" --since "$since" --classification ok
+    assert_success
+    run jq '.detections' "$RATES/$TODAY.json"
+    assert_output '3'
+    run --separate-stderr bash "$SCRIPT" detections "$TODAY"
+    assert_success
+    assert_line '| `tool_error` | 2 |'
+    assert_line '| `hook_deny` | 1 |'
+    assert_line '| 合計 | 3 |'
+}
+
+@test "失敗の検出の節は、その日の Weekly Rate Record が無いか期間を読めなければ失敗する" {
     week_record 2026-10-17 100 200
     detection w1 150 '{"tool_error":1}'
     run --separate-stderr bash "$SCRIPT" detections 2026-10-24
@@ -219,7 +251,7 @@ week_record() {
     assert_output --partial 'usage:'
 }
 
-# export の base にする git の作業ツリー WT を作る。<日付> のローカルの週の記録を置き場に写して commit する
+# export の base にする git の作業ツリー WT を作る。<日付> のローカルの Weekly Rate Record を置き場に写して commit する
 export_worktree() { # [<base に置く日付>…]
     local date
     WT="$BATS_TEST_TMPDIR/wt"
@@ -233,13 +265,13 @@ export_worktree() { # [<base に置く日付>…]
     git -C "$WT" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false commit -qm base
 }
 
-# <日付> のローカルの週の記録を、中身 <JSON> で置く
+# <日付> のローカルの Weekly Rate Record を、中身 <JSON> で置く
 local_week() { # <日付> <JSON>
     mkdir -p "$RATES"
     printf '%s\n' "$2" >"$RATES/$1.json"
 }
 
-@test "書き出しは、base に無い週の記録だけを worktree の置き場にそのまま写し、件数を 1 行で出す" {
+@test "書き出しは、base に無い Weekly Rate Record だけを worktree の置き場にそのまま写し、件数を 1 行で出す" {
     local_week 2026-10-03 '{"date":"2026-10-03"}'
     local_week 2026-10-10 '{ "date": "2026-10-10" }'
     export_worktree 2026-10-03
@@ -304,7 +336,7 @@ local_week() { # <日付> <JSON>
     assert_equal "$(ls -A "$RATES")" "$before"
 }
 
-@test "書き出しは、ローカルに週の記録が無ければ置き場を作らずに 0 件と出す" {
+@test "書き出しは、ローカルに Weekly Rate Record が無ければ置き場を作らずに 0 件と出す" {
     export_worktree
     run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
     assert_success
