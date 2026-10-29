@@ -10,18 +10,18 @@
 #   どの失敗の判定よりも先に残す。
 # - 選別が残したもの(worktree・結果ファイル・queue・判定の記録・本文)の分類(harness_review_outcome_classify)。
 # - 結果ファイル由来の本文の 2 節(harness_review_outcome_sections)。本文への追記は呼び出し側が行う。
-# 持たないもの: Metrics-only PR の要否と公開(Loop PR の module)、ほかの本文の節、手で公開する手順の案内(週次ジョブ)。
+# 持たないもの: Metrics-only PR の要否と公開、ほかの本文の節、手で公開する手順の案内(どれも Loop PR の module)。
 #
-# 分類の値(標準出力に 1 行)と週次ジョブの振り分け:
+# 分類の値(標準出力に 1 行)と Loop PR の module の振り分け:
 #   publish              本文の節を足して公開する
 #   no-change            Metrics-only PR の要否を Loop PR の module に尋ねる(要らなければ片付けて成功)
 #   failed               失敗(理由は stderr に出る。git と jq 自身の失敗は、そのコマンドのエラー文だけになる)
-#   failed-with-commits  選別の claude が失敗した(か照合に落ちた)が commit が残っている。週次ジョブが案内を出す
+#   failed-with-commits  選別の claude が失敗した(か照合に落ちた)が commit が残っている。Loop PR の module が案内を出す
 # Verdict の CLI の照合に落ちたら値を出さずに HARNESS_INTEGRITY_FAILED(3)で終わる。使い方の誤りは 2。
 # 理由の行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤りだけを harness-review-outcome: で出す。
 #
-# 週次ジョブは claude の起動前に、Integrity Snapshot の lib の後でこの lib を読み込む(harness_integrity_run を使う)。
-# 初期化は Loop PR の module(lib/harness-loop-pr.bash)の初期化が呼び、記録の置き場もそこから受け取る。
+# 週次ジョブは claude の起動前に、Integrity Snapshot の lib の後で Loop PR の module(lib/harness-loop-pr.bash)を読み込み、その module が
+# この lib を読み込む(harness_integrity_run を使う)。分類を呼ぶのも、初期化を呼んで記録の置き場を渡すのも Loop PR の module だけ。
 # メモリに載った後は claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので Guarded Path(scripts/guarded-paths.txt)に載せてある。
 # queue・判定の記録・Deploy-only Fix の記録・Verdict の CLI のパスは、呼び出しのたびに $HOME から作る(Verdict の CLI は
 # harness_integrity_executables の行と一致しなければ実行されない)。
@@ -295,7 +295,7 @@ _harness_review_outcome_classify_ok() { # <base>
 # 選別の claude が失敗した(予算切れを含む)run と、claude の成否に関わらず照合に落ちた run の分類。claude は結果ファイルを
 # 書いてから失敗しうるので、結果ファイルが決めた形なら Deploy-only Fix はここでも残す(記録の失敗は分類を止めない)。
 # commit が無ければ理由を出して failed、あるか数えられなければ failed-with-commits(手で公開する手順か、公開しない案内は
-# 週次ジョブが出す)。照合に落ちた run は claude が成功していてもここに来るので、claude の失敗と読める文面を出さない
+# Loop PR の module が出す)。照合に落ちた run は claude が成功していてもここに来るので、claude の失敗と読める文面を出さない
 _harness_review_outcome_classify_failed() { # <base> <failed|untrusted>
     local base=$1 claude=$2 worktree=$_HARNESS_REVIEW_OUTCOME_WORKTREE commits archive
     archive=$(_harness_review_outcome_archive)
