@@ -1,6 +1,6 @@
 ---
 name: pr-body-review
-description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。「PR の本文が古くなっていないか見て」「push したので PR 本文を見直して」「PR description を差分に合わせて直して」「/pr-body-review」など。PR を新しく作るとき(個人リポジトリなら ticket スキル)や、レビューコメントへの対応には使わない。
+description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。「PR の本文が古くなっていないか見て」「push したので PR 本文を見直して」「PR description を差分に合わせて直して」「/pr-body-review」など。PR を新しく作るとき(骨格は /pr スキル、個人リポジトリの Issue Linkage の節は issue-linkage スキル)や、レビューコメントへの対応には使わない。
 argument-hint: "[<PR 番号 | PR の URL>]"
 ---
 
@@ -14,7 +14,7 @@ PR 本文を現在の差分と照らし、Stale PR Body なら食い違う箇所
 gh pr view <引数> --json number,url,title,state,baseRefName,headRefName,commits
 ```
 
-引数が無ければ `<引数>` を省き、現在のブランチの PR を対象にする。PR が無い・特定できないときは、理由を伝えて止まる。`state` が `MERGED` / `CLOSED` なら、そのことを伝えて続けるかを聞く(マージ済みの PR の AC 対応表は ticket スキルの照合モードが根拠として読むので、直す意味はある)。
+引数が無ければ `<引数>` を省き、現在のブランチの PR を対象にする。PR が無い・特定できないときは、理由を伝えて止まる。`state` が `MERGED` / `CLOSED` なら、そのことを伝えて続けるかを聞く(マージ済みの PR の AC 対応表は issue を解決したことの記録として後から読まれるので、直す意味はある。chezmoi リポジトリの `docs/adr/0021-ac-mapping-table-is-the-completion-record.md`)。
 
 以降のコマンドの `<PR>` には、ここで得た `url` を使う。番号を渡すと `gh` は現在のディレクトリのリポジトリで PR を探すので、別のリポジトリの URL で起動したときに別の PR を読み書きしてしまう。以降の `<owner>` / `<repo>` / `<number>` も、この `url`(`https://github.com/<owner>/<repo>/pull/<number>`)から取る。
 
@@ -31,7 +31,7 @@ gh pr view <PR> --json body | jq -j .body > <dir>/original.md
 
 本文をどう書くべきかは、このスキルに写さず正本を読む。
 
-- **個人リポジトリ**: `bash ~/.claude/scripts/lib/ticket-scope.bash "$(pwd)" <owner/repo>`(`<owner/repo>` は PR の URL から取る)の終了コードが 0 なら、ticket スキル(`~/.claude/skills/ticket/SKILL.md`)の作成モードの手順4・5が規約。
+- **個人リポジトリ**: `bash ~/.claude/scripts/lib/issue-linkage-scope.bash "$(pwd)" <owner/repo>`(`<owner/repo>` は PR の URL から取る)の終了コードが 0 なら、issue-linkage スキル(`~/.claude/skills/issue-linkage/SKILL.md`)の「PR を作る」節が規約(骨格は `/pr` スキルのテンプレート、その後ろに Issue Linkage の節)。
 - **それ以外**: 対象リポジトリの既定ブランチにある PR テンプレートが規約。手元の作業ツリーは古いことがあるので GitHub から読む。
 
   ```bash
@@ -77,7 +77,7 @@ gh api repos/<owner>/<repo>/commits/<sha> --jq '.files[] | {filename, patch}'
 
 ## 5. 直した本文を作り、承認を求める
 
-`cp <dir>/original.md <dir>/edited.md` で複写し、Read ツールで読んでから、食い違う箇所だけを Edit ツールで直す。手順2の規約の見出し・順序・節構成、規約が「原文のまま残す」とする節、不可視のコメント(`<!-- ticket-skill -->` など)は変えない。
+`cp <dir>/original.md <dir>/edited.md` で複写し、Read ツールで読んでから、食い違う箇所だけを Edit ツールで直す。手順2の規約の見出し・順序・節構成、規約が「原文のまま残す」とする節、不可視のコメント(`<!-- issue-linkage -->` など)は変えない。
 
 食い違いを節ごとにまとめた一覧(節・食い違いの内容・根拠のコミットか差分)と、次の差分を示す。
 

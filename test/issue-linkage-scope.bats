@@ -1,8 +1,8 @@
-# ticket スキルとガードの適用範囲(gh の既定の作成先の owner の許可リスト)の判定。
+# issue-linkage スキルとガードの適用範囲(gh の既定の作成先の owner の許可リスト)の判定。
 setup() {
     load 'helpers/setup'
-    LIB="$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/ticket-scope.bash"
-    unset TICKET_GUARD_OWNERS
+    LIB="$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/issue-linkage-scope.bash"
+    unset ISSUE_LINKAGE_GUARD_OWNERS
     REPO_DIR="$BATS_TEST_TMPDIR/repo"
     git init -q "$REPO_DIR"
 }
@@ -63,21 +63,21 @@ set_origin() {
     assert_success
 }
 
-@test "TICKET_GUARD_OWNERS で許可リストを上書きできる" {
+@test "ISSUE_LINKAGE_GUARD_OWNERS で許可リストを上書きできる" {
     set_origin https://github.com/someone-else/sample.git
-    TICKET_GUARD_OWNERS="other someone-else" run bash "$LIB" "$REPO_DIR"
+    ISSUE_LINKAGE_GUARD_OWNERS="other someone-else" run bash "$LIB" "$REPO_DIR"
     assert_success
 }
 
-@test "TICKET_GUARD_OWNERS を空にするとすべて範囲外" {
+@test "ISSUE_LINKAGE_GUARD_OWNERS を空にするとすべて範囲外" {
     set_origin https://github.com/tanimon/sample.git
-    TICKET_GUARD_OWNERS="" run bash "$LIB" "$REPO_DIR"
+    ISSUE_LINKAGE_GUARD_OWNERS="" run bash "$LIB" "$REPO_DIR"
     assert_failure
 }
 
 @test "source して関数として呼べる" {
     set_origin https://github.com/tanimon/sample.git
-    run bash -c 'source "$1" && ticket_scope_in_scope "$2"' _ "$LIB" "$REPO_DIR"
+    run bash -c 'source "$1" && issue_linkage_scope_in_scope "$2"' _ "$LIB" "$REPO_DIR"
     assert_success
 }
 

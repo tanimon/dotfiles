@@ -39,7 +39,7 @@ Bad rules:
 
 ## Feedback Loop Hierarchy
 
-1. **Hooks** (automatic, immediate): secret detection on `Write`, and the `PreToolUse` guards on `Bash` (git push / curl localhost / ticket の issue・PR 作成) — fire per tool use
+1. **Hooks** (automatic, immediate): secret detection on `Write`, and the `PreToolUse` guards on `Bash` (git push / curl localhost / issue-linkage の issue・PR 作成) — fire per tool use
 2. **Harness loop** (semi-automatic): SessionEnd hook records substantial sessions;
    `/harness-reflect` extracts learnings into `~/.claude/harness/queue.md`;
    `/harness-review` (7-day cadence, nudged by the SessionStart briefing) triages the

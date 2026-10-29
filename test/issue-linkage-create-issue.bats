@@ -1,7 +1,7 @@
 # create-issue.sh: issue の作成と native relationship の設定を一度に行う。gh はスタブにして呼び出しを記録する。
 setup() {
     load 'helpers/setup'
-    SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/skills/ticket/scripts/executable_create-issue.sh"
+    SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/skills/issue-linkage/scripts/executable_create-issue.sh"
     export GH_LOG="$BATS_TEST_TMPDIR/gh.log"
     : >"$GH_LOG"
     mkdir -p "$BATS_TEST_TMPDIR/bin"
@@ -20,6 +20,7 @@ case "$*" in
     ;;
 "api repos/tanimon/"*/issues/*)
     n=${2##*/}
+    [[ -n "${GH_FAIL_ID:-}" && "$n" == 450 ]] && exit 1
     printf '{"id":%s0}' "$n"
     ;;
 *)
@@ -34,7 +35,7 @@ STUB
 }
 
 @test "Parent と Blocked by があれば作成の後に native に張る" {
-    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     assert_output 'https://github.com/tanimon/sample/issues/450'
@@ -45,7 +46,7 @@ STUB
 }
 
 @test "節が無ければ relationship の API を呼ばない" {
-    printf '本文\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '本文\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     run grep -c -- '-X POST' "$GH_LOG"
@@ -53,7 +54,7 @@ STUB
 }
 
 @test "その他の引数は gh issue create にそのまま渡す" {
-    printf '<!-- ticket-skill -->\n' >"$BODY"
+    printf '<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY" --label 'wayfinder:map'
     assert_success
     run head -n 1 "$GH_LOG"
@@ -80,15 +81,17 @@ STUB
 }
 
 @test "relationship の設定に失敗したら URL と失敗した関係を出して 1 で終わる" {
-    printf '## Blocked by\n\n#401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Blocked by\n\n#401\n\n<!-- issue-linkage -->\n' >"$BODY"
     GH_FAIL_POST=1 run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_failure 1
     assert_output --partial 'https://github.com/tanimon/sample/issues/450'
     assert_output --partial 'blocked-by #401'
+    # 張り直すコマンドの正本へ案内する
+    assert_output --partial 'references/relationship-api.md'
 }
 
 @test "同じ番号が節に 2 回あっても relationship は 1 回だけ張る" {
-    printf '## Blocked by\n\n- #401\n- #401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Blocked by\n\n- #401\n- #401\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     run grep -c -- 'dependencies/blocked_by -X POST' "$GH_LOG"
@@ -96,7 +99,7 @@ STUB
 }
 
 @test "Parent 節に #N が複数あれば先頭だけを親にし、警告を出して 0 で終わる" {
-    printf '## Parent\n\n#397\n#12\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Parent\n\n#397\n#12\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     assert_output --partial '先頭の #397 だけを親にした'
@@ -107,7 +110,7 @@ STUB
 }
 
 @test "--repo で別のリポジトリに作ったら relationship もそのリポジトリに張る" {
-    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY" --repo tanimon/other
     assert_success
     run cat "$GH_LOG"
@@ -117,7 +120,7 @@ STUB
 }
 
 @test "Blocked by / Parent 節の文中の #N(「なし。#402 が…」)では relationship を張らない" {
-    printf '## Parent\n\nなし。#397 の子にはしない。\n\n## Blocked by\n\nなし。#402 がこの issue に依存する。\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Parent\n\nなし。#397 の子にはしない。\n\n## Blocked by\n\nなし。#402 がこの issue に依存する。\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     run grep -c -- '-X POST' "$GH_LOG"
@@ -125,7 +128,7 @@ STUB
 }
 
 @test "行頭の #N、箇条書きの - #N(…)、見出しと同じ行の #N では relationship を張る" {
-    printf '## Parent #397\n\n## Blocked by\n\n#401\n- #449(週次ジョブの記述の置き場所)\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Parent #397\n\n## Blocked by\n\n#401\n- #449(週次ジョブの記述の置き場所)\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_success
     run cat "$GH_LOG"
@@ -135,7 +138,7 @@ STUB
 }
 
 @test "-F に値を続けた形(-F/abs、-F=/abs)も本文ファイルとして読む" {
-    printf '<!-- ticket-skill -->\n' >"$BODY"
+    printf '<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t "-F$BODY"
     assert_success
     run bash "$SCRIPT" --title t "-F=$BODY"
@@ -143,22 +146,32 @@ STUB
 }
 
 @test "--web は何も作らずに 2 で終わる" {
-    printf '## Parent\n\n#397\n\n<!-- ticket-skill -->\n' >"$BODY"
+    printf '## Parent\n\n#397\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title t --body-file "$BODY" --web
     assert_failure 2
     [ ! -s "$GH_LOG" ]
 }
 
-@test "gh issue create の出力が issue の URL でなければ relationship を張らずに 1 で終わる" {
-    printf '## Parent\n\n#397\n\n<!-- ticket-skill -->\n' >"$BODY"
+@test "gh issue create の出力が issue の URL でなければ relationship を張らずに、張れなかった関係を出して 1 で終わる" {
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title nourl --body-file "$BODY"
     assert_failure 1
+    assert_output --partial 'parent #397 blocked-by #401'
+    run grep -c -- '-X POST' "$GH_LOG"
+    assert_output '0'
+}
+
+@test "作成した issue の database id を取れなければ、張れなかった関係をすべて出して 1 で終わる" {
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- issue-linkage -->\n' >"$BODY"
+    GH_FAIL_ID=1 run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 1
+    assert_output --partial 'parent #397 blocked-by #401'
     run grep -c -- '-X POST' "$GH_LOG"
     assert_output '0'
 }
 
 @test "--title の値が -F で始まっても本文ファイルとして読まない" {
-    printf '<!-- ticket-skill -->\n' >"$BODY"
+    printf '<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --body-file "$BODY" --title '-Fix typo'
     assert_success
     assert_output 'https://github.com/tanimon/sample/issues/450'

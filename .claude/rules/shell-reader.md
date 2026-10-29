@@ -47,4 +47,4 @@ paths:
   含む token で拾う。reader に heredoc を教えるのは変更が大きすぎるため見送った)。
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
-- **読み込みに失敗したとき**の扱いは各フックの起動部が持つ(git-push-guard と curl-localhost-guard はどの経路でも `ask`、ticket-guard は設計上フェイルオープンで無出力。どちらも `test/guard-contract.bats`)。
+- **読み込みに失敗したとき**の扱いは各フックの起動部が持つ(git-push-guard と curl-localhost-guard はどの経路でも `ask`、issue-linkage-guard は設計上フェイルオープンで無出力。どちらも `test/guard-contract.bats`)。

@@ -19,8 +19,8 @@
 # コピーで確かめる(Contrast Pair: 常に ask を返す guard はここで落ちる)。
 #
 # 起動時に失敗したら判定せずに通す(フェイルオープン)と設計で決めた guard は、上の約束ではなく
-# fail_open_guard の一覧に載せる(ticket-guard がそう決めた理由は、その guard のヘッダと
-# docs/superpowers/specs/2026-10-04-ticket-skill-design.md)。こちらは、起動時の失敗では判定を返す入力
+# fail_open_guard の一覧に載せる(issue-linkage-guard がそう決めた理由は、その guard のヘッダと
+# docs/superpowers/specs/2026-10-04-ticket-skill-design.md。現行の設計は spec #577)。こちらは、起動時の失敗では判定を返す入力
 # (DECISION_INPUT)も無出力になり、HOME の問題では判定が変わらないことを確かめる。
 #
 # 一覧(guard / fail_open_guard の呼び出し)は配線の正本ではない。描画した settings.json の PreToolUse に
@@ -62,7 +62,7 @@ fail_open_guard() {
 }
 
 # -R で作成先を渡すので、テストの cwd の remote に依存せずに範囲内になる。
-fail_open_guard ticket-guard "gh pr create -R tanimon/sample --title t --body 'x'" deny
+fail_open_guard issue-linkage-guard "gh pr create -R tanimon/sample --title t --body 'x'" deny
 
 setup_file() {
     load 'helpers/render'
@@ -78,8 +78,8 @@ setup() {
     export CURL_HOME="$BATS_TEST_TMPDIR"
     export XDG_CONFIG_HOME="$BATS_TEST_TMPDIR"
     mkdir -p "$HOME"
-    # ticket-guard の範囲は許可リストと GH_REPO で変わるので、既定値に戻す。
-    unset TICKET_GUARD_OWNERS GH_REPO
+    # issue-linkage-guard の範囲は許可リストと GH_REPO で変わるので、既定値に戻す。
+    unset ISSUE_LINKAGE_GUARD_OWNERS GH_REPO
 }
 
 payload() {
