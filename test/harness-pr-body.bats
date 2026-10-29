@@ -1,6 +1,6 @@
 # 週次ジョブの Loop PR の本文の module(lib/harness-pr-body.bash)の interface の検査。lib を直接 source する。
-# 本文の 3 種類の節の順序・節ごとの失敗の扱い・純増の表・失敗の検出と推移の節に渡す日付・選別の prompt の本文の指示はここで
-# 検査する。失敗の検出と推移の節の中身(期間と表)は test/harness-failure-rates.bats が再発率のスクリプトで検査する。
+# 本文の 3 種類の節の順序・節ごとの失敗の扱い・純増の表・選別の prompt の本文の指示はここで検査する。失敗の検出と推移の
+# 節の中身(期間と表)は test/harness-failure-rates.bats が再発率のスクリプトで検査する。
 # 週次ジョブがこの lib を読み込めないときに止まることと、PR を作る run の本文に節が付く配線は test/harness-weekly.bats、
 # Metrics-only PR の入口が commit の後に件数を渡すことは test/harness-loop-pr.bats が検査する。
 bats_require_minimum_version 1.5.0
@@ -13,13 +13,11 @@ setup() {
     SCRIPTS="$HOME/.claude/scripts"
     mkdir -p "$SCRIPTS" "$HDIR"
     unset STUB_TREND_STATUS STUB_DETECTIONS_STATUS STUB_TAMPER_VERDICT STUB_ADOPTED STUB_ADOPTED_STATUS
-    # 偽の再発率のスクリプト。引数を RATES_ARGS に 1 行ずつ書く。detections は失敗の検出の節を出し、STUB_DETECTIONS_STATUS が
-    # あればその値で失敗する。trend は推移の節を出し、STUB_TREND_STATUS があればその値で失敗する。STUB_TAMPER_VERDICT が
-    # あれば Verdict の CLI を書き換える(推移の照合を通った後に実行物が書き換えられた run の再現)
-    export RATES_ARGS="$BATS_TEST_TMPDIR/failure-rates-args"
+    # 偽の再発率のスクリプト。detections は失敗の検出の節を出し、STUB_DETECTIONS_STATUS があればその値で失敗する。trend は
+    # 推移の節を出し、STUB_TREND_STATUS があればその値で失敗する。STUB_TAMPER_VERDICT があれば Verdict の CLI を書き換える
+    # (推移の照合を通った後に実行物が書き換えられた run の再現)
     cat >"$SCRIPTS/harness-failure-rates.sh" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$*" >>"$RATES_ARGS"
 case "$1" in
 detections)
     [[ -z "${STUB_DETECTIONS_STATUS:-}" ]] || exit "$STUB_DETECTIONS_STATUS"
@@ -169,13 +167,6 @@ headings() {
     assert_failure 1
     run grep -c '^## Rule Ledger' "$BODY"
     assert_output 0
-}
-
-@test "失敗の検出と推移の節には、どちらにも初期化で受け取った run の日付を渡す" {
-    review
-    assert_success
-    run cat "$RATES_ARGS"
-    assert_output "$(printf '%s\n' 'detections 2026-10-20' 'trend 2026-10-20 --weeks 4')"
 }
 
 @test "失敗の検出の節を組み立てられなければ(その日の Weekly Rate Record が無い、など)、WARN を出して節を省き、ほかの節は足す" {

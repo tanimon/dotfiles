@@ -873,6 +873,9 @@ PRE
     refute_line '| `user_negation` | 5 |'
     assert_line '| `tool_error` | 3 |'
     assert_line '| 合計 | 3 |'
+    # 本文の lib が推移の節を本物の再発率の CLI に渡す形(日付の引数)も、ここでしか本物どうしで繋がらない。
+    # 呼び方がずれると CLI は使い方の誤りで終わり、本文の lib は節を WARN で省くだけなので、節の列の並びで確かめる
+    assert_line "| Failure Pattern | $previous | $TODAY |"
 }
 
 # 停止を GitHub Issue で知らせる(#402、ADR 0012 の Consequences)。Issue のタイトルが重複を避ける
