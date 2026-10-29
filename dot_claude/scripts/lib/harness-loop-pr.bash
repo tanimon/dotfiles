@@ -356,15 +356,15 @@ _harness_loop_pr_remove_worktree() {
 # 書き出して(--dry-run を渡せば書き出さずに)、件数の行から読んだ件数を出す。選び方は CLI のヘッダ。
 # 照合に落ちたら HARNESS_INTEGRITY_FAILED を、CLI の失敗と件数の行が無いときは 1 を返す
 _harness_loop_pr_export_rate_records() { # <base> [--dry-run]
-    local base=$1 failure_rates output verb=exported
+    local base=$1 failure_rates output count verb=exported
     shift
     [[ "${1:-}" != --dry-run ]] || verb='would export'
     failure_rates=$(_harness_loop_pr_failure_rates) || return 1
     output=$(harness_integrity_run "$failure_rates" export "$_HARNESS_LOOP_PR_DATE" --base "$base" \
         --worktree "$_HARNESS_LOOP_PR_WORKTREE" "$@") || return $?
-    output=$(sed -n "s/^harness-failure-rates: $verb \\([0-9][0-9]*\\) record(s)\$/\\1/p" <<<"$output")
-    [[ "$output" =~ ^[0-9]+$ ]] || return 1
-    printf '%s\n' "$output"
+    count=$(sed -n "s/^harness-failure-rates: $verb \\([0-9][0-9]*\\) record(s)\$/\\1/p" <<<"$output")
+    [[ "$count" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$count"
 }
 
 # base(origin/main)に無い Weekly Rate Record を再発率の CLI の export で worktree に書き出し、週次ジョブの commit 1 つにする。
@@ -372,12 +372,24 @@ _harness_loop_pr_export_rate_records() { # <base> [--dry-run]
 # 選別の commit の検査で、ローカルの記録の書き換えは書き出す直前のデータの照合(Integrity Snapshot)が見つける。書き換えか
 # 照合できない記録を見つけたら、commit せずに HARNESS_INTEGRITY_FAILED を返す。前の週から持ち越した記録を
 # その週の claude が書き換えていた場合は見つけられない(Integrity Snapshot の lib のヘッダの残存リスク)。
+# export の入口が実行物の照合に落ちたときも HARNESS_INTEGRITY_FAILED を返す。どちらの照合に落ちたかはここでしか
+# 分からないので、人が見る場所(ローカルの記録か実行物か)を案内する行はここで出す。呼び出し元は HARNESS_INTEGRITY_FAILED
+# なら PR を作らない。
 # oxfmt を通すのは、commit フックが JSON の書式を検査するため。書き出した件数を _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED に入れる
 _harness_loop_pr_commit_rate_records() { # <base>
-    local base=$1 count
+    local base=$1 count status=0
     _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED=0
-    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
-    count=$(_harness_loop_pr_export_rate_records "$base") || return $?
+    if ! harness_integrity_check_data; then
+        printf 'harness-weekly: no PR created; check %s by hand\n' "$HOME/.claude/harness/failure-pattern-rates" >&2
+        return "$HARNESS_INTEGRITY_FAILED"
+    fi
+    count=$(_harness_loop_pr_export_rate_records "$base") || status=$?
+    if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        printf 'harness-weekly: no PR created; the scripts the job runs could not be trusted when exporting the weekly failure rate records\n' >&2
+        return "$status"
+    elif [[ "$status" -ne 0 ]]; then
+        return "$status"
+    fi
     [[ "$count" -gt 0 ]] || return 0
     (cd "$_HARNESS_LOOP_PR_WORKTREE" && pnpm exec oxfmt "$_HARNESS_LOOP_PR_RATES_REPO_DIR") || return 1
     git -C "$_HARNESS_LOOP_PR_WORKTREE" add -- "$_HARNESS_LOOP_PR_RATES_REPO_DIR" || return 1
@@ -581,7 +593,8 @@ _harness_loop_pr_remove_review_files() { # [<パス>…]
 # 本文の lib の harness_pr_body_review で書き終えている前提(純増を記録の commit より前に数えるため)。
 # 手順: 再発率の記録の commit → 関門 → push → 関門 → PR の作成 → 本文と結果ファイルを消す → 判定の記録への URL の
 # 置き換え → Rule Ledger の記録・封印・commit・関門・再 push → 後片付け。失敗の扱い:
-# - 再発率の記録が照合に落ちた: PR を作らずに失敗する(書き換えられた記録を正として持ち越さないよう、人に見せる)
+# - 再発率の記録か、それを書き出す export の入口の実行物が照合に落ちた: PR を作らずに失敗する(書き換えられた記録を正として
+#   持ち越さないよう、人に見せる。どちらを見るかの案内は _harness_loop_pr_commit_rate_records が出す)
 # - 再発率の記録をほかの理由で commit できなかった: WARN を出し、写しかけを戻して公開を続ける(記録はローカルに残り、
 #   次の PR がまとめて足す)
 # - 関門・push・PR の作成の失敗: 案内を出して失敗し、worktree・ローカルブランチ・本文を残す
@@ -592,7 +605,6 @@ _harness_loop_pr_publish_review() { # <base>
     commits=$(git -C "$_HARNESS_LOOP_PR_WORKTREE" rev-list --count "$base..HEAD") || return 1
     _harness_loop_pr_commit_rate_records "$base" || commit_status=$?
     if [[ "$commit_status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
-        printf 'harness-weekly: no PR created; check %s by hand\n' "$HOME/.claude/harness/failure-pattern-rates" >&2
         return 1
     elif [[ "$commit_status" -eq 0 ]]; then
         [[ "$_HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED" -eq 0 ]] ||
@@ -617,17 +629,20 @@ _harness_loop_pr_publish_review() { # <base>
 }
 
 # 採用の無い週に、週の記録だけの draft PR(Metrics-only PR)を作る。worktree と依存は用意済みの前提。
-# 手順: 再発率の記録の commit(できなければ PR を作らずに失敗) → 持ち越した Rule Ledger の記録の commit(照合に
+# 手順: 再発率の記録の commit(できなければ PR を作らずに失敗。照合に落ちたときの案内は _harness_loop_pr_commit_rate_records が出す) → 持ち越した Rule Ledger の記録の commit(照合に
 # 落ちたら PR を作らずに失敗し、ほかの失敗は戻して続ける) → 本文(本文の lib の harness_pr_body_metrics_only に
 # commit した件数を渡す) → 関門 → push → 関門 → PR の作成 → 後片付け。本文を記録の commit の後に書く理由は、本文の lib の
 # その入口のコメント。本文の lib が非 0 を返したら PR を作らずに失敗する(PR を作らない理由は本文の lib が出す)。
 # 関門・push・PR の作成の失敗は _harness_loop_pr_publish_review と同じく、案内を出して失敗し、worktree・ローカルブランチ・本文を残す
 _harness_loop_pr_publish_metrics_only() { # <base>
     local base=$1 rate_records_revision status=0
-    _harness_loop_pr_commit_rate_records "$base" || {
+    _harness_loop_pr_commit_rate_records "$base" || status=$?
+    if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        return 1
+    elif [[ "$status" -ne 0 ]]; then
         printf 'harness-weekly: failed to commit the weekly failure rate records in %s; no PR created\n' "$_HARNESS_LOOP_PR_WORKTREE" >&2
         return 1
-    }
+    fi
     rate_records_revision=$(git -C "$_HARNESS_LOOP_PR_WORKTREE" rev-parse HEAD) || return 1
     _harness_loop_pr_commit_ledger_records "$base" || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
@@ -847,7 +862,8 @@ _harness_loop_pr_run_in_worktree() { # <コマンド> [<引数>…]
 #   1. 当日のブランチの origin への照会。ブランチがあれば選別を起動しない。その日の Loop PR は作成済みか、push 後に PR の
 #      作成が失敗している(その run のログが手で開くよう促しているか、公開の直前の関門で止まってブランチを消すよう促して
 #      いる)。作り直したブランチは non-fast-forward で push できず、選別の費用が無駄になる。PR があれば成功、PR が無ければ
-#      健全に見せないよう失敗する。照会の失敗も失敗
+#      健全に見せないよう失敗する。照会の失敗も失敗。このとき、同じ日の再実行が書き直したその日の Weekly Rate Record は
+#      commit されず、ローカルにだけ残る
 #   2. pnpm の確認 → <開始の行>(週次ジョブの run の識別子を含む行)をログに出す → worktree の準備 → 前回の本文・結果ファイル・
 #      Eval Case の依頼と結果を消す → 依存のインストール。依存を claude に入れさせないのは、失敗したときに予算を使って
 #      直そうとさせないため(commit フックと just lint-fast が node_modules を要るので、claude の前に入れる)

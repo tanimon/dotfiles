@@ -2,7 +2,7 @@
 #
 # 偽の $HOME に検出の記録(detections.jsonl)と分類の記録(classifications.jsonl)を書き、
 # Weekly Rate Record(failure-pattern-rates/<日付>.json)と PR 本文の推移の節を確かめる。export は base にする git の作業ツリーを
-# 作り、書き出した記録・件数の行を確かめる(記録を選ぶ規則の検査はここだけで、Loop PR の module の bats は配線だけを見る)。
+# 作り、書き出した記録・件数の行を確かめる(記録を選ぶ規則の検査はここだけ。Loop PR の module の bats は CLI を記録を選ばない stub に置き換えて配線だけを見る)。
 bats_require_minimum_version 1.5.0
 
 setup() {

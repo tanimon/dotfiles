@@ -225,8 +225,9 @@ guarded() { # <Source> <一覧のファイル>
 
 # publish_fixture は Loop PR の module の入口の検査の fixture。git は実物を使い、origin は使い捨ての bare リポジトリにする。
 # gh と pnpm は PATH に置いた偽物、Rule Ledger のスクリプトは書き出す件数を STUB_LEDGER_EXPORT で決める偽物、再発率の
-# スクリプトは推移の節を出すだけの偽物、Eval Case の評価のスクリプトは結果と節を書くだけの偽物にする(記録の選び方は
-# test/harness-rule-ledger.bats、推移の中身は test/harness-failure-rates.bats、評価の中身は test/harness-eval-cases.bats の範囲)。
+# スクリプトは推移の節を出し、書き出す記録を STUB_RATES_EXPORT で決める偽物、Eval Case の評価のスクリプトは結果と節を書くだけの
+# 偽物にする(記録の選び方は test/harness-rule-ledger.bats と test/harness-failure-rates.bats、推移の中身は
+# test/harness-failure-rates.bats、評価の中身は test/harness-eval-cases.bats の範囲)。
 # Integrity Snapshot・Review Outcome・本文の lib は本物を使う。
 #
 # 偽の gh:
@@ -237,7 +238,7 @@ guarded() { # <Source> <一覧のファイル>
 publish_fixture() {
     unset STUB_GH_OPEN_PRS STUB_GH_LIST_FAIL STUB_GH_HEAD_PRS STUB_GH_HEAD_LIST_FAIL STUB_GH_FAIL STUB_PNPM_FAIL \
         STUB_PNPM_INSTALL_FAIL STUB_LEDGER_EXPORT STUB_LEDGER_FAIL STUB_LEDGER_TAMPER_RATES STUB_RATES_TAMPER_LEDGER STUB_EVAL_FAIL \
-        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER HARNESS_REVIEW_RUN
+        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
     export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
     export GIT_CONFIG_SYSTEM=/dev/null
     printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
@@ -327,21 +328,46 @@ done
 printf 'harness-rule-ledger: exported %s record(s)\n' "${STUB_LEDGER_EXPORT:-0}"
 EOF
     # 偽の再発率のスクリプト。trend は推移の節を、detections は渡された日付を書いた失敗の検出の節を出す。
-    # export は本物の CLI に渡す(記録を選ぶ規則の検査は test/harness-failure-rates.bats の範囲。ここでは本物の選び方で
-    # commit の中身を確かめる)。STUB_EXPORT_TAMPER_LEDGER なら、--dry-run でない export の後に Rule Ledger のスクリプトを
+    # export は記録を選ばない。STUB_RATES_EXPORT(日付を空白で区切った列。既定はローカルの置き場にある全部)の
+    # Weekly Rate Record をローカルの置き場から worktree の置き場に写し(--dry-run なら写さない)、件数の行を本物の CLI と
+    # 同じ文言で出す(記録を選ぶ規則は test/harness-failure-rates.bats が本物の CLI で検査する)。STUB_RATES_EXPORT で
+    # ローカルの件数と違う答えを返させると、module が CLI の答えで決めていることを確かめられる。
+    # STUB_EXPORT_TAMPER_LEDGER なら、--dry-run でない export の後に Rule Ledger のスクリプトを
     # 書き換える(再発率の記録の commit の後、Rule Ledger の記録の commit の前に実行物が書き換えられた run の再現)。
     # STUB_RATES_TAMPER_LEDGER なら detections(Metrics-only PR の本文で最後に呼ばれる)の後に Rule Ledger のスクリプトを
     # 書き換える(本文を書いた後、push の前に実行物が書き換えられた run の再現)
-    export REAL_FAILURE_RATES="$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh"
     cat >"$HOME/.claude/scripts/harness-failure-rates.sh" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
 export)
-    status=0
-    bash "$REAL_FAILURE_RATES" "$@" || status=$?
-    [[ -z "${STUB_EXPORT_TAMPER_LEDGER:-}" || "$*" == *--dry-run* ]] ||
-        printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
-    exit "$status"
+    worktree="" dry_run="" count=0 rates="$HOME/.claude/harness/failure-pattern-rates"
+    while [[ $# -gt 0 ]]; do
+        [[ "$1" != --worktree ]] || worktree=$2
+        [[ "$1" != --dry-run ]] || dry_run=1
+        shift
+    done
+    shopt -s nullglob
+    if [[ -n "${STUB_RATES_EXPORT:-}" ]]; then
+        files=()
+        for date in $STUB_RATES_EXPORT; do
+            files+=("$rates/$date.json")
+        done
+    else
+        files=("$rates"/*.json)
+    fi
+    for file in ${files[@]+"${files[@]}"}; do
+        if [[ -z "$dry_run" ]]; then
+            mkdir -p "$worktree/docs/harness/failure-pattern-rates"
+            cp "$file" "$worktree/docs/harness/failure-pattern-rates/"
+        fi
+        count=$((count + 1))
+    done
+    if [[ -n "$dry_run" ]]; then
+        printf 'harness-failure-rates: would export %s record(s)\n' "$count"
+    else
+        printf 'harness-failure-rates: exported %s record(s)\n' "$count"
+        [[ -z "${STUB_EXPORT_TAMPER_LEDGER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+    fi
     ;;
 trend) printf '\n## 推移\n\n直近 4 週\n' ;;
 detections)
@@ -533,13 +559,12 @@ unpushed_branch() {
 
 @test "選別を省いた週: 再発率の CLI が数えた origin/main に無い記録が 4 週分に満たなければ、件数を出し、依存を入れずに片付けて成功する" {
     publish_fixture
-    local_record 2026-10-03
-    local_record 2026-10-10
-    local_record 2026-10-17
+    # ローカルには 4 週分あるが、CLI は 3 件と答える(1 件は origin/main にある)
+    four_local_records
     init_real
     printf 'body of the previous run\n' >"$BODY"
     printf '{}\n' >"$RESULT"
-    run harness_loop_pr_publish_metrics_only_if_due
+    STUB_RATES_EXPORT='2026-10-03 2026-10-10 2026-10-17' run harness_loop_pr_publish_metrics_only_if_due
     assert_success
     assert_output "harness-weekly: 3 weekly failure rate record(s) not on origin/main; carried over in $RATES (a metrics-only PR needs 4)"
     assert [ ! -e "$PNPM_LOG" ]
@@ -580,7 +605,8 @@ unpushed_branch() {
     merged_record 2026-09-26
     local_record 2026-09-19
     init_real
-    run harness_loop_pr_publish_metrics_only_if_due
+    # ローカルには 5 週分あり、CLI は origin/main にある 2026-09-26 を除いた 4 件を書き出す
+    STUB_RATES_EXPORT='2026-09-19 2026-10-03 2026-10-10 2026-10-17' run harness_loop_pr_publish_metrics_only_if_due
     assert_success
     assert_line 'harness-weekly: opened metrics-only draft PR https://github.com/example/dotfiles/pull/42 (4 weekly record(s))'
     run grep '^pr create' "$GH_LOG"
@@ -648,7 +674,8 @@ unpushed_branch() {
     run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
     assert_output --partial "changed: $RATES/2026-10-10.json"
-    assert_line "harness-weekly: failed to commit the weekly failure rate records in ${WT}; no PR created"
+    assert_line "harness-weekly: no PR created; check ${RATES} by hand"
+    refute_output --partial 'failed to commit the weekly failure rate records'
     run git -C "$WT" rev-list --count "origin/main..HEAD"
     assert_output 0
     refute_published
@@ -676,6 +703,28 @@ unpushed_branch() {
     refute_output --partial 'opened metrics-only'
     refute_published
     run git -C "$WT" log --format=%s "main..HEAD"
+    assert_output ''
+}
+
+@test "Metrics-only PR: 要否を数えた後、記録の書き出しの前に実行物が書き換えられたら、記録ではなく実行物を見るよう案内し、記録を commit せず PR も作らずに失敗する" {
+    publish_fixture
+    four_local_records
+    init_real
+    # 依存のインストール(要否の判定の後、記録の commit の前)の最中に実行物を書き換える
+    cat >"$STUBS/pnpm" <<'EOF'
+#!/usr/bin/env bash
+[[ "$1" != install ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+EOF
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-rule-ledger.sh"
+    assert_line 'harness-weekly: no PR created; the scripts the job runs could not be trusted when exporting the weekly failure rate records'
+    refute_output --partial "check ${RATES} by hand"
+    refute_output --partial 'failed to commit the weekly failure rate records'
+    refute_published
+    run git -C "$WT" log --format=%s "main..HEAD"
+    assert_output ''
+    run git -C "$WT" status --porcelain --untracked-files=all
     assert_output ''
 }
 

@@ -46,8 +46,8 @@
 # 比べ、どちらかが JSON として読めなければ違うものとして写す。ほかの日付は中身を比べない: <revision> の
 # Weekly Rate Record を人が直したときにローカルの古い写しで戻さないためと、前の週の claude が書き換えた
 # Weekly Rate Record(その週の後の run の Integrity Snapshot は書き換えた後の値を正として取るので見つけられない)で
-# マージ済みのものを上書きしないため。再実行が選別を省いた(当日のブランチが origin にある)週は、書き直した
-# Weekly Rate Record はローカルにだけ残る
+# マージ済みのものを上書きしないため。同じ日の再実行が書き直した Weekly Rate Record を写さない週があることは、
+# 呼び出し側(lib/harness-loop-pr.bash の harness_loop_pr_run_review)のコメントにある
 #
 # 週の記録は id と数値だけを持つ(仕事の文脈を含まないので、週次ジョブがリポジトリに commit する)。
 #   sessions        期間に detections.jsonl に行があるセッション数。harness-select-pending.sh は、
@@ -280,9 +280,14 @@ cmd_export() {
     [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
     while [[ $# -gt 0 ]]; do
         case "$1" in
-        --base | --worktree)
+        --base)
             [[ $# -ge 2 ]] || usage
-            if [[ "$1" == --base ]]; then base=$2; else worktree=$2; fi
+            base=$2
+            shift 2
+            ;;
+        --worktree)
+            [[ $# -ge 2 ]] || usage
+            worktree=$2
             shift 2
             ;;
         --dry-run)
@@ -297,7 +302,8 @@ cmd_export() {
     git -C "$worktree" rev-parse --verify --quiet "$base^{commit}" >/dev/null || fail "cannot resolve $base in $worktree"
     files=$(records_to_export "$date" "$base" "$worktree") || fail "cannot compare the weekly rate records with $base"
     if [[ "$dry_run" -eq 1 ]]; then
-        printf 'harness-failure-rates: would export %s record(s)\n' "$(grep -c . <<<"$files" || true)"
+        count=$(grep -c . <<<"$files" || true)
+        printf 'harness-failure-rates: would export %s record(s)\n' "$count"
         return 0
     fi
     while IFS= read -r file; do
