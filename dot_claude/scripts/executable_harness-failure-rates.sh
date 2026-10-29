@@ -14,9 +14,8 @@
 #                                      だけだから。Weekly Rate Record を書いた後に失敗した run は、PR を作る前でも
 #                                      作った後でも heartbeat を進めないので、heartbeat から数えると次の run の
 #                                      期間が前の記録の期間(作った PR の本文の節が数えた期間)と重なって二重に
-#                                      数える。同じ日の
-#                                      記録は見ないので、同じ日の再実行はその日の記録を同じ期間の
-#                                      始まりで書き直す
+#                                      数える。同じ日の記録は見ないので、同じ日の再実行はその日の記録を
+#                                      同じ期間の始まりで書き直す
 #   record <日付> --since <epoch> --classification ok|failed
 #                                      期間(since, 今]の週の記録を
 #                                      ~/.claude/harness/failure-pattern-rates/<日付>.json に書く
@@ -29,14 +28,16 @@
 #                                      ヘッダ)ので、期間で足せば重ねて数えない。<日付> の Weekly Rate Record が
 #                                      無いか期間を読めなければ失敗する。推移の節と同じ <日付> で呼べば、2 つの
 #                                      節は同じ Weekly Rate Record の期間を数え、件数の数え方も record と同じ
-#                                      (detection_counts)
+#                                      (detection_counts)。そのため分類に失敗した週の次の週は、since が
+#                                      失敗した週の期間も含めるので、この節も前の週の PR と同じ期間を重ねて
+#                                      数える(record の detections と同じ。節の 1 行目に期間が出る)
 #
 # 週の記録は id と数値だけを持つ(仕事の文脈を含まないので、週次ジョブがリポジトリに commit する)。
 #   sessions        期間に detections.jsonl に行があるセッション数。harness-select-pending.sh は、
 #                   セッションを初めて走査したとき(失敗が無くても)と、前の記録より失敗が増えたときにだけ
 #                   行を書く。そのため「期間に活動したセッション」ではなく「期間に初めて走査したセッションと、
 #                   失敗が増えたセッション」の数になる
-#   detections      期間に検出した失敗の件数(detections.jsonl の counts の合計)
+#   detections      期間に検出した失敗の件数(detections.jsonl の counts のうち数値の値の合計。detection_counts)
 #   classified      期間に分類した失敗の件数(classifications.jsonl)。detections より少ない分は、分類の
 #                   失敗・件数の上限・transcript の欠落で分類しなかった分。分類器は期間内に検出のあった
 #                   セッションの、前の週に分類できなかった失敗もまとめて分類する

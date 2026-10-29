@@ -1707,7 +1707,7 @@ review_with_dropped() {
     assert_line '2026-10-17 の Weekly Rate Record の期間'
 }
 
-@test "選別の claude が commit の後に失敗した run で再発率のスクリプトが書き換えられていたら、推移の節を足さず、手で公開する手順を案内しない" {
+@test "選別の claude が commit の後に失敗した run で再発率のスクリプトが書き換えられていたら、失敗の検出と推移の節を足さず、手で公開する手順を案内しない" {
     review_fixture
     init_real
     run review_with then_fail rewriting "$HOME/.claude/scripts/harness-failure-rates.sh" review_commits
@@ -1717,6 +1717,7 @@ review_with_dropped() {
     assert_output --partial 'do not publish the branch as it is'
     refute_output --partial 'To publish by hand'
     run cat "$BODY"
+    refute_line '## 失敗の検出'
     refute_line '## 推移'
 }
 
