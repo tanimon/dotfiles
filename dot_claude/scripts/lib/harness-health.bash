@@ -5,8 +5,9 @@
 # 同じ状態は両方で同じ level になる。表示の形(1 行の状態か、PASS/FAIL の一覧と exit code か)は
 # 呼び出し側が決める。
 #
-# 読み込むのは briefing と doctor と週次ジョブ(harness-weekly.sh。停止を Issue で知らせる判定に
-# 使う)。reflect-trigger(SessionEnd)は読み込まない: lib が壊れて止まると、セッションの記録が
+# 読み込むのは briefing と doctor と週次ジョブ(harness-weekly.sh。heartbeat の読み書きと、走らなかった週を
+# Issue で知らせる判定に使う)。Loop Stall の判定はこの lib ではなく Loop Stall の module(harness-loop-stalls.bash)が
+# 持つ。reflect-trigger(SessionEnd)は読み込まない: lib が壊れて止まると、セッションの記録が
 # 黙って失われる(briefing なら黙ること自体が合図になる)。
 # heartbeat のファイル名と中身(epoch の数値)を知っているスクリプトはこの lib だけで、週次ジョブも書き込みに
 # harness_health_write_heartbeat を使う。いつ書くかは週次ジョブが決める。
@@ -14,15 +15,12 @@
 #
 # Interface: harness_health_dir / harness_health_bootstrap / harness_health_weekly /
 # harness_health_heartbeat_file / harness_health_write_heartbeat / harness_health_heartbeat_epoch /
-# harness_health_heartbeat_days / harness_health_missed_run_days / harness_health_stale_prs /
-# harness_health_unpublished_loop_branches。
+# harness_health_heartbeat_days / harness_health_missed_run_days。
 # パスは呼び出しのたびに $HOME から作る(source した後に HOME が変わっても追従するため)。
 # 関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
 
 # 週次ジョブの間隔(7 日)に、スリープ明けの追いつき実行の分の猶予を足す
 HARNESS_HEALTH_WEEKLY_STALE_DAYS=8
-# ループの PR を放置とみなす日数(ADR 0012 の Consequences。2 週)
-HARNESS_HEALTH_STALE_PR_DAYS=14
 # $(id -u) はユーザーが貼り付けて実行するコマンドの一部なので展開しない
 # shellcheck disable=SC2016
 HARNESS_HEALTH_WEEKLY_REMEDY='check ~/Library/Logs/harness-weekly.log, then run launchctl kickstart gui/$(id -u)/local.dotfiles.harness-weekly from a terminal'
@@ -152,40 +150,4 @@ harness_health_missed_run_days() {
     if [[ "$days" -ge "$HARNESS_HEALTH_WEEKLY_STALE_DAYS" ]]; then
         printf '%s\n' "$days"
     fi
-}
-
-# 開いている PR の一覧(stdin。`gh pr list --json number,url,headRefName,createdAt` の配列)から、
-# ブランチ名が <prefix> で始まり、作られてから HARNESS_HEALTH_STALE_PR_DAYS 日以上経ったものを
-# `<番号>\t<URL>\t<経過日数>` で出す。prefix は引数で受ける(正本は scripts/check-guarded-paths.sh)。
-# draft かどうかは見ない: draft を外したがマージもクローズもされていない PR も、承認が止まっている
-# 間はループの変更が効かない点で同じ放置だから(知らせる本文の対処は両方に合わせて書く)。
-# 一覧を読めなければ失敗を返す。
-harness_health_stale_prs() { # <現在の epoch> <ブランチの prefix>
-    jq -r --argjson now "$1" --arg prefix "$2" --argjson limit "$HARNESS_HEALTH_STALE_PR_DAYS" '
-        .[] | select(.headRefName | startswith($prefix))
-        | ((($now - (.createdAt | sub("\\.[0-9]+"; "") | fromdateiso8601)) / 86400) | floor) as $days
-        | select($days >= $limit)
-        | "\(.number)\t\(.url)\t\($days)"'
-}
-
-# <repo> のローカルブランチのうち、名前が <prefix><日付>(YYYY-MM-DD)で、その日付が <基準日> 以前で、
-# origin/main に無い commit を持つものを `<ブランチ>\t<commit 数>` で出す。基準日より新しいブランチ
-# (その日の run や、手動の review がまだ公開していないもの)と、名前が日付で終わらないものは見ない。
-# PR になったかは見ない(呼び出し側が gh で確かめる)。squash マージされたブランチも commit は
-# origin/main に無いままなので、ここでの一致だけでは「PR にならなかった」とは言えない。
-# origin/main は最後に fetch した時点のもの。origin/main が無ければ判定できないので失敗を返す。
-harness_health_unpublished_loop_branches() { # <repo> <prefix> <基準日 YYYY-MM-DD>
-    local repo=$1 prefix=$2 cutoff=$3 branches branch day count
-    git -C "$repo" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null || return 1
-    branches=$(git -C "$repo" for-each-ref --format='%(refname:short)' "refs/heads/$prefix*") || return 1
-    while IFS= read -r branch; do
-        day=${branch#"$prefix"}
-        [[ "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || continue
-        # 同じ桁数の YYYY-MM-DD は文字列の順が日付の順になる
-        [[ ! "$day" > "$cutoff" ]] || continue
-        count=$(git -C "$repo" rev-list --count "refs/remotes/origin/main..refs/heads/$branch") || return 1
-        if [[ "$count" -gt 0 ]]; then
-            printf '%s\t%s\n' "$branch" "$count"
-        fi
-    done <<<"$branches"
 }
