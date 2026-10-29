@@ -192,6 +192,15 @@ source_with_siblings() {
     assert_output --partial " or ${ledger_repo_dir}, or the local Rule Ledger"
 }
 
+@test "選別に触れさせない Weekly Rate Record の置き場は、再発率の CLI が書き出す置き場と同じ" {
+    local rates_repo_dir
+    rates_repo_dir=$(sed -n 's/^RATES_REPO_DIR="\(.*\)"$/\1/p' "$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh")
+    assert_equal "$rates_repo_dir" docs/harness/failure-pattern-rates
+    init_loop_pr
+    run harness_loop_pr_review_instructions
+    assert_output --partial "Never change files under ${rates_repo_dir} or"
+}
+
 # <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
 guarded() { # <Source> <一覧のファイル>
     local line
@@ -318,11 +327,22 @@ done
 printf 'harness-rule-ledger: exported %s record(s)\n' "${STUB_LEDGER_EXPORT:-0}"
 EOF
     # 偽の再発率のスクリプト。trend は推移の節を、detections は渡された日付を書いた失敗の検出の節を出す。
+    # export は本物の CLI に渡す(記録を選ぶ規則の検査は test/harness-failure-rates.bats の範囲。ここでは本物の選び方で
+    # commit の中身を確かめる)。STUB_EXPORT_TAMPER_LEDGER なら、--dry-run でない export の後に Rule Ledger のスクリプトを
+    # 書き換える(再発率の記録の commit の後、Rule Ledger の記録の commit の前に実行物が書き換えられた run の再現)。
     # STUB_RATES_TAMPER_LEDGER なら detections(Metrics-only PR の本文で最後に呼ばれる)の後に Rule Ledger のスクリプトを
     # 書き換える(本文を書いた後、push の前に実行物が書き換えられた run の再現)
+    export REAL_FAILURE_RATES="$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh"
     cat >"$HOME/.claude/scripts/harness-failure-rates.sh" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
+export)
+    status=0
+    bash "$REAL_FAILURE_RATES" "$@" || status=$?
+    [[ -z "${STUB_EXPORT_TAMPER_LEDGER:-}" || "$*" == *--dry-run* ]] ||
+        printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+    exit "$status"
+    ;;
 trend) printf '\n## 推移\n\n直近 4 週\n' ;;
 detections)
     printf '\n## 失敗の検出\n\n%s の週の記録の期間\n' "$2"
@@ -432,20 +452,6 @@ unpushed_branch() {
     git -C "$REPO" worktree remove "$BATS_TEST_TMPDIR/other"
 }
 
-@test "選別を省いた週: ローカルの記録が 4 週分に満たなければ、worktree も gh も pnpm も使わずに件数の上限を出して成功する" {
-    publish_fixture
-    local_record 2026-10-03
-    local_record 2026-10-10
-    local_record 2026-10-17
-    init_real
-    run harness_loop_pr_publish_metrics_only_if_due
-    assert_success
-    assert_output "harness-weekly: at most 3 weekly failure rate record(s) not on origin/main; carried over in $RATES (a metrics-only PR needs 4)"
-    assert [ ! -e "$GH_LOG" ]
-    assert [ ! -e "$PNPM_LOG" ]
-    assert [ ! -e "$WT" ]
-}
-
 @test "選別を省いた週: 初期化で受け取った prefix のブランチの PR が開いていれば、その URL を出して worktree を作らずに成功する" {
     publish_fixture
     four_local_records
@@ -525,10 +531,11 @@ unpushed_branch() {
     assert [ ! -e "$PNPM_LOG" ]
 }
 
-@test "選別を省いた週: origin/main にある週は数えず、4 週分に満たなければ件数を出し、依存を入れずに片付けて成功する" {
+@test "選別を省いた週: 再発率の CLI が数えた origin/main に無い記録が 4 週分に満たなければ、件数を出し、依存を入れずに片付けて成功する" {
     publish_fixture
-    four_local_records
-    merged_record 2026-09-26
+    local_record 2026-10-03
+    local_record 2026-10-10
+    local_record 2026-10-17
     init_real
     printf 'body of the previous run\n' >"$BODY"
     printf '{}\n' >"$RESULT"
@@ -651,11 +658,25 @@ unpushed_branch() {
     publish_fixture
     four_local_records
     init_real
-    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
-    run harness_loop_pr_publish_metrics_only_if_due
+    STUB_EXPORT_TAMPER_LEDGER=1 run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
     assert_line 'harness-weekly: the Rule Ledger records could not be trusted; no PR created'
     refute_published
+}
+
+@test "Metrics-only PR: 要否を数える前に実行物が書き換えられていたら、記録を commit せず PR も作らずに失敗し、予約コードを外に出さない" {
+    publish_fixture
+    four_local_records
+    init_real
+    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-rule-ledger.sh"
+    assert_line 'harness-weekly: no metrics-only PR; the scripts the job runs could not be trusted when counting the weekly failure rate records'
+    refute_output --partial 'opened metrics-only'
+    refute_published
+    run git -C "$WT" log --format=%s "main..HEAD"
+    assert_output ''
 }
 
 @test "Metrics-only PR: Rule Ledger の記録を commit できなければ、写しかけを戻して Metrics-only PR を作る" {
@@ -1146,34 +1167,6 @@ review_commits_lines() {
     refute_output --partial 'weekly failure rate record(s)'
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_output 'harness: add rule'
-}
-
-@test "選別の結果: 当日の記録は origin/main に同じ日付があっても中身が違えば載せ、前の日付の記録は中身が違っても載せない" {
-    review_fixture
-    local_record 2026-10-10
-    local_record 2026-10-17
-    merged_record 2026-10-10
-    merged_record 2026-10-17
-    # origin/main の記録を人が直した後の前の日付と、同じ日の再実行が書き直した当日の記録
-    printf '{"date":"2026-10-10","fixed":true}\n' >"$RATES/2026-10-10.json"
-    printf '{"date":"2026-10-17","rerun":true}\n' >"$RATES/2026-10-17.json"
-    init_real
-    run review_with review_commits
-    assert_success
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- docs/harness/failure-pattern-rates
-    assert_output docs/harness/failure-pattern-rates/2026-10-17.json
-}
-
-@test "選別の結果: 当日の記録が origin/main と JSON として同じなら載せない" {
-    review_fixture
-    local_record 2026-10-17
-    merged_record 2026-10-17
-    printf '{ "date": "2026-10-17" }\n' >"$RATES/2026-10-17.json"
-    init_real
-    run review_with review_commits
-    assert_success
-    run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- docs/harness/failure-pattern-rates
-    assert_output ''
 }
 
 @test "選別の結果: 選別の工程の照合の後に週の記録が書き換えられていたら、WARN で続けずに PR を作らずに失敗し、予約コードを外に出さない" {

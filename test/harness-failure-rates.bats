@@ -1,7 +1,8 @@
 # 週ごとの Failure Pattern の再発率(harness-failure-rates.sh)の振る舞い検査。
 #
 # 偽の $HOME に検出の記録(detections.jsonl)と分類の記録(classifications.jsonl)を書き、
-# 週の記録(failure-pattern-rates/<日付>.json)と PR 本文の推移の節を確かめる。
+# 週の記録(failure-pattern-rates/<日付>.json)と PR 本文の推移の節を確かめる。export は base にする git の作業ツリーを
+# 作り、書き出した記録・件数の行を確かめる(記録を選ぶ規則の検査はここだけで、Loop PR の module の bats は配線だけを見る)。
 bats_require_minimum_version 1.5.0
 
 setup() {
@@ -216,4 +217,112 @@ week_record() {
     run bash "$SCRIPT" record "$TODAY" --since
     assert_failure 2
     assert_output --partial 'usage:'
+}
+
+# export の base にする git の作業ツリー WT を作る。<日付> のローカルの週の記録を置き場に写して commit する
+export_worktree() { # [<base に置く日付>…]
+    local date
+    WT="$BATS_TEST_TMPDIR/wt"
+    git init -q -b main "$WT"
+    mkdir -p "$WT/docs/harness/failure-pattern-rates"
+    for date in "$@"; do
+        cp "$RATES/$date.json" "$WT/docs/harness/failure-pattern-rates/"
+    done
+    printf 'x\n' >"$WT/README.md"
+    git -C "$WT" add -A
+    git -C "$WT" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false commit -qm base
+}
+
+# <日付> のローカルの週の記録を、中身 <JSON> で置く
+local_week() { # <日付> <JSON>
+    mkdir -p "$RATES"
+    printf '%s\n' "$2" >"$RATES/$1.json"
+}
+
+@test "書き出しは、base に無い週の記録だけを worktree の置き場にそのまま写し、件数を 1 行で出す" {
+    local_week 2026-10-03 '{"date":"2026-10-03"}'
+    local_week 2026-10-10 '{ "date": "2026-10-10" }'
+    export_worktree 2026-10-03
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    assert_success
+    assert_output 'harness-failure-rates: exported 1 record(s)'
+    run git -C "$WT" status --porcelain --untracked-files=all
+    assert_output '?? docs/harness/failure-pattern-rates/2026-10-10.json'
+    cmp "$RATES/2026-10-10.json" "$WT/docs/harness/failure-pattern-rates/2026-10-10.json"
+}
+
+@test "書き出しは、その日の記録は base にあっても中身が違えば写し、ほかの日付の記録は中身が違っても写さない" {
+    local_week 2026-10-10 '{"date":"2026-10-10"}'
+    local_week 2026-10-17 '{"date":"2026-10-17"}'
+    export_worktree 2026-10-10 2026-10-17
+    # base の記録を人が直した後の前の日付と、同じ日の再実行が書き直したその日の記録
+    local_week 2026-10-10 '{"date":"2026-10-10","fixed":true}'
+    local_week 2026-10-17 '{"date":"2026-10-17","rerun":true}'
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    assert_success
+    assert_output 'harness-failure-rates: exported 1 record(s)'
+    run git -C "$WT" status --porcelain --untracked-files=all
+    assert_output ' M docs/harness/failure-pattern-rates/2026-10-17.json'
+    cmp "$RATES/2026-10-17.json" "$WT/docs/harness/failure-pattern-rates/2026-10-17.json"
+}
+
+@test "書き出しは、その日の記録が base と JSON として同じなら写さない" {
+    local_week 2026-10-17 '{"date":"2026-10-17","sessions":1}'
+    export_worktree 2026-10-17
+    local_week 2026-10-17 '{ "sessions": 1, "date": "2026-10-17" }'
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    assert_success
+    assert_output 'harness-failure-rates: exported 0 record(s)'
+    run git -C "$WT" status --porcelain --untracked-files=all
+    assert_output ''
+}
+
+@test "書き出しは、その日の記録が JSON として読めなければ base と違うものとして写す" {
+    local_week 2026-10-17 '{"date":"2026-10-17"}'
+    export_worktree 2026-10-17
+    local_week 2026-10-17 'not json'
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    assert_success
+    assert_output 'harness-failure-rates: exported 1 record(s)'
+}
+
+@test "書き出しの --dry-run は、写す件数を 1 行で出し、worktree にもローカルの置き場にも何も書かない" {
+    local_week 2026-10-03 '{"date":"2026-10-03"}'
+    local_week 2026-10-10 '{"date":"2026-10-10"}'
+    local_week 2026-10-17 '{"date":"2026-10-17"}'
+    export_worktree
+    # 記録の無い base では置き場のディレクトリも無い(git は空のディレクトリを持たない)
+    rm -r "$WT/docs"
+    local before
+    before=$(ls -A "$RATES")
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" --dry-run
+    assert_success
+    assert_output 'harness-failure-rates: would export 3 record(s)'
+    run git -C "$WT" status --porcelain --untracked-files=all --ignored
+    assert_output ''
+    assert [ ! -e "$WT/docs" ]
+    assert_equal "$(ls -A "$RATES")" "$before"
+}
+
+@test "書き出しは、ローカルに週の記録が無ければ置き場を作らずに 0 件と出す" {
+    export_worktree
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    assert_success
+    assert_output 'harness-failure-rates: exported 0 record(s)'
+    run git -C "$WT" status --porcelain --untracked-files=all
+    assert_output ''
+}
+
+@test "書き出しは、base を引けなければ何も写さずに失敗し、base か worktree が無ければ使い方の誤りとして 2 で終わる" {
+    local_week 2026-10-10 '{"date":"2026-10-10"}'
+    export_worktree
+    run bash "$SCRIPT" export 2026-10-17 --base no-such-revision --worktree "$WT"
+    assert_failure 1
+    assert_output --partial 'cannot resolve no-such-revision'
+    run git -C "$WT" status --porcelain --untracked-files=all
+    assert_output ''
+    run bash "$SCRIPT" export 2026-10-17 --worktree "$WT"
+    assert_failure 2
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD
+    assert_failure 2
 }
