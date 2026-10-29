@@ -46,4 +46,4 @@ Refs #M
 
 ## 本文の仕上げ
 
-issue も PR も、本文を書き終えたら最後の行を `<!-- issue-linkage -->`(マーカー)にする。署名(`🤖 Generated with …`)など末尾に足す行があれば、すべてその後ろに置く。マーカーが無い本文は、create-issue.sh も issue-linkage-guard も作成を止める。
+issue も PR も、本文を書き終えたら最後の行を `<!-- issue-linkage -->`(マーカー)にする。署名(`🤖 Generated with …`)など末尾に足す行があれば、すべてマーカーより前に置く。マーカーが無い本文は、create-issue.sh も issue-linkage-guard も作成を止める。

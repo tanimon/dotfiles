@@ -69,17 +69,23 @@ fi
 blockers=$(section_refs '^#+[ \t]+blocked by' <"$body_file" | sort -un)
 [[ -n "$parents$blockers" ]] || exit 0
 
+# 1 本も張る前に止まる経路でも、張り直す関係を stderr に列挙する(スキルは stderr の関係を張り直す)。
+all_relationships=''
+for parent in $parents; do all_relationships+=" parent #$parent"; done
+for blocker in $blockers; do all_relationships+=" blocked-by #$blocker"; done
+
 # relationship は作成した issue と同じリポジトリに張る。-R / --repo で cwd 以外に作ることがあるので、
 # repo は cwd からではなく gh issue create が返した URL から取る。
 if [[ ! "$url" =~ ^https://[^/]+/([^/]+/[^/]+)/issues/([0-9]+)$ ]]; then
-    echo "create-issue.sh: gh issue create の出力が issue の URL ではないので relationship を張れなかった: $url" >&2
+    echo "create-issue.sh: gh issue create の出力が issue の URL ではないので、次の relationship を張れなかった(issue-linkage スキルの references/relationship-api.md のコマンドで張り直す):$all_relationships(出力: $url)" >&2
     exit 1
 fi
 repo=${BASH_REMATCH[1]}
 number=${BASH_REMATCH[2]}
 failed=''
-id=$(gh api "repos/$repo/issues/$number" | jq -r .id) || failed+=' id'
-if [[ -z "$failed" ]]; then
+if ! id=$(gh api "repos/$repo/issues/$number" | jq -r .id); then
+    failed=$all_relationships
+else
     for parent in $parents; do
         gh api "repos/$repo/issues/$parent/sub_issues" -X POST -F "sub_issue_id=$id" >/dev/null ||
             failed+=" parent #$parent"

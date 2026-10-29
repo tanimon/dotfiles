@@ -20,6 +20,7 @@ case "$*" in
     ;;
 "api repos/tanimon/"*/issues/*)
     n=${2##*/}
+    [[ -n "${GH_FAIL_ID:-}" && "$n" == 450 ]] && exit 1
     printf '{"id":%s0}' "$n"
     ;;
 *)
@@ -151,10 +152,20 @@ STUB
     [ ! -s "$GH_LOG" ]
 }
 
-@test "gh issue create の出力が issue の URL でなければ relationship を張らずに 1 で終わる" {
-    printf '## Parent\n\n#397\n\n<!-- issue-linkage -->\n' >"$BODY"
+@test "gh issue create の出力が issue の URL でなければ relationship を張らずに、張れなかった関係を出して 1 で終わる" {
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- issue-linkage -->\n' >"$BODY"
     run bash "$SCRIPT" --title nourl --body-file "$BODY"
     assert_failure 1
+    assert_output --partial 'parent #397 blocked-by #401'
+    run grep -c -- '-X POST' "$GH_LOG"
+    assert_output '0'
+}
+
+@test "作成した issue の database id を取れなければ、張れなかった関係をすべて出して 1 で終わる" {
+    printf '## Parent\n\n#397\n\n## Blocked by\n\n#401\n\n<!-- issue-linkage -->\n' >"$BODY"
+    GH_FAIL_ID=1 run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 1
+    assert_output --partial 'parent #397 blocked-by #401'
     run grep -c -- '-X POST' "$GH_LOG"
     assert_output '0'
 }
