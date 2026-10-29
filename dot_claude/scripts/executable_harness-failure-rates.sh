@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 週ごとの Failure Pattern の再発率を記録し、PR 本文の推移の節を作る(Evaluator の一部。ADR 0011)。
-# 週次ジョブが毎回の run で使う。
+# 週ごとの Failure Pattern の再発率の記録(Weekly Rate Record。GLOSSARY.md)を書き、PR 本文の推移の節と失敗の検出の節を
+# 作る(Evaluator の一部。ADR 0011)。週次ジョブが毎回の run で使う。Weekly Rate Record の形式・期間・置き場と、
+# 検出件数の記録(detections.jsonl)を期間で切る読み方の正本はこのスクリプト。
 #
 #   since <日付>                       この run の期間の始まり(epoch)を出す。<日付> より前の日付の
 #                                      週の記録のうち、分類に成功した(classification: ok)最新のものの
@@ -9,14 +10,23 @@
 #                                      記録はその週の分も合わせた期間になり、失敗した週は推移で「記録なし」
 #                                      のままなので二重には数えない)。成功した週が無ければ最も古い
 #                                      失敗した週の since、記録が無ければ直近 7 日。期間を
-#                                      heartbeat で決めないのは、失敗した run が heartbeat を進めず、
-#                                      次の run の期間が前の記録と重なって二重に数えるため。同じ日の
+#                                      heartbeat で決めないのは、heartbeat を書くのが run が最後まで成功したとき
+#                                      だけだから。週の記録を書いた後に失敗した run は、PR を作る前でも作った後でも
+#                                      heartbeat を進めないので、heartbeat から数えると次の run の期間が前の記録の
+#                                      期間(作った PR の本文の節が数えた期間)と重なって二重に数える。同じ日の
 #                                      記録は見ないので、同じ日の再実行はその日の記録を同じ期間の
 #                                      始まりで書き直す
 #   record <日付> --since <epoch> --classification ok|failed
 #                                      期間(since, 今]の週の記録を
 #                                      ~/.claude/harness/failure-pattern-rates/<日付>.json に書く
-#   trend [--weeks <N>]                直近 N 週(既定 4)の記録から推移の節(Markdown)を出す
+#   trend <日付> [--weeks <N>]         <日付> 以前の直近 N 週(既定 4)の記録から推移の節(Markdown)を出す
+#   detections <日付>                  <日付> の週の記録の期間(since, until]に検出した失敗から、失敗の検出の節
+#                                      (Markdown)を出す。表の行は期間に検出のあった信号だけで、件数の多い順
+#                                      (同数なら信号名の順)。期間に 1 件も無ければ表を出さずに合計 0 を書く。
+#                                      記録した実行(週次ジョブか手動の /harness-reflect か)は問わない。選別は
+#                                      増えた分だけを記録する(harness-select-pending.sh のヘッダ)ので、期間で
+#                                      足せば重ねて数えない。<日付> の週の記録が無いか期間を読めなければ失敗する。
+#                                      推移の節と同じ <日付> で呼べば、2 つの節は同じ週の記録の期間を数える
 #
 # 週の記録は id と数値だけを持つ(仕事の文脈を含まないので、週次ジョブがリポジトリに commit する)。
 #   sessions        期間に detections.jsonl に行があるセッション数。harness-select-pending.sh は、
@@ -44,7 +54,7 @@ RECORDS="$HARNESS_DIR/classifications.jsonl"
 PATTERNS="$HOME/.claude/scripts/harness-failure-patterns.json"
 
 usage() {
-    printf 'usage: harness-failure-rates.sh since <date> | record <date> --since <epoch> --classification ok|failed | trend [--weeks <n>]\n' >&2
+    printf 'usage: harness-failure-rates.sh since <date> | record <date> --since <epoch> --classification ok|failed | trend <date> [--weeks <n>] | detections <date>\n' >&2
     exit 2
 }
 
@@ -59,6 +69,15 @@ command -v jq >/dev/null 2>&1 || fail 'jq not found'
 record_files() {
     [[ -d "$RATES_DIR" ]] || return 0
     find "$RATES_DIR" -maxdepth 1 -type f -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].json' | sort
+}
+
+# 週の記録のうち、日付が <日付> 以前のものを古い順に出す
+record_files_up_to() { # <日付>
+    local file
+    while IFS= read -r file; do
+        [[ -n "$file" ]] || continue
+        [[ "$(basename "$file" .json)" > "$1" ]] || printf '%s\n' "$file"
+    done < <(record_files)
 }
 
 # JSON Lines のファイルから、epoch が期間(since, until]の object の行を配列で出す。読めない行は飛ばす
@@ -145,7 +164,9 @@ cmd_record() {
 }
 
 cmd_trend() {
-    local weeks=4 records="[]" ids file
+    local date=$1 weeks=4 records="[]" ids file
+    shift
+    [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
     if [[ "${1:-}" == "--weeks" ]]; then
         weeks=${2:-}
     elif [[ $# -gt 0 ]]; then
@@ -156,7 +177,7 @@ cmd_trend() {
     while IFS= read -r file; do
         [[ -n "$file" ]] || continue
         records=$(jq -c --slurpfile record "$file" '. + $record' <<<"$records") || fail "cannot read $file"
-    done < <(record_files | tail -n "$weeks")
+    done < <(record_files_up_to "$date" | tail -n "$weeks")
     printf '\n## Failure Pattern の再発率\n\n'
     if [[ "$records" == "[]" ]]; then
         printf '週の記録はまだ無い。\n'
@@ -182,9 +203,36 @@ cmd_trend() {
           row("分類した失敗 / 検出した失敗"; $records | map("\(.classified) / \(.detections)"))' <<<"$records"
 }
 
+cmd_detections() {
+    local date=$1 file since until rows
+    [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
+    file="$RATES_DIR/$date.json"
+    [[ -f "$file" ]] || fail "no weekly rate record for $date ($file)"
+    since=$(jq -e '.since | numbers' "$file" 2>/dev/null) || fail "cannot read .since from $file"
+    until=$(jq -e '.until | numbers' "$file" 2>/dev/null) || fail "cannot read .until from $file"
+    rows=$(rows_in_period "$LEDGER" "$since" "$until") || fail "cannot read $LEDGER"
+    # 時刻は jq で書く(date の -r と -d は BSD と GNU で違う)
+    # shellcheck disable=SC2016 # jq のプログラム。バッククォートは Markdown のコードスパン
+    jq -r --argjson since "$since" --argjson until "$until" '
+        def time_label: localtime | strftime("%Y-%m-%d %H:%M");
+        def counts: .counts // {} | if type == "object" then to_entries | map(select(.value | type == "number")) else [] end;
+        . as $rows
+        | ($rows | map(.session_id) | unique | length) as $sessions
+        | ($rows | map(select((counts | map(.value) | add // 0) > 0) | .session_id) | unique | length) as $failing
+        | ($rows | map(counts[]) | group_by(.key) | map({signal: .[0].key, count: (map(.value) | add)})
+            | map(select(.count > 0)) | sort_by([-.count, .signal])) as $signals
+        | ($signals | map(.count) | add // 0) as $total
+        | "", "## 失敗の検出", "",
+          "\($since | time_label) から \($until | time_label) までに検出器にかけたセッション: \($sessions) 件(失敗あり \($failing) 件)。", "",
+          if $total == 0 then "合計: 0"
+          else "| 信号 | 件数 |", "|---|---:|", ($signals[] | "| `\(.signal)` | \(.count) |"), "| 合計 | \($total) |" end' <<<"$rows" ||
+        fail "cannot build the detection section for $date"
+}
+
 case "${1:-}" in
 since) [[ $# -eq 2 ]] || usage && cmd_since "$2" ;;
 record) [[ $# -ge 2 ]] || usage && shift && cmd_record "$@" ;;
-trend) shift && cmd_trend "$@" ;;
+trend) [[ $# -ge 2 ]] || usage && shift && cmd_trend "$@" ;;
+detections) [[ $# -eq 2 ]] || usage && cmd_detections "$2" ;;
 *) usage ;;
 esac

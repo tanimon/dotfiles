@@ -106,15 +106,14 @@ _HARNESS_LOOP_PR_RUN=""
 
 # run ごとの値を受け取り、Review Outcome の lib と本文の lib を初期化する。引数は --repo <パス> --worktree <パス>
 # --branch <ブランチ> --loop-branch-prefix <prefix> --pr-body <パス> --review-result <パス> --eval-requests <パス>
-# --eval-results <パス> --eval-budget-usd <金額> --date <YYYY-MM-DD> --run <採用の印> --detections <パス>
-# --detection-since <epoch> で、すべて必須。
+# --eval-results <パス> --eval-budget-usd <金額> --date <YYYY-MM-DD> --run <採用の印> で、すべて必須。
 # <Eval Case の依頼> は選別の claude に書かせるファイル(週次ジョブが選別の prompt にパスを書く)。<評価の結果> はこの lib の
 # 評価の工程が書いて封印するファイルで、封印されたときだけ Rule Ledger の記録に渡す。<金額> は評価の予算。
-# <検出件数の記録> と <epoch> は本文の検出件数の節に渡す(<epoch> は期間の始まり。週次ジョブが前の成功から決める)。
+# <YYYY-MM-DD> は run の日付で、本文の lib にも渡す(失敗の検出と推移の節がその日の Weekly Rate Record を読む)。
 # 空の値と知らない引数は受け付けない。<ブランチ> は <prefix> で始まる
 harness_loop_pr_init() {
     local repo="" worktree="" branch="" prefix="" pr_body="" review_result="" eval_requests="" eval_results="" eval_budget=""
-    local date="" run="" detections="" since="" missing=""
+    local date="" run="" missing=""
     while [[ $# -gt 0 ]]; do
         if [[ $# -lt 2 ]]; then
             printf 'harness-loop-pr: %s needs a value\n' "$1" >&2
@@ -132,8 +131,6 @@ harness_loop_pr_init() {
         --eval-budget-usd) eval_budget=$2 ;;
         --date) date=$2 ;;
         --run) run=$2 ;;
-        --detections) detections=$2 ;;
-        --detection-since) since=$2 ;;
         *)
             printf 'harness-loop-pr: unknown argument %s to harness_loop_pr_init\n' "$1" >&2
             return 1
@@ -152,8 +149,6 @@ harness_loop_pr_init() {
     [[ -n "$eval_budget" ]] || missing+=" --eval-budget-usd"
     [[ -n "$date" ]] || missing+=" --date"
     [[ -n "$run" ]] || missing+=" --run"
-    [[ -n "$detections" ]] || missing+=" --detections"
-    [[ -n "$since" ]] || missing+=" --detection-since"
     if [[ -n "$missing" ]]; then
         printf 'harness-loop-pr: harness_loop_pr_init needs a value for%s\n' "$missing" >&2
         return 1
@@ -173,7 +168,7 @@ harness_loop_pr_init() {
         --date "$date" --rates-repo-dir "$_HARNESS_LOOP_PR_RATES_REPO_DIR" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
         return 1
     harness_pr_body_init --pr-body "$pr_body" --worktree "$worktree" --review-result "$review_result" \
-        --detections "$detections" --detection-since "$since" --run "$run" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
+        --date "$date" --run "$run" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
         return 1
     _HARNESS_LOOP_PR_REPO=$repo
     _HARNESS_LOOP_PR_WORKTREE=$worktree

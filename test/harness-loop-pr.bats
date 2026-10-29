@@ -77,8 +77,7 @@ init_loop_pr() { # [<上書きする引数>…]
         --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
         --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json \
         --eval-requests /h/eval-requests-2026-10-17.json --eval-results /h/eval-results-2026-10-17.json --eval-budget-usd 5 \
-        --date 2026-10-17 --run 'harness/review-2026-10-17 run 0f0e' \
-        --detections /h/detections.jsonl --detection-since 1760000000 "$@"
+        --date 2026-10-17 --run 'harness/review-2026-10-17 run 0f0e' "$@"
 }
 
 @test "初期化は run ごとの値と Loop PR のブランチの prefix がすべて揃えば成功する" {
@@ -91,10 +90,9 @@ init_loop_pr() { # [<上書きする引数>…]
     run harness_loop_pr_init --repo /work/repo --worktree /h/review-worktree \
         --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
         --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json --eval-results /h/eval-results-2026-10-17.json \
-        --date 2026-10-17 --detections /h/detections.jsonl
+        --date 2026-10-17
     assert_failure
     assert_output --partial '--run'
-    assert_output --partial '--detection-since'
     assert_output --partial '--eval-requests'
     assert_output --partial '--eval-budget-usd'
     run init_loop_pr --worktree ''
@@ -126,7 +124,7 @@ init_loop_pr() { # [<上書きする引数>…]
                 --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
                 --pr-body /h/body.md --review-result /h/result.json --eval-requests /h/eval-requests.json \
                 --eval-results /h/eval-results.json --eval-budget-usd 5 \
-                --date 2026-10-17 --run mark --detections /h/detections.jsonl --detection-since 1760000000' _ "$LIB_DIR" "$name"
+                --date 2026-10-17 --run mark' _ "$LIB_DIR" "$name"
         assert_failure
         assert_output 'harness-loop-pr: the publish values of this lib are empty or broken; run chezmoi apply'
     done
@@ -319,13 +317,19 @@ for i in $(seq 1 "${STUB_LEDGER_EXPORT:-0}"); do
 done
 printf 'harness-rule-ledger: exported %s record(s)\n' "${STUB_LEDGER_EXPORT:-0}"
 EOF
-    # 偽の再発率のスクリプト。trend は推移の節を出す。STUB_RATES_TAMPER_LEDGER なら出した後に Rule Ledger のスクリプトを
+    # 偽の再発率のスクリプト。trend は推移の節を、detections は渡された日付を書いた失敗の検出の節を出す。
+    # STUB_RATES_TAMPER_LEDGER なら detections(Metrics-only PR の本文で最後に呼ばれる)の後に Rule Ledger のスクリプトを
     # 書き換える(本文を書いた後、push の前に実行物が書き換えられた run の再現)
     cat >"$HOME/.claude/scripts/harness-failure-rates.sh" <<'EOF'
 #!/usr/bin/env bash
-[[ "$1" == trend ]] || exit 1
-printf '\n## 推移\n\n直近 4 週\n'
-[[ -z "${STUB_RATES_TAMPER_LEDGER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+case "$1" in
+trend) printf '\n## 推移\n\n直近 4 週\n' ;;
+detections)
+    printf '\n## 失敗の検出\n\n%s の週の記録の期間\n' "$2"
+    [[ -z "${STUB_RATES_TAMPER_LEDGER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
+    ;;
+*) exit 1 ;;
+esac
 EOF
     # 偽の Eval Case の評価。呼び出しと評価の予算を EVAL_LOG に、採用の印を EVAL_ENV_LOG に 1 行ずつ書く。run は --out に結果を
     # 書き(STUB_EVAL_NO_OUT なら書かない)、STUB_EVAL_FAIL なら書かずに、STUB_EVAL_FAIL_AFTER_WRITE なら書いてから失敗する。
@@ -371,8 +375,7 @@ init_real() {
     harness_integrity_snapshot
     harness_loop_pr_init --repo "$REPO" --worktree "$WT" --branch "$BRANCH" --loop-branch-prefix test/loop- \
         --pr-body "$BODY" --review-result "$RESULT" --eval-requests "$EVAL_REQUESTS" --eval-results "$EVAL_RESULTS" \
-        --eval-budget-usd 1.5 --date 2026-10-17 --run "$BRANCH run 0f0e" \
-        --detections "$HDIR/detections.jsonl" --detection-since "$(($(date +%s) - 3600))"
+        --eval-budget-usd 1.5 --date 2026-10-17 --run "$BRANCH run 0f0e"
 }
 
 four_local_records() {
@@ -579,6 +582,7 @@ unpushed_branch() {
     assert_line --index 0 "$(metrics_only_counts 4)"
     assert_line '## 推移'
     assert_line '## 失敗の検出'
+    assert_line '2026-10-17 の週の記録の期間'
     refute_output --partial 'Rule Ledger'
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_output 'harness: Failure Pattern の再発率の週の記録を足す'
@@ -1688,7 +1692,6 @@ review_with_dropped() {
 
 @test "選別の claude が commit と結果ファイルを書いた後に失敗したら、手で作る PR の本文に結果の節と検出の節を足す" {
     review_fixture
-    printf '{"session_id":"s1","run":"r1","date":"2026-10-17","epoch":%s,"counts":{"tool_error":3}}\n' "$(date +%s)" >"$HDIR/detections.jsonl"
     init_real
     run review_with then_fail review_with_dropped
     assert_failure 1
@@ -1701,7 +1704,7 @@ review_with_dropped() {
     assert_output --partial '~/.claude/harness/deploy-only.md にも記録した'
     refute_output --partial "$HOME"
     assert_line '## 失敗の検出'
-    assert_line '| `tool_error` | 3 |'
+    assert_line '2026-10-17 の週の記録の期間'
 }
 
 @test "選別の claude が commit の後に失敗した run で再発率のスクリプトが書き換えられていたら、推移の節を足さず、手で公開する手順を案内しない" {
@@ -1710,7 +1713,7 @@ review_with_dropped() {
     run review_with then_fail rewriting "$HOME/.claude/scripts/harness-failure-rates.sh" review_commits
     assert_failure 1
     assert_output --partial "changed: $HOME/.claude/scripts/harness-failure-rates.sh"
-    assert_output --partial 'the failure rate trend could not be trusted'
+    assert_output --partial 'the failure detection counts could not be trusted'
     assert_output --partial 'do not publish the branch as it is'
     refute_output --partial 'To publish by hand'
     run cat "$BODY"
