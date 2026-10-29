@@ -4,15 +4,16 @@
 #
 # 持つもの:
 # - run ごとの値の初期化(harness_loop_pr_init)。週次ジョブが呼ぶ初期化はこれだけで、Review Outcome の lib と本文の lib の
-#   初期化はここから呼ぶ。Loop PR のブランチの prefix だけは週次ジョブが持ち、ここへ渡す。この lib を読めずに止まった run
-#   の停止の通知も、ループのブランチを prefix で探すため。
+#   初期化はここから呼ぶ。Loop PR のブランチの prefix だけは週次ジョブが持ち、ここへ渡す。Loop Stall の module
+#   (harness-loop-stalls.bash)も同じ prefix でループのブランチを探すので、週次ジョブが両方に渡す。
 # - 公開に使う値(リポジトリ内の記録の置き場、Metrics-only PR を作る週数、署名用の git 設定)。interface には出さない。
 #   記録の置き場は、初期化で Review Outcome の lib と本文の lib に渡す。
 # - 選別の prompt に埋める指示(harness_loop_pr_review_instructions)。結果ファイルの指示(Review Outcome の lib)、本文の
 #   指示(本文の lib)、記録の置き場に触れさせない指示をまとめて返す。
 # - 手で公開するコマンドの綴り(push、draft PR の作成、判定の記録への PR の URL の記録)。週次ジョブの案内文は
-#   文を各箇所に持ち、コマンドの綴りだけをここから受け取る。綴りの関数は初期化の値を読まず、引数だけで組み立てる
-#   (案内文ごとにリポジトリの表記とブランチが違い、初期化の前に止まった run の通知も使うため)。
+#   文を各箇所に持ち、コマンドの綴りだけをここから受け取る。Loop Stall の module の Issue の本文も同じ関数を使う。
+#   綴りの関数は初期化の値を読まず、引数だけで組み立てる(案内文ごとにリポジトリの表記とブランチが違い、初期化の前に
+#   止まった run の Loop Stall の通知も使うため)。
 # - 選別の経路(harness_loop_pr_run_review): 作業場所の準備、選別の claude の実行(週次ジョブから受け取ったコマンドを、
 #   worktree の中で採用の印を渡し、Integrity Snapshot の工程の入口を通して走らせる。ADR 0017)、Review Outcome の分類、
 #   Eval Case の評価と結果の封印、本文、公開、Rule Ledger の記録、選別が失敗した run の案内。選別が何も commit しなかった週の

@@ -160,7 +160,8 @@ weekly() {
     assert_output ''
 }
 
-# 週次ジョブが Issue で知らせる停止の判定(#402)。送るのはジョブで、lib は判定だけを持つ
+# 週次ジョブが Issue で知らせる、走らなかった週の判定(#402)。送るのはジョブで、lib は判定だけを持つ。
+# Loop Stall の判定は test/harness-loop-stalls.bats が検査する
 
 @test "前の成功が 1 周期(8 日)より古ければ、その日数を出す(次の run の起動時に、走らなかった週を知らせる)" {
     heartbeat_days_ago 9

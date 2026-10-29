@@ -28,8 +28,8 @@ justfile
 # 入口スクリプト自身がその名前でブランチを切って push する
 dot_claude/skills/harness-review/SKILL.md
 dot_claude/scripts/executable_harness-weekly.sh
-# 週次ジョブが読み込む健全性の lib。停止を Issue で知らせる判定(PR の放置・PR にならないブランチ・
-# 走らなかった週)を書き換えると、ループの停止が知らされなくなる
+# 週次ジョブが読み込む健全性の lib。heartbeat の読み書きと走らなかった週の判定を書き換えると、
+# 週次ジョブの停止が知らされなくなる
 dot_claude/scripts/lib/harness-health.bash
 # 週次ジョブが読み込む Integrity Snapshot の lib(ADR 0019)。claude の後に使うファイルの一覧と照合を書き換えると、
 # 選別の claude が書き換えた Evaluator を週次ジョブが信頼して使う
@@ -47,6 +47,10 @@ test/harness-review-outcome.bats
 # 再発率の推移を PR から隠したり、照合に落ちた推移を省いて PR を作らせたりできる
 dot_claude/scripts/lib/harness-pr-body.bash
 test/harness-pr-body.bats
+# 週次ジョブが読み込む Loop Stall の module。放置された Loop PR と PR にならないループのブランチの判定と Issue の文面を
+# 書き換えると、承認の止まったループの PR やブランチが知らされなくなる
+dot_claude/scripts/lib/harness-loop-stalls.bash
+test/harness-loop-stalls.bats
 
 # 改善ループ自身(ADR 0011。解禁の条件も ADR 0011)。ループが自分の抽出・選別・週次ジョブ・状態表示を書き換えると、
 # 改善の効果とループの変更の効果を区別できなくなる。ファイル単位で守るので、ループが自分の手順を改善する
