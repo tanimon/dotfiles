@@ -135,11 +135,11 @@ week_record() {
 }
 
 # 失敗の検出の節。期間の時刻は UTC で書かせて、文字列をそのまま比べる
-@test "失敗の検出の節は、その日の週の記録の期間の検出を、記録した実行を問わずに数える" {
+@test "失敗の検出の節は、その日の Weekly Rate Record の期間の検出を、記録した実行を問わずに数える" {
     export TZ=UTC
     week_record 2026-10-24 1792800000 1793408400
     week_record 2026-10-31 1793408400 1794013200
-    # 期間の始まりちょうどは前の週の記録の分なので数えない。終わりちょうどは数える
+    # 期間の始まりちょうどは前の週の Weekly Rate Record の分なので数えない。終わりちょうどは数える
     detection before 1792800000 '{"user_negation":7}'
     detection w1 1792800100 '{"tool_error":3,"ci_failure":2}'
     printf 'broken line\n' >>"$HDIR/detections.jsonl"
@@ -166,7 +166,39 @@ week_record() {
         '2026-10-24 00:00 から 2026-10-31 01:00 までに検出器にかけたセッション: 1 件(失敗あり 0 件)。' '' '合計: 0')"
 }
 
-@test "失敗の検出の節は、その日の週の記録が無いか期間を読めなければ失敗する" {
+# record が書いた Weekly Rate Record の期間をそのまま失敗の検出の節に読ませ、2 つの数え方を同じ期間で比べる
+@test "失敗の検出の節の合計は、同じ日の Weekly Rate Record の detections と一致する" {
+    since=$((NOW - 3600))
+    detection s1 "$((NOW - 60))" '{"tool_error":2,"ci_failure":1}'
+    detection s2 "$((NOW - 60))" '{"repeat":3}'
+    detection s3 "$((NOW - 60))" '{}'
+    detection old "$((since - 1))" '{"tool_error":5}'
+    run bash "$SCRIPT" record "$TODAY" --since "$since" --classification ok
+    assert_success
+    run jq '.detections' "$RATES/$TODAY.json"
+    assert_output '6'
+    run --separate-stderr bash "$SCRIPT" detections "$TODAY"
+    assert_success
+    assert_line '| 合計 | 6 |'
+}
+
+@test "数値でない件数と object でない counts は、Weekly Rate Record の detections でも失敗の検出の節でも数えない" {
+    since=$((NOW - 3600))
+    detection s1 "$((NOW - 60))" '{"tool_error":2}'
+    detection odd "$((NOW - 60))" '{"tool_error":"3","hook_deny":1}'
+    detection list "$((NOW - 60))" '[4]'
+    run bash "$SCRIPT" record "$TODAY" --since "$since" --classification ok
+    assert_success
+    run jq '.detections' "$RATES/$TODAY.json"
+    assert_output '3'
+    run --separate-stderr bash "$SCRIPT" detections "$TODAY"
+    assert_success
+    assert_line '| `tool_error` | 2 |'
+    assert_line '| `hook_deny` | 1 |'
+    assert_line '| 合計 | 3 |'
+}
+
+@test "失敗の検出の節は、その日の Weekly Rate Record が無いか期間を読めなければ失敗する" {
     week_record 2026-10-17 100 200
     detection w1 150 '{"tool_error":1}'
     run --separate-stderr bash "$SCRIPT" detections 2026-10-24

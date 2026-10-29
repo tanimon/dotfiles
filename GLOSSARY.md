@@ -125,8 +125,8 @@ _Avoid_: Evaluator のパス(Evaluator は Guarded Path の一部にすぎない
 _Avoid_: 失敗(無限定)、学び、エラー
 
 **Weekly Rate Record**:
-週次ジョブが 1 週に 1 つ作る、Failure Pattern ごとの再発率とその期間の記録で、形式・期間・置き場の正本は再発率の CLI(`harness-failure-rates.sh`)。期間は分類に成功した前の Weekly Rate Record の終わりから始まり、Loop PR の本文の推移と失敗の検出の節はどちらもこの期間で数える。
-_Avoid_: 週の記録(無限定。Rule Ledger など他の記録と取り違える)、Heartbeat(期間の始まりには使わない)
+週次ジョブが 1 週に 1 つ作る、Failure Pattern ごとの再発率とその期間の記録で、形式・期間・置き場の正本は再発率の CLI(`harness-failure-rates.sh`)。期間は、分類に成功した前の Weekly Rate Record の終わりから始まる。
+_Avoid_: 週の記録(無限定。Rule Ledger など他の記録と取り違える)
 
 **Eval Case**:
 1つのルールの有無で結果が分かれるかを確かめる、Evaluator の事例。ルールの無い側で失敗が再現することを確かめたものだけが有効で、どちらの側でも成功するものは効果の証拠にならない。
