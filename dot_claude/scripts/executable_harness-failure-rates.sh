@@ -261,16 +261,19 @@ cmd_detections() {
 # 写す Weekly Rate Record(ローカルのパス)を 1 行に 1 つ出す。選び方はヘッダの「export の選び方」。
 # <ローカルの一覧> は record_files の出力、<base の一覧> は <revision> の置き場にあるファイルのリポジトリ内のパス。
 # どちらも呼び出し側が失敗を確かめてから渡す(ここで列挙すると、プロセス置換やコマンド置換の中の失敗が
-# 「0 件」や「base に無い」に化ける)
+# 「0 件」や「base に無い」に化ける)。<base の一覧> にある記録を git で読めなければ失敗する(JSON として
+# 読めない場合と違い、「中身が違う」に倒すと git の異常が件数に紛れる)。コマンド置換の中で呼ぶので、
+# 呼び出し側は終了ステータスを確かめる
 records_to_export() { # <日付> <revision> <作業ツリー> <ローカルの一覧> <base の一覧>
-    local date=$1 base=$2 worktree=$3 local_files=$4 base_paths=$5 file name committed local_record
+    local date=$1 base=$2 worktree=$3 local_files=$4 base_paths=$5 file name blob committed local_record
     while IFS= read -r file; do
         [[ -n "$file" ]] || continue
         name=$(basename "$file")
         if ! grep -Fxq -- "$RATES_REPO_DIR/$name" <<<"$base_paths"; then
             printf '%s\n' "$file"
         elif [[ "$name" == "$date.json" ]]; then
-            if ! committed=$(git -C "$worktree" show "$base:$RATES_REPO_DIR/$name" | jq -S -c . 2>/dev/null) ||
+            blob=$(git -C "$worktree" show "$base:$RATES_REPO_DIR/$name") || fail "cannot read $RATES_REPO_DIR/$name in $base"
+            if ! committed=$(jq -S -c . <<<"$blob" 2>/dev/null) ||
                 ! local_record=$(jq -S -c . "$file" 2>/dev/null) || [[ "$committed" != "$local_record" ]]; then
                 printf '%s\n' "$file"
             fi
@@ -308,7 +311,7 @@ cmd_export() {
     # ls-tree は置き場が <revision> に無ければ空を出して成功し、git 自体の失敗だけを非 0 で返す
     base_paths=$(git -C "$worktree" ls-tree --name-only "$base" -- "$RATES_REPO_DIR/") ||
         fail "cannot list the weekly rate records in $base"
-    files=$(records_to_export "$date" "$base" "$worktree" "$local_files" "$base_paths")
+    files=$(records_to_export "$date" "$base" "$worktree" "$local_files" "$base_paths") || exit 1
     if [[ "$dry_run" -eq 1 ]]; then
         count=$(grep -c . <<<"$files" || true)
         printf 'harness-failure-rates: would export %s record(s)\n' "$count"

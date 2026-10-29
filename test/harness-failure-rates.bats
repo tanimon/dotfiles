@@ -318,6 +318,27 @@ local_week() { # <日付> <JSON>
     assert_output 'harness-failure-rates: exported 1 record(s)'
 }
 
+@test "書き出しは、base にあるその日の記録を git で読めなければ、--dry-run でも件数を出さずに何も写さずに失敗する" {
+    local_week 2026-10-10 '{"date":"2026-10-10"}'
+    local_week 2026-10-17 '{"date":"2026-10-17"}'
+    export_worktree 2026-10-17
+    local_week 2026-10-17 '{"date":"2026-10-17","rerun":true}'
+    # ls-tree が読む tree は残し、git show が読む blob だけを消す
+    local blob
+    blob=$(git -C "$WT" rev-parse HEAD:docs/harness/failure-pattern-rates/2026-10-17.json)
+    rm -f "$WT/.git/objects/${blob:0:2}/${blob:2}"
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" --dry-run
+    local dry_run_status=$status dry_run_output=$output
+    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    assert_failure 1
+    assert_output --partial 'cannot read docs/harness/failure-pattern-rates/2026-10-17.json in HEAD'
+    refute_output --partial 'record(s)'
+    assert_equal "$dry_run_status" 1
+    [[ "$dry_run_output" != *'record(s)'* ]]
+    run git -C "$WT" status --porcelain --untracked-files=all
+    assert_output ''
+}
+
 @test "書き出しの --dry-run は、写す件数を 1 行で出し、worktree にもローカルの置き場にも何も書かない" {
     local_week 2026-10-03 '{"date":"2026-10-03"}'
     local_week 2026-10-10 '{"date":"2026-10-10"}'
