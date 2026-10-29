@@ -274,7 +274,8 @@
     {{/* mattpocock-skills は claude-plugins-official 経由だと上流の新機能の反映が遅れるため、上流リポジトリ自身の marketplace(mattpocock/skills の .claude-plugin/marketplace.json。marketplace 名は "mattpocock")から入れる。plugin 名は同じ mattpocock-skills なので skill の呼び出し名(mattpocock-skills:<skill>)は変わらない。旧キー(mattpocock-skills@claude-plugins-official)を再び有効にしないこと — 両方が有効だと同名 skill が二重に読み込まれる。上流の plugin.json は version を持つので、更新が届くのは上流が version を上げたときだけで、コミット単位ではない。 */ -}}
     "mattpocock-skills@mattpocock": true,
     "sentry-cli@claude-plugins-official": true,
-    "show-me@skills": true
+    "show-me@skills": true,
+    "egm@egm": true
   },
   {{/* /doctor(2026-10-03)で skillUsage の通算 0 回・直近 30 日の transcript でも呼び出し 0 件と判定して無効化した skill。sentry-cli は ~/.claude/skills/sentry-cli(chezmoi 管理外)で、plugin 版 sentry-cli:sentry-cli と説明文が同一の重複。仕事リポジトリから symlink している QA 依頼用の skill も通算 0 回だったが、利用の意思があるため意図的に残している — 再度落とさないこと。戻すときはエントリを消すだけでよい。 */ -}}
   {{/* define-goal(~/.claude/skills/define-goal。chezmoi 管理外)は /doctor(2026-10-16)で追加した。2026-10-02 の導入以降、skillUsage・transcript とも呼び出し 0 件だった。 */ -}}
@@ -308,6 +309,13 @@
       "source": {
         "source": "github",
         "repo": "mattpocock/skills"
+      },
+      "autoUpdate": true
+    },
+    "egm": {
+      "source": {
+        "source": "github",
+        "repo": "google/elephant-goldfish-model"
       },
       "autoUpdate": true
     }
