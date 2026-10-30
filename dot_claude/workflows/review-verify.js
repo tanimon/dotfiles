@@ -645,10 +645,12 @@ function renderReport(state) {
 
 async function runChecks(state, roundNo) {
   const label = `checks:${roundNo}`;
+  // 失敗の修正はロジックに及びうるが、ここで入れた変更は直後の同じラウンドのレビューが差分として見るので、安いモデルで足りる。判断が品質を決める段(レビュー・統合・修正・動作確認)はセッションのモデルを継承する。
   const result = await agent(checksPrompt(state.config), {
     label,
     phase: "Review",
     schema: CHECKS_SCHEMA,
+    model: "sonnet",
   });
   collectObservations(state, label, result);
   if (result && Array.isArray(result.changes))

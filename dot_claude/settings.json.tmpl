@@ -279,7 +279,9 @@
   },
   {{/* /doctor(2026-10-03)で skillUsage の通算 0 回・直近 30 日の transcript でも呼び出し 0 件と判定して無効化した skill。sentry-cli は ~/.claude/skills/sentry-cli(chezmoi 管理外)で、plugin 版 sentry-cli:sentry-cli と説明文が同一の重複。仕事リポジトリから symlink している QA 依頼用の skill も通算 0 回だったが、利用の意思があるため意図的に残している — 再度落とさないこと。戻すときはエントリを消すだけでよい。 */ -}}
   {{/* define-goal(~/.claude/skills/define-goal。chezmoi 管理外)は /doctor(2026-10-16)で追加した。2026-10-02 の導入以降、skillUsage・transcript とも呼び出し 0 件だった。 */ -}}
+  {{/* 仕事リポジトリから symlink している skill の多くは改名済みで、skillUsage の通算回数は改名後の名前の分しか無い。回数が少なくても利用中なので、/doctor の未使用判定だけで落とさないこと。create-qa-items(同じく仕事リポジトリからの symlink)は QA 項目の作成用で、同じ用途の別 skill があるので無効にしている。上で残すとした QA 依頼用の skill とは別物。 */ -}}
   "skillOverrides": {
+    "create-qa-items": "off",
     "define-goal": "off",
     "node-typescript-mts-esm": "off",
     "orchestration": "off",
