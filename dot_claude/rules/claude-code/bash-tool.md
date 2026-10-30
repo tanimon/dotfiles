@@ -56,33 +56,14 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 
 ## サンドボックス内の git 操作は途中で止まることがある
 
-`git merge` / `rebase` / `checkout` は、保護されたパス(他ディレクトリの `.claude/agents` など)への書き込みで
-`Operation not permitted` になり、作業ツリーに untracked の残骸を残して止まる。
-`--abort` で戻ったと思わず `git status` で残骸を確認し、サンドボックス外でやり直す。
-
-`git worktree add -b <b> <path>` は、`<path>` が書き込み許可の外(cwd の兄弟ディレクトリ `../<name>` など)だと
-`could not create leading directories … Operation not permitted` で失敗するが、ブランチ `<b>` は先に作られて残る。
-やり直すときは `-b` を外して `git worktree add <書ける path> <b>` とする(`-b` のままだと `already exists` で失敗する)。
-後で使い続ける作業ツリーは、サンドボックス外で兄弟ディレクトリに作る。scratchpad は数日で消える(「一時ファイルとファイルの置き場所」節)ので、
-置くのはその場で捨てる検証用だけにし、残す変更をコミットしてから `git worktree remove <path>` で登録ごと消す。
-ディレクトリだけが消えると未コミットの変更が失われ、`git worktree prune` するまで登録が残って、
-そのブランチは別の path でも `is already used by worktree` で使えない。
-
-`.git/config` もサンドボックス内では書けない(nono・ネイティブのどちらの境界でも。nono 側の意図は dotfiles リポジトリの `dot_config/nono/CLAUDE.md`)。
-`.git/config` を書き換える操作は `could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
+保護されたパスや `.git/config` への書き込みで、git 操作が途中で止まる。次のどれかが出たら、調査や再実行の前に
+`~/.claude/references/sandbox-git.md` を読む(残骸の確認とやり直し方が操作ごとに書いてある):
+`Operation not permitted`(`merge` / `rebase` / `checkout` / `worktree add`)、`could not lock config file`、
+`branch is renamed, but update of config-file failed`、`already exists`(`worktree add -b` のやり直し)、`is already used by worktree`。
 
 - **`git push -u`:** 付けなくてよい。素の `git push` は upstream を書かずに同名のリモートブランチへ push する(`push.default = current`)。
-  付けてしまっても push 自体は成功し、upstream だけが付かない。このエラーは調査せず、ユーザーへの報告にも書かない
-  (`git branch --set-upstream-to=…` などの再設定も案内しない)。push できたことは、リモートの head と `HEAD` の一致で示す。
-  `git ls-remote origin "refs/heads/$(git branch --show-current)" | cut -f1` と `git rev-parse HEAD` を比べる
-  (`ls-remote` の出力は `<SHA><TAB><ref>` なので SHA 列だけを取り出す。upstream が無いので `@{u}` や `git status` の ahead/behind は使えない)。
-  `git push origin HEAD:<headRefName>` で push したときは、`refs/heads/` の後ろを push 先の `<headRefName>` に替える
-  (ローカル名のままだと、その ref が無いか古い SHA が返り、push 済みでも不一致に見える)。
+  付けてしまって `could not lock config file` が出ても push 自体は成功している。このエラーは調査せず、ユーザーへの報告にも書かない。
   **理由:** 任意の許可(「報告しなくてよい」)の書き方では、「注意として一言添える」判断で 3 セッション続けて報告された。
-- **`git branch -m`:** リネームは済むが、config の書き換えで `fatal: branch is renamed, but update of config-file failed` を出して exit 128 になる(branch config の有無に関係ない)。
-  `git branch --show-current` で確かめ、再実行しない。
-- **`git switch -c <b> origin/<x>`:** ブランチは作られるが HEAD は移らない(追跡設定の書き込みで中断する)。
-  `git switch --no-track -c <b> origin/<x>` なら config を書かずに切り替わる(実測)。
 - **ローカルのブランチ名が PR の head と違うときは素の `git push` を打たない。** 素の push はローカル名で push するので別のリモートブランチができ、その削除は
   push guard が止める。既存 PR へ push するときは `gh pr view --json headRefName -q .headRefName` で head を引き、
   `git push origin HEAD:<headRefName>` と明示する。
