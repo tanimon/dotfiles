@@ -1131,6 +1131,15 @@ weekly_without_lib() { # [<lib に置く中身>]
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
 }
 
+@test "健全性の lib を読む前に止まった run は、環境に MISSED_DAYS があっても前の成功の古さを知らせない" {
+    MISSED_DAYS=30 LAST_SUCCESS=0 run weekly_without_lib
+    assert_failure
+    refute_output --partial 'last success was'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    refute_output --partial '日以上成功していなかった'
+}
+
 @test "健全性の lib に heartbeat と停止の判定が無くて止まった run も、失敗の Issue を作る" {
     run weekly_without_lib '# empty'
     assert_failure

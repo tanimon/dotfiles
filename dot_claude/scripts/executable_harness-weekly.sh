@@ -289,6 +289,10 @@ main() {
         printf 'harness-weekly: end %s session=%s exit=%s pending=%s->%s\n' \
             "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SESSION_ID" "$status" "$PENDING_BEFORE" "$(count_pending)"
     }
+    # report_stops が読む、起動時に健全性の lib から読む値。lib を読む前に止まった run では空のままにし、
+    # 起動時の環境に同じ名前の変数があっても前の成功の古さを判定しない
+    MISSED_DAYS=""
+    LAST_SUCCESS=""
     trap cleanup EXIT
     export HARNESS_DISABLE=1
 

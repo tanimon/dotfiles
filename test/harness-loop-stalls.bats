@@ -270,6 +270,18 @@ EOF
     assert_output ''
 }
 
+@test "手で公開するコマンドの綴りを Loop PR の module から受け取れなければ、手順が空の本文を送らずに WARN を出して 1 を返す" {
+    branch=harness/review-$(day_ago 8)
+    branch_ahead "$branch"
+    harness_integrity_snapshot
+    harness_loop_pr_push_command() { return 1; }
+    run report
+    assert_failure 1
+    assert_output --partial "harness-weekly: WARN could not build the issue for $branch"
+    run cat "$ALERT_TITLES"
+    assert_output ''
+}
+
 @test "origin/main が無ければ、ループのブランチを判定できないので WARN を出して 1 を返す" {
     branch_ahead "harness/review-$(day_ago 8)"
     git -C "$REPO" update-ref -d refs/remotes/origin/main
@@ -278,4 +290,27 @@ EOF
     assert_output --partial "harness-weekly: WARN could not list the loop branches in $REPO (is origin/main fetched?)"
     run cat "$ALERT_TITLES"
     assert_output ''
+}
+
+# <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
+guarded() { # <Source> <一覧のファイル>
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" == '#'* ]] && continue
+        line=${line#+}
+        if [[ "$line" == */ ]]; then
+            [[ "$1" == "$line"* ]] && return 0
+        elif [[ "$1" == "$line" ]]; then
+            return 0
+        fi
+    done <"$2"
+    return 1
+}
+
+@test "この lib とその bats は Guarded Path に載っている" {
+    local list="$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt"
+    run guarded dot_claude/scripts/lib/harness-loop-stalls.bash "$list"
+    assert_success
+    run guarded test/harness-loop-stalls.bats "$list"
+    assert_success
 }

@@ -81,16 +81,21 @@ _harness_loop_stalls_home_relative() { # <パス>
     esac
 }
 
-# 放置された Loop PR を知らせる。送れなかったか一覧を読めなければ 1 を返す
+# 放置された Loop PR を知らせる。本文を組み立てられなかったか送れなかったか、一覧を読めなければ 1 を返す
 _harness_loop_stalls_report_prs() { # <repo> <prefix> <送る関数>
-    local repo=$1 prefix=$2 send=$3 failed=0 prs stale number url days
+    local repo=$1 prefix=$2 send=$3 failed=0 prs stale number url days body
     if prs=$(cd "$repo" && gh pr list --state open --limit 100 --json number,url,headRefName,createdAt) &&
         stale=$(_harness_loop_stalls_stale_prs "$(date +%s)" "$prefix" <<<"$prs"); then
         while IFS=$'\t' read -r number url days; do
             [[ -n "$number" ]] || continue
             # shellcheck disable=SC2016 # 本文の `…` は Markdown のコードスパン
-            "$send" "harness: ループの PR #${number} が ${_HARNESS_LOOP_STALLS_STALE_PR_DAYS} 日以上放置されている" "$(printf 'ループの PR %s が作られてから %s 日、マージもクローズもされていない。承認が止まっている間、ループの変更は効かない。\n\n対処(どちらか):\n\n- 採用する: レビューし、draft なら `gh pr ready %s` で draft を外してから、マージする\n- 採用しない: `gh pr close %s` で閉じる\n\nPR が開いていなくなったら、この Issue を閉じる(開いている間は毎週コメントが付く)。\n' \
-                "$url" "$days" "$number" "$number")" || failed=1
+            body=$(printf 'ループの PR %s が作られてから %s 日、マージもクローズもされていない。承認が止まっている間、ループの変更は効かない。\n\n対処(どちらか):\n\n- 採用する: レビューし、draft なら `gh pr ready %s` で draft を外してから、マージする\n- 採用しない: `gh pr close %s` で閉じる\n\nPR が開いていなくなったら、この Issue を閉じる(開いている間は毎週コメントが付く)。\n' \
+                "$url" "$days" "$number" "$number") || {
+                printf 'harness-weekly: WARN could not build the issue for loop PR #%s\n' "$number" >&2
+                failed=1
+                continue
+            }
+            "$send" "harness: ループの PR #${number} が ${_HARNESS_LOOP_STALLS_STALE_PR_DAYS} 日以上放置されている" "$body" || failed=1
         done <<<"$stale"
     else
         printf 'harness-weekly: WARN could not list the open PRs to find loop PRs left for %s days\n' "$_HARNESS_LOOP_STALLS_STALE_PR_DAYS" >&2
@@ -99,12 +104,14 @@ _harness_loop_stalls_report_prs() { # <repo> <prefix> <送る関数>
     return "$failed"
 }
 
-# PR にならないループのブランチを知らせる。送れなかったか、問い合わせか Verdict の CLI の読み取りに失敗したら 1 を返す。
+# PR にならないループのブランチを知らせる。本文を組み立てられなかったか送れなかったか、問い合わせか Verdict の CLI の読み取りに
+# 失敗したら 1 を返す。
 # 前の週から残ったブランチだけを見る(その日の run と、手動の review がまだ公開していないものを除く)。
 # 基準日は今日の 7 日前で固定なので、前の週の run がスリープ明けなどで遅れて走ったブランチは、
 # 今週は外れて次の週に知らせる(1 週遅れる)。基準日を近づけると作業中の手動の review を知らせてしまう
 _harness_loop_stalls_report_branches() { # <repo> <prefix> <送る関数>
     local repo=$1 prefix=$2 send=$3 failed=0 cutoff branches shown_repo branch count verdict_status verdict_note marks pr_count
+    local push_command pr_command body
     local verdict_cli="$HOME/.claude/scripts/harness-verdict.sh" archive="$HOME/.claude/harness/queue-archive.md"
     if ! cutoff=$(jq -rn --argjson epoch "$(($(date +%s) - 7 * 86400))" '$epoch | localtime | strftime("%Y-%m-%d")') ||
         ! branches=$(_harness_loop_stalls_unpublished_branches "$repo" "$prefix" "$cutoff"); then
@@ -146,17 +153,25 @@ _harness_loop_stalls_report_branches() { # <repo> <prefix> <送る関数>
             printf 'harness-weekly: %s already has a PR; delete it with git -C %s branch -D %s to stop checking it\n' "$branch" "$repo" "$branch"
             continue
         fi
+        # 綴りは外の module から受け取るので、その module が変わっても手順が空の本文を送らないよう、先に代入して確かめる
         # shellcheck disable=SC2016 # 本文の `…` は Markdown のコードスパン
-        "$send" "harness: ループのブランチ ${branch} が PR になっていない" "$(printf 'ループのブランチ `%s` が、PR にならないまま `%s` に残っている(origin/main に無い commit: %s 件)。週次ジョブはこのブランチを公開しない。\n\n%s対処(どちらか):\n\n- 公開する: `%s` の後に、`%s` で `%s`\n- 要らなければ消す: `git -C %s branch -D %s`\n\nどちらかをしたら、この Issue を閉じる。\n' \
-            "$branch" "$shown_repo" "$count" "$verdict_note" "$(harness_loop_pr_push_command "$branch" "$shown_repo")" "$shown_repo" \
-            "$(harness_loop_pr_create_command "$branch")" "$shown_repo" "$branch")" || failed=1
+        if ! push_command=$(harness_loop_pr_push_command "$branch" "$shown_repo") ||
+            ! pr_command=$(harness_loop_pr_create_command "$branch") ||
+            ! body=$(printf 'ループのブランチ `%s` が、PR にならないまま `%s` に残っている(origin/main に無い commit: %s 件)。週次ジョブはこのブランチを公開しない。\n\n%s対処(どちらか):\n\n- 公開する: `%s` の後に、`%s` で `%s`\n- 要らなければ消す: `git -C %s branch -D %s`\n\nどちらかをしたら、この Issue を閉じる。\n' \
+                "$branch" "$shown_repo" "$count" "$verdict_note" "$push_command" "$shown_repo" "$pr_command" "$shown_repo" "$branch"); then
+            printf 'harness-weekly: WARN could not build the issue for %s\n' "$branch" >&2
+            failed=1
+            continue
+        fi
+        "$send" "harness: ループのブランチ ${branch} が PR になっていない" "$body" || failed=1
     done <<<"$branches"
     return "$failed"
 }
 
 # Loop Stall を見つけ、知らせるものごとに <送る関数> <タイトル> <本文> を呼ぶ(本文は複数行)。<prefix> はループのブランチの
 # prefix(正本は scripts/check-guarded-paths.sh。週次ジョブが Loop PR の module にも渡す値)。2 種類のどちらかで送れなかった
-# ものか問い合わせに失敗したものがあれば、WARN を出したうえで残りも知らせてから 1 を返し、無ければ 0 を返す。
+# ものか、本文を組み立てられなかったものか問い合わせに失敗したものがあれば、WARN を出したうえで残りも知らせてから
+# 1 を返し、無ければ 0 を返す。
 harness_loop_stalls_report() { # <リポジトリ> <ループのブランチの prefix> <送る関数>
     local failed=0
     _harness_loop_stalls_report_prs "$1" "$2" "$3" || failed=1
