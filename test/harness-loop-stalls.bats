@@ -294,7 +294,10 @@ EOF
 
 @test "date が失敗したら、基準日を作れないので放置された PR もループのブランチも WARN を出して 1 を返す" {
     branch_ahead "harness/review-$(day_ago 8)"
-    printf '#!/usr/bin/env bash\nexit 1\n' >"$BATS_TEST_TMPDIR/bin/date"
+    cat >"$BATS_TEST_TMPDIR/bin/date" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
     chmod +x "$BATS_TEST_TMPDIR/bin/date"
     run report
     assert_failure 1
