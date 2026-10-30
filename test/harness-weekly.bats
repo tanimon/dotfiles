@@ -916,7 +916,7 @@ FAILED_TITLE='harness: 週次ジョブが失敗した'
     refute_line --partial 'issue create'
 }
 
-@test "停止を知らせる gh の呼び出しは lock を解放してから行う(gh が固まっても lock を握ったままにしない)" {
+@test "週次ジョブ自身の停止と Loop Stall を知らせる gh の呼び出しは lock を解放してから行う(gh が固まっても lock を握ったままにしない)" {
     # 失敗の Issue と、Loop Stall の module の問い合わせ(開いている PR の一覧とブランチの PR の有無)の両方を見る
     leftover_branch harness/review-2026-09-01
     STUB_GH_OPEN_PRS=$(jq -n --arg old "$(iso_days_ago 15)" '[
@@ -1031,13 +1031,16 @@ weekly_without_loop_stalls_lib() { # [<lib に置く中身>]
     run weekly_without_loop_stalls_lib
     assert_failure
     assert_output --partial 'harness-loop-stalls.bash is missing or broken'
+    assert_output --partial 'loop stalls were not checked'
     refute_output --partial 'command not found'
     run weekly_without_loop_stalls_lib 'harness_loop_stalls_report() {'
     assert_failure
     assert_output --partial 'harness-loop-stalls.bash is missing or broken'
+    assert_output --partial 'loop stalls were not checked'
     run weekly_without_loop_stalls_lib '# empty'
     assert_failure
     assert_output --partial 'harness-loop-stalls.bash lacks the loop stall checks'
+    assert_output --partial 'loop stalls were not checked'
     refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "

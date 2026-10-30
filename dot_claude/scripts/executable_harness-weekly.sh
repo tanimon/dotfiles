@@ -266,9 +266,11 @@ main() {
             alert_issue "harness: 週次ジョブが ${HARNESS_HEALTH_WEEKLY_STALE_DAYS} 日以上成功していなかった" "$(printf '週次ジョブの前の成功が %s 日前だった。その間の週は、ジョブが起動しなかったか失敗した。この run(`session=%s`)の起動時に見つけた。\n\n対処:\n\n1. 失敗の Issue(`harness: 週次ジョブが失敗した`)が開いていれば、先にそちらを読む\n2. 無ければ launchd が起動していない。ターミナルで `launchctl print gui/$(id -u)/local.dotfiles.harness-weekly` の `runs` と `last exit code` を見る。ラベルが無ければ `chezmoi apply` で登録し直す\n3. `%s` に start の行が無い週は、その時刻に Mac が止まっていたか、nono の起動に失敗している\n4. 原因が分かったらこの Issue を閉じる\n' \
                 "$MISSED_DAYS" "$SESSION_ID" "$log")" || failed=1
         fi
-        # Loop Stall の module を読み込む前に止まった run では呼ばない
+        # Loop Stall の module を読み込む前に止まった run では呼ばない。見つからなかったのと区別できるよう、照会しなかったことを残す
         if declare -F harness_loop_stalls_report >/dev/null; then
             harness_loop_stalls_report "$REPO" "$LOOP_BRANCH_PREFIX" alert_issue || failed=1
+        else
+            printf 'harness-weekly: loop stalls were not checked (this run stopped before loading the Loop Stall module); the next run checks them\n'
         fi
         return "$failed"
     }
