@@ -292,6 +292,20 @@ EOF
     assert_output ''
 }
 
+@test "date が失敗したら、基準日を作れないので放置された PR もループのブランチも WARN を出して 1 を返す" {
+    branch_ahead "harness/review-$(day_ago 8)"
+    printf '#!/usr/bin/env bash\nexit 1\n' >"$BATS_TEST_TMPDIR/bin/date"
+    chmod +x "$BATS_TEST_TMPDIR/bin/date"
+    run report
+    assert_failure 1
+    assert_output --partial 'harness-weekly: WARN could not read the current time to find loop PRs left for 14 days'
+    assert_output --partial "harness-weekly: WARN could not compute the cutoff date to find the loop branches in $REPO"
+    run cat "$GH_LOG"
+    assert_output ''
+    run cat "$ALERT_TITLES"
+    assert_output ''
+}
+
 # <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
 guarded() { # <Source> <一覧のファイル>
     local line

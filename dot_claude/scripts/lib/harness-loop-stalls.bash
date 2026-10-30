@@ -81,11 +81,16 @@ _harness_loop_stalls_home_relative() { # <パス>
     esac
 }
 
-# 放置された Loop PR を知らせる。本文を組み立てられなかったか送れなかったか、一覧を読めなければ 1 を返す
+# 放置された Loop PR を知らせる。本文を組み立てられなかったか送れなかったか、現在の時刻か一覧を読めなければ 1 を返す
 _harness_loop_stalls_report_prs() { # <repo> <prefix> <送る関数>
-    local repo=$1 prefix=$2 send=$3 failed=0 prs stale number url days body
+    local repo=$1 prefix=$2 send=$3 failed=0 now prs stale number url days body
+    # date の失敗を引数の中で消さないよう、先に代入して確かめる
+    if ! now=$(date +%s); then
+        printf 'harness-weekly: WARN could not read the current time to find loop PRs left for %s days\n' "$_HARNESS_LOOP_STALLS_STALE_PR_DAYS" >&2
+        return 1
+    fi
     if prs=$(cd "$repo" && gh pr list --state open --limit 100 --json number,url,headRefName,createdAt) &&
-        stale=$(_harness_loop_stalls_stale_prs "$(date +%s)" "$prefix" <<<"$prs"); then
+        stale=$(_harness_loop_stalls_stale_prs "$now" "$prefix" <<<"$prs"); then
         while IFS=$'\t' read -r number url days; do
             [[ -n "$number" ]] || continue
             # shellcheck disable=SC2016 # 本文の `…` は Markdown のコードスパン
@@ -104,17 +109,23 @@ _harness_loop_stalls_report_prs() { # <repo> <prefix> <送る関数>
     return "$failed"
 }
 
-# PR にならないループのブランチを知らせる。本文を組み立てられなかったか送れなかったか、問い合わせか Verdict の CLI の読み取りに
-# 失敗したら 1 を返す。
+# PR にならないループのブランチを知らせる。本文を組み立てられなかったか送れなかったか、基準日を作れなかったか、問い合わせか
+# Verdict の CLI の読み取りに失敗したら 1 を返す。
 # 前の週から残ったブランチだけを見る(その日の run と、手動の review がまだ公開していないものを除く)。
 # 基準日は今日の 7 日前で固定なので、前の週の run がスリープ明けなどで遅れて走ったブランチは、
 # 今週は外れて次の週に知らせる(1 週遅れる)。基準日を近づけると作業中の手動の review を知らせてしまう
 _harness_loop_stalls_report_branches() { # <repo> <prefix> <送る関数>
-    local repo=$1 prefix=$2 send=$3 failed=0 cutoff branches shown_repo branch count verdict_status verdict_note marks pr_count
+    local repo=$1 prefix=$2 send=$3 failed=0 now cutoff branches shown_repo branch count verdict_status verdict_note marks pr_count
     local push_command pr_command body
     local verdict_cli="$HOME/.claude/scripts/harness-verdict.sh" archive="$HOME/.claude/harness/queue-archive.md"
-    if ! cutoff=$(jq -rn --argjson epoch "$(($(date +%s) - 7 * 86400))" '$epoch | localtime | strftime("%Y-%m-%d")') ||
-        ! branches=$(_harness_loop_stalls_unpublished_branches "$repo" "$prefix" "$cutoff"); then
+    # 算術式の中の $(date +%s) は失敗しても空として評価され、基準日が 1970 年より前になってどのブランチも当たらなくなるので、
+    # 先に代入して確かめる
+    if ! now=$(date +%s) ||
+        ! cutoff=$(jq -rn --argjson epoch "$((now - 7 * 86400))" '$epoch | localtime | strftime("%Y-%m-%d")'); then
+        printf 'harness-weekly: WARN could not compute the cutoff date to find the loop branches in %s\n' "$repo" >&2
+        return 1
+    fi
+    if ! branches=$(_harness_loop_stalls_unpublished_branches "$repo" "$prefix" "$cutoff"); then
         printf 'harness-weekly: WARN could not list the loop branches in %s (is origin/main fetched?)\n' "$repo" >&2
         return 1
     fi
