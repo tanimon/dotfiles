@@ -981,6 +981,7 @@ seed_loop_stalls() {
     seed_loop_stalls
     run weekly
     assert_success
+    refute_output --partial 'loop stalls were not checked'
     run cat "$ALERT_LOG"
     assert_line --partial 'issue create --label harness-analysis --title harness: ループの PR #51 が 14 日以上放置されている --body '
     assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない --body '
@@ -1003,6 +1004,7 @@ seed_loop_stalls() {
     assert_failure
     assert_output --partial 'harness-loop-pr.bash is missing or broken'
     assert_output --partial 'last success was 9 days ago; the failure issue of this run reports it'
+    assert_output --partial 'loop stalls were not checked'
     refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
