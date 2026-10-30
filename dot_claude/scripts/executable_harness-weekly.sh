@@ -300,25 +300,14 @@ main() {
 
     QUEUE="$HARNESS_DIR/queue.md"
     ARCHIVE="$HARNESS_DIR/queue-archive.md"
-    WORKTREE="$HARNESS_DIR/review-worktree"
+    # run の日付。Loop PR の module の初期化(当日のブランチ・本文などのパス)と Weekly Rate Record の記録が同じ日付を使う
     REVIEW_DATE=$(date +%Y-%m-%d)
-    # 日付を入れるのは、失敗した run の本文と結果ファイルを次の週の run が消さないため。
-    # 成功した run は消す
-    PR_BODY="$HARNESS_DIR/review-pr-body-$REVIEW_DATE.md"
-    # 選別に毎回書かせる結果ファイル。形・読み方・Deploy-only Fix の記録の正本は Review Outcome の lib
-    REVIEW_RESULT="$HARNESS_DIR/review-result-$REVIEW_DATE.json"
-    # 採用したルールの Eval Case の依頼と結果。依頼は選別に書かせ、Loop PR の module が harness-eval-cases.sh で評価して結果を書く(ADR 0011)
-    EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
-    EVAL_RESULTS="$HARNESS_DIR/eval-results-$REVIEW_DATE.json"
-    EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
-    # ループのブランチの prefix。正本は scripts/check-guarded-paths.sh(CI はこの prefix でループの PR を見分ける)
+    # ループのブランチの prefix。正本は scripts/check-guarded-paths.sh(CI はこの prefix でループの PR を見分ける)。
+    # Loop PR の module と Loop Stall の module の両方に渡す
     LOOP_BRANCH_PREFIX="harness/review-"
+    # 選別の prompt と開始の行に埋める値。Loop PR の module が初期化で作るものと同じ
     BRANCH="${LOOP_BRANCH_PREFIX}${REVIEW_DATE}"
-    # 選別の採用の印。選別の claude に環境変数 HARNESS_REVIEW_RUN で渡し、Verdict の CLI の settle が採用に付ける
-    # (ADR 0017。prompt には書かない)。印の書式は CLI だけが持ち、このスクリプトは印の値で CLI を呼ぶ。
-    # run ごとの印(選別の session id)を入れるのは、同じ日の前の run が失敗して残した採用を、今回の PR の URL で
-    # 上書きしないため(Loop PR の module の harness_loop_pr_run_review)。前の run の記録は残り、finish_run が知らせる
-    REVIEW_RUN="$BRANCH run $REVIEW_SESSION_ID"
+    EVAL_REQUESTS="$HARNESS_DIR/eval-requests-$REVIEW_DATE.json"
 
     # heartbeat の読み書きと、前の成功の古さの判定は健全性の lib にある。
     # 読めなければ失敗する。失敗の Issue は EXIT trap が lib に依らずに作る(report_stops)。
@@ -387,9 +376,9 @@ main() {
         printf 'harness-weekly: %s lacks the loop stall checks; run chezmoi apply\n' "$LOOP_STALLS_LIB" >&2
         exit 1
     }
-    harness_loop_pr_init --repo "$REPO" --worktree "$WORKTREE" --branch "$BRANCH" --loop-branch-prefix "$LOOP_BRANCH_PREFIX" \
-        --pr-body "$PR_BODY" --review-result "$REVIEW_RESULT" --eval-requests "$EVAL_REQUESTS" --eval-results "$EVAL_RESULTS" \
-        --eval-budget-usd "$EVAL_BUDGET_USD" --date "$REVIEW_DATE" --run "$REVIEW_RUN" || exit 1
+    # 当日のブランチ・本文などのパス・評価の予算・採用の印は、Loop PR の module がこの 4 つから作る(正本は初期化のコメント)
+    harness_loop_pr_init --repo "$REPO" --date "$REVIEW_DATE" --review-session-id "$REVIEW_SESSION_ID" \
+        --loop-branch-prefix "$LOOP_BRANCH_PREFIX" || exit 1
 
     # headless の claude を 1 回起動し、結果をログに残してから成否を返す。
     # 非 0 で終わっても結果(費用・エラーの種類)を先に出す。予算の上限などで止まった run も

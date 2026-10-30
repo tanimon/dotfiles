@@ -13,6 +13,10 @@ setup() {
     REPO_ROOT="$BATS_TEST_DIRNAME/.."
     export HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$HOME/.claude/scripts"
+    # 初期化が読む環境変数を、このマシンのシェルから漏らさない
+    unset HARNESS_WEEKLY_EVAL_BUDGET_USD
+    # 初期化は採用の印を Verdict の CLI で作るので、本物を置く
+    cp "$REPO_ROOT/dot_claude/scripts/executable_harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
     # 選別の代わりの関数は相対パスで commit するので、worktree の外で走ったときにリポジトリの中にいないようにする
     cd "$BATS_TEST_TMPDIR" || return 1
     # 週次ジョブと同じく、Integrity Snapshot の lib の後でこの lib だけを読む(Review Outcome と本文の lib はこの lib が読む)
@@ -73,44 +77,44 @@ EOF
 }
 
 init_loop_pr() { # [<上書きする引数>…]
-    harness_loop_pr_init --repo /work/repo --worktree /h/review-worktree \
-        --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
-        --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json \
-        --eval-requests /h/eval-requests-2026-10-17.json --eval-results /h/eval-results-2026-10-17.json --eval-budget-usd 5 \
-        --date 2026-10-17 --run 'harness/review-2026-10-17 run 0f0e' "$@"
+    harness_loop_pr_init --repo /work/repo --date 2026-10-17 --review-session-id 0f0e --loop-branch-prefix harness/review- "$@"
 }
 
-@test "初期化は run ごとの値と Loop PR のブランチの prefix がすべて揃えば成功する" {
+@test "初期化はリポジトリ・run の日付・選別の session id・Loop PR のブランチの prefix が揃えば成功する" {
     run init_loop_pr
     assert_success
     assert_output ''
 }
 
 @test "初期化は値が欠けていれば、欠けた引数の名前を出して失敗する" {
-    run harness_loop_pr_init --repo /work/repo --worktree /h/review-worktree \
-        --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
-        --pr-body /h/review-pr-body-2026-10-17.md --review-result /h/review-result-2026-10-17.json --eval-results /h/eval-results-2026-10-17.json \
-        --date 2026-10-17
+    run harness_loop_pr_init --repo /work/repo --loop-branch-prefix harness/review-
     assert_failure
-    assert_output --partial '--run'
-    assert_output --partial '--eval-requests'
-    assert_output --partial '--eval-budget-usd'
-    run init_loop_pr --worktree ''
+    assert_output --partial '--date'
+    assert_output --partial '--review-session-id'
+    refute_output --partial '--repo'
+    run init_loop_pr --loop-branch-prefix ''
     assert_failure
-    assert_output --partial '--worktree'
+    assert_output --partial '--loop-branch-prefix'
 }
 
 @test "初期化は知らない引数を受け付けない" {
     run init_loop_pr --repository /work/repo
     assert_failure
     assert_output --partial '--repository'
+    run init_loop_pr --branch harness/review-2026-10-17
+    assert_failure
+    assert_output --partial '--branch'
 }
 
-@test "初期化はブランチが Loop PR の prefix で始まらなければ失敗する" {
-    run init_loop_pr --branch feature/x
+@test "初期化は採用の印を Verdict の CLI で作れなければ、理由を出して失敗する" {
+    run init_loop_pr --review-session-id 'a)b'
     assert_failure
-    assert_output --partial 'feature/x'
-    assert_output --partial 'harness/review-'
+    assert_output --partial "contains ')'"
+    assert_output --partial 'harness-loop-pr: could not make the adoption mark'
+    rm "$HOME/.claude/scripts/harness-verdict.sh"
+    run init_loop_pr
+    assert_failure
+    assert_output --partial 'harness-loop-pr: could not make the adoption mark'
 }
 
 @test "初期化は公開に使う値が空か壊れていれば失敗する" {
@@ -120,11 +124,8 @@ init_loop_pr() { # [<上書きする引数>…]
         run bash -c 'set -euo pipefail
             for lib in integrity review-outcome pr-body loop-pr; do source "$1/harness-$lib.bash"; done
             printf -v "$2" "%s" ""
-            harness_loop_pr_init --repo /work/repo --worktree /h/review-worktree \
-                --branch harness/review-2026-10-17 --loop-branch-prefix harness/review- \
-                --pr-body /h/body.md --review-result /h/result.json --eval-requests /h/eval-requests.json \
-                --eval-results /h/eval-results.json --eval-budget-usd 5 \
-                --date 2026-10-17 --run mark' _ "$LIB_DIR" "$name"
+            harness_loop_pr_init --repo /work/repo --date 2026-10-17 --review-session-id 0f0e \
+                --loop-branch-prefix harness/review-' _ "$LIB_DIR" "$name"
         assert_failure
         assert_output 'harness-loop-pr: the publish values of this lib are empty or broken; run chezmoi apply'
     done
@@ -178,8 +179,8 @@ source_with_siblings() {
     run harness_loop_pr_review_instructions
     assert_success
     assert_equal "${#lines[@]}" 2
-    assert_line --index 0 --partial '- Always write the result file /h/review-result-2026-10-17.json before you finish'
-    assert_line --index 1 --partial '- Write the PR body (in Japanese) to /h/review-pr-body-2026-10-17.md:'
+    assert_line --index 0 --partial "- Always write the result file $HOME/.claude/harness/review-result-2026-10-17.json before you finish"
+    assert_line --index 1 --partial "- Write the PR body (in Japanese) to $HOME/.claude/harness/review-pr-body-2026-10-17.md:"
     assert_line --index 1 --partial "Never change files under docs/harness/failure-pattern-rates or docs/harness/rule-ledger, or the local Rule Ledger in $HOME/.claude/harness/rule-ledger; this job commits them."
 }
 
@@ -417,12 +418,13 @@ local_record() {
     printf '{"date":"%s"}\n' "$1" >"$RATES/$1.json"
 }
 
-# スナップショットを取ってから、実際のパスと既定と違う Loop PR の prefix で初期化する
+# スナップショットを取ってから、実際のリポジトリと既定と違う Loop PR の prefix で初期化する。worktree・本文・結果ファイル・
+# Eval Case の依頼と結果のパスとブランチは、初期化が $HOME と日付と prefix から作る(publish_fixture の WT などと同じになる)。
+# 評価の予算は環境変数で既定と違う値にする
 init_real() {
     harness_integrity_snapshot
-    harness_loop_pr_init --repo "$REPO" --worktree "$WT" --branch "$BRANCH" --loop-branch-prefix test/loop- \
-        --pr-body "$BODY" --review-result "$RESULT" --eval-requests "$EVAL_REQUESTS" --eval-results "$EVAL_RESULTS" \
-        --eval-budget-usd 1.5 --date 2026-10-17 --run "$BRANCH run 0f0e"
+    HARNESS_WEEKLY_EVAL_BUDGET_USD=1.5 harness_loop_pr_init --repo "$REPO" --date 2026-10-17 --review-session-id 0f0e \
+        --loop-branch-prefix test/loop-
 }
 
 four_local_records() {
@@ -1151,6 +1153,16 @@ review_touching_records() {
     git commit -qm "harness: touch $TOUCH_DIR"
 }
 
+@test "評価の予算は、環境変数が無ければ既定の 5 ドルにする" {
+    review_fixture
+    harness_integrity_snapshot
+    harness_loop_pr_init --repo "$REPO" --date 2026-10-17 --review-session-id 0f0e --loop-branch-prefix test/loop-
+    run review_with review_commits
+    assert_success
+    run cat "$EVAL_LOG"
+    assert_line --index 0 --regexp "^run .* budget=5$"
+}
+
 @test "選別の結果: 選別の commit がこのジョブの記録の置き場に触れたら、評価も PR の作成もせずに失敗する" {
     review_fixture
     init_real
@@ -1366,9 +1378,11 @@ EOF
 @test "選別の結果: 判定の記録を PR の URL に置き換えられなければ WARN にとどめ、Rule Ledger の記録まで進む" {
     review_fixture
     # publish だけを失敗させる Verdict の CLI(スナップショットの前に置くので書き換えではない)
+    mv "$HOME/.claude/scripts/harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict-real.sh"
     cat >"$HOME/.claude/scripts/harness-verdict.sh" <<'EOF'
 #!/usr/bin/env bash
-exit 1
+[[ "$1" != publish ]] || exit 1
+exec bash "$HOME/.claude/scripts/harness-verdict-real.sh" "$@"
 EOF
     init_real
     STUB_LEDGER_EXPORT=1 run review_with review_commits
@@ -1551,7 +1565,7 @@ review_with_fake_results() {
 @test "選別の結果: 選別の claude が公開の後に使うスクリプトか Failure Pattern の一覧を書き換えたら、PR を作らずに失敗し、変わったパスだけを出す" {
     review_fixture
     printf '{}\n' >"$HOME/.claude/scripts/harness-failure-patterns.json"
-    local file hash
+    local file original hash
     for file in harness-rule-ledger.sh harness-verdict.sh harness-failure-rates.sh harness-failure-patterns.json; do
         cp "$HOME/.claude/scripts/$file" "$BATS_TEST_TMPDIR/$file.orig"
     done
@@ -1559,7 +1573,10 @@ review_with_fake_results() {
         git -C "$REPO" worktree remove --force "$WT" 2>/dev/null || true
         git -C "$REPO" branch -q -D "$BRANCH" 2>/dev/null || true
         rm -f "$GH_LOG"
-        cp "$BATS_TEST_TMPDIR/$file.orig" "$HOME/.claude/scripts/$file"
+        # 前の回が書き換えたファイルも戻す(初期化は Verdict の CLI で採用の印を作る)
+        for original in harness-rule-ledger.sh harness-verdict.sh harness-failure-rates.sh harness-failure-patterns.json; do
+            cp "$BATS_TEST_TMPDIR/$original.orig" "$HOME/.claude/scripts/$original"
+        done
         init_real
         run review_with rewriting "$HOME/.claude/scripts/$file" review_commits
         assert_failure 1

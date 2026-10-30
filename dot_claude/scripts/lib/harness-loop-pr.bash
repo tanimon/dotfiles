@@ -4,8 +4,9 @@
 #
 # 持つもの:
 # - run ごとの値の初期化(harness_loop_pr_init)。週次ジョブが呼ぶ初期化はこれだけで、Review Outcome の lib と本文の lib の
-#   初期化はここから呼ぶ。Loop PR のブランチの prefix だけは週次ジョブが持ち、ここへ渡す。Loop Stall の module
-#   (harness-loop-stalls.bash)も同じ prefix でループのブランチを探すので、週次ジョブが両方に渡す。
+#   初期化はここから呼ぶ。週次ジョブから受け取るのはリポジトリ・run の日付・選別の session id・Loop PR のブランチの prefix
+#   だけで、当日のブランチ・worktree・本文・結果ファイル・Eval Case の依頼と結果のパス、評価の予算、採用の印はここで作る。
+#   prefix は Loop Stall の module(harness-loop-stalls.bash)も同じものでループのブランチを探すので、週次ジョブが両方に渡す。
 # - 公開に使う値(リポジトリ内の記録の置き場、Metrics-only PR を作る週数、署名用の git 設定)。interface には出さない。
 #   記録の置き場は、初期化で Review Outcome の lib と本文の lib に渡す。
 # - 選別の prompt に埋める指示(harness_loop_pr_review_instructions)。結果ファイルの指示(Review Outcome の lib)、本文の
@@ -114,16 +115,21 @@ _HARNESS_LOOP_PR_EVAL_BUDGET_USD=""
 _HARNESS_LOOP_PR_DATE=""
 _HARNESS_LOOP_PR_RUN=""
 
-# run ごとの値を受け取り、Review Outcome の lib と本文の lib を初期化する。引数は --repo <パス> --worktree <パス>
-# --branch <ブランチ> --loop-branch-prefix <prefix> --pr-body <パス> --review-result <パス> --eval-requests <パス>
-# --eval-results <パス> --eval-budget-usd <金額> --date <YYYY-MM-DD> --run <採用の印> で、すべて必須。
-# <Eval Case の依頼> は選別の claude に書かせるファイル(週次ジョブが選別の prompt にパスを書く)。<評価の結果> はこの lib の
-# 評価の工程が書いて封印するファイルで、封印されたときだけ Rule Ledger の記録に渡す。<金額> は評価の予算。
-# <YYYY-MM-DD> は run の日付で、本文の lib にも渡す(失敗の検出と推移の節がその日の Weekly Rate Record を読む)。
-# 空の値と知らない引数は受け付けない。<ブランチ> は <prefix> で始まる
+# run ごとの値を作り、Review Outcome の lib と本文の lib を初期化する。引数は --repo <パス> --date <YYYY-MM-DD>
+# --review-session-id <選別の session id> --loop-branch-prefix <prefix> で、すべて必須。空の値と知らない引数は受け付けない。
+# <YYYY-MM-DD> は run の日付で、週次ジョブが Weekly Rate Record の記録にも同じ値を使う(本文の lib にも渡し、失敗の検出と
+# 推移の節がその日の Weekly Rate Record を読む)。引数から作るもの:
+# - 当日のブランチ(<prefix><YYYY-MM-DD>)と worktree のパス
+# - 本文・選別の結果ファイル・Eval Case の依頼と結果のパス。週次ジョブの状態の置き場(~/.claude/harness)の下に日付入りの名前で
+#   作る(日付を入れるのは、失敗した run が残したものを次の週の run が消さないため)。<Eval Case の依頼> は選別の claude に
+#   書かせるファイル(選別の prompt にパスを書く)。<評価の結果> は評価の工程が書いて封印するファイルで、封印されたときだけ
+#   Rule Ledger の記録に渡す
+# - 評価の予算(環境変数 HARNESS_WEEKLY_EVAL_BUDGET_USD。既定 5)
+# - 採用の印。Verdict の CLI の mark で作る(書式は CLI だけが持つ。ADR 0017)。run ごとの印(選別の session id)を入れるのは、
+#   同じ日の前の run が失敗して残した採用を、今回の PR の URL で上書きしないため。初期化は Integrity Snapshot より前
+#   (claude の起動前)に走るので、CLI は Integrity Snapshot の入口を通さずに呼ぶ。作れなければ理由を出して失敗する
 harness_loop_pr_init() {
-    local repo="" worktree="" branch="" prefix="" pr_body="" review_result="" eval_requests="" eval_results="" eval_budget=""
-    local date="" run="" missing=""
+    local repo="" date="" session_id="" prefix="" missing="" harness_dir="$HOME/.claude/harness" branch verdict_cli run
     while [[ $# -gt 0 ]]; do
         if [[ $# -lt 2 ]]; then
             printf 'harness-loop-pr: %s needs a value\n' "$1" >&2
@@ -131,16 +137,9 @@ harness_loop_pr_init() {
         fi
         case $1 in
         --repo) repo=$2 ;;
-        --worktree) worktree=$2 ;;
-        --branch) branch=$2 ;;
-        --loop-branch-prefix) prefix=$2 ;;
-        --pr-body) pr_body=$2 ;;
-        --review-result) review_result=$2 ;;
-        --eval-requests) eval_requests=$2 ;;
-        --eval-results) eval_results=$2 ;;
-        --eval-budget-usd) eval_budget=$2 ;;
         --date) date=$2 ;;
-        --run) run=$2 ;;
+        --review-session-id) session_id=$2 ;;
+        --loop-branch-prefix) prefix=$2 ;;
         *)
             printf 'harness-loop-pr: unknown argument %s to harness_loop_pr_init\n' "$1" >&2
             return 1
@@ -149,22 +148,11 @@ harness_loop_pr_init() {
         shift 2
     done
     [[ -n "$repo" ]] || missing+=" --repo"
-    [[ -n "$worktree" ]] || missing+=" --worktree"
-    [[ -n "$branch" ]] || missing+=" --branch"
-    [[ -n "$prefix" ]] || missing+=" --loop-branch-prefix"
-    [[ -n "$pr_body" ]] || missing+=" --pr-body"
-    [[ -n "$review_result" ]] || missing+=" --review-result"
-    [[ -n "$eval_requests" ]] || missing+=" --eval-requests"
-    [[ -n "$eval_results" ]] || missing+=" --eval-results"
-    [[ -n "$eval_budget" ]] || missing+=" --eval-budget-usd"
     [[ -n "$date" ]] || missing+=" --date"
-    [[ -n "$run" ]] || missing+=" --run"
+    [[ -n "$session_id" ]] || missing+=" --review-session-id"
+    [[ -n "$prefix" ]] || missing+=" --loop-branch-prefix"
     if [[ -n "$missing" ]]; then
         printf 'harness-loop-pr: harness_loop_pr_init needs a value for%s\n' "$missing" >&2
-        return 1
-    fi
-    if [[ "$branch" != "$prefix"* ]]; then
-        printf 'harness-loop-pr: branch %s does not start with the loop branch prefix %s\n' "$branch" "$prefix" >&2
         return 1
     fi
     # 公開に使う値は interface に出さないので、週次ジョブではなくここで確かめる。空の週数は数の比較で 0 と読まれ、
@@ -174,23 +162,30 @@ harness_loop_pr_init() {
         printf 'harness-loop-pr: the publish values of this lib are empty or broken; run chezmoi apply\n' >&2
         return 1
     fi
-    harness_review_outcome_init --worktree "$worktree" --review-result "$review_result" --pr-body "$pr_body" --run "$run" \
-        --date "$date" --rates-repo-dir "$_HARNESS_LOOP_PR_RATES_REPO_DIR" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
+    branch="$prefix$date"
+    verdict_cli=$(_harness_loop_pr_verdict_cli)
+    if ! run=$(bash "$verdict_cli" mark --branch "$branch" --run-id "$session_id") || [[ -z "$run" ]]; then
+        printf 'harness-loop-pr: could not make the adoption mark with %s\n' "$verdict_cli" >&2
         return 1
-    harness_pr_body_init --pr-body "$pr_body" --worktree "$worktree" --review-result "$review_result" \
-        --date "$date" --run "$run" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
-        return 1
+    fi
     _HARNESS_LOOP_PR_REPO=$repo
-    _HARNESS_LOOP_PR_WORKTREE=$worktree
+    _HARNESS_LOOP_PR_WORKTREE="$harness_dir/review-worktree"
     _HARNESS_LOOP_PR_BRANCH=$branch
     _HARNESS_LOOP_PR_LOOP_BRANCH_PREFIX=$prefix
-    _HARNESS_LOOP_PR_PR_BODY=$pr_body
-    _HARNESS_LOOP_PR_REVIEW_RESULT=$review_result
-    _HARNESS_LOOP_PR_EVAL_REQUESTS=$eval_requests
-    _HARNESS_LOOP_PR_EVAL_RESULTS=$eval_results
-    _HARNESS_LOOP_PR_EVAL_BUDGET_USD=$eval_budget
+    _HARNESS_LOOP_PR_PR_BODY="$harness_dir/review-pr-body-$date.md"
+    # 形・読み方・Deploy-only Fix の記録の正本は Review Outcome の lib
+    _HARNESS_LOOP_PR_REVIEW_RESULT="$harness_dir/review-result-$date.json"
+    _HARNESS_LOOP_PR_EVAL_REQUESTS="$harness_dir/eval-requests-$date.json"
+    _HARNESS_LOOP_PR_EVAL_RESULTS="$harness_dir/eval-results-$date.json"
+    _HARNESS_LOOP_PR_EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
     _HARNESS_LOOP_PR_DATE=$date
     _HARNESS_LOOP_PR_RUN=$run
+    harness_review_outcome_init --worktree "$_HARNESS_LOOP_PR_WORKTREE" --review-result "$_HARNESS_LOOP_PR_REVIEW_RESULT" \
+        --pr-body "$_HARNESS_LOOP_PR_PR_BODY" --run "$run" --date "$date" --rates-repo-dir "$_HARNESS_LOOP_PR_RATES_REPO_DIR" \
+        --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" || return 1
+    harness_pr_body_init --pr-body "$_HARNESS_LOOP_PR_PR_BODY" --worktree "$_HARNESS_LOOP_PR_WORKTREE" \
+        --review-result "$_HARNESS_LOOP_PR_REVIEW_RESULT" --date "$date" --run "$run" \
+        --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" || return 1
 }
 
 # 選別の prompt に埋める指示の 2 行(末尾の改行なし。週次ジョブが 2 行目に続けて書く)。1 行目は結果ファイルの指示
