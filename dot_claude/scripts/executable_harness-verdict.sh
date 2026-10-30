@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Verdict(選別が queue の項目に下した結果。GLOSSARY.md)を扱う CLI(ADR 0017)。判定の記録(~/.claude/harness/queue-archive.md)の
 # Verdict 行の書式を知っているのはこのスクリプトだけにする。選別(harness-review skill の Bookkeeping)と Rule Ledger のスクリプトは
-# 子プロセスとして呼ぶ。週次ジョブも採用の印を publish・adopted・unpublished で扱い、印の書式を持たない。
+# 子プロセスとして呼ぶ。週次ジョブの採用の印も mark で組み立て、publish・adopted・unpublished で扱う。印の書式は
+# このスクリプトだけが持つ。
 #
 #   entries
 #   settle --title <見出し> adopted [--pr-url <URL>] | rejected <理由> | handoff <repo> | merged <統合先の見出し>
 #   publish --run <印> --pr-url <URL>
 #   adopted --run <印>
 #   unpublished [--branch <ブランチ>]
+#   mark --branch <ブランチ> --run-id <run id>
 #
 # publish・adopted・unpublished の「印」は、PR になっていない採用の Verdict 行 `adopted (<印>)` の括弧の中
 # (entries の run。週次ジョブの印は HARNESS_REVIEW_RUN の値)。どれも entries と同じ読み方で、項目ごとに最初の
@@ -21,7 +23,10 @@
 #                タブを含むものは entries と同じくタブを空白にして出すので、どちらも publish では置き換わらない。
 #                --branch を付けると、印が <ブランチ> そのもの(run id を付けていなかった頃の形)か
 #                `<ブランチ> run ` で始まるものに絞る(名前が <ブランチ> で始まる別のブランチは含めない)
-# 値の誤り(欠落・空・改行や ) を含む・余分な引数、`PR ` で始まる --run)は exit 2。判定の記録が無ければ、何も出さない(publish は 0 を出す)。
+#   mark         週次ジョブの採用の印 `<ブランチ> run <run id>` を 1 行で出す。判定の記録は読まない。印は settle が括弧で
+#                囲む値なので、どちらの値も settle と同じ規則で検査する。`PR ` で始まるブランチは、印が publish の --run に
+#                渡せなくなるので誤り
+# 値の誤り(欠落・空・改行や ) を含む・余分な引数、`PR ` で始まる --run と --branch)は exit 2。判定の記録が無ければ、何も出さない(publish は 0 を出す)。
 #
 # settle は queue(~/.claude/harness/queue.md)の見出し `## <見出し>` の項目(区切りは entries と同じ)を queue から外し、
 # 末尾の空行を落として Verdict 行を 1 行付け、判定の記録の末尾に前の項目と空行で区切って足す。書く Verdict 行:
@@ -69,6 +74,7 @@ usage() {
     printf '       harness-verdict.sh publish --run <mark> --pr-url <url>\n' >&2
     printf '       harness-verdict.sh adopted --run <mark>\n' >&2
     printf '       harness-verdict.sh unpublished [--branch <branch>]\n' >&2
+    printf '       harness-verdict.sh mark --branch <branch> --run-id <run id>\n' >&2
     exit 2
 }
 
@@ -294,9 +300,9 @@ settle_mode() {
     fail "$changed kept changing while settling '## $title' (3 times); nothing written"
 }
 
-# publish・adopted・unpublished の名前付きの値を読む。OPT_RUN・OPT_PR_URL・OPT_BRANCH に入れ、
+# publish・adopted・unpublished・mark の名前付きの値を読む。OPT_RUN・OPT_PR_URL・OPT_BRANCH・OPT_RUN_ID に入れ、
 # 渡されたものを OPT_GIVEN に「 名前 」の形で並べる。許す名前のほかの引数は exit 2
-OPT_RUN='' OPT_PR_URL='' OPT_BRANCH='' OPT_GIVEN=' '
+OPT_RUN='' OPT_PR_URL='' OPT_BRANCH='' OPT_RUN_ID='' OPT_GIVEN=' '
 read_options() { # <許す名前(空白区切り)> <引数…>
     local allowed=" $1 "
     shift
@@ -307,6 +313,7 @@ read_options() { # <許す名前(空白区切り)> <引数…>
         --run) OPT_RUN=$2 ;;
         --pr-url) OPT_PR_URL=$2 ;;
         --branch) OPT_BRANCH=$2 ;;
+        --run-id) OPT_RUN_ID=$2 ;;
         esac
         OPT_GIVEN+="$1 "
         shift 2
@@ -319,6 +326,9 @@ require_option() { # <名前> <値>
     # 印は PR になっていない採用の括弧の中なので、`PR ` で始まる値は印ではない(entries はそれを pr_url として読む)
     if [[ "$1" == --run && "$2" == 'PR '* ]]; then
         reject "--run '$2' is a PR URL verdict, not a mark (marks are the run values listed by unpublished)"
+    fi
+    if [[ "$1" == --branch && "$2" == 'PR '* ]]; then
+        reject "--branch '$2' would make a mark read as a PR URL verdict"
     fi
     return 0
 }
@@ -344,6 +354,13 @@ unpublished_mode() {
         select(.kind == "adopted" and has("run")) | .run
         | select($all or . == $branch or startswith($branch + " run "))' <<<"$listed" |
         awk '!seen[$0]++' || fail "cannot read $ARCHIVE"
+}
+
+mark_mode() {
+    read_options '--branch --run-id' "$@"
+    require_option --branch "$OPT_BRANCH"
+    require_option --run-id "$OPT_RUN_ID"
+    printf '%s run %s\n' "$OPT_BRANCH" "$OPT_RUN_ID"
 }
 
 # 判定の記録を写し、印が $PUBLISH_RUN の採用の Verdict 行を置き換えて $PUBLISH_OUT に書き、置き換えた件数を出す。
@@ -409,6 +426,10 @@ settle)
 publish)
     shift
     publish_mode "$@"
+    ;;
+mark)
+    shift
+    mark_mode "$@"
     ;;
 adopted | unpublished)
     command -v jq >/dev/null 2>&1 || fail 'jq not found'
