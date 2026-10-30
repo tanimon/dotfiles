@@ -23,3 +23,9 @@ date: 2026-10-17
 - 「各 claude の後にデータを比べる」は呼び出し元の順序に任せず、claude の工程を module の入口(`harness_integrity_run_untrusted`)に通して、入口が claude の成否に関わらず比べる。入口は照合に落ちたときだけ 3 を返し、工程の失敗は工程自身が 3 で終わっても 1 に揃える。そのため照合に落ちた選別は、claude が成功していても失敗した選別として扱う(PR を作らず、手で公開する手順も案内しない)。
 - PR を作った後(判定の記録の URL への置き換えと Rule Ledger の記録)に照合に落ちた run は、PR を残したまま失敗する(heartbeat を書かない)。
 - 週次ジョブ本体の書き換えは守れない。bash はスクリプトを実行しながら読むので、claude が書き換えるとその run の残りが変わりうる。照合と実行の間、`record` と封印の間の書き換えも残存リスクとして module のヘッダに書く。
+
+## 追記: Loop Stall の module への移動(#568)
+
+Consequences の 2 項目目のうち「lib の読み込みの前に止まった run でもブランチの Issue を作る」は、Loop Stall の通知を `lib/harness-loop-stalls.bash` に移したことで成り立たなくなった。週次ジョブはこの module を Integrity Snapshot の lib と Loop PR の module の後に読み込み、それより前に止まった run では Loop Stall を照会しない(照会しなかったことをログに残し、次の run が知らせる)。その run の停止は今も失敗の Issue で知らされる。
+
+結論は変わらない。スナップショットの前に止まった run と照合に落ちた run では、Verdict の CLI を呼ばずにブランチの Issue を作り、本文にそのことを書く。この扱いの正本は Loop Stall の module。

@@ -16,8 +16,9 @@
 # GIT_CONFIG_SYSTEM を潰すのは、このマシンの署名や push の設定を持ち込まないため。
 # gh と pnpm はスタブで、gh は呼ばれた引数と --body-file の中身を記録する。
 #
-# 検査するのは入口スクリプトの振る舞い: 工程の順序、早期に終わる分岐、lib の読み込みの失敗、停止の通知、選別の
-# prompt と claude の起動。Loop PR の経路(当日のブランチの照会・worktree の準備・依存のインストール・本文・公開・
+# 検査するのは入口スクリプトの振る舞い: 工程の順序、早期に終わる分岐、lib の読み込みの失敗、週次ジョブ自身の停止の通知
+# (失敗の Issue・走らなかった週の Issue)と EXIT trap が Loop Stall の module を呼ぶ配線、選別の prompt と claude の起動。Loop Stall の
+# 判定と文面は test/harness-loop-stalls.bats が Loop Stall の module の interface で検査する。Loop PR の経路(当日のブランチの照会・worktree の準備・依存のインストール・本文・公開・
 # Metrics-only PR・評価・Rule Ledger・失敗した選別の案内)は test/harness-loop-pr.bats が Loop PR の module の interface で
 # 検査する。ここに残す Loop PR の経路の通し実行は、入口スクリプトの配線(選別の claude の失敗が module に届くこと、
 # module の失敗で run が失敗して heartbeat を書かないこと、選別の後に締めの確認をすること、queue が空の週に
@@ -878,8 +879,8 @@ PRE
     assert_line "| Failure Pattern | $previous | $TODAY |"
 }
 
-# 停止を GitHub Issue で知らせる(#402、ADR 0012 の Consequences)。Issue のタイトルが重複を避ける
-# 鍵で、同じタイトルの Issue が開いていればコメントにする
+# 週次ジョブ自身の停止と Loop Stall を GitHub Issue で知らせる(#402、ADR 0012 の Consequences)。Issue の
+# タイトルが重複を避ける鍵で、同じタイトルの Issue が開いていればコメントにする
 
 FAILED_TITLE='harness: 週次ジョブが失敗した'
 
@@ -915,11 +916,19 @@ FAILED_TITLE='harness: 週次ジョブが失敗した'
     refute_line --partial 'issue create'
 }
 
-@test "停止を知らせる gh の呼び出しは lock を解放してから行う(gh が固まっても lock を握ったままにしない)" {
+@test "週次ジョブ自身の停止と Loop Stall を知らせる gh の呼び出しは lock を解放してから行う(gh が固まっても lock を握ったままにしない)" {
+    # 失敗の Issue と、Loop Stall の module の問い合わせ(開いている PR の一覧とブランチの PR の有無)の両方を見る
+    leftover_branch harness/review-2026-09-01
+    STUB_GH_OPEN_PRS=$(jq -n --arg old "$(iso_days_ago 15)" '[
+        {number: 51, url: "https://github.com/example/dotfiles/pull/51", headRefName: "harness/review-2026-09-01", createdAt: $old}
+    ]')
+    export STUB_GH_OPEN_PRS
     STUB_CLAUDE_MODE=exit1 run weekly
     assert_failure
     run cat "$ALERT_LOG"
-    assert_line --partial 'issue create'
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    assert_line --partial 'pr list --state open --limit 100 --json number,url,headRefName,createdAt'
+    assert_line --partial 'pr list --head harness/review-2026-09-01 '
     refute_line --partial 'lock held during:'
 }
 
@@ -946,39 +955,6 @@ iso_days_ago() {
     jq -rn --argjson e "$(($(date +%s) - $1 * 86400))" '$e | todate'
 }
 
-@test "ループの PR が 14 日以上放置されていれば、PR ごとの Issue を作り本文に対処を載せる" {
-    STUB_GH_OPEN_PRS=$(jq -n --arg old "$(iso_days_ago 15)" --arg fresh "$(iso_days_ago 13)" '[
-        {number: 51, url: "https://github.com/example/dotfiles/pull/51", headRefName: "harness/review-2026-09-01", createdAt: $old},
-        {number: 52, url: "https://github.com/example/dotfiles/pull/52", headRefName: "harness/review-2026-09-15", createdAt: $fresh},
-        {number: 53, url: "https://github.com/example/dotfiles/pull/53", headRefName: "feature/x", createdAt: $old}
-    ]')
-    export STUB_GH_OPEN_PRS
-    run weekly
-    assert_success
-    run cat "$ALERT_LOG"
-    assert_line --partial 'issue create --label harness-analysis --title harness: ループの PR #51 が 14 日以上放置されている'
-    refute_line --partial '#52'
-    refute_line --partial '#53'
-    run cat "$ALERT_BODIES"
-    assert_output --partial 'https://github.com/example/dotfiles/pull/51'
-    assert_output --partial '15 日'
-    assert_output --partial 'gh pr ready 51'
-    assert_output --partial 'gh pr close 51'
-}
-
-@test "放置の Issue が開いていれば、次の週はコメントにする" {
-    STUB_GH_OPEN_PRS=$(jq -n --arg old "$(iso_days_ago 22)" '[
-        {number: 51, url: "https://github.com/example/dotfiles/pull/51", headRefName: "harness/review-2026-09-01", createdAt: $old}
-    ]')
-    export STUB_GH_OPEN_PRS
-    export STUB_GH_ISSUES='[{"number":9,"title":"harness: ループの PR #51 が 14 日以上放置されている","updatedAt":"2026-01-01T00:00:00Z"}]'
-    run weekly
-    assert_success
-    run cat "$ALERT_LOG"
-    assert_line --regexp '^issue comment 9 '
-    refute_line --partial 'issue create'
-}
-
 # 前の週の run が PR にならないまま残した、origin/main に無い commit を持つループのブランチ
 leftover_branch() { # <ブランチ>
     git -C "$HARNESS_WEEKLY_REPO" switch -q -c "$1"
@@ -988,55 +964,90 @@ leftover_branch() { # <ブランチ>
     git -C "$HARNESS_WEEKLY_REPO" switch -q main
 }
 
-@test "PR にならないまま origin/main に無い commit を持つ、7 日以上前のループのブランチがあれば Issue を作る" {
-    # 本文のパスを ~ で書くことを確かめるため、リポジトリを HOME の下に置く(既定の置き場所と同じ形)
-    mv "$HARNESS_WEEKLY_REPO" "$HOME/repo"
-    export HARNESS_WEEKLY_REPO="$HOME/repo"
+# Loop Stall(放置された Loop PR と PR にならないループのブランチ)の判定と文面は test/harness-loop-stalls.bats が
+# module の interface で検査する。ここでは、EXIT trap が module を呼び、送る関数に alert_issue を渡していることだけを見る
+# (Issue の作成とタイトルでの重複の回避は alert_issue の仕事で、失敗の Issue のケースが検査する)
+
+# 放置された Loop PR と PR にならないループのブランチを 1 つずつ置く
+seed_loop_stalls() {
     leftover_branch harness/review-2026-09-01
+    STUB_GH_OPEN_PRS=$(jq -n --arg old "$(iso_days_ago 15)" '[
+        {number: 51, url: "https://github.com/example/dotfiles/pull/51", headRefName: "harness/review-2026-09-08", createdAt: $old}
+    ]')
+    export STUB_GH_OPEN_PRS
+}
+
+@test "成功した run も、Loop Stall を alert_issue で Issue にする" {
+    seed_loop_stalls
+    run weekly
+    assert_success
+    refute_output --partial 'loop stalls were not checked'
+    run cat "$ALERT_LOG"
+    assert_line --partial 'issue create --label harness-analysis --title harness: ループの PR #51 が 14 日以上放置されている --body '
+    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない --body '
+}
+
+@test "Loop Stall の Issue が開いていれば、alert_issue が新しく作らずにコメントにする" {
+    seed_loop_stalls
+    export STUB_GH_ISSUES='[{"number":9,"title":"harness: ループの PR #51 が 14 日以上放置されている","updatedAt":"2026-01-01T00:00:00Z"}]'
     run weekly
     assert_success
     run cat "$ALERT_LOG"
-    assert_line --partial 'pr list --head harness/review-2026-09-01 --state all --json number '
-    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
-    run cat "$ALERT_BODIES"
-    assert_output --partial 'origin/main に無い commit: 1 件'
-    assert_output --partial 'git -C ~/repo push origin harness/review-2026-09-01'
-    assert_output --partial 'push origin harness/review-2026-09-01'
-    assert_output --partial 'gh pr create --draft --base main --head harness/review-2026-09-01'
-    assert_output --partial 'branch -D harness/review-2026-09-01'
-    refute_output --partial "$HOME"
+    assert_line --regexp '^issue comment 9 '
+    refute_line --partial 'issue create --label harness-analysis --title harness: ループの PR #51'
 }
 
-@test "ループのブランチに PR があれば(手動の review や squash マージ)、Issue を作らない" {
-    leftover_branch harness/review-2026-09-01
-    STUB_GH_BRANCH_PRS=1 run weekly
-    assert_success
-    assert_output --partial 'harness/review-2026-09-01 already has a PR; delete it with git -C '
-    run cat "$ALERT_LOG"
-    assert_line --partial 'pr list --head harness/review-2026-09-01 '
-    refute_line --partial 'issue create'
-}
-
-@test "採用の記録が残るループのブランチは、失敗の Issue が知らせるのでブランチの Issue にしない" {
-    leftover_branch harness/review-2026-09-01
-    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-09-01 run old)\n' >"$HDIR/queue-archive.md"
-    run weekly
+@test "Loop PR の module を読めずに止まった run は、失敗の Issue と前の成功の古さは扱い、Loop Stall の module は呼ばない" {
+    seed_loop_stalls
+    seed_heartbeat "$(($(date +%s) - 9 * 86400))"
+    run weekly_without_loop_pr_lib
     assert_failure
-    assert_output --partial 'harness/review-2026-09-01 has an adopted verdict'
+    assert_output --partial 'harness-loop-pr.bash is missing or broken'
+    assert_output --partial 'last success was 9 days ago; the failure issue of this run reports it'
+    assert_output --partial 'loop stalls were not checked'
+    refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
-    refute_line --partial 'pr list --head harness/review-2026-09-01'
+    refute_line --partial 'createdAt'
+    refute_line --partial 'pr list --head'
+    refute_line --partial 'ループの PR #51'
     refute_line --partial 'ループのブランチ'
 }
 
-@test "origin/main に無い commit を持たないループのブランチは、PR を照会せず Issue も作らない" {
-    git -C "$HARNESS_WEEKLY_REPO" branch harness/review-2026-09-01 main
-    git -C "$HARNESS_WEEKLY_REPO" fetch -q origin
-    run weekly
-    assert_success
+# Loop Stall の module だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
+weekly_without_loop_stalls_lib() { # [<lib に置く中身>]
+    local dir="$BATS_TEST_TMPDIR/noloop-stalls"
+    mkdir -p "$dir/lib"
+    cp "$SCRIPT" "$dir/harness-weekly.sh"
+    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-review-outcome.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-pr-body.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash" "$dir/lib/"
+    [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-loop-stalls.bash"
+    bash "$dir/harness-weekly.sh"
+}
+
+@test "Loop Stall の module が無いか壊れているか入口が欠けていれば、読み込まずに止まり失敗の Issue を作る" {
+    seed_loop_stalls
+    run weekly_without_loop_stalls_lib
+    assert_failure
+    assert_output --partial 'harness-loop-stalls.bash is missing or broken'
+    assert_output --partial 'loop stalls were not checked'
+    refute_output --partial 'command not found'
+    run weekly_without_loop_stalls_lib 'harness_loop_stalls_report() {'
+    assert_failure
+    assert_output --partial 'harness-loop-stalls.bash is missing or broken'
+    assert_output --partial 'loop stalls were not checked'
+    run weekly_without_loop_stalls_lib '# empty'
+    assert_failure
+    assert_output --partial 'harness-loop-stalls.bash lacks the loop stall checks'
+    assert_output --partial 'loop stalls were not checked'
+    refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
-    refute_line --partial 'pr list --head harness/review-2026-09-01'
-    refute_line --partial 'issue create'
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    refute_line --partial 'createdAt'
+    assert [ ! -f "$ARGV_LOG" ]
 }
 
 @test "前の成功が 8 日以上前なら、起動した run が成功しても、走らなかった週の Issue を作る" {
@@ -1095,16 +1106,6 @@ leftover_branch() { # <ブランチ>
     refute_line --partial 'issue create'
 }
 
-@test "この 7 日のうちに切られたループのブランチは、まだ公開前かもしれないので PR を照会しない" {
-    leftover_branch "harness/review-$(date +%Y-%m-%d)-x"
-    leftover_branch "harness/review-$(jq -rn --argjson e "$(($(date +%s) - 86400))" '$e | localtime | strftime("%Y-%m-%d")')"
-    run weekly
-    assert_success
-    run cat "$ALERT_LOG"
-    refute_line --partial 'pr list --head'
-    refute_line --partial 'issue create'
-}
-
 @test "前の成功が 7 日前なら、走らなかった週の Issue を作らない" {
     seed_heartbeat "$(($(date +%s) - 7 * 86400))"
     run weekly
@@ -1133,6 +1134,15 @@ weekly_without_lib() { # [<lib に置く中身>]
     refute_output --partial 'command not found'
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+}
+
+@test "健全性の lib を読む前に止まった run は、環境に MISSED_DAYS があっても前の成功の古さを知らせない" {
+    MISSED_DAYS=30 LAST_SUCCESS=0 run weekly_without_lib
+    assert_failure
+    refute_output --partial 'last success was'
+    run cat "$ALERT_LOG"
+    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
+    refute_output --partial '日以上成功していなかった'
 }
 
 @test "健全性の lib に heartbeat と停止の判定が無くて止まった run も、失敗の Issue を作る" {
@@ -1264,68 +1274,6 @@ rewrite_record_in() {
     refute_heartbeat_written
 }
 
-# 採用の印が残るループのブランチ(Verdict の CLI の unpublished --branch が印を返す)
-leftover_adopted_branch() {
-    leftover_branch harness/review-2026-09-01
-    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-09-01 run old)\n' >"$HDIR/queue-archive.md"
-}
-
-# Verdict の CLI を、呼ばれたら印のファイルを残して何も返さない偽物に差し替える(採用を隠す書き換え)
-hide_adoptions_in_verdict_cli() { # <差し替える工程 reflect|now>
-    cat >"$BATS_TEST_TMPDIR/fake-verdict.sh" <<EOF
-#!/usr/bin/env bash
-touch "$BATS_TEST_TMPDIR/verdict-called"
-exit 0
-EOF
-    if [[ "$1" == now ]]; then
-        cp "$BATS_TEST_TMPDIR/fake-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
-        return
-    fi
-    cat >"$STUBS/claude-pre" <<PRE
-if [[ "\$*" == *'harness-reflect skill'* ]]; then
-    cp "$BATS_TEST_TMPDIR/fake-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
-fi
-PRE
-    sed -i.bak '2r '"$STUBS/claude-pre" "$STUBS/claude"
-}
-
-@test "抽出の claude が Verdict の CLI を書き換えたら、report_stops は CLI を呼ばずに、信頼できなかったと書いたブランチの Issue を作る" {
-    leftover_adopted_branch
-    hide_adoptions_in_verdict_cli reflect
-    run weekly
-    assert_failure
-    assert [ ! -e "$BATS_TEST_TMPDIR/verdict-called" ]
-    refute_output --partial 'has an adopted verdict'
-    run cat "$ALERT_LOG"
-    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
-    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
-    run cat "$ALERT_BODIES"
-    assert_output --partial 'Verdict CLI を信頼できなかった'
-}
-
-# 改ざんの検出の lib だけが無い(健全性の lib は在る)入口スクリプトの複製で起動する
-weekly_without_integrity_lib() {
-    local dir="$BATS_TEST_TMPDIR/nointegrity"
-    mkdir -p "$dir/lib"
-    cp "$SCRIPT" "$dir/harness-weekly.sh"
-    cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" "$dir/lib/"
-    bash "$dir/harness-weekly.sh"
-}
-
-@test "改ざんの検出の lib を読み込む前に止まった run の report_stops は、CLI を呼ばずに、確かめられなかったと書いたブランチの Issue を作る" {
-    leftover_adopted_branch
-    hide_adoptions_in_verdict_cli now
-    run weekly_without_integrity_lib
-    assert_failure
-    assert_output --partial 'harness-integrity.bash is missing or broken'
-    assert [ ! -e "$BATS_TEST_TMPDIR/verdict-called" ]
-    run cat "$ALERT_LOG"
-    assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
-    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
-    run cat "$ALERT_BODIES"
-    assert_output --partial 'Verdict CLI を確かめられなかった'
-}
-
 # Loop PR の module だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
 weekly_without_loop_pr_lib() { # [<lib に置く中身>]
     local dir="$BATS_TEST_TMPDIR/noloop-pr"
@@ -1334,7 +1282,8 @@ weekly_without_loop_pr_lib() { # [<lib に置く中身>]
     cp "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-health.bash" \
         "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-integrity.bash" \
         "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-review-outcome.bash" \
-        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-pr-body.bash" "$dir/lib/"
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-pr-body.bash" \
+        "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-stalls.bash" "$dir/lib/"
     [[ $# -eq 0 ]] || printf '%s\n' "$1" >"$dir/lib/harness-loop-pr.bash"
     bash "$dir/harness-weekly.sh"
 }
@@ -1438,44 +1387,6 @@ weekly_without_pr_body_lib() { # [<lib に置く中身>]
     run cat "$ALERT_LOG"
     assert_line --partial "issue create --label harness-analysis --title ${FAILED_TITLE} --body "
     assert [ ! -f "$ARGV_LOG" ]
-}
-
-@test "Loop PR の module を読み込む前に止まった run のブランチの Issue も、lib が組み立てるのと同じ綴りで公開の手順を書く" {
-    mv "$HARNESS_WEEKLY_REPO" "$HOME/repo"
-    export HARNESS_WEEKLY_REPO="$HOME/repo"
-    leftover_branch harness/review-2026-09-01
-    # 綴りの正本(lib)で組み立てた手順。report_stops は lib が無い run では自分の写しで同じ文を作る
-    expected=$(
-        # shellcheck source=../dot_claude/scripts/lib/harness-loop-pr.bash
-        source "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash"
-        printf -- '- 公開する: `%s` の後に、`~/repo` で `%s`' \
-            "$(harness_loop_pr_push_command harness/review-2026-09-01 '~/repo')" \
-            "$(harness_loop_pr_create_command harness/review-2026-09-01)"
-    )
-    run weekly_without_loop_pr_lib
-    assert_failure
-    assert_output --partial 'harness-loop-pr.bash is missing or broken'
-    run cat "$ALERT_LOG"
-    assert_line --partial 'issue create --label harness-analysis --title harness: ループのブランチ harness/review-2026-09-01 が PR になっていない'
-    run cat "$ALERT_BODIES"
-    assert_line "$expected"
-    assert_output --partial '- 公開する: `git -C ~/repo push origin harness/review-2026-09-01` の後に、`~/repo` で `gh pr create --draft --base main --head harness/review-2026-09-01`'
-    refute_output --partial "$HOME"
-}
-
-
-@test "スナップショットの前に止まった run の report_stops も、CLI を呼ばずに、確かめられなかったと書く" {
-    leftover_adopted_branch
-    rm "$HOME/.claude/scripts/harness-detect-failures.sh"
-    hide_adoptions_in_verdict_cli now
-    run weekly
-    assert_failure
-    assert_output --partial 'selecting pending sessions with'
-    refute_output --partial 'harness-integrity:'
-    assert [ ! -e "$BATS_TEST_TMPDIR/verdict-called" ]
-    run cat "$ALERT_BODIES"
-    assert_output --partial 'Verdict CLI を確かめられなかった'
-    refute_output --partial 'Verdict CLI を信頼できなかった'
 }
 
 # 抽出の claude の後のデータの照合。queue が空の週と当日の PR が既にある週、抽出が失敗した run は repo に写す工程を
