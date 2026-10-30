@@ -1,7 +1,7 @@
 # サンドボックス内の git 操作は途中で止まることがある
 
-`~/.claude/rules/claude-code/bash-tool.md` の「サンドボックス内の git 操作」節から、エラーが出たときにだけ要る手順を移したもの。
-常時読み込まれる側には、予防のための指示とこのファイルへのポインタだけを置いている。
+エラーが出たときにだけ要る手順。常時読み込まれる `~/.claude/rules/claude-code/bash-tool.md` の
+「サンドボックス内の git 操作は途中で止まることがある」節が、エラー文字列からこのファイルを指している。
 
 ## 保護されたパスへの書き込み
 
@@ -24,8 +24,8 @@
 `.git/config` もサンドボックス内では書けない(nono・ネイティブのどちらの境界でも。nono 側の意図は dotfiles リポジトリの `dot_config/nono/CLAUDE.md`)。
 `.git/config` を書き換える操作は `could not lock config file …/.git/config` で失敗し、操作によって残る状態が違う。
 
-- **`git push -u`:** push 自体は成功し、upstream だけが付かない。このエラーは調査せず、ユーザーへの報告にも書かない
-  (`git branch --set-upstream-to=…` などの再設定も案内しない)。push できたことは、リモートの head と `HEAD` の一致で示す。
+- **`git push -u`:** push 自体は成功し、upstream だけが付かない。報告の扱いは `bash-tool.md` の `git push -u` の項に従う。
+  push できたことは、リモートの head と `HEAD` の一致で示す。
   `git ls-remote origin "refs/heads/$(git branch --show-current)" | cut -f1` と `git rev-parse HEAD` を比べる
   (`ls-remote` の出力は `<SHA><TAB><ref>` なので SHA 列だけを取り出す。upstream が無いので `@{u}` や `git status` の ahead/behind は使えない)。
   `git push origin HEAD:<headRefName>` で push したときは、`refs/heads/` の後ろを push 先の `<headRefName>` に替える

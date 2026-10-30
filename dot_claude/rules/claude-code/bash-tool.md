@@ -59,10 +59,12 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 保護されたパスや `.git/config` への書き込みで、git 操作が途中で止まる。次のどれかが出たら、調査や再実行の前に
 `~/.claude/references/sandbox-git.md` を読む(残骸の確認とやり直し方が操作ごとに書いてある):
 `Operation not permitted`(`merge` / `rebase` / `checkout` / `worktree add`)、`could not lock config file`、
-`branch is renamed, but update of config-file failed`、`already exists`(`worktree add -b` のやり直し)、`is already used by worktree`。
+`branch is renamed, but update of config-file failed`、`already exists`(`worktree add -b` のやり直し)、`is already used by worktree`、
+`git switch -c` の後に HEAD が新しいブランチへ移っていない。
 
 - **`git push -u`:** 付けなくてよい。素の `git push` は upstream を書かずに同名のリモートブランチへ push する(`push.default = current`)。
-  付けてしまって `could not lock config file` が出ても push 自体は成功している。このエラーは調査せず、ユーザーへの報告にも書かない。
+  付けてしまって `could not lock config file` が出ても push 自体は成功している。このエラーは調査せず、ユーザーへの報告にも書かない
+  (`git branch --set-upstream-to=…` などの再設定も案内しない)。
   **理由:** 任意の許可(「報告しなくてよい」)の書き方では、「注意として一言添える」判断で 3 セッション続けて報告された。
 - **ローカルのブランチ名が PR の head と違うときは素の `git push` を打たない。** 素の push はローカル名で push するので別のリモートブランチができ、その削除は
   push guard が止める。既存 PR へ push するときは `gh pr view --json headRefName -q .headRefName` で head を引き、
