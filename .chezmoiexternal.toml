@@ -4,7 +4,9 @@
 # ECC(affaan-m/ECC)から実際に使っているファイルだけを取り込む。plugin 全体(skill 292 /
 # agent 68 / hook 24 系統)は読み込まない。経緯: docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md
 # 4 エントリは同じ SHA を指す。Renovate はそれぞれの url 行を個別に更新する。
-# rules/{typescript,web} は hooks.md を除いて include に列挙する(廃止済みの ECC hook を前提にした設定例のため)。
+# rules/{typescript,web} は使うファイルだけを include に列挙する。hooks.md は廃止済みの ECC hook を前提にした設定例なので、
+# typescript/testing.md は取り込まない agent(e2e-runner)の案内と Playwright の 1 行だけなので、
+# typescript/patterns.md は一般的な例(React の hook・固定の API レスポンス形)だけで、モデルが例の形を写すので、取り込まない。
 # exclude を足すと include 外のファイルまで取り込まれるので使わない。
 [".claude/commands/ecc-code-review.md"]
   type = "archive-file"
@@ -27,7 +29,7 @@
   url = "https://github.com/affaan-m/ECC/archive/bf70150eb2df8070024e5bdf08e4aa08959e2735.tar.gz"
   # renovate: branch=main
   stripComponents = 3
-  include = ["*/rules/typescript/coding-style.md", "*/rules/typescript/patterns.md", "*/rules/typescript/security.md", "*/rules/typescript/testing.md"]
+  include = ["*/rules/typescript/coding-style.md", "*/rules/typescript/security.md"]
   refreshPeriod = "168h"
 
 [".claude/rules/web"]

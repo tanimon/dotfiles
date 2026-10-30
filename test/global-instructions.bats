@@ -180,11 +180,10 @@ EOF
     assert_line '.claude/CLAUDE.md'
 }
 
-@test "ECC の rules/{typescript,web} は列挙した 10 ファイルだけが配置される" {
+@test "ECC の rules/{typescript,web} は列挙した 8 ファイルだけが配置される" {
     # .chezmoiexternal.toml の include はファイルを列挙しているので、ECC の SHA 更新で
     # upstream のファイルが改名・削除されると黙って配置されなくなる(古いファイルは
-    # ~/ に残って読み込まれ続ける)。hooks.md を外した理由は
-    # docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md
+    # ~/ に残って読み込まれ続ける)。列挙から外したファイルとその理由は .chezmoiexternal.toml のコメント
     run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$RENDER_SOURCE" --include=files
     assert_success
     local ecc_rules
@@ -192,9 +191,7 @@ EOF
     assert_equal "$ecc_rules" "$(
         cat <<'LIST'
 .claude/rules/typescript/coding-style.md
-.claude/rules/typescript/patterns.md
 .claude/rules/typescript/security.md
-.claude/rules/typescript/testing.md
 .claude/rules/web/coding-style.md
 .claude/rules/web/design-quality.md
 .claude/rules/web/patterns.md
