@@ -81,6 +81,14 @@ bin/cco
 .claude/rules/typescript/hooks.md
 .claude/rules/web/hooks.md
 
+# ECC の rules/typescript/testing.md も include から外した(取り込まない e2e-runner agent を案内するだけで、
+# 残りは Playwright を使うという 1 行のため)。配置済みのファイルが読み込まれ続けないよう、ここで消す。
+.claude/rules/typescript/testing.md
+
+# ECC の rules/typescript/patterns.md も include から外した(一般的な例だけで、モデルが例の形を
+# そのまま写すため)。配置済みのファイルが読み込まれ続けないよう、ここで消す。
+.claude/rules/typescript/patterns.md
+
 # Deliver は廃止され、Workflow は review-verify.js だけになっている(docs/adr/0022-retire-deliver-keep-only-review-verify.md)。
 # source から消しただけでは配置済みのファイルが残り、/deliver が古い Workflow を呼び続けるので、ここで消す。
 .claude/workflows/deliver.js
