@@ -14,7 +14,7 @@
 
 **Identity leak guard(`scripts/scan-sensitive-info.sh`)** — このリポジトリは public なので、work 用 GitHub org 名とローカルアカウント名を git 管理下のファイルに**書かない**(散文中の言及・プロジェクトスラグ `-Users-<user>--` の形も含む。例示はプレースホルダにする)。ガードの 2 層の仕組み・出力の redact・allowlist の書式は `.claude/rules/identity-leak-guard.md`(ガードを触るときだけ読み込まれる)にある。
 
-**Claude Code sandbox (nono)** — `claude-nono` in `dot_config/zsh/sandbox.zsh` (on trial; plain `claude` is unwrapped) runs Claude Code inside [nono](https://github.com/nolabs-ai/nono) (Homebrew, macOS Seatbelt / Linux Landlock, deny-all default), extending the official `claude-code` pack via `dot_config/nono/profiles/claude-seal.json`. See `dot_config/nono/CLAUDE.md` for the full policy detail (egress control, git/gh-inside-the-boundary, 1Password signing, accepted security residuals, the native Bash sandbox).
+**Claude Code sandbox (nono)** — `claude-nono` in `dot_config/zsh/sandbox.zsh` (on trial; plain `claude` is unwrapped) runs Claude Code inside [nono](https://github.com/nolabs-ai/nono) (Homebrew, macOS Seatbelt / Linux Landlock, deny-all default), extending the official `nolabs-ai/claude` pack via `dot_config/nono/profiles/claude-seal.json`. See `dot_config/nono/CLAUDE.md` for the full policy detail (egress control, git/gh-inside-the-boundary, 1Password signing, accepted security residuals, the native Bash sandbox).
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` wires notification delivery to `Notification`/`StopFailure` only. See `dot_claude/scripts/CLAUDE.md` for the full detail (matcher filtering, orca handoff, delivery backend fallback).
 

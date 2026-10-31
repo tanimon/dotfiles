@@ -33,4 +33,16 @@ Consequences の 1 項目目のうち 2. と 3. は、APM 0.34.0 で成り立た
 
 結論は変わらない。APM の所有は不完全で、その境界は「APM が書いたかどうか」ではなく lock の記録である。変わったのは記録の単位で、名前から (Target, 名前) の組になった。Target に手で足すサーバーを `apm.yml` の名前と衝突させない、という注意も残る。4. のとおり、衝突したエントリは `apm.yml` の定義で更新されないため。
 
-0.34 での実測は偽 `HOME` の fixture で行い、`test/apm-mcp-distribution.bats` が「prune は lock がその名前の所有者として記録した Target からだけ消す」と「既存の同名エントリを素通りした Target は所有者にならず、prune されない」の 2 ケースで固定する。4. の「定義を更新しない」は 0.34 でも手で書いたエントリについて実測したが、テストでは固定していない。「配布先はサーバー単位で選べない」は 0.34 で測り直していない。
+0.34 での実測は偽 `HOME` の fixture で行い、`test/apm-mcp-distribution.bats` が「prune は lock がその名前の所有者として記録した Target からだけ消す」と「定義が食い違う既存の同名エントリがある Target は所有者にならず、prune されない」(0.35 で改名。下の追記)の 2 ケースで固定する。4. の「定義を更新しない」は 0.34 でも手で書いたエントリについて実測したが、テストでは固定していない。「配布先はサーバー単位で選べない」は 0.34 で測り直していない。
+
+## 追記: APM 0.35 で食い違う同名エントリが install の失敗になった(2026-10-31)
+
+Consequences の 1 項目目の 4.(`already configured` と表示して素通りする)は、APM 0.35.0 で定義が食い違う場合について成り立たなくなった。偽 `HOME` の fixture で実測した 0.35 の挙動は次のとおり。
+
+- 既存の同名エントリの定義が `apm.yml` と食い違うと、APM は `MCP server '<name>' conflicts with the existing <target> connection ... Preserved that connection.` と表示してそのエントリを保持し、install 全体が exit 1 で終わる。claude と codex のどちらの Target でも同じ。`--force` でも所有を奪わない(APM 自身のメッセージ)。
+- 衝突しなかった他のサーバーはその install で書かれ、lock も書かれる。全サーバーが衝突したときは lock 自体が作られない。衝突した Target は lock の `mcp_target_servers` に所有者として記録されない。
+- 既存のエントリの定義が `apm.yml` と同一なら、何も表示せず素通りし、exit 0 で終わる。この場合も所有者として記録されない。
+
+本番の `scripts/apm-install-global.sh` は apm の非 0 を伝えたうえで `~/.claude.json` の symlink を張り直す(`test/apm-install-global.bats` の「apm failure」のケース)。そのため衝突すると `chezmoi apply` の run_onchange が失敗として表に出る。手で書いた同名のエントリを Target から消してから再 install する。
+
+所有の境界が lock の記録で決まり、記録の無い Target にあるエントリは prune されない点は 0.34 から変わらない。`test/apm-mcp-distribution.bats` の「定義が食い違う既存の同名エントリがある Target は所有者にならず、prune されない」が衝突と prune の対照を固定する。同一定義の素通りはテストでは固定していない。

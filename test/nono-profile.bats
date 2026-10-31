@@ -34,7 +34,7 @@ why() {
 }
 
 @test "claude-seal profile denies read on SSH private key" {
-    # このDENIEDは継承元claude-codeパックの組み込みdeny_credentialsグループに由来し、
+    # このDENIEDは継承元 nolabs-ai/claude パックの組み込みdeny_credentialsグループに由来し、
     # claude-seal.json固有の記述を検証しているわけではない。claude-seal.json側が
     # 将来この保護を弱めた場合(例: $HOME/.ssh を filesystem.bypass_protection と
     # filesystem.allow の両方に追加した場合)の回帰検知として機能する。allow への
