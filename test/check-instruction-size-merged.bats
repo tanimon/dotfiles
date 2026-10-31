@@ -71,6 +71,32 @@ merged() {
     assert_output --partial 'origin/main とマージした結果で上限を超える'
 }
 
+@test "マージした結果で描画した出力が上限を超えたら落ちる" {
+    # 描画の module・写しのスクリプト・fixture と render: の行のテンプレートを基準に入れ、ブランチに取り込む。
+    # マージ結果の一時ツリーは GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE を export した中で描画するので、
+    # そこで source の写しを作れないと exit 2 になる
+    mkdir -p "$OTHER/scripts" "$OTHER/test/fixtures"
+    cp "$BATS_TEST_DIRNAME/../scripts/chezmoi-render.bash" "$BATS_TEST_DIRNAME/../scripts/chezmoi-source-snapshot.sh" "$OTHER/scripts/"
+    cp "$BATS_TEST_DIRNAME"/fixtures/chezmoi-*.toml "$OTHER/test/fixtures/"
+    put "$OTHER" tmpl/a.tmpl $'a\nm\nm\nz'
+    put "$OTHER" scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 10 40\nrender:tmpl/a.tmpl - 40'
+    git -C "$OTHER" add -A
+    git -C "$OTHER" commit -q -m render
+    git -C "$OTHER" push -q origin main
+    git -C "$REPO" pull -q --ff-only origin main
+    put "$REPO" tmpl/a.tmpl $'aaaaaaaaaaaaaaaaaa\nm\nm\nz'
+    git -C "$REPO" commit -q -am grow
+    put "$OTHER" tmpl/a.tmpl $'a\nm\nm\nzzzzzzzzzzzzzzzzzz'
+    git -C "$OTHER" commit -q -am grow
+    git -C "$OTHER" push -q origin main
+    run check
+    assert_success
+    run merged
+    assert_failure 1
+    assert_output --partial 'render:tmpl/a.tmpl(personal): 42 バイト(上限 40、+2 バイト)'
+    assert_output --partial 'origin/main とマージした結果で上限を超える'
+}
+
 @test "基準が進んでいなければ通る" {
     branch_grows
     run merged

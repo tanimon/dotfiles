@@ -1,8 +1,10 @@
 name: Setup lint tools
 description: >
-  lint.yml の各 job が使うツールを導入する。just は常に入れ、それ以外は input で選ぶ。
-  ツールの版と、checkout 以外の action の pin はこのファイルにだけ書く(job ごとに写すと、
-  更新が一部の job にしか届かない drift が起きるため)。
+  lint を回す job(lint.yml の各 job と security-alerts.yml の sweep)が使うツールを導入する。just・shellcheck・yq は常に入れ、それ以外は input で選ぶ。
+  lint ツールの版はリポジトリの mise.toml にだけ書き(ADR 0023)、ここでは mise でそこから入れる。
+  node / pnpm の版は .node-version と package.json の packageManager から読む。それ以外の版と、
+  checkout 以外の action の pin はこのファイルにだけ書く(job ごとに写すと、更新が一部の job に
+  しか届かない drift が起きるため)。
   checkout はこの action の外で先に行うこと(action 自身を読むために要る)。そのため
   checkout の pin だけは lint.yml の各 job に残る。
 
@@ -17,13 +19,13 @@ inputs:
     description: chezmoi(最新版)を導入する
     default: 'false'
   shfmt:
-    description: shfmt を導入する
+    description: shfmt を mise.toml の版で導入する
     default: 'false'
   actionlint:
-    description: actionlint を導入する
+    description: actionlint を mise.toml の版で導入する
     default: 'false'
   zizmor:
-    description: zizmor を導入する
+    description: zizmor を mise.toml の版で導入する
     default: 'false'
   zsh:
     description: zsh(apt の版。固定しない)を導入する。ubuntu runner には既定で入っていない
@@ -50,28 +52,60 @@ runs:
       name: Install chezmoi
       shell: bash
       run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
-    - if: inputs.shfmt == 'true'
-      name: Install shfmt
-      shell: bash
-      run: |
-        SHFMT_VERSION=3.11.0
-        curl -fsSL "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" -o /usr/local/bin/shfmt
-        chmod +x /usr/local/bin/shfmt
-    - if: inputs.actionlint == 'true'
-      name: Install actionlint
-      shell: bash
-      run: |
-        ACTIONLINT_VERSION=1.7.12
-        curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-          | tar xz -C /usr/local/bin actionlint
-    - if: inputs.zizmor == 'true'
-      name: Install zizmor
-      shell: bash
-      run: pip install zizmor==1.31.1
     - if: inputs.zsh == 'true'
       name: Install zsh
       shell: bash
       run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
-    - name: Install just
+    # shellcheck と yq を常に入れる理由は ADR 0023
+    - name: Select mise tools
+      id: mise-tools
       shell: bash
-      run: curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --tag 1.58.0 --to /usr/local/bin
+      env:
+        SHFMT: ${{ inputs.shfmt }}
+        ACTIONLINT: ${{ inputs.actionlint }}
+        ZIZMOR: ${{ inputs.zizmor }}
+      run: |
+        tools="just shellcheck yq"
+        if [ "$SHFMT" = true ]; then tools="$tools shfmt"; fi
+        if [ "$ACTIONLINT" = true ]; then tools="$tools actionlint"; fi
+        if [ "$ZIZMOR" = true ]; then tools="$tools zizmor"; fi
+        echo "tools=$tools" >> "$GITHUB_OUTPUT"
+    # mise はワークスペースの外に置いた mise.toml の写しだけを読む(ADR 0023)。ワークスペースで動かすと、
+    # mise.local.toml・.tool-versions・mise.<env>.toml など名前の決まらない設定も読み、mise-action が
+    # ワークスペースを信頼済みにするので、それらのテンプレートや [env] _.path も評価して版や PATH を差し替えられる
+    - name: Copy mise.toml
+      id: mise-dir
+      shell: bash
+      run: |
+        dir="${RUNNER_TEMP}/setup-lint-mise"
+        mkdir -p "$dir"
+        cp mise.toml "$dir/"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+    # shims は呼ばれたディレクトリの設定で版を選ぶので PATH に足さない。導入先は env の export_path が PATH に足す
+    - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+      with:
+        version: 2026.10.11
+        working_directory: ${{ steps.mise-dir.outputs.dir }}
+        add_shims_to_path: 'false'
+        install_args: ${{ steps.mise-tools.outputs.tools }}
+    # 入れた各ツールが mise.toml の版の導入先に解決されることを確かめる(ADR 0023)
+    - name: Check mise tools
+      shell: bash
+      working-directory: ${{ steps.mise-dir.outputs.dir }}
+      env:
+        TOOLS: ${{ steps.mise-tools.outputs.tools }}
+      run: |
+        for tool in $TOOLS; do
+          expected=$(mise which "$tool") || {
+            echo "::error::${tool} が mise.toml の版に解決されない(mise which が失敗した)"
+            exit 1
+          }
+          resolved=$(command -v "$tool") || resolved=
+          case "$resolved" in
+            "$expected") ;;
+            *)
+              echo "::error::${tool} が mise.toml の版(${expected})に解決されない: ${resolved:-見つからない}"
+              exit 1
+              ;;
+          esac
+        done

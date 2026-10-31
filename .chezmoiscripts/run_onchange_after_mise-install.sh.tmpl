@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# mise global config hash: {{ include "dot_config/mise/config.toml" | sha256sum }}
+# mise が無くて skip すると run_onchange_ は実行済みと記録されるので、mise が PATH に現れたら内容を変えて次の apply で走らせる
+# mise on PATH: {{ if lookPath "mise" }}yes{{ else }}no{{ end }}
+
+# lint ツールは Brewfile に無く、グローバルの mise 設定から入る(ADR 0023)。mise が一度も入れていない
+# ツールは shim も無く、PATH 上の別の導入元(既存のマシンに残った Homebrew 版など)が黙って使われる
+if ! command -v mise &>/dev/null; then
+  echo "⚠ WARNING: mise not found, skipping tool install. Lint tools may resolve to another install until the next 'chezmoi apply'." >&2
+  exit 0
+fi
+
+# chezmoi の作業ディレクトリに依存しない。リポジトリの中で実行すると、リポジトリの mise.toml の版も入れて
+# そのディレクトリを信頼済みにする
+cd "$HOME"
+echo "Installing tools from the global mise config..."
+mise install
