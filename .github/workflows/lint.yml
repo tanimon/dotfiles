@@ -163,7 +163,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # chezmoi は必須。描画してから測るテンプレートがあるので、chezmoi が無いと skip せず exit 2 で落ちる
       - uses: ./.github/actions/setup-lint
+        with:
+          chezmoi: 'true'
       - run: just check-instruction-size
 
   test-instruction-size:
@@ -173,8 +176,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # chezmoi は必須。test/rendered-instruction-size.bats はテンプレートを描画して測るので、
-      # chezmoi が無いと skip せず fail する
+      # chezmoi は必須。テンプレートを描画して測るテストがあるので、chezmoi が無いと skip せず fail する
       - uses: ./.github/actions/setup-lint
         with:
           pnpm: 'true'

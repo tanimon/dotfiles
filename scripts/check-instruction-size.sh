@@ -3,59 +3,30 @@
 # (ADR 0011 の肥大の歯止め)。
 # 上限の値とその根拠は scripts/instruction-size-limits.txt にある。
 #
-# 使い方(どれもリポジトリのルートで実行する):
-#   check-instruction-size.sh
-#       判定の対象のファイルのうち、ソースのまま測るものをファイルごとに測る(配置先が判定の対象のテンプレートは
-#       INSTRUCTION_PATHSPECS に一致するものだけをソースのまま測る)。判定の対象は、作業ツリーにある
-#       ファイル(git に追加していない新しいファイルも含む。.gitignore で無視されるものは含まない)のうち、
-#       INSTRUCTION_PATHSPECS に一致するものと、chezmoi が配置する先のパスがその形に一致するもの
-#       (chezmoi_destination。private_SKILL.md、exact_rules/ など)。
-#   check-instruction-size.sh --list-rendered
-#       一覧の render: の行のテンプレートを 1 行 1 件で出す。出した名前はそのまま --rendered に渡せる。
-#   check-instruction-size.sh --list-templates
-#       配置先が判定の対象のテンプレート(SKILL.md.tmpl など)のうち、render: の行が無いものを 1 行 1 件で出す。
-#       出した名前はそのまま --rendered に渡せる。
-#   check-instruction-size.sh --rendered <名前> <ファイル>
-#       <ファイル>(<名前> のテンプレートを描画した出力)を測る。render: の行があればその行の上限で、
-#       --list-templates のテンプレートなら個別の上限の行か配置先の種類の既定値で測る。
-#       描画はこのスクリプトでは行わない(test/rendered-instruction-size.bats が受け持つ)。
-# どの使い方でも一覧全体を読み、読めない行があるか、SKILL.md があるのに skill:* の行が無いか、配置先が判定の対象か
+# 使い方: リポジトリのルートで引数なしで実行する(引数を渡すと exit 2)。
+#
+# 判定の対象は、作業ツリーにあるファイル(git に追加していない新しいファイルも含む。.gitignore で無視されるものは
+# 含まない)のうち、INSTRUCTION_PATHSPECS に一致するものと、chezmoi が配置する先のパスがその形に一致するもの
+# (chezmoi_destination。private_SKILL.md、exact_rules/ など)。測り方は 2 つ:
+# - ソースのまま測る: テンプレートでないもの。配置先が判定の対象のテンプレートは、INSTRUCTION_PATHSPECS に
+#   一致するものだけをソースのままでも測る
+# - 描画してから測る: 一覧の render: の行のテンプレート(その行の上限で)と、配置先が判定の対象のテンプレート
+#   (SKILL.md.tmpl など。個別の上限の行か配置先の種類の既定値で)。test/fixtures/chezmoi-*.toml のすべての
+#   Machine Profile で描画し、超過は profile 名を付けて出す。render: の行のテンプレートは出力が空なら落とし、
+#   配置先が判定の対象のテンプレートは出力が空なら通す。描画は scripts/chezmoi-render.bash を通し、
+#   描画の対象があるときだけ chezmoi を使う
+# 描画の module はこのスクリプトの置き場所から読み、テンプレートと上限の一覧はカレントディレクトリから読む。
+# 一覧全体を読み、読めない行があるか、SKILL.md があるのに skill:* の行が無いか、配置先が判定の対象か
 # .claude/rules の祖先か配下なのに中身をソースから測れない source(modify_・symlink_・encrypted_)があれば exit 2 にする。
 #
-# 終了コード: 0 = すべて上限内、1 = 上限を超えたファイルがある、2 = 上限の一覧か引数を読めない。
+# 終了コード: 0 = すべて上限内、1 = 上限を超えたファイルがある、2 = 上限の一覧か引数を読めないか、描画できない
+# (chezmoi が無い場合と、render: の行のテンプレートの出力が空の場合を含む)。2 は 1 より優先する。
 set -euo pipefail
 
-mode=check
-case ${1:-} in
-'') ;;
---list-rendered)
-    (($# == 1)) || {
-        echo "instruction-size: --list-rendered は引数を取らない" >&2
-        exit 2
-    }
-    mode=list-rendered
-    ;;
---list-templates)
-    (($# == 1)) || {
-        echo "instruction-size: --list-templates は引数を取らない" >&2
-        exit 2
-    }
-    mode=list-templates
-    ;;
---rendered)
-    (($# == 3)) || {
-        echo "instruction-size: 使い方: --rendered <名前> <ファイル>" >&2
-        exit 2
-    }
-    mode=rendered
-    rendered_name=$2
-    rendered_file=$3
-    ;;
-*)
-    echo "instruction-size: 知らない引数: $1" >&2
+if (($# != 0)); then
+    echo "instruction-size: 引数を取らない(リポジトリのルートで引数なしで実行する): $*" >&2
     exit 2
-    ;;
-esac
+fi
 
 LIMITS_FILE='scripts/instruction-size-limits.txt'
 
@@ -196,9 +167,10 @@ is_target() {
 # プロセス置換に直接つなぐと git の失敗が set -e に拾われないので、先に一時ファイルに書く。
 # 改行区切りで読むと core.quotePath(既定 true)が非 ASCII のパスを "\346..." の形に引用し、
 # -f が偽になってそのファイルが黙って判定から外れる。-z の出力は引用されない。
+render_work=''
 listed_file=$(mktemp)
 pathspec_file=$(mktemp)
-trap 'rm -f "$listed_file" "$pathspec_file"' EXIT
+trap 'rm -rf "$listed_file" "$pathspec_file" ${render_work:+"$render_work"}' EXIT
 if ! git ls-files -z --cached --others --exclude-standard >"$listed_file" ||
     ! git ls-files -z --cached --others --exclude-standard -- "${INSTRUCTION_PATHSPECS[@]}" >"$pathspec_file"; then
     echo "instruction-size: git ls-files に失敗した" >&2
@@ -211,8 +183,8 @@ while IFS= read -r -d '' file; do
     pathspec_matched+=$file$'\n'
 done <"$pathspec_file"
 
-# targets はソースをそのまま測るファイル、templates は配置先が判定の対象のテンプレート(描画は
-# test/rendered-instruction-size.bats)。*_destinations はそれぞれの配置先のパス(配置されないものは source のパス)で、当てる既定値を決める
+# targets はソースをそのまま測るファイル、templates は配置先が判定の対象のテンプレート(描画してから測る)。
+# *_destinations はそれぞれの配置先のパス(配置されないものは source のパス)で、当てる既定値を決める
 targets=()
 target_destinations=()
 templates=()
@@ -380,57 +352,74 @@ has_render_line() {
     return 1
 }
 
-if [[ $mode == list-rendered ]]; then
-    for template in ${rendered_templates[@]+"${rendered_templates[@]}"}; do
-        printf '%s\n' "$template"
-    done
-    exit 0
-fi
-
-if [[ $mode == list-templates ]]; then
-    for template in ${templates[@]+"${templates[@]}"}; do
-        has_render_line "$template" || printf '%s\n' "$template"
-    done
-    exit 0
-fi
-
 status=0
-if [[ $mode == rendered ]]; then
-    found=''
-    for i in ${rendered_templates[@]+"${!rendered_templates[@]}"}; do
-        [[ ${rendered_templates[$i]} == "$rendered_name" ]] && found=$i
-    done
-    template_found=''
-    if [[ -z $found ]]; then
-        for i in ${templates[@]+"${!templates[@]}"}; do
-            [[ ${templates[$i]} == "$rendered_name" ]] && template_found=$i
+for i in ${targets[@]+"${!targets[@]}"}; do
+    limit_for "${targets[$i]}" "${target_destinations[$i]}"
+    report "${targets[$i]}" "${targets[$i]}" "$limit_lines" "$limit_bytes"
+done
+
+# 描画してから測るもの: render: の行のテンプレートと、render: の行の無い配置先が判定の対象のテンプレート。
+# render_limits の各要素は「render: の行の添字」か「t + templates の添字」
+render_names=()
+render_limits=()
+for i in ${rendered_templates[@]+"${!rendered_templates[@]}"}; do
+    render_names+=("${rendered_templates[$i]}")
+    render_limits+=("$i")
+done
+for i in ${templates[@]+"${!templates[@]}"}; do
+    has_render_line "${templates[$i]}" && continue
+    render_names+=("${templates[$i]}")
+    render_limits+=("t$i")
+done
+
+# measure_rendered INDEX PROFILE: render_names[INDEX] を PROFILE で描画して測る。描画に失敗したか、render: の行の
+# テンプレートの出力が空なら render_failed を立てる(出力が空であることで描画の失敗を捕まえる。サイズの下限で捕まえないのは、
+# 目安の下限が実際の出力の縮小と区別できないため)。配置先が判定の対象のテンプレートは出力が空でも通す
+# (その profile では配置されない。chezmoi は空の配置先を作らない)
+measure_rendered() {
+    local name=${render_names[$1]} limit=${render_limits[$1]} profile=$2
+    if ! render_template "$profile" "$name" >"$render_output"; then
+        echo "instruction-size: ${name} を profile ${profile} で描画できない" >&2
+        render_failed=1
+        return 0
+    fi
+    if [[ $limit != t* ]]; then
+        if [[ ! -s $render_output ]]; then
+            echo "instruction-size: ${name} を profile ${profile} で描画した出力が空" >&2
+            render_failed=1
+            return 0
+        fi
+        report "${RENDER_PREFIX}${name}(${profile})" "$render_output" "${rendered_lines[$limit]}" "${rendered_bytes[$limit]}"
+    elif [[ -s $render_output ]]; then
+        limit_for "$name" "${template_destinations[${limit#t}]}"
+        report "${name}(${profile})" "$render_output" "$limit_lines" "$limit_bytes"
+    fi
+}
+
+render_failed=''
+if ((${#render_names[@]} > 0)); then
+    # 描画の module はこのスクリプトの置き場所から読む(描画の source と Machine Profile の一覧はそのリポジトリのもの)。
+    # テンプレートと上限の一覧はカレントディレクトリから読む
+    render_work=$(mktemp -d)
+    render_output="$render_work/rendered.out"
+    # shellcheck source=scripts/chezmoi-render.bash
+    source "$(dirname "${BASH_SOURCE[0]}")/chezmoi-render.bash"
+    # chezmoi が無いときも exit 2(skip しない。理由は描画の module のヘッダ)
+    render_init "$render_work" || exit 2
+    profile_list=$(render_profiles) || exit 2
+    while IFS= read -r profile; do
+        for i in "${!render_names[@]}"; do
+            measure_rendered "$i" "$profile"
         done
-    fi
-    if [[ -z $found && -z $template_found ]]; then
-        # 既定値で測ると、一覧から行を消すだけで上限が既定値に戻る。配置先が判定の対象のテンプレートは
-        # --list-templates に出るもので、その名前だけを既定値で測る
-        echo "instruction-size: $LIMITS_FILE に render:${rendered_name} の行が無く、--list-templates のテンプレートでもない" >&2
-        exit 2
-    fi
-    if [[ ! -f $rendered_file ]]; then
-        echo "instruction-size: 測るファイルが無い: $rendered_file" >&2
-        exit 2
-    fi
-    if [[ -n $found ]]; then
-        report "${RENDER_PREFIX}${rendered_name}" "$rendered_file" "${rendered_lines[$found]}" "${rendered_bytes[$found]}"
-    else
-        limit_for "$rendered_name" "${template_destinations[$template_found]}"
-        report "$rendered_name" "$rendered_file" "$limit_lines" "$limit_bytes"
-    fi
-else
-    for i in ${targets[@]+"${!targets[@]}"}; do
-        limit_for "${targets[$i]}" "${target_destinations[$i]}"
-        report "${targets[$i]}" "${targets[$i]}" "$limit_lines" "$limit_bytes"
-    done
+    done <<<"$profile_list"
 fi
 
 if ((status != 0)); then
     echo "instruction-size: 上限を超えたファイルがある。上限と根拠は $LIMITS_FILE" >&2
     echo "instruction-size: CI は PR を基準のブランチとマージした結果を測る。手元で同じものを測るのは just check-instruction-size-merged" >&2
+fi
+if [[ -n $render_failed ]]; then
+    echo "instruction-size: 描画できないテンプレートがある" >&2
+    exit 2
 fi
 exit "$status"

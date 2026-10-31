@@ -11,13 +11,12 @@
 # (根拠の違う 200 行の値で skill を測らない)。
 #
 # 個別の上限の行のパスは source のパス(配置先ではなく private_SKILL.md のような source の名前で書く)。配置先が判定の対象の
-# テンプレート(SKILL.md.tmpl など)は描画した出力を、個別の上限の行か配置先の種類の既定値で測る(描画は
-# test/rendered-instruction-size.bats)。
+# テンプレート(SKILL.md.tmpl など)は描画した出力を、個別の上限の行か配置先の種類の既定値で測る。
 #
 # 「render:<テンプレート> <最大行数> <最大バイト数>」の行は、テンプレートのソースではなく合成後の出力の上限。
 # 最大行数には - を書ける(行数を縛らない)。既定値は当てはまらないので、行ごとに明示する。
-# 描画は test/rendered-instruction-size.bats が test/fixtures/chezmoi-*.toml のすべての profile で行い、
-# scripts/check-instruction-size.sh --rendered で測る。合成後の出力を測る対象を増やすときはここに 1 行足す。
+# 描画はどちらも scripts/check-instruction-size.sh が test/fixtures/chezmoi-*.toml のすべての profile で行う。
+# 合成後の出力を測る対象を増やすときはここに 1 行足す。
 # render: の行を持つテンプレートの出力は、配置先が判定の対象でもこの行だけで測り、既定値で重ねて測らない
 # (既定値が当てはまらない理由は「上限はファイルごとに測るので」の段落の各項)。テンプレートのソースそのものを
 # 測る判定は別物で、render: の行があっても行う(「上限はファイルごとに測るので」の段落)。

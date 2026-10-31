@@ -3,7 +3,7 @@
 #
 # 描画は test/helpers/render.bash を通す。
 # harness/ は一切通らない(グローバル指示は chezmoi テンプレートだけで合成する)。
-# 合成後の出力のサイズ上限はここでは測らない(test/rendered-instruction-size.bats)。
+# 合成後の出力のサイズ上限はここでは測らない(scripts/check-instruction-size.sh)。
 #
 # chezmoi が無いときに skip せず失敗させるのは seam(test/helpers/render.bash)が担う。
 # CI は .github/workflows/lint.yml の global-instructions job で chezmoi を入れている。

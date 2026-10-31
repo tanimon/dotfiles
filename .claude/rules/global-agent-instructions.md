@@ -7,7 +7,7 @@ paths:
   - ".chezmoitemplates/agent-instructions-common"
   - "dot_claude/rules/common/**"
   - "test/global-instructions.bats"
-  - "test/rendered-instruction-size.bats"
+  - "scripts/check-instruction-size.sh"
 ---
 
 # Global agent instructions(`~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md`)
@@ -30,6 +30,6 @@ paths:
 
 `just test-global-instructions`(`test/global-instructions.bats`。描画は `test/helpers/render.bash` の `render_template` を通す)で、共有本文が両出力に入ること・rules 全件が `AGENTS.md` に入ること・`AskUserQuestion` が `CLAUDE.md` にしか出ないことを見る。
 
-合成後の出力のサイズ上限(`AGENTS.md` は Codex の `project_doc_max_bytes` の 32 KiB まで)は `scripts/instruction-size-limits.txt` の `render:` の行が正本で、`test/rendered-instruction-size.bats`(`just test-instruction-size`)が全 profile で描画して測る。
+合成後の出力のサイズ上限(`AGENTS.md` は Codex の `project_doc_max_bytes` の 32 KiB まで)は `scripts/instruction-size-limits.txt` の `render:` の行が正本で、`scripts/check-instruction-size.sh`(`just check-instruction-size`。pre-commit と pre-push のマージ判定も同じ判定)が全 profile で描画して測る。
 
-どちらの bats も chezmoi が無い環境では skip せず fail する(skip にすると CI で空振りするため、`test/global-instructions.bats` を動かす CI job `global-instructions` と `test/rendered-instruction-size.bats` を動かす CI job `test-instruction-size` がそれぞれ chezmoi を入れている)。
+どちらも chezmoi が無い環境では skip せず失敗する(skip にすると CI で空振りするため、`test/global-instructions.bats` を動かす CI job `global-instructions` と `check-instruction-size.sh` を動かす CI job `instruction-size` がそれぞれ chezmoi を入れている)。

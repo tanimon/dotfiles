@@ -190,128 +190,129 @@ check() {
 }
 
 # 合成後の出力の上限(render: の行)。テンプレートは判定の対象の pathspec の外に置き、
-# ソースとしての判定(既定値 3 行 / 20 バイト)に巻き込まれないようにする
+# ソースとしての判定(既定値 3 行 / 20 バイト)に巻き込まれないようにする。
+# 描画の source と Machine Profile の一覧は、偽のリポジトリではなくこのリポジトリのもの(描画の module の置き場所で決まる)
 setup_rendered() {
     put tmpl/a.tmpl 'a'
     put tmpl/b.tmpl 'b'
     put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:tmpl/a.tmpl 4 30\nrender:tmpl/b.tmpl - 10'
 }
 
-check_rendered() {
-    (cd "$REPO" && bash "$SCRIPT" --rendered "$@")
-}
-
-@test "--list-rendered は render: の行のテンプレートを一覧の順に出す" {
+@test "render: の行のテンプレートはすべての profile で描画して測り、超過を profile 名つきで出す" {
     setup_rendered
-    run --separate-stderr bash -c 'cd "$1" && bash "$2" --list-rendered' _ "$REPO" "$SCRIPT"
-    assert_success
-    assert_output $'tmpl/a.tmpl\ntmpl/b.tmpl'
-}
-
-@test "--list-rendered の出力はそのまま --rendered の名前に使える" {
-    setup_rendered
-    make_lines out.txt 1
-    local name names
-    names=$(cd "$REPO" && bash "$SCRIPT" --list-rendered)
-    [ -n "$names" ]
-    while IFS= read -r name; do
-        run check_rendered "$name" "$REPO/out.txt"
-        assert_success
-    done <<<"$names"
-}
-
-@test "render: の行が無ければ --list-rendered は何も出さない" {
-    run --separate-stderr bash -c 'cd "$1" && bash "$2" --list-rendered' _ "$REPO" "$SCRIPT"
-    assert_success
-    assert_output ''
-}
-
-@test "--rendered は上限ちょうどのファイルを通す" {
-    setup_rendered
-    # 4 行 / 8 バイトと、1 行 / 30 バイト
-    make_lines out4.txt 4
-    put out30.txt '01234567890123456789012345678'
-    run check_rendered tmpl/a.tmpl "$REPO/out4.txt"
-    assert_success
-    run check_rendered tmpl/a.tmpl "$REPO/out30.txt"
-    assert_success
-}
-
-@test "--rendered は行数が上限を超えたら落ち、名前と超過量を表示する" {
-    setup_rendered
-    make_lines out.txt 5
-    run check_rendered tmpl/a.tmpl "$REPO/out.txt"
+    printf '{{ repeat 5 "x\\n" }}' >"$REPO/tmpl/a.tmpl"
+    run check
     assert_failure 1
-    assert_output --partial 'render:tmpl/a.tmpl: 5 行(上限 4、+1 行)'
+    assert_output --partial 'render:tmpl/a.tmpl(personal): 5 行(上限 4、+1 行)'
+    assert_output --partial 'render:tmpl/a.tmpl(work): 5 行(上限 4、+1 行)'
 }
 
-@test "--rendered はバイト数が上限を超えたら落ち、名前と超過量を表示する" {
+@test "render: の行のテンプレートは描画した出力を測り、ソースは測らない" {
     setup_rendered
-    put out.txt '012345678901234567890123456789'
-    run check_rendered tmpl/a.tmpl "$REPO/out.txt"
-    assert_failure 1
-    assert_output --partial 'render:tmpl/a.tmpl: 31 バイト(上限 30、+1 バイト)'
+    # ソースは 10 行あるが、描画した出力は 1 行
+    printf '{{/*\nx\nx\nx\nx\nx\nx\nx\nx\n*/}}x\n' >"$REPO/tmpl/a.tmpl"
+    run check
+    assert_success
 }
 
-@test "--rendered は行数が - の行では行数を判定しない" {
+@test "render: の行のテンプレートは profile ごとに測る" {
+    setup_rendered
+    printf '{{ if eq .profile "work" }}{{ repeat 5 "x\\n" }}{{ else }}x{{ end }}' >"$REPO/tmpl/a.tmpl"
+    run check
+    assert_failure 1
+    assert_output --partial 'render:tmpl/a.tmpl(work): 5 行(上限 4、+1 行)'
+    refute_output --partial '(personal)'
+}
+
+@test "render: の行のテンプレートは上限ちょうどの出力を通す" {
+    setup_rendered
+    printf '{{ repeat 4 "x\\n" }}' >"$REPO/tmpl/a.tmpl"
+    run check
+    assert_success
+    printf '{{ repeat 29 "x" }}\n' >"$REPO/tmpl/a.tmpl"
+    run check
+    assert_success
+    printf '{{ repeat 30 "x" }}\n' >"$REPO/tmpl/a.tmpl"
+    run check
+    assert_failure 1
+    assert_output --partial 'render:tmpl/a.tmpl(personal): 31 バイト(上限 30、+1 バイト)'
+}
+
+@test "render: の行の行数が - なら行数を判定しない" {
     setup_rendered
     # 5 行 / 10 バイト: 行数は既定値(3)も個別の値も超えるが、バイト数はちょうど
-    make_lines out.txt 5
-    run check_rendered tmpl/b.tmpl "$REPO/out.txt"
+    printf '{{ repeat 5 "x\\n" }}' >"$REPO/tmpl/b.tmpl"
+    run check
     assert_success
-    make_lines out.txt 6
-    run check_rendered tmpl/b.tmpl "$REPO/out.txt"
+    printf '{{ repeat 6 "x\\n" }}' >"$REPO/tmpl/b.tmpl"
+    run check
     assert_failure 1
-    assert_output --partial 'render:tmpl/b.tmpl: 12 バイト(上限 10、+2 バイト)'
+    assert_output --partial 'render:tmpl/b.tmpl(personal): 12 バイト(上限 10、+2 バイト)'
 }
 
-@test "--rendered に一覧に無い名前を渡すと落ちる(既定値で測らない)" {
+@test "render: の行のテンプレートの出力が空なら落ちる" {
     setup_rendered
-    make_lines out.txt 1
-    run check_rendered tmpl/c.tmpl "$REPO/out.txt"
+    : >"$REPO/tmpl/a.tmpl"
+    run check
     assert_failure 2
-    assert_output --partial 'tmpl/c.tmpl'
-    # render: を付けた名前も一覧の名前ではない
-    run check_rendered render:tmpl/a.tmpl "$REPO/out.txt"
-    assert_failure 2
+    assert_output --partial 'tmpl/a.tmpl を profile personal で描画した出力が空'
 }
 
-@test "--rendered に存在しないファイルを渡すと落ちる" {
+@test "render: の行のテンプレートの描画に失敗したら落ちる" {
     setup_rendered
-    run check_rendered tmpl/a.tmpl "$REPO/missing.txt"
+    printf '{{ template "no-such-template" }}' >"$REPO/tmpl/a.tmpl"
+    run check
     assert_failure 2
-    assert_output --partial 'missing.txt'
+    assert_output --partial 'tmpl/a.tmpl を profile personal で描画できない'
 }
 
-@test "--rendered の引数の個数が違えば落ちる" {
+@test "描画の失敗と上限の超過が両方あれば、超過を出してから exit 2 で落ちる" {
     setup_rendered
-    make_lines out.txt 1
-    run check_rendered tmpl/a.tmpl
+    printf '{{ template "no-such-template" }}' >"$REPO/tmpl/a.tmpl"
+    printf '{{ repeat 6 "x\\n" }}' >"$REPO/tmpl/b.tmpl"
+    run check
     assert_failure 2
-    run check_rendered tmpl/a.tmpl "$REPO/out.txt" extra
-    assert_failure 2
+    assert_output --partial '描画できない'
+    assert_output --partial 'render:tmpl/b.tmpl(personal): 12 バイト'
 }
 
-@test "知らない引数を渡すと落ちる" {
-    run bash -c 'cd "$1" && bash "$2" --bogus' _ "$REPO" "$SCRIPT"
-    assert_failure 2
+# chezmoi を除いて、スクリプトが使うコマンドだけを PATH に置く
+path_without_chezmoi() {
+    local bin="$BATS_TEST_TMPDIR/bin" command
+    mkdir -p "$bin"
+    for command in bash git mktemp rm awk wc dirname cat; do
+        ln -s "$(command -v "$command")" "$bin/$command"
+    done
+    printf '%s\n' "$bin"
 }
 
-@test "render: の行のテンプレートが存在しなければ、通常の実行も落ちる" {
+@test "描画の対象が無ければ chezmoi なしで通り、あれば chezmoi なしでは exit 2 で落ちる" {
+    local bin bash_path
+    bin=$(path_without_chezmoi)
+    bash_path=$(command -v bash)
+    run env PATH="$bin" "$bash_path" -c 'cd "$1" && bash "$2"' _ "$REPO" "$SCRIPT"
+    assert_success
+    setup_rendered
+    run env PATH="$bin" "$bash_path" -c 'cd "$1" && bash "$2"' _ "$REPO" "$SCRIPT"
+    assert_failure 2
+    assert_output --partial 'chezmoi が必要'
+}
+
+@test "引数を渡すと落ちる(使い方は引数なしの 1 つだけ)" {
+    local args
+    for args in --list-rendered --list-templates '--rendered CLAUDE.md CLAUDE.md' --bogus ''; do
+        # shellcheck disable=SC2086 # 空白で区切って複数の引数として渡す
+        run bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$SCRIPT" ${args:-''}
+        assert_failure 2
+        assert_output --partial '引数を取らない'
+    done
+}
+
+@test "render: の行のテンプレートが存在しなければ落ちる" {
     put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:tmpl/missing.tmpl 4 30'
     run check
     assert_failure 2
     assert_output --partial 'tmpl/missing.tmpl'
-    run --separate-stderr bash -c 'cd "$1" && bash "$2" --list-rendered' _ "$REPO" "$SCRIPT"
-    assert_failure 2
-}
-
-@test "通常の実行は render: の行の上限で作業ツリーのファイルを測らない" {
-    setup_rendered
-    # tmpl/a.tmpl 自体は判定の対象の外なので、render: の行があっても大きくてよい
-    make_lines tmpl/a.tmpl 10
-    run check
-    assert_success
 }
 
 @test "行数の - は render: の行にだけ書ける" {
@@ -551,79 +552,83 @@ use_shipped_defaults() {
     assert_output --partial 'dot_claude/skills/b/private_SKILL.md: 7 行'
 }
 
-# 配置先が判定の対象のテンプレート。描画は test/rendered-instruction-size.bats が受け持つので、ここでは
-# 一覧に出ることと、描画した出力を当たる上限で測ることだけを見る
-list_templates() {
-    (cd "$REPO" && bash "$SCRIPT" --list-templates)
+# 配置先が判定の対象のテンプレート(SKILL.md.tmpl など)。描画した出力を、個別の上限の行か配置先の種類の既定値で測る
+@test "配置先が判定の対象のテンプレートは、描画した出力を配置先の種類の既定値で測る" {
+    setup_skill
+    mkdir -p "$REPO/dot_claude/skills/a" "$REPO/dot_claude/skills/y" "$REPO/dot_claude/rules/common" "$REPO/dot_config"
+    printf '{{ repeat 7 "x\\n" }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    printf '{{ repeat 7 "x\\n" }}' >"$REPO/dot_claude/skills/y/SKILL.md.literal.tmpl"
+    printf '{{ repeat 4 "x\\n" }}' >"$REPO/dot_claude/rules/common/foo.md.tmpl"
+    printf '{{ repeat 100 "x\\n" }}' >"$REPO/dot_config/other.md.tmpl"
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl(personal): 7 行(上限 6、+1 行)'
+    assert_output --partial 'dot_claude/skills/y/SKILL.md.literal.tmpl(personal): 7 行(上限 6、+1 行)'
+    assert_output --partial 'dot_claude/rules/common/foo.md.tmpl(personal): 4 行(上限 3、+1 行)'
+    refute_output --partial 'dot_config/other.md.tmpl'
 }
 
-@test "--list-templates は配置先が判定の対象のテンプレートを出す" {
+@test "配置先が判定の対象のテンプレートは、上限内の出力を通す" {
     setup_skill
-    put dot_claude/skills/a/SKILL.md.tmpl 'a'
-    put dot_claude/rules/common/foo.md.tmpl 'b'
-    put dot_claude/skills/y/SKILL.md.literal.tmpl 'c'
-    put dot_config/other.md.tmpl 'd'
-    run --separate-stderr list_templates
-    assert_success
-    assert_output $'dot_claude/rules/common/foo.md.tmpl\ndot_claude/skills/a/SKILL.md.tmpl\ndot_claude/skills/y/SKILL.md.literal.tmpl'
-}
-
-@test "通常の実行はテンプレートのソースを測らない" {
-    setup_skill
-    make_lines dot_claude/skills/a/SKILL.md.tmpl 100
+    mkdir -p "$REPO/dot_claude/skills/a"
+    printf '{{ repeat 6 "x\\n" }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
     run check
     assert_success
 }
 
-@test "--list-templates は render: の行のテンプレートを出さない" {
-    put dot_claude/skills/a/SKILL.md.tmpl 'a'
-    put dot_claude/CLAUDE.md.tmpl 'b'
-    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl 4 30'
-    run --separate-stderr list_templates
+@test "配置先が判定の対象のテンプレートに個別の上限の行があればそれで測る" {
+    mkdir -p "$REPO/dot_claude/rules/common"
+    printf '{{ repeat 4 "x\\n" }}' >"$REPO/dot_claude/rules/common/foo.md.tmpl"
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\ndot_claude/rules/common/foo.md.tmpl 4 8'
+    run check
     assert_success
-    assert_output 'dot_claude/CLAUDE.md.tmpl'
-    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl 4 30\nrender:dot_claude/CLAUDE.md.tmpl 4 30'
-    run --separate-stderr list_templates
+}
+
+@test "配置先が判定の対象のテンプレートはソースを測らない" {
+    setup_skill
+    # ソースは 100 行あるが、描画した出力は空
+    make_lines dot_claude/skills/a/SKILL.md.tmpl 100
+    printf '{{/*\n%s*/}}' "$(cat "$REPO/dot_claude/skills/a/SKILL.md.tmpl")" >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    run check
     assert_success
-    assert_output ''
-    # INSTRUCTION_PATHSPECS に一致するテンプレートは、render: の行があってもソースを既定値で測る
-    make_lines dot_claude/CLAUDE.md.tmpl 4
+}
+
+@test "配置先が判定の対象のテンプレートは profile ごとに測り、出力が空の profile では通す" {
+    setup_skill
+    mkdir -p "$REPO/dot_claude/skills/a"
+    # personal では空(配置されない)、work では上限を超える
+    printf '{{ if eq .profile "work" }}{{ repeat 7 "x\\n" }}{{ end }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    run check
+    assert_failure 1
+    assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl(work): 7 行(上限 6、+1 行)'
+    refute_output --partial '(personal)'
+}
+
+@test "配置先が判定の対象のテンプレートの描画に失敗したら落ちる" {
+    setup_skill
+    mkdir -p "$REPO/dot_claude/skills/a"
+    printf '{{ template "no-such-template" }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    run check
+    assert_failure 2
+    assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl を profile personal で描画できない'
+}
+
+@test "render: の行のテンプレートは、配置先が判定の対象でもその行だけで測る" {
+    mkdir -p "$REPO/dot_claude/skills/a"
+    # 10 行 / 20 バイト: 行数は skill:* も * も超えるが、render: の行は行数を縛らない
+    printf '{{ repeat 10 "x\\n" }}' >"$REPO/dot_claude/skills/a/SKILL.md.tmpl"
+    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl - 30'
+    run check
+    assert_success
+}
+
+@test "INSTRUCTION_PATHSPECS に一致するテンプレートは、render: の行があってもソースを既定値で測る" {
+    put dot_claude/CLAUDE.md.tmpl $'x\nx\nx\nx'
+    put scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 5 40\nrender:dot_claude/CLAUDE.md.tmpl 4 30'
     run check
     assert_failure 1
     assert_output --partial 'dot_claude/CLAUDE.md.tmpl: 4 行(上限 3、+1 行)'
-}
-
-@test "--rendered は SKILL.md のテンプレートの出力を skill:* で測る" {
-    setup_skill
-    put dot_claude/skills/a/SKILL.md.tmpl 'a'
-    make_lines out.txt 6
-    run check_rendered dot_claude/skills/a/SKILL.md.tmpl "$REPO/out.txt"
-    assert_success
-    make_lines out.txt 7
-    run check_rendered dot_claude/skills/a/SKILL.md.tmpl "$REPO/out.txt"
-    assert_failure 1
-    assert_output --partial 'dot_claude/skills/a/SKILL.md.tmpl: 7 行(上限 6、+1 行)'
-}
-
-@test "--rendered はルールのテンプレートの出力を * で測り、個別の上限の行があればそれで測る" {
-    setup_skill
-    put dot_claude/rules/common/foo.md.tmpl 'a'
-    make_lines out.txt 4
-    run check_rendered dot_claude/rules/common/foo.md.tmpl "$REPO/out.txt"
-    assert_failure 1
-    assert_output --partial 'dot_claude/rules/common/foo.md.tmpl: 4 行(上限 3、+1 行)'
-    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\ndot_claude/rules/common/foo.md.tmpl 4 8'
-    run check_rendered dot_claude/rules/common/foo.md.tmpl "$REPO/out.txt"
-    assert_success
-}
-
-@test "--rendered は render: の行のテンプレートをその行だけで測る" {
-    put dot_claude/skills/a/SKILL.md.tmpl 'a'
-    put scripts/instruction-size-limits.txt $'* 3 20\nskill:* 6 60\nCLAUDE.md 5 40\nrender:dot_claude/skills/a/SKILL.md.tmpl - 30'
-    # 10 行 / 20 バイト: 行数は skill:* も * も超えるが、render: の行は行数を縛らない
-    make_lines out.txt 10
-    run check_rendered dot_claude/skills/a/SKILL.md.tmpl "$REPO/out.txt"
-    assert_success
+    refute_output --partial 'render:dot_claude/CLAUDE.md.tmpl'
 }
 
 @test "テンプレートの SKILL.md があるのに skill:* の行が無ければ落ちる" {

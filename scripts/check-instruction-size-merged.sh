@@ -10,11 +10,12 @@
 #   INSTRUCTION_SIZE_SKIP_FETCH=1   リモートに接続しない。値を問わず、設定されていれば飛ばす
 #                                   (scripts/pr-context.sh の PR_CONTEXT_SKIP_FETCH と同じ約束)
 #
-# 範囲: 測るのは check-instruction-size.sh の既定の使い方(ソースのまま測るファイル)だけ。描画してから測る
-# テンプレート(test/rendered-instruction-size.bats)も同じ形でぶつかりうるが、ここでは測らない。
+# 範囲: check-instruction-size.sh と同じ判定(ソースのまま測るファイルと、描画してから測るテンプレート)。
+# 描画するので chezmoi が要る。マージ結果の一時ツリーで描画の source の写しを作る。
 #
 # 終了コード: 0 = 上限内か、マージ結果を作れない(理由を出す)、1 = 上限を超えたファイルがある、
-# 2 = 上限の一覧を読めない。pre-push で走るので、マージ結果を作れないときは push を止めない: 衝突した PR では
+# 2 = 上限の一覧を読めないか、描画できない(chezmoi が無い場合を含む)。
+# pre-push で走るので、マージ結果を作れないときは push を止めない: 衝突した PR では
 # GitHub が pull_request のワークフローを走らせず、止めると衝突を PR に載せる push もできなくなる。
 set -euo pipefail
 
