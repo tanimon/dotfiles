@@ -72,7 +72,6 @@ runs:
         echo "tools=$tools" >> "$GITHUB_OUTPUT"
     - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
       with:
-        # renovate: datasource=github-releases depName=jdx/mise
         version: 2026.10.11
         install_args: ${{ steps.mise-tools.outputs.tools }}
     # 入れた各ツールが mise.toml の版に解決されることを確かめる(ADR 0023)。mise-action は shims に加え、
@@ -83,12 +82,15 @@ runs:
         TOOLS: ${{ steps.mise-tools.outputs.tools }}
       run: |
         for tool in $TOOLS; do
-          expected=$(mise which "$tool")
+          expected=$(mise which "$tool") || {
+            echo "::error::${tool} が mise.toml の版に解決されない(mise which が失敗した)"
+            exit 1
+          }
           resolved=$(command -v "$tool") || resolved=
           case "$resolved" in
             "$expected" | */mise/shims/*) ;;
             *)
-              echo "::error::$tool が mise.toml の版($expected)に解決されない: ${resolved:-見つからない}"
+              echo "::error::${tool} が mise.toml の版(${expected})に解決されない: ${resolved:-見つからない}"
               exit 1
               ;;
           esac
