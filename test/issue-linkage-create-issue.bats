@@ -32,8 +32,8 @@ STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/gh"
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
     BODY="$BATS_TEST_TMPDIR/issue-body.md"
-    # 作成先の範囲は cwd の remote・GH_REPO・owner の許可リストで決まるので、どれも手元の環境から切り離す。
-    unset GH_REPO
+    # 作成先の範囲は cwd の remote・GH_REPO・GH_HOST・owner の許可リストで決まるので、どれも手元の環境から切り離す。
+    unset GH_REPO GH_HOST
     export ISSUE_LINKAGE_GUARD_OWNERS=tanimon
     git init -q "$BATS_TEST_TMPDIR/repo"
     git -C "$BATS_TEST_TMPDIR/repo" remote add origin https://github.com/tanimon/sample.git
@@ -242,4 +242,13 @@ STUB
     run bash "$SCRIPT" --title t --body-file "$BODY"
     assert_failure 2
     [ ! -s "$GH_LOG" ]
+}
+
+@test "GH_HOST が github.com 以外ならホストの無い -R は範囲外として gh を呼ばずに 2 で終わる" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    GH_HOST=ghe.example.com run bash "$SCRIPT" --title t --body-file "$BODY" -R tanimon/other
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+    GH_HOST=ghe.example.com run bash "$SCRIPT" --title t --body-file "$BODY" -R github.com/tanimon/other
+    assert_success
 }

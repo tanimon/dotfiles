@@ -49,11 +49,12 @@ _issue_linkage_scope_default_repo() {
     for name in $(git -C "$dir" remote 2>/dev/null); do
         url=$(git -C "$dir" remote get-url "$name" 2>/dev/null) || continue
         # gh は GitHub 以外のホストの remote を作成先に選ばないので飛ばす。ただし github を含むのに読めない形の URL
-        # (ユーザー名付き・SSH のホスト別名・ポート付きなど)は gh が GitHub の remote として選びうる。飛ばすと gh と違う
-        # remote で範囲を判定するので、判定不能にする。名前に github を含まない SSH のホスト別名は見分けられない。
+        # (ユーザー名付き・SSH のホスト別名・ポート付きなど)は gh が GitHub の remote として選びうる。そこで作成先の
+        # 候補として同じ順位で比べ(repo は空)、それが選ばれるなら判定不能にする。同順位の並びで gh がどちらを選ぶかは
+        # 確かめていないので、同順位なら読めない側を選ぶ。名前に github を含まない SSH のホスト別名は見分けられない。
         if ! repo=$(_issue_linkage_scope_repo_from_url "$url"); then
-            [[ "$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')" == *github* ]] && return 1
-            continue
+            [[ "$(printf '%s' "$url" | tr '[:upper:]' '[:lower:]')" == *github* ]] || continue
+            repo=''
         fi
         case "$name" in
         upstream) score=3 ;;
@@ -61,7 +62,7 @@ _issue_linkage_scope_default_repo() {
         origin) score=1 ;;
         *) score=0 ;;
         esac
-        if [[ $score -gt $best_score ]]; then
+        if [[ $score -gt $best_score || (-z "$repo" && $score -ge $best_score) ]]; then
             best=$repo
             best_score=$score
         fi
@@ -119,12 +120,20 @@ issue_linkage_scope_repo_flag() {
 # issue_linkage_scope_in_scope <dir> [<repo>]: 範囲内なら 0、範囲外・判定不能なら 1。
 # <repo> は owner/name・github.com/owner/name・https://github.com/owner/name。空なら <dir> の remote から gh の既定の作成先を求める。
 issue_linkage_scope_in_scope() {
-    local dir=${1:-.} repo=${2:-} owner allowed
+    local dir=${1:-.} repo=${2:-} owner allowed host
     if [[ -z "$repo" ]]; then
         repo=$(_issue_linkage_scope_default_repo "$dir") || return 1
     else
         repo=${repo#https://}
-        repo=${repo#github.com/}
+        case "$repo" in
+        github.com/*) repo=${repo#github.com/} ;;
+        *)
+            # ホストの無い OWNER/REPO は、gh が GH_HOST のホストで解決する(gh help environment)。
+            # github.com 以外なら、同じ owner 名でも別のホストのリポジトリなので範囲外。
+            host=$(printf '%s' "${GH_HOST:-github.com}" | tr '[:upper:]' '[:lower:]')
+            [[ "$host" == github.com ]] || return 1
+            ;;
+        esac
     fi
     owner=${repo%%/*}
     [[ -n "$owner" && "$owner" != "$repo" ]] || return 1

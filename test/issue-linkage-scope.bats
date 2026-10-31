@@ -2,7 +2,7 @@
 setup() {
     load 'helpers/setup'
     LIB="$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/issue-linkage-scope.bash"
-    unset ISSUE_LINKAGE_GUARD_OWNERS
+    unset ISSUE_LINKAGE_GUARD_OWNERS GH_HOST
     REPO_DIR="$BATS_TEST_TMPDIR/repo"
     git init -q "$REPO_DIR"
 }
@@ -140,4 +140,21 @@ set_origin() {
     git -C "$REPO_DIR" remote set-url upstream git@github-work:someone-else/fork.git
     run bash "$LIB" "$REPO_DIR"
     assert_failure
+}
+
+@test "読めない形の URL の remote でも、gh がより高い順位の remote を選ぶなら判定を止めない" {
+    set_origin https://github.com/tanimon/fork.git
+    git -C "$REPO_DIR" remote add backup https://someone@github.com/someone-else/fork.git
+    run bash "$LIB" "$REPO_DIR"
+    assert_success
+}
+
+@test "ホストの無い owner/name は GH_HOST が github.com 以外なら範囲外、ホスト付きなら GH_HOST に関係なく判定する" {
+    set_origin https://github.com/tanimon/sample.git
+    GH_HOST=ghe.example.com run bash "$LIB" "$REPO_DIR" tanimon/sample
+    assert_failure
+    GH_HOST=ghe.example.com run bash "$LIB" "$REPO_DIR" github.com/tanimon/sample
+    assert_success
+    GH_HOST=GitHub.com run bash "$LIB" "$REPO_DIR" tanimon/sample
+    assert_success
 }
