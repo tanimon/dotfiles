@@ -65,5 +65,7 @@ status=0
 bash scripts/check-instruction-size.sh || status=$?
 if ((status == 1)); then
     echo "instruction-size-merged: ${base} とマージした結果で上限を超える。${base} を取り込んでから詰める" >&2
+elif ((status == 2)); then
+    echo "instruction-size-merged: ${base} とマージした結果を測れない(上限の一覧か描画)。ブランチ単体で通るなら ${base} を取り込んで確かめる" >&2
 fi
 exit "$status"

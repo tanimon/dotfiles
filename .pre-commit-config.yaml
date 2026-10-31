@@ -76,12 +76,13 @@ repos:
       # module に書き足して harness-sync した生成物の上限超えは、これが無いと lint か CI まで分からない。
       # 対象は scripts/check-instruction-size.sh の INSTRUCTION_PATHSPECS と配置先の判定。source の名前
       # (private_・exact_・.tmpl)を変えても外れないよう、ファイル名とディレクトリで広めに拾う。
-      # 描画してから測るテンプレートも測る(chezmoi が要る)ので、描画の module・写しのスクリプト・Machine Profile の fixture の変更でも発火させる
+      # 描画してから測るテンプレートも測る(chezmoi が要る)ので、描画の module・写しのスクリプト・Machine Profile の fixture と、
+      # テンプレートが取り込む .chezmoitemplates/ の変更でも発火させる。.literal と .tmpl は両方付く名前(SKILL.md.literal.tmpl)も拾う
       - id: check-instruction-size
         name: check-instruction-size
         entry: bash scripts/check-instruction-size.sh
         language: system
-        files: '((CLAUDE|AGENTS|SKILL)\.md(\.tmpl|\.literal)?|\.mdc|^\.chezmoitemplates/agent-instructions-common|^scripts/(instruction-size-limits\.txt|check-instruction-size\.sh|chezmoi-render\.bash|chezmoi-source-snapshot\.sh)|^test/fixtures/chezmoi-[^/]*\.toml|^harness/modules/.*|(^|/)(private_)?(dot_|\.)claude/(exact_)?rules/.*)$'
+        files: '((CLAUDE|AGENTS|SKILL)\.md(\.literal)?(\.tmpl)?|\.mdc(\.literal)?(\.tmpl)?|^\.chezmoitemplates/.*|^scripts/(instruction-size-limits\.txt|check-instruction-size\.sh|chezmoi-render\.bash|chezmoi-source-snapshot\.sh)|^test/fixtures/chezmoi-[^/]*\.toml|^harness/modules/.*|(^|/)(private_)?(dot_|\.)claude/(exact_)?rules/.*)$'
         pass_filenames: false
         types: [file]
       # check-instructions は「Target が Source と一致しているか」しか見ない。
