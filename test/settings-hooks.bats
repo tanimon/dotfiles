@@ -115,12 +115,16 @@ assert_guard_wired() {
     done
 }
 
-# create-issue.sh は内部で gh issue create を呼び、前方一致の ask に当たらない。スクリプトの綴りで承認ゲートを保つ
-@test "create-issue.sh の呼び出しが ~ 形と展開形の両方で permissions.ask にある" {
-    jq -e '.permissions.ask | index("Bash(bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh:*)") != null' "$SETTINGS" >/dev/null ||
-        fail "permissions.ask に ~ 形の create-issue.sh が無い"
-    jq -e '.permissions.ask | map(select(test("^Bash\\(bash /.+/\\.claude/skills/issue-linkage/scripts/create-issue\\.sh:\\*\\)$"))) | length == 1' "$SETTINGS" >/dev/null ||
-        fail "permissions.ask に homeDir 展開形の create-issue.sh が無い"
+# create-issue.sh は作成先が個人 owner の範囲内かを自分で検査するので、確認なしで実行できる(ADR 0024)。
+# ask に残ると allow より優先されて確認が戻るので、ask に無いことも確かめる。
+@test "create-issue.sh の呼び出しが ~ 形と展開形の両方で permissions.allow にあり、ask に無い" {
+    local pattern='^Bash\(bash (~|/.+)/\.claude/skills/issue-linkage/scripts/create-issue\.sh:\*\)$'
+    jq -e '.permissions.allow | index("Bash(bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh:*)") != null' "$SETTINGS" >/dev/null ||
+        fail "permissions.allow に ~ 形の create-issue.sh が無い"
+    jq -e '.permissions.allow | map(select(test("^Bash\\(bash /.+/\\.claude/skills/issue-linkage/scripts/create-issue\\.sh:\\*\\)$"))) | length == 1' "$SETTINGS" >/dev/null ||
+        fail "permissions.allow に homeDir 展開形の create-issue.sh が無い"
+    jq -e --arg p "$pattern" '[.permissions.ask[] | select(test($p))] | length == 0' "$SETTINGS" >/dev/null ||
+        fail "permissions.ask に create-issue.sh が残っている"
 }
 
 # orca の agent-hook ディスパッチャは live の ~/.claude/settings.json から verbatim に
