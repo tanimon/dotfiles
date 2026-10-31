@@ -2088,6 +2088,11 @@ review_writes_result_only() {
     assert_failure 1
     assert_output --partial "harness-weekly: pushed ${BRANCH} but gh pr create failed"
     refute_output --partial 'never became a PR'
+    git -C "$REPO" remote set-url origin "$BATS_TEST_TMPDIR/missing.git"
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial "harness-weekly: failed to query origin for ${BRANCH}"
+    refute_output --partial 'never became a PR'
 }
 
 @test "前の run の未公開の採用: 手書きの印が ' を含んでも、案内の publish のコマンドは貼り付けて動く" {
