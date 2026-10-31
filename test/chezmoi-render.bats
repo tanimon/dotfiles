@@ -127,7 +127,7 @@ FAKE
     cp "$MODULE" "$repo/scripts/"
     run bash -c 'source "$1" && render_profiles' _ "$repo/scripts/chezmoi-render.bash"
     assert_failure
-    assert_output --partial 'fixture'
+    assert_output --partial '1 件も無い'
 
     : >"$repo/test/fixtures/chezmoi-beta.toml"
     : >"$repo/test/fixtures/chezmoi-alpha.toml"

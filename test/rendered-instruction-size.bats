@@ -37,12 +37,12 @@ measure_rendered() {
 
 # load_profiles: Machine Profile の名前(描画の module の render_profiles)を profiles に入れる
 load_profiles() {
-    local list profile
-    list=$(render_profiles) || fail "Machine Profile の一覧を取れない"
+    local profile_list profile
+    profile_list=$(render_profiles) || fail "Machine Profile の一覧を取れない"
     profiles=()
     while IFS= read -r profile; do
         profiles+=("$profile")
-    done <<<"$list"
+    done <<<"$profile_list"
 }
 
 # measure_templates REPO: REPO の --list-templates の各テンプレートをすべての profile で描画し、REPO の上限の一覧で測る。

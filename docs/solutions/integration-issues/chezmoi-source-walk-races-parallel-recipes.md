@@ -84,11 +84,11 @@ chezmoi の `--source` に、リポジトリそのものではなく、作業ツ
 
 ## 再発防止
 
-- chezmoi で source state を読む検査を新しく書くときは、`--source` に `RENDER_SOURCE`(bats)か写しを渡す。`--source "$(pwd)"` やリポジトリのパスを直接渡さない。`justfile` と `test/` でこれに反すると、`test/chezmoi-source-snapshot.bats` が落ちる(`just lint` に含まれる)。
+- chezmoi で source state を読む検査を新しく書くときは、描画の module(`scripts/chezmoi-render.bash`)の `render_template` か `render_chezmoi` を通す。`--source` を組み立てるのは module だけで、`--source "$(pwd)"` やリポジトリのパスを直接渡さない。`justfile`・`test/`・module でこれに反すると、`test/chezmoi-source-snapshot.bats` が落ちる(`just lint` に含まれる)。
 - `lint` に並列のレシピがある限り、リポジトリ全体を辿るほかの検査(`secretlint '**/*'`、`scan-sensitive`)も、理屈のうえでは同じ競合を受けうる。今のところ観測はしていない。
 
 ## 関連
 
-- `scripts/chezmoi-source-snapshot.sh`、`test/helpers/render.bash`
+- `scripts/chezmoi-source-snapshot.sh`、`scripts/chezmoi-render.bash`(描画の module)、`test/helpers/render.bash`(その bats 用の adapter)
 - [workflow-issues/verification-through-the-wrong-resolution-path.md](../workflow-issues/verification-through-the-wrong-resolution-path.md)(`--source` を渡さないと別の source を見る、という逆向きの落とし穴)
 - [chezmoi-source-snapshot-tar-pipe-write-error.md](chezmoi-source-snapshot-tar-pipe-write-error.md)(写しを並行して作るときに、写しの作成そのものが失敗した件)
