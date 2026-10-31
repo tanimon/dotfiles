@@ -348,7 +348,7 @@ shell_reader_each_segment() {
 # `${s%%$'\n'*}` / `${s#*$'\n'}` の行ループも使わない — 残りの文字列を毎行コピーするので二乗になり、
 # 179 KB に 2.3 秒かかった。改行での単語分割は線形(同じ入力で 0.02 秒)。
 # 空行は落ちるが、空行に一致させる正規表現は無い。
-shell_reader_any_line_matches() {
+_shell_reader_any_line_matches() {
     local LC_ALL=C text=$1 line regex all restore_glob=0
     local -a lines
     shift
@@ -407,22 +407,27 @@ shell_reader_any_line_matches() {
 # フックの timeout(5 秒)を越えると判定なし = フェイルオープンになる。
 shell_reader_text_floor_matches() {
     if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
-        shell_reader_any_line_matches "$_SHELL_READER_TOO_LONG_INPUT" "$@"
+        _shell_reader_any_line_matches "$_SHELL_READER_TOO_LONG_INPUT" "$@"
         return
     fi
     [[ ${#SHELL_READER_TOKENS[@]} -eq 0 ]] && return 1
-    local token text='' after_substitution=0
+    local token text='' after_substitution=0 included=0
     for token in "${SHELL_READER_TOKENS[@]}"; do
+        included=0
         case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
         if [[ $after_substitution -eq 1 ]]; then
-            text+=$token$'\n'
-            continue
+            included=1
+        else
+            case "$token" in *'$'* | *'`'* | *$'\n'*) included=1 ;; esac
         fi
-        case "$token" in *'$'* | *'`'* | *$'\n'*) text+=$token$'\n' ;; esac
+        if [[ $included -eq 1 ]]; then
+            text+=$token$'\n'
+        fi
     done
-    if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 ]]; then
+    # 閉じない引用符の最後の token は、上で足していなければ足す(同じ token を 2 回正規化しない)。
+    if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $included -eq 0 ]]; then
         text+=${SHELL_READER_TOKENS[${#SHELL_READER_TOKENS[@]} - 1]}$'\n'
     fi
     [[ -n "$text" ]] || return 1
-    shell_reader_any_line_matches "$text" "$@"
+    _shell_reader_any_line_matches "$text" "$@"
 }

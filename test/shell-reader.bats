@@ -239,38 +239,38 @@ joined() {
 }
 
 @test "any_line_matches needs every regex on the same line" {
-    run shell_reader_any_line_matches $'git push\n--force' 'git' 'force'
+    run _shell_reader_any_line_matches $'git push\n--force' 'git' 'force'
     assert_failure
-    run shell_reader_any_line_matches $'x\ngit push --force' 'git' 'force'
+    run _shell_reader_any_line_matches $'x\ngit push --force' 'git' 'force'
     assert_success
 }
 
 @test "any_line_matches removes quotes and joins continuation lines first" {
-    run shell_reader_any_line_matches "g'i't p\"ush" '^git push$'
+    run _shell_reader_any_line_matches "g'i't p\"ush" '^git push$'
     assert_success
-    run shell_reader_any_line_matches $'git push \\\n--force' 'git push +--force'
+    run _shell_reader_any_line_matches $'git push \\\n--force' 'git push +--force'
     assert_success
 }
 
 # シェルと同じく、行継続は何も足さずにつなぐ。
 @test "any_line_matches joins a continuation without adding a space" {
-    run shell_reader_any_line_matches $'--for\\\nce' '--force'
+    run _shell_reader_any_line_matches $'--for\\\nce' '--force'
     assert_success
 }
 
 # 行末の `\` が行継続とは限らない(`echo a\\` の `\\` はシェルには `\` 1 文字)ので、つなぐ前の行も見る。
 # つないだ行だけだと `echo agit push` になり、語頭の git に一致しない。
 @test "any_line_matches also keeps each line of a continuation on its own" {
-    run shell_reader_any_line_matches $'echo a\\\ngit push' '(^|[^[:alnum:]_-])git[[:space:]]'
+    run _shell_reader_any_line_matches $'echo a\\\ngit push' '(^|[^[:alnum:]_-])git[[:space:]]'
     assert_success
-    run shell_reader_any_line_matches $'echo a\\\ngit push' '^echo agit push$'
+    run _shell_reader_any_line_matches $'echo a\\\ngit push' '^echo agit push$'
     assert_success
 }
 
 @test "any_line_matches does not expand a glob in the text" {
     cd "$BATS_TEST_TMPDIR"
     touch matched-file
-    run shell_reader_any_line_matches 'match*' 'matched-file'
+    run _shell_reader_any_line_matches 'match*' 'matched-file'
     assert_failure
 }
 

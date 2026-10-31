@@ -34,7 +34,7 @@ paths:
   入れ子の引用符を読まない)から来るので、各フックには写さない。判定の正規表現だけを呼び出し側が渡す。
   照合の前に引用符と backslash を外し行継続をつなぎ(つなぐ前の各行も残す)、対象の token はまとめて 1 回だけ
   正規化する(token ごとに awk / tr を fork すると `"$'"` ×1000 で timeout を越える。`test/shell-reader.bats` が
-  CPU 時間で固定している)。内部の `shell_reader_any_line_matches` は interface に含めない。
+  CPU 時間で固定している)。内部の `_shell_reader_any_line_matches` は interface に含めない。
   `shell_reader_each_segment <callback>` がセグメントごとに callback を呼び(先頭 index は
   `SHELL_READER_SEGMENT_START`)。「読み切れた」の定義は呼び出し側ごとに違う(curl-guard は flag を 1 つずつ
   見て glob は curl セグメントでだけ判定し、git-push-guard は読み切れるかを判定しない)ので、それを 1 つに
