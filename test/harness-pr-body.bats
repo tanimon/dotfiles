@@ -378,14 +378,9 @@ EOF
     assert_output --partial 'harness-pr-body: call harness_pr_body_init first'
 }
 
-# <Source> が <一覧> の行(完全一致)に当たれば 0
-guarded() { # <Source> <一覧のファイル>
-    grep -qxF "$1" "$2"
-}
-
 @test "この lib とその bats は Guarded Path に載っている" {
-    run guarded dot_claude/scripts/lib/harness-pr-body.bash "$REPO_ROOT/scripts/guarded-paths.txt"
+    run bash "$REPO_ROOT/scripts/check-guarded-paths.sh" --uncovered "$REPO_ROOT/scripts/guarded-paths.txt" \
+        dot_claude/scripts/lib/harness-pr-body.bash test/harness-pr-body.bats
     assert_success
-    run guarded test/harness-pr-body.bats "$REPO_ROOT/scripts/guarded-paths.txt"
-    assert_success
+    assert_output ''
 }

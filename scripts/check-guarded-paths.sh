@@ -8,12 +8,17 @@
 #   base の既定値は、GITHUB_HEAD_REF があれば HEAD^1(pull_request の checkout は
 #   merge commit で、第 1 親が base。checkout に fetch-depth: 2 が要る)、
 #   無ければ origin/main と HEAD の merge-base。
+#   --uncovered 以外の - で始まる 1 つ目の引数は、ブランチ名として受け付けず 2 で終わる。
+# 問い合わせのモード: check-guarded-paths.sh --uncovered <一覧のファイル> <パス>…
+#   一覧に覆われていないパスを答える(bats の「この lib は Guarded Path に載っている」のテストと、
+#   test/harness-integrity.bats の実行物の Source の検査が使う)。
+#   出力と終了コードは、本文の --uncovered の分岐のコメント。
 #
 # 一覧の行が + で始まるディレクトリは「追加だけ許す」: ループの PR はそこへ新しいファイルを足せるが、
 # 既存のファイルの変更・削除・移動は Guarded Path に触れたものとして落とす。Rule Ledger(1 ルール 1 ファイル)の
 # ように、週次ジョブがループの PR で記録を足すが、ループに過去の記録を書き換えさせない置き場に使う。
 #
-# 終了コード: 0 = 通過、1 = ループの PR が Guarded Path に触れた、2 = 判定できない。
+# 判定のモードの終了コード: 0 = 通過、1 = ループの PR が Guarded Path に触れた、2 = 判定できない。
 # ループの PR で判定できないときは通さない(fail-closed)。
 #
 # CI(lint.yml の guarded-paths job)は、head 側のこのスクリプトに加えて、merge commit の
@@ -38,6 +43,70 @@ set -euo pipefail
 # このブランチ名を指定する。人の PR はこの prefix を使わない。
 LOOP_BRANCH_PREFIX='harness/review-'
 PATHS_FILE='scripts/guarded-paths.txt'
+
+# 一覧の行がどのパスを覆うかの規則の正本。判定のモードと問い合わせのモードの両方が、一覧の中身を
+# paths に読んでからこの関数で照合する。CI は base の版のこのスクリプトを 1 ファイルだけ取り出して
+# 実行するので、照合を別のファイルに切り出さない。
+# 一覧の行は、末尾が / ならディレクトリ配下すべて、それ以外は完全一致。+ で始まる行は、
+# 追加(status A)だけを許す
+touches_guarded_path() {
+    local status=$1 file=$2 entry
+    while IFS= read -r entry; do
+        entry="${entry%$'\r'}"
+        [[ -z $entry || $entry == \#* ]] && continue
+        if [[ $entry == +* ]]; then
+            entry=${entry#+}
+            [[ $status != A && $file == "$entry"* ]] && return 0
+            continue
+        fi
+        if [[ $entry == */ ]]; then
+            [[ $file == "$entry"* ]] && return 0
+        else
+            [[ $file == "$entry" ]] && return 0
+        fi
+    done <<<"$paths"
+    return 1
+}
+
+# 問い合わせのモード: --uncovered <一覧のファイル> <パス>…
+# 「覆われている」は、ループの PR がそのパスを変更(status M)したら判定のモードが落とすこと。
+# 覆われていないパスを stdout に 1 行ずつ出して 1、すべて覆われていれば何も出さずに 0、
+# 使い方の誤りと一覧を読めないときは 2。呼び出し側は、出力が空であることと終了コードの両方を見る。
+# 一覧のファイルに既定値を置かない: 判定のモードは base の版の一覧を読むので、既定で作業ツリーの
+# 一覧を読むと、同じスクリプトの中で読む一覧が食い違う
+if [[ ${1:-} == --uncovered ]]; then
+    if (($# < 3)); then
+        echo "guarded-paths: 使い方: check-guarded-paths.sh --uncovered <一覧のファイル> <パス>…" >&2
+        exit 2
+    fi
+    list=$2
+    shift 2
+    if [[ ! -f $list || ! -r $list ]]; then
+        echo "guarded-paths: 一覧のファイルを読めない: ${list}" >&2
+        exit 2
+    fi
+    paths="$(<"$list")"
+    uncovered=()
+    for file in "$@"; do
+        if [[ -z $file ]]; then
+            echo "guarded-paths: 空のパスは問い合わせられない" >&2
+            exit 2
+        fi
+        touches_guarded_path M "$file" || uncovered+=("$file")
+    done
+    if ((${#uncovered[@]} > 0)); then
+        printf '%s\n' "${uncovered[@]}"
+        exit 1
+    fi
+    exit 0
+fi
+
+# 1 つ目の引数をブランチ名として読むので、知らないオプションを受け付けると「ループの PR ではない」として
+# exit 0 で抜ける(fail-open)。git のブランチ名は - で始まれないので、- で始まる引数は誤りとして拒む
+if [[ ${1:-} == -* ]]; then
+    echo "guarded-paths: 知らないオプション: $1" >&2
+    exit 2
+fi
 
 branch="${1:-${GITHUB_HEAD_REF:-}}"
 if [[ -z $branch ]]; then
@@ -82,27 +151,6 @@ trap 'rm -f "$changed_file"' EXIT
 git diff --no-ext-diff --no-renames --name-status -z "$base" HEAD >"$changed_file" || {
     echo "guarded-paths: $base と HEAD の差分を取れない" >&2
     exit 2
-}
-
-# 一覧の行は、末尾が / ならディレクトリ配下すべて、それ以外は完全一致。+ で始まる行は、
-# 追加(status A)だけを許す
-touches_guarded_path() {
-    local status=$1 file=$2 entry
-    while IFS= read -r entry; do
-        entry="${entry%$'\r'}"
-        [[ -z $entry || $entry == \#* ]] && continue
-        if [[ $entry == +* ]]; then
-            entry=${entry#+}
-            [[ $status != A && $file == "$entry"* ]] && return 0
-            continue
-        fi
-        if [[ $entry == */ ]]; then
-            [[ $file == "$entry"* ]] && return 0
-        else
-            [[ $file == "$entry" ]] && return 0
-        fi
-    done <<<"$paths"
-    return 1
 }
 
 violations=()

@@ -395,3 +395,10 @@ classify() { # <claude の成否>
     assert_equal "$status" 2
     assert_output ''
 }
+
+@test "この lib とその bats は Guarded Path に載っている" {
+    run bash "$REPO_ROOT/scripts/check-guarded-paths.sh" --uncovered "$REPO_ROOT/scripts/guarded-paths.txt" \
+        dot_claude/scripts/lib/harness-review-outcome.bash test/harness-review-outcome.bats
+    assert_success
+    assert_output ''
+}

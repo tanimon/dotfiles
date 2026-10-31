@@ -174,26 +174,11 @@ source_with_siblings() {
     assert_line --partial 'harness-pr-body.bash lacks the PR body sections; run chezmoi apply'
 }
 
-# <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
-guarded() { # <Source> <一覧のファイル>
-    local line
-    while IFS= read -r line; do
-        [[ -z "$line" || "$line" == '#'* ]] && continue
-        line=${line#+}
-        if [[ "$line" == */ ]]; then
-            [[ "$1" == "$line"* ]] && return 0
-        elif [[ "$1" == "$line" ]]; then
-            return 0
-        fi
-    done <"$2"
-    return 1
-}
-
 @test "この lib とその bats は Guarded Path に載っている" {
-    run guarded dot_claude/scripts/lib/harness-loop-pr.bash "$REPO_ROOT/scripts/guarded-paths.txt"
+    run bash "$REPO_ROOT/scripts/check-guarded-paths.sh" --uncovered "$REPO_ROOT/scripts/guarded-paths.txt" \
+        dot_claude/scripts/lib/harness-loop-pr.bash test/harness-loop-pr.bats
     assert_success
-    run guarded test/harness-loop-pr.bats "$REPO_ROOT/scripts/guarded-paths.txt"
-    assert_success
+    assert_output ''
 }
 
 # publish_fixture は Loop PR の module の入口の検査の fixture。git は実物を使い、origin は使い捨ての bare リポジトリにする。
