@@ -19,7 +19,7 @@ issue と PR の Issue Linkage(用語は chezmoi リポジトリの `GLOSSARY.md
 本文に `## 関連`・`## Parent`・`## Blocked by` の節を置く。
 
 - **relationship。** 親は `## Parent`、先に片付ける必要がある issue は `## Blocked by` の節に `#N` で書く。関係として読むのは行頭(`- ` などの箇条書きの記号の後ろと、見出しと同じ行の見出し語の後ろを含む)に置いた `#N` だけで、「なし。#402 がこの issue に依存する。」のような文中の `#N` は関係にならない。関係が無ければ「なし」と書き、補足は `#N` を行頭に置かずに書く。
-- **作る。** 本文を書き終えたら「本文の仕上げ」節のマーカーを付けてから、`bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh --title "<title>" --body-file <dir>/issue-body.md`(`--label` などは後ろに足せば `gh issue create` に渡る)。作成と同時に、`## Parent` と `## Blocked by` の関係を native の relationship として張る。終了コード 1 は「issue は作ったが relationship の一部を張れなかった」なので、stderr に出た関係を `references/relationship-api.md` のコマンドで張り直す。終了コード 2 は何も作っていない。stderr の理由を直して再実行する。範囲内のリポジトリで `gh issue create` を直接使うと issue-linkage-guard が deny する。
+- **作る。** 本文を書き終えたら「本文の仕上げ」節のマーカーを付けてから、`bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh --title "<title>" --body-file <dir>/issue-body.md`(`--label` などは後ろに足せば `gh issue create` に渡る)。作成と同時に、`## Parent` と `## Blocked by` の関係を native の relationship として張る。終了コード 1 は「issue は作ったが relationship の一部を張れなかった」なので、stderr に出た関係を `references/relationship-api.md` のコマンドで張り直す。終了コード 2 は何も作っていない。stderr の理由を直して再実行する。作成先が範囲外と出たときは、再実行しても通らないのでユーザーに伝える。範囲内のリポジトリで `gh issue create` を直接使うと issue-linkage-guard が deny する。
 
 ## PR を作る
 

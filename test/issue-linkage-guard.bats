@@ -128,6 +128,11 @@ EOF
     assert_output ''
 }
 
+@test "値を取るオプションの値が -R に見えても作成先として読まない" {
+    run hook "gh pr create --label -Rsomeone-else/sample --title t --body x"
+    [ "$(decision "$output")" = deny ]
+}
+
 @test "upstream remote が範囲外の fork の clone では何もしない" {
     git -C "$REPO_DIR" remote add upstream https://github.com/someone-else/sample.git
     run hook "gh pr create --title t --body x"

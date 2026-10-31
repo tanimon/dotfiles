@@ -311,3 +311,9 @@ The correct label is **hook-enforced**, a third category alongside the rule-enfo
   危険な綴りがあれば字面で ask にする。
 - curl-localhost-guard も同じ向きに反転した(`Bash(curl:*)` を ask から外し、フックが ask を返す)。
   Claude Code 2.1.285 では、フックの allow が ask ルールに負けるため(`docs/adr/0008-…`、`docs/adr/0009-…`)。
+
+## Addendum 2026-10-31: 届く範囲を作成先の owner で評価する
+
+- 届く範囲は作成先リポジトリの owner を基準に評価する、と改めた。issue-linkage スキルの `create-issue.sh` は
+  作成先が個人 owner の範囲内かを自分で検査するので、上の「What deliberately stays in `ask`」の `gh issue create` の行の例外として allow に置く。
+  原則と適用の条件は `docs/adr/0023-reach-is-judged-by-the-target-repository-owner.md`。

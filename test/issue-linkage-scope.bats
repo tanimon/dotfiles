@@ -131,3 +131,13 @@ set_origin() {
     run bash "$LIB" "$REPO_DIR"
     assert_success
 }
+
+@test "github を含むのに読めない形の URL の remote があれば判定不能にする" {
+    set_origin https://github.com/tanimon/fork.git
+    git -C "$REPO_DIR" remote add upstream https://someone@github.com/someone-else/fork.git
+    run bash "$LIB" "$REPO_DIR"
+    assert_failure
+    git -C "$REPO_DIR" remote set-url upstream git@github-work:someone-else/fork.git
+    run bash "$LIB" "$REPO_DIR"
+    assert_failure
+}

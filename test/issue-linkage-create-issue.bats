@@ -32,6 +32,12 @@ STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/gh"
     export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
     BODY="$BATS_TEST_TMPDIR/issue-body.md"
+    # 作成先の範囲は cwd の remote・GH_REPO・owner の許可リストで決まるので、どれも手元の環境から切り離す。
+    unset GH_REPO
+    export ISSUE_LINKAGE_GUARD_OWNERS=tanimon
+    git init -q "$BATS_TEST_TMPDIR/repo"
+    git -C "$BATS_TEST_TMPDIR/repo" remote add origin https://github.com/tanimon/sample.git
+    cd "$BATS_TEST_TMPDIR/repo" || return 1
 }
 
 @test "Parent と Blocked by があれば作成の後に native に張る" {
@@ -175,4 +181,65 @@ STUB
     run bash "$SCRIPT" --body-file "$BODY" --title '-Fix typo'
     assert_success
     assert_output 'https://github.com/tanimon/sample/issues/450'
+}
+
+@test "--repo の作成先が範囲外なら gh を呼ばずに 2 で終わる" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY" --repo someone/else
+    assert_failure 2
+    assert_output --partial 'gh issue create'
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "GH_REPO の作成先が範囲外なら gh を呼ばずに 2 で終わり、-R があれば -R を優先する" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    GH_REPO=someone/else run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+    GH_REPO=someone/else run bash "$SCRIPT" --title t --body-file "$BODY" -R tanimon/other
+    assert_success
+}
+
+@test "cwd の remote が範囲外か、作成先を決められなければ gh を呼ばずに 2 で終わる" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    git remote set-url origin https://github.com/someone/else.git
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 2
+    git remote remove origin
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "値を取るオプションの値が -R に見えても作成先として読まない" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    git remote set-url origin https://github.com/someone/else.git
+    run bash "$SCRIPT" --title t --body-file "$BODY" --label -Rtanimon/other
+    assert_failure 2
+    run bash "$SCRIPT" --title t --body-file "$BODY" -l -Rtanimon/other
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "短いオプションをつなげた -eR の形も作成先として読む" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY" -eRsomeone/else
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "値を取らない短いオプションに = を続けた -e=t の後ろの -R も作成先として読む" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    run bash "$SCRIPT" --title t --body-file "$BODY" -e=t -Rsomeone/else
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
+}
+
+@test "読めない形の URL の remote があれば、作成先を決められないとして gh を呼ばずに 2 で終わる" {
+    printf '<!-- issue-linkage -->\n' >"$BODY"
+    # gh はユーザー名付きの URL も GitHub の remote として読み、upstream を作成先に選ぶ
+    git remote add upstream https://someone@github.com/someone/else.git
+    run bash "$SCRIPT" --title t --body-file "$BODY"
+    assert_failure 2
+    [ ! -s "$GH_LOG" ]
 }
