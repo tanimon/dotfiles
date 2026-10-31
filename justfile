@@ -142,43 +142,31 @@ zizmor:
 # Validate chezmoi templates
 check-templates:
     #!/usr/bin/env bash
-    if command -v chezmoi >/dev/null 2>&1; then
-        echo "Validating chezmoi templates..."
-        # .profile で分岐するテンプレートは、描画した側の分岐しか実行時に評価されない。
-        # 構文エラーは分岐に関係なく parse で落ちるが、未描画の分岐内の実行時エラー
-        # (存在しないキーの参照など)は落ちないので、全 profile の fixture で描画する。
-        # profile の一覧は test/fixtures/chezmoi-<profile>.toml の実ファイルが正本
-        # --source には作業ツリーの写しを渡す。並列のレシピがリポジトリに作っては消す一時ファイルで
-        # chezmoi が落ちるため(理由は scripts/chezmoi-source-snapshot.sh)。テンプレートはリポジトリから読む
-        snapshot=$(mktemp -d "${TMPDIR:-/tmp}/chezmoi-source-XXXXXX") || { echo "FAIL: mktemp"; exit 1; }
-        trap 'rm -rf "$snapshot"' EXIT
-        bash scripts/chezmoi-source-snapshot.sh . "$snapshot" || { echo "FAIL: source の写しを作れない"; exit 1; }
-        profiles=""
-        fail=0
-        for config in test/fixtures/chezmoi-*.toml; do
-            [ -f "$config" ] || { echo "FAIL: no fixture matches test/fixtures/chezmoi-*.toml"; exit 1; }
-            profile=$(basename "$config" .toml)
-            profile=${profile#chezmoi-}
-            profiles="${profiles:+$profiles }$profile"
-            for file in {{tmpl_files}}; do
-                rendered=$(chezmoi execute-template \
-                    --config "$config" \
-                    --source "$snapshot" \
-                    < "$file") || { echo "FAIL: [$profile] $file (render)"; fail=1; continue; }
-                case "$file" in
-                    *.json.tmpl)
-                        printf '%s\n' "$rendered" | jq -e . >/dev/null || { echo "FAIL: [$profile] $file (invalid JSON)"; fail=1; }
-                        ;;
-                esac
-            done
+    # .profile で分岐するテンプレートは、描画した側の分岐しか実行時に評価されない。
+    # 構文エラーは分岐に関係なく parse で落ちるが、未描画の分岐内の実行時エラー
+    # (存在しないキーの参照など)は落ちないので、全 Machine Profile の fixture で描画する。
+    # 描画(写し・Machine Profile の一覧・chezmoi が無いときに skip せず失敗させること)は描画の module
+    # (scripts/chezmoi-render.bash)が持つ。写しを作る作業ディレクトリとその後始末はこの recipe が持つ。
+    # *.json.tmpl の JSON の検査は描画ではなく検査なので、module に入れずここに置く
+    source scripts/chezmoi-render.bash || { echo "FAIL: 描画の module を読み込めない"; exit 1; }
+    work=$(mktemp -d "${TMPDIR:-/tmp}/chezmoi-render-XXXXXX") || { echo "FAIL: mktemp"; exit 1; }
+    trap 'rm -rf "$work"' EXIT
+    render_init "$work" || { echo "FAIL: 描画の module を初期化できない(chezmoi が無いか、source の写しを作れない。check-templates は skip しない)"; exit 1; }
+    profiles=$(render_profiles) || { echo "FAIL: no fixture matches test/fixtures/chezmoi-*.toml"; exit 1; }
+    echo "Validating chezmoi templates..."
+    fail=0
+    while IFS= read -r profile; do
+        for file in {{tmpl_files}}; do
+            rendered=$(render_template "$profile" "$file") || { echo "FAIL: [$profile] $file (render)"; fail=1; continue; }
+            case "$file" in
+                *.json.tmpl)
+                    printf '%s\n' "$rendered" | jq -e . >/dev/null || { echo "FAIL: [$profile] $file (invalid JSON)"; fail=1; }
+                    ;;
+            esac
         done
-        if [ "$fail" -eq 1 ]; then exit 1; fi
-        echo "PASS: all templates valid (profiles: $profiles)"
-    else
-        # 描画を伴う検査は chezmoi が無ければ素通りせず失敗させる(test/helpers/render.bash と同じ方針)
-        echo "FAIL: chezmoi not found (check-templates は skip しない)"
-        exit 1
-    fi
+    done <<<"$profiles"
+    if [ "$fail" -eq 1 ]; then exit 1; fi
+    echo "PASS: all templates valid (profiles: ${profiles//$'\n'/ })"
 
 # No file list is passed: the script does its own repo-wide walk, which also
 # keeps the prune list in one place.
@@ -323,10 +311,10 @@ check-templates:
     pnpm exec bats test/nono-profile.bats
 
 # LC_ALL=C は test-scripts と同じ bats-core のロケールの不具合のため(この suite の @test 名は日本語)。
-# chezmoi が必要。「写しを source にした描画は…」と「render_template の描画は…」のケースは、chezmoi が無いと skip せず fail する
-# Test the working-tree snapshot that chezmoi-reading checks pass as --source
+# chezmoi が必要。「写しを source にした描画は…」のケースと test/chezmoi-render.bats(描画の module)は、chezmoi が無いと skip せず fail する
+# Test the working-tree snapshot that chezmoi-reading checks pass as --source, and the render module built on it
 @test-source-snapshot:
-    LC_ALL=C pnpm exec bats test/chezmoi-source-snapshot.bats
+    LC_ALL=C pnpm exec bats test/chezmoi-source-snapshot.bats test/chezmoi-render.bats
 
 # The nono pack sync script drives a fake nono. Local only: the template is
 # darwin-only, so it renders empty on the ubuntu CI runner (the suite skips there).

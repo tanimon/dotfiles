@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# scripts/chezmoi-source-snapshot.sh と、それを --source に使う描画の seam(test/helpers/render.bash)のテスト。
+# scripts/chezmoi-source-snapshot.sh と、chezmoi の source に写しを渡しているかを見る grep のガードのテスト。
+# 写しを --source に使う描画の module(scripts/chezmoi-render.bash)のテストは test/chezmoi-render.bats。
 #
 # 各ケースは $BATS_TEST_TMPDIR に使い捨ての git リポジトリを組む。GIT_CONFIG_GLOBAL /
 # GIT_CONFIG_SYSTEM を潰すのは、このマシンの ~/.gitconfig の commit 署名を引き継ぐと
@@ -8,7 +9,7 @@
 # 一時ファイルを作っては消すループ(churn)は、並列に走る別のレシピの pnpm が
 # リポジトリに作る一時ファイルの代わり。生きたリポジトリでは回さない: 並列の lint の
 # secretlint や scan-sensitive も、リポジトリを辿るので同じ競合で落ちうる。
-# そのため seam のケースは、競合を起こす代わりに描画の source がリポジトリの外にあることを見る。
+# そのため描画の module のテスト(test/chezmoi-render.bats)は、競合を起こす代わりに描画の source が作業ディレクトリの中の写しであることを見る。
 
 setup() {
     load 'helpers/setup'
@@ -56,15 +57,16 @@ start_churn() {
     done
 }
 
-# list_non_snapshot_sources REPO: REPO の justfile と test/ で、chezmoi の source(--source / -S)に
-# 写し以外を渡している行を出す。写しとして許すのは、どのファイルでも render.bash の RENDER_SOURCE、
-# justfile では check-templates の snapshot、このファイルでは DEST だけ
+# list_non_snapshot_sources REPO: REPO の justfile・test/・描画の module で、chezmoi の source(--source / -S)に
+# 写し以外を渡している行を出す。写しとして許すのは、描画の module の中で写しを指す変数を渡す綴りと、
+# このファイルの DEST(写しのスクリプト自体のテスト)だけ。module のファイル全体は許さないので、module に
+# 写しの変数以外を渡す --source を書くとこのケースが落ちる。scripts/ の他のファイルは走査しない
+# (scripts/native-sandbox-smoke.sh は fixture を使わずこのマシンの設定で描画するので、写しを使わない)
 list_non_snapshot_sources() {
     cd "$1" || return 1
-    grep -nE -- '--source[ =]|(^|[[:space:]])-S[ =]*["$./~]' justfile test/*.bats test/helpers/*.bash |
+    grep -nE -- '--source[ =]|(^|[[:space:]])-S[ =]*["$./~]' justfile test/*.bats test/helpers/*.bash scripts/chezmoi-render.bash |
         grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' |
-        grep -vE -- '(--source|-S)[ =]*"\$RENDER_SOURCE"' |
-        grep -vE -- '^justfile:[0-9]+:.*(--source|-S)[ =]*"\$snapshot"' |
+        grep -vE -- '^scripts/chezmoi-render\.bash:[0-9]+:.*(--source|-S)[ =]*"\$_RENDER_SNAPSHOT"' |
         grep -vE -- '^test/chezmoi-source-snapshot\.bats:[0-9]+:.*(--source|-S)[ =]*"\$DEST"'
 }
 
@@ -134,44 +136,9 @@ list_non_snapshot_sources() {
     done
 }
 
-@test "render_template の描画は、リポジトリそのものではなくリポジトリの外の写しを source にする" {
-    load 'helpers/render'
-    printf '{{ .chezmoi.sourceDir }}' >"$BATS_TEST_TMPDIR/source-dir.tmpl"
-    run render_template personal "$BATS_TEST_TMPDIR/source-dir.tmpl"
-    assert_success
-    local repo
-    repo=$(cd "$RENDER_REPO" && pwd -P)
-    case "$output/" in
-    "$repo"/*) fail "描画の source がリポジトリの中にある: $output" ;;
-    esac
-}
-
 @test "lint で chezmoi に source state を読ませる箇所は、source に写しを指定する" {
     # リポジトリそのものを渡すと、並列のレシピの一時ファイルで落ちる競合が戻る
     # (scripts/chezmoi-source-snapshot.sh)
     run list_non_snapshot_sources "${BATS_TEST_DIRNAME}/.."
-    assert_output ''
-}
-
-@test "render.bash を並行して読み込んでも、写しは 1 つだけで中に余計な項目が入らない" {
-    # 並列の test は同じ BATS_RUN_TMPDIR で写しを作り合う。後から来た test が写しの中に
-    # link を作ると、chezmoi が辿る source に余計な項目が混ざる
-    local run_dir="$BATS_TEST_TMPDIR/run" i pid pids=()
-    mkdir -p "$run_dir"
-    for i in 1 2 3 4 5 6; do
-        (
-            BATS_RUN_TMPDIR=$run_dir
-            # shellcheck source=test/helpers/render.bash
-            source "${BATS_TEST_DIRNAME}/helpers/render.bash"
-        ) &
-        pids+=("$!")
-    done
-    for pid in "${pids[@]}"; do
-        wait "$pid" || fail "render.bash の読み込みが失敗した"
-    done
-    [ -L "$run_dir/chezmoi-source" ] || fail "共有の写しが無い"
-    run bash -c 'ls -A "$1" | grep -c "^chezmoi-source\."' _ "$run_dir"
-    assert_output 1
-    run bash -c 'ls -A "$1/chezmoi-source/" | grep "^chezmoi-source"' _ "$run_dir"
     assert_output ''
 }

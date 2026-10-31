@@ -17,8 +17,6 @@ setup_file() {
     export REPO="$RENDER_REPO"
     export TMPDIR="$BATS_FILE_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
-    CONFIG=$(render_config personal)
-    export CONFIG
     export DEST="$BATS_FILE_TMPDIR/home"
     mkdir -p "$DEST"
     export SETTINGS="$BATS_FILE_TMPDIR/settings.json"
@@ -27,6 +25,8 @@ setup_file() {
 
 setup() {
     load 'helpers/setup'
+    # render_chezmoi を @test から呼ぶため(setup_file で読み込んだ関数は @test に届かない)
+    load 'helpers/render'
 }
 
 # guard_registrations NAME: PreToolUse で NAME を呼ぶ hook エントリを 1 行 1 JSON で出す。
@@ -96,8 +96,7 @@ assert_guard_wired() {
         # Source の有無を自前の命名規則で推測せず chezmoi に解決させる。
         # .chezmoiignore で除外された target も "not managed" で失敗するので、
         # 「Source はあるがデプロイされない」も捕まえる
-        source=$("$RENDER_CHEZMOI" source-path --config "$CONFIG" --source "$RENDER_SOURCE" \
-            --destination "$DEST" "$DEST/.claude/scripts/$name") ||
+        source=$(render_chezmoi personal source-path --destination "$DEST" "$DEST/.claude/scripts/$name") ||
             fail "hook が呼ぶ $name を chezmoi が配置しない(Source が無いか .chezmoiignore で除外されている)"
         # executable_ 属性が無いと chezmoi は実行権限なしで配置し、hook は起動できない
         case "${source##*/}" in
