@@ -970,6 +970,8 @@ refute_reviewed() {
 
 @test "選別の経路: 当日のブランチが origin にあり PR もあれば、開始の行も出さず選別も走らせずに成功する" {
     review_fixture
+    # その日の PR を作った run が、採用を PR の URL に置き換えている
+    printf -- '## [2026-10-03] entry\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/41)\n' >"$HDIR/queue-archive.md"
     init_real
     git -C "$REPO" push -q origin "main:refs/heads/$BRANCH"
     STUB_GH_HEAD_PRS='[{"url":"https://github.com/example/dotfiles/pull/41"}]' run review_with review_commits
@@ -1349,9 +1351,11 @@ EOF
     printf -- '## [2026-10-03] entry\n\n- **Verdict:** adopted (other run)\n' >"$HDIR/queue-archive.md"
     init_real
     run review_with review_commits
-    assert_success
     assert_line "harness-weekly: no verdict adopted in run \"${BRANCH} run 0f0e\" in $HDIR/queue-archive.md; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts with the settle command)"
     refute_output --partial 'WARN'
+    # 別の run の採用は残るので、入口の最後の確認(前の run の未公開の採用)で失敗する
+    assert_failure 1
+    assert_output --partial "publish --run 'other run' --pr-url <PR URL>"
 }
 
 @test "選別の結果: 同じ日の前の run が残した採用は、この run の PR の URL に置き換えない" {
@@ -1360,8 +1364,10 @@ EOF
         "$BRANCH" "$BRANCH" >"$HDIR/queue-archive.md"
     init_real
     run review_with review_commits
-    assert_success
     assert_line 'harness-weekly: recorded the PR URL on 1 verdict(s)'
+    # 前の run の採用は残るので、入口の最後の確認(前の run の未公開の採用)で失敗する
+    assert_failure 1
+    assert_output --partial "publish --run '${BRANCH}' --pr-url <PR URL>"
     run grep -cF "adopted (${BRANCH})" "$HDIR/queue-archive.md"
     assert_output 1
     run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
@@ -1379,9 +1385,11 @@ exec bash "$HOME/.claude/scripts/harness-verdict-real.sh" "$@"
 EOF
     init_real
     STUB_LEDGER_EXPORT=1 run review_with review_commits
-    assert_success
-    assert_line "harness-weekly: WARN failed to record the PR URL in $HDIR/queue-archive.md; finish_run reports the unpublished verdicts"
+    assert_line "harness-weekly: WARN failed to record the PR URL in $HDIR/queue-archive.md; the check at the end of this run reports the unpublished verdicts"
     assert_line 'harness-weekly: committed 1 Rule Ledger record(s) to https://github.com/example/dotfiles/pull/42'
+    # 置き換えられなかった印は、入口の最後の確認(前の run の未公開の採用)が捕まえて失敗にする
+    assert_failure 1
+    assert_output --partial "publish --run '${BRANCH} run 0f0e' --pr-url <PR URL>"
 }
 
 @test "選別の結果: Verdict の CLI の adopted が失敗しても、評価の節の見出しを省いて PR を作り、Rule Ledger まで記録する" {
@@ -1631,9 +1639,11 @@ review_hiding_record() {
         printf '{"dropped":[],"deploy_only":[]}\n' >"$RESULT"
     }
     run review_with commit_nothing
-    assert_success
+    # 前の run の採用が残っているので、入口の最後の確認(前の run の未公開の採用)で失敗する
+    assert_failure 1
     assert_line 'harness-weekly: review committed no changes; no PR created'
     refute_output --partial 'but the review committed nothing'
+    assert_output --partial 'still has verdicts that never became a PR'
 }
 
 @test "選別が何も commit しなかった週: 記録がたまっていれば、依存を入れ直さずに Metrics-only PR を作る" {
@@ -1954,4 +1964,161 @@ leave_uncommitted() {
     assert_output --partial 'Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.'
     refute_output --partial 'run 0f0e'
     refute_output --partial 'adopted ('
+}
+
+# 前の run の採用が PR にならないまま残った項目を判定の記録に足す
+leftover_verdict() { # [<印>]
+    printf -- '\n## [2026-09-26] old\n\n- **Verdict:** adopted (%s)\n' "${1:-harness/review-2026-09-26 run 9a9a}" >>"$HDIR/queue-archive.md"
+}
+
+# 前の run の未公開の採用が残っているときの案内(印は leftover_verdict の既定)
+leftover_line() {
+    printf "harness-weekly: %s still has verdicts that never became a PR. For a loop mark (<branch> or <branch> run <id>), publish that branch from %s by hand (git push origin <branch>, then gh pr create --draft --base main --head <branch>); a mark written by hand has no branch to push and needs only the PR URL. Record the PR URL with: bash ~/.claude/scripts/harness-verdict.sh publish --run 'harness/review-2026-09-26 run 9a9a' --pr-url <PR URL>. Or move the entries back to queue.md; heartbeat not updated" \
+        "$HDIR/queue-archive.md" "$REPO"
+}
+
+@test "前の run の未公開の採用: 公開した run は公開の後に確かめ、残っていれば案内を出して失敗し、残っていなければ成功する" {
+    review_fixture
+    leftover_verdict
+    init_real
+    run review_with review_commits
+    assert_failure 1
+    assert_line 'harness-weekly: opened draft PR https://github.com/example/dotfiles/pull/42 (1 commit(s))'
+    assert_line 'harness-weekly: recorded the PR URL on 1 verdict(s)'
+    assert_line --index $((${#lines[@]} - 1)) "$(leftover_line)"
+    # 案内どおりに URL を記録すれば、同じ日の再実行(当日の PR が既にある)は成功する
+    run bash "$HOME/.claude/scripts/harness-verdict.sh" publish --run 'harness/review-2026-09-26 run 9a9a' --pr-url https://github.com/example/dotfiles/pull/7
+    assert_output 1
+    STUB_GH_HEAD_PRS='[{"url":"https://github.com/example/dotfiles/pull/42"}]' run review_with review_commits
+    assert_success
+    assert_output "harness-weekly: ${BRANCH} already exists on origin (PR https://github.com/example/dotfiles/pull/42); skipped review"
+}
+
+@test "前の run の未公開の採用: 当日の PR が既にある run も確かめる" {
+    review_fixture
+    # 判定の記録には前の run の採用だけを残す(この run の採用は、その日の PR を作った run が PR の URL に置き換えている)
+    : >"$HDIR/queue-archive.md"
+    leftover_verdict
+    init_real
+    git -C "$REPO" push -q origin "main:refs/heads/$BRANCH"
+    STUB_GH_HEAD_PRS='[{"url":"https://github.com/example/dotfiles/pull/41"}]' run review_with review_commits
+    assert_failure 1
+    assert_line --index 0 "harness-weekly: ${BRANCH} already exists on origin (PR https://github.com/example/dotfiles/pull/41); skipped review"
+    assert_line --index 1 "$(leftover_line)"
+}
+
+# 選別の claude の代わり。commit も判定の記録の書き換えもせずに結果ファイルを書く(採用も陳腐化の修正も無い週)
+review_writes_result_only() {
+    printf '{"dropped":[],"deploy_only":[]}\n' >"$RESULT"
+}
+
+@test "前の run の未公開の採用: 選別が何も commit しなかった run も確かめる" {
+    review_fixture
+    : >"$HDIR/queue-archive.md"
+    leftover_verdict
+    init_real
+    run review_with review_writes_result_only
+    assert_failure 1
+    assert_line 'harness-weekly: review committed no changes; no PR created'
+    assert_line --index $((${#lines[@]} - 1)) "$(leftover_line)"
+}
+
+@test "前の run の未公開の採用: 選別が何も commit せず Metrics-only PR を作った run も確かめる" {
+    review_fixture
+    : >"$HDIR/queue-archive.md"
+    leftover_verdict
+    four_local_records
+    init_real
+    run review_with review_writes_result_only
+    assert_failure 1
+    assert_line 'harness-weekly: opened metrics-only draft PR https://github.com/example/dotfiles/pull/42 (4 weekly record(s))'
+    assert_line --index $((${#lines[@]} - 1)) "$(leftover_line)"
+}
+
+@test "前の run の未公開の採用: 選別を省いた週の入口は、開いている Loop PR がある・要らない・当日のブランチが origin にあるどの経路でも確かめる" {
+    publish_fixture
+    leftover_verdict
+    init_real
+    STUB_GH_OPEN_PRS='[{"headRefName":"test/loop-2026-10-10","url":"https://github.com/example/dotfiles/pull/40"}]' \
+        run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_line --index 0 'harness-weekly: loop PR https://github.com/example/dotfiles/pull/40 is open; weekly failure rate records carried over'
+    assert_line --index 1 "$(leftover_line)"
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_line --index 0 --partial 'weekly failure rate record(s) not on origin/main'
+    assert_line --index 1 "$(leftover_line)"
+    git -C "$REPO" push -q origin "main:refs/heads/$BRANCH"
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output "$(leftover_line)"
+}
+
+@test "前の run の未公開の採用: 選別を省いた週に Metrics-only PR を作った run も確かめる" {
+    publish_fixture
+    leftover_verdict
+    four_local_records
+    init_real
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_line 'harness-weekly: opened metrics-only draft PR https://github.com/example/dotfiles/pull/42 (4 weekly record(s))'
+    assert_line --index $((${#lines[@]} - 1)) "$(leftover_line)"
+}
+
+@test "前の run の未公開の採用: 選別を省いた週の入口は、残っていなければ成功する" {
+    publish_fixture
+    printf -- '## [2026-09-26] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/7)\n' >"$HDIR/queue-archive.md"
+    init_real
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_success
+    refute_output --partial 'never became a PR'
+}
+
+@test "前の run の未公開の採用: 失敗で終わる経路では確かめない" {
+    review_fixture
+    leftover_verdict
+    init_real
+    run review_with then_fail review_commits
+    assert_failure 1
+    assert_output --partial "harness-weekly: review failed after 1 commit(s) on local branch ${BRANCH}"
+    refute_output --partial 'never became a PR'
+}
+
+@test "前の run の未公開の採用: 手書きの印が ' を含んでも、案内の publish のコマンドは貼り付けて動く" {
+    publish_fixture
+    leftover_verdict "Bob's fix"
+    init_real
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial 'a mark written by hand has no branch to push'
+    local command
+    command=$(printf '%s\n' "$output" | grep -o "bash ~/.claude/scripts/harness-verdict.sh publish --run '.*' --pr-url <PR URL>")
+    command=${command/<PR URL>/https:\/\/github.com\/example\/dotfiles\/pull\/7}
+    run eval "$command"
+    assert_success
+    assert_output 1
+    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/7)' "$HDIR/queue-archive.md"
+    assert_output 1
+}
+
+@test "前の run の未公開の採用: 判定の記録を読めなければ失敗する" {
+    publish_fixture
+    ln -s "$BATS_TEST_TMPDIR/missing" "$HDIR/queue-archive.md"
+    init_real
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_line --index $((${#lines[@]} - 1)) "harness-weekly: failed to read the unpublished verdicts from $HDIR/queue-archive.md; heartbeat not updated"
+}
+
+@test "前の run の未公開の採用: Verdict の CLI が照合に落ちたら、CLI を呼ばずに失敗し、予約コードを外に出さない" {
+    publish_fixture
+    leftover_verdict
+    init_real
+    printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+    STUB_GH_OPEN_PRS='[{"headRefName":"test/loop-2026-10-10","url":"https://github.com/example/dotfiles/pull/40"}]' \
+        run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
+    assert_line "harness-weekly: failed to read the unpublished verdicts from $HDIR/queue-archive.md; heartbeat not updated"
+    refute_output --partial 'never became a PR'
 }

@@ -21,8 +21,9 @@
 # (lib/harness-integrity.bash。ADR 0019)が claude の起動前にハッシュを取り、使う直前に比べる。claude の工程は
 # 必ず工程の入口(harness_integrity_run_untrusted。直後にデータを比べる)を通して起動し、claude の後に
 # ~/.claude/scripts のスクリプトを呼ぶときは、必ず実行物の入口(harness_integrity_run)を通す。
-# 両方の工程が成功するか省かれ、判定の記録に PR にならなかった採用が残っていなければ(finish_run)
-# heartbeat(最後に成功した時刻)を書き、briefing と doctor がその古さを表示する。
+# 両方の工程が成功するか省かれ(判定の記録に PR にならなかった採用が残っていないことは、Loop PR の module の入口が
+# 確かめる)、週の再発率の記録が欠けていなければ(finish_run)heartbeat(最後に成功した時刻)を書き、briefing と doctor が
+# その古さを表示する。
 # 週次ジョブ自身の停止と Loop Stall は、EXIT trap の report_stops が GitHub Issue で知らせる。週次ジョブ自身の停止
 # (この run の失敗・前の週に成功しなかったこと)は report_stops が、Loop Stall(放置された Loop PR と PR にならないループのブランチ)は
 # Loop Stall の module(lib/harness-loop-stalls.bash)が判定し、Issue を送る alert_issue を report_stops から受け取る。
@@ -120,8 +121,6 @@ main() {
     # 1 つのファイルに追記しないのは、記録を含む PR が 2 本開いたときに同じ行の追記どうしで
     # コンフリクトするため(同じ内容の新規ファイルどうしならぶつからない)
     LOCAL_RATES_DIR="$HARNESS_DIR/failure-pattern-rates"
-    # 判定の記録を読み書きする Verdict の CLI
-    VERDICT_CLI="$HOME/.claude/scripts/harness-verdict.sh"
 
     # ジョブ自身のセッションを処理の対象から外す(ADR 0012 の Consequences)。
     # 2 段構え: HARNESS_DISABLE で SessionEnd hook に積ませず、それでも積まれた
@@ -299,7 +298,6 @@ main() {
     export HARNESS_DISABLE=1
 
     QUEUE="$HARNESS_DIR/queue.md"
-    ARCHIVE="$HARNESS_DIR/queue-archive.md"
     # run の日付。Loop PR の module の初期化(当日のブランチ・本文などのパス)と Weekly Rate Record の記録が同じ日付を使う
     REVIEW_DATE=$(date +%Y-%m-%d)
     # ループのブランチの prefix。正本は scripts/check-guarded-paths.sh(CI はこの prefix でループの PR を見分ける)。
@@ -449,30 +447,10 @@ main() {
         }
     }
 
-    # 成功した run の締め。前の run が採用を記録したまま PR にできなかった(push・PR の作成・
-    # 選別の claude のどれかが失敗した)ことを、次の週の run が見落とさないよう、heartbeat を
-    # 書く前に判定の記録を確かめる(Verdict の CLI の unpublished)。選別は採用に run の印を付けて記録し、PR を
-    # 作れた run だけが自分の印を PR の URL に置き換える(Loop PR の module の harness_loop_pr_run_review)。手動の /harness-review は最初から
-    # PR の URL で記録するので当たらない。ブランチで絞らないので、ループ以外の印(手で書いた `adopted (by hand)` など)
-    # も PR になっていない採用として止まる。そうした印には push するブランチが無いので、案内の publish で記録するか
-    # queue に戻す。ローカルの harness/review-* ブランチの有無で
-    # 判定しないのは、手動の手順もローカルにブランチを残すため。
-    # 残っていれば heartbeat を書かずに失敗し、briefing の古さの警告で人に知らせる。その週の抽出と
-    # 選別は済ませてから確かめる(失敗させても週の処理は止めない)
+    # 成功した run の締め。Weekly Rate Record が欠けた週は失敗させ(record_failure_rates)、そうでなければ heartbeat を書く。
+    # 前の run の未公開の採用の確認は、Loop PR の module の 2 つの入口が成功で終わる経路の最後に行い、残っていれば入口が失敗を
+    # 返すので、ここには届かない
     finish_run() {
-        local leftovers run commands=""
-        leftovers=$(harness_integrity_run "$VERDICT_CLI" unpublished) || {
-            printf 'harness-weekly: failed to read the unpublished verdicts from %s; heartbeat not updated\n' "$ARCHIVE" >&2
-            return 1
-        }
-        if [[ -n "$leftovers" ]]; then
-            while IFS= read -r run; do
-                commands+="${commands:+; }$(harness_loop_pr_record_command "$run")"
-            done <<<"$leftovers"
-            printf 'harness-weekly: %s still has verdicts that never became a PR. For a loop mark (<branch> or <branch> run <id>), publish that branch from %s by hand (%s, then %s); a mark written by hand has no branch to push and needs only the PR URL. Record the PR URL with: %s. Or move the entries back to queue.md; heartbeat not updated\n' \
-                "$ARCHIVE" "$REPO" "$(harness_loop_pr_push_command '<branch>')" "$(harness_loop_pr_create_command '<branch>')" "$commands" >&2
-            return 1
-        fi
         if [[ -n "$RATE_RECORD_ERROR" ]]; then
             printf 'harness-weekly: this week has no failure rate record (%s); heartbeat not updated\n' "$RATE_RECORD_ERROR" >&2
             return 1
@@ -484,7 +462,7 @@ main() {
     }
 
     # 処理対象が無い工程は claude を起動しない。起動するだけで固定の文脈分の費用がかかるため。
-    # 両方の工程を省いた週も、finish_run の確認を通れば heartbeat は書く(「ジョブが健全に
+    # 両方の工程を省いた週も、Loop PR の module の入口と finish_run の確認を通れば heartbeat は書く(「ジョブが健全に
     # 回った」の意味。分類する失敗も無ければ、その週は claude と認証の経路を通らない)
     # 抽出の入力は失敗の検出器で選ぶ(ADR 0011)。失敗の無いセッションは claude にかけずに pending から外し、
     # セッションごとの件数を検出件数の記録に残す。選別が失敗したら抽出に進まない(選ばれていない入力で

@@ -21,7 +21,7 @@
 # 判定と文面は test/harness-loop-stalls.bats が Loop Stall の module の interface で検査する。Loop PR の経路(当日のブランチの照会・worktree の準備・依存のインストール・本文・公開・
 # Metrics-only PR・評価・Rule Ledger・失敗した選別の案内)と選別の prompt の中身は test/harness-loop-pr.bats が Loop PR の
 # module の interface で検査する。ここに残す Loop PR の経路の通し実行は、入口スクリプトの配線(選別の claude の失敗が module に届くこと、
-# module の失敗で run が失敗して heartbeat を書かないこと、選別の後に締めの確認をすること、queue が空の週に
+# module の失敗で run が失敗して heartbeat を書かないこと、選別の後に締めの確認(前の run の未公開の採用と finish_run)をすること、queue が空の週に
 # Metrics-only PR の入口を呼ぶこと、選別の claude に採用の印と書き込みの規則の文が渡ること)を見るものだけ。
 setup() {
     load 'helpers/setup'
@@ -662,6 +662,8 @@ EOF
     assert_output $'reflect\nreview'
 }
 
+# 前の run の未公開の採用の確認の中身(案内の文言・成功で終わる各経路・読めないときと照合に落ちたとき)は
+# test/harness-loop-pr.bats が検査する。ここでは、Loop PR の module の入口の失敗が run の失敗と heartbeat に届く配線だけを見る
 @test "前の run の採用が PR にならないまま判定の記録に残っていれば、heartbeat を書かずに失敗する" {
     printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
     run weekly
@@ -675,41 +677,6 @@ EOF
     run weekly
     assert_success
     assert_heartbeat_written
-}
-
-@test "手書きの印が ' を含んでも、復旧の案内の publish のコマンドは貼り付けて動く" {
-    printf -- "## [2026-01-01] old\n\n- **Verdict:** adopted (Bob's fix)\n" >"$HDIR/queue-archive.md"
-    run weekly
-    assert_failure
-    assert_output --partial "a mark written by hand has no branch to push"
-    local command
-    command=$(printf '%s\n' "$output" | grep -o "bash ~/.claude/scripts/harness-verdict.sh publish --run '.*' --pr-url <PR URL>")
-    command=${command/<PR URL>/https:\/\/github.com\/example\/dotfiles\/pull\/7}
-    run eval "$command"
-    assert_success
-    assert_output '1'
-    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/7)' "$HDIR/queue-archive.md"
-    assert_output '1'
-}
-
-@test "判定の記録の採用がすべて PR の URL になっていれば heartbeat を書く" {
-    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
-    run weekly
-    assert_success
-    assert_heartbeat_written
-}
-
-@test "前の run の採用の残りは、その週の選別と PR の作成を済ませてから知らせる" {
-    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
-    seed_queue
-    run weekly
-    assert_failure
-    assert_output --partial 'never became a PR'
-    run cat "$GH_LOG"
-    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
-    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
-    assert_output '1'
-    refute_heartbeat_written
 }
 
 @test "permission の拒否(headless では hook の ask も拒否)があれば実行ログに警告を出す" {
@@ -782,7 +749,7 @@ PRE
 
 # 失敗の検出の節の期間の中身(期間の切り方・読めない行・表の形)は test/harness-failure-rates.bats が再発率の CLI で検査する。
 # ここでは、PR を作った後に失敗した run(heartbeat を書かない)の次の run の PR が、前の PR の期間を重ねて数えないことを見る。
-# 1 回目の run は Weekly Rate Record を書いた後で PR を作り、finish_run が前の run の採用の残りで失敗する
+# 1 回目の run は Weekly Rate Record を書いた後で PR を作り、Loop PR の module の入口の最後の確認が前の run の採用の残りで失敗する
 @test "PR を作った後に失敗した run の次の run の PR は、前の PR が数えた期間の検出を数えない" {
     : >"$HDIR/pending.jsonl"
     now=$(date +%s)
@@ -1190,23 +1157,6 @@ tamper_in() {
 # rewrite_record_in <reflect|review> <日付>: その工程の claude がローカルの週の記録を書き換える
 rewrite_record_in() {
     run_in "$1" "printf '{\"tampered\":true}\n' >\"$RATES/$2.json\""
-}
-
-@test "queue が空の週は、Verdict の CLI が書き換えられていなければ finish_run が heartbeat を書く" {
-    run weekly
-    assert_success
-    assert_heartbeat_written
-}
-
-@test "queue が空の週に抽出の claude が Verdict の CLI を書き換えたら、finish_run は CLI を呼ばずに失敗する" {
-    tamper_in reflect harness-verdict.sh
-    # Loop PR が開いていれば Metrics-only PR の判定は再発率の CLI を呼ばずに終わり、finish_run が最初に実行物を照合する
-    # (開いていなければ、判定が入口を通して CLI を呼ぶときに照合に落ちて、finish_run の前に止まる)
-    STUB_GH_OPEN_LOOP_PR=https://github.com/example/dotfiles/pull/40 run weekly
-    assert_failure
-    assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
-    assert_output --partial 'failed to read the unpublished verdicts'
-    refute_heartbeat_written
 }
 
 # Loop PR の module だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する

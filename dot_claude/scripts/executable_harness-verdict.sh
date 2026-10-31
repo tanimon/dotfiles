@@ -30,7 +30,7 @@
 #
 # settle は queue(~/.claude/harness/queue.md)の見出し `## <見出し>` の項目(区切りは entries と同じ)を queue から外し、
 # 末尾の空行を落として Verdict 行を 1 行付け、判定の記録の末尾に前の項目と空行で区切って足す。書く Verdict 行:
-#   adopted   環境変数 HARNESS_REVIEW_RUN(週次ジョブが `<branch> run <id>` を渡す)があれば `adopted (<その値>)`、
+#   adopted   環境変数 HARNESS_REVIEW_RUN(週次ジョブの選別では mark が作った印)があれば `adopted (<その値>)`、
 #             無ければ --pr-url が要り `adopted (PR <URL>)`。両方ある・両方とも無い・値が空は誤り
 #   rejected  `rejected (<理由>)`        handoff  `handoff (<repo>)`
 #   merged    `merged into <見出し>`。統合先は queue か判定の記録に `## <見出し>` として実在すること
