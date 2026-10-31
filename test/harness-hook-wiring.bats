@@ -6,21 +6,30 @@
 # settings.json.tmpl はループが変えてよいので、profile ごとの分岐で片方の profile でだけ配線を外す変更も
 # ありうる。そのため test/fixtures/ の全 profile で描画して検査する。
 #
-# 描画と chezmoi が無いときの扱いは test/settings-hooks.bats と同じく test/helpers/render.bash に任せる。
-PROFILES=(personal work)
+# 描画・Machine Profile の一覧・chezmoi が無いときの扱いは、test/settings-hooks.bats と同じく test/helpers/render.bash
+# (描画の module)に任せる。fixture を足すと、その Machine Profile も描画して検査する。
 
 setup_file() {
     load 'helpers/render'
     export TMPDIR="$BATS_FILE_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
-    local profile
-    for profile in "${PROFILES[@]}"; do
+    local profiles profile
+    profiles=$(render_profiles) || return 1
+    printf '%s\n' "$profiles" >"$BATS_FILE_TMPDIR/profiles"
+    while IFS= read -r profile; do
         render_template "$profile" "$RENDER_REPO/dot_claude/settings.json.tmpl" >"$BATS_FILE_TMPDIR/settings-$profile.json"
-    done
+    done <<<"$profiles"
 }
 
 setup() {
     load 'helpers/setup'
+    # setup_file が描画した Machine Profile の一覧。bash は配列を export できないので、ファイルで受け取る
+    local profile
+    PROFILES=()
+    while IFS= read -r profile; do
+        PROFILES+=("$profile")
+    done <"$BATS_FILE_TMPDIR/profiles"
+    [ "${#PROFILES[@]}" -gt 0 ] || fail "Machine Profile の一覧が空"
 }
 
 # loop_registrations SETTINGS EVENT NAME: EVENT で NAME を呼ぶ hook エントリを 1 行 1 JSON で出す。

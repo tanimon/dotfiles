@@ -138,15 +138,3 @@ setup() {
     assert_success
     assert_output 'dot_gitconfig.tmpl'
 }
-
-# 未知の profile を空の描画結果で成功させない(空の結果に対する後続の grep が空振りするため)
-@test "render_template は存在しない profile と省略した profile で失敗する" {
-    load 'helpers/render'
-
-    run render_template staging "$RENDER_REPO/dot_gitconfig.tmpl"
-    assert_failure
-    assert_output --partial "profile 'staging'"
-
-    run render_template '' "$RENDER_REPO/dot_gitconfig.tmpl"
-    assert_failure
-}

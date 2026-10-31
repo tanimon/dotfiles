@@ -13,7 +13,6 @@ setup() {
     REPO="$RENDER_REPO"
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
     mkdir -p "$TMPDIR"
-    CONFIG=$(render_config personal)
     SHARED="$REPO/.chezmoitemplates/agent-instructions-common"
     RULES_DIR="$REPO/dot_claude/rules/common"
 }
@@ -168,14 +167,14 @@ EOF
 # openai/skills など .chezmoiexternal.toml にあるもの)になり、グローバル指示とは無関係に見えるので、
 # この注記を頼りに切り分けること。
 @test "chezmoi managed に .codex/AGENTS.md が出る" {
-    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$RENDER_SOURCE"
+    run render_chezmoi personal managed
     assert_success
     assert_line '.codex/AGENTS.md'
 }
 
 @test "chezmoi managed に .claude/CLAUDE.md が残っている" {
     # .tmpl 化で Target のパスが変わっていないこと
-    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$RENDER_SOURCE"
+    run render_chezmoi personal managed
     assert_success
     assert_line '.claude/CLAUDE.md'
 }
@@ -184,7 +183,7 @@ EOF
     # .chezmoiexternal.toml の include はファイルを列挙しているので、ECC の SHA 更新で
     # upstream のファイルが改名・削除されると黙って配置されなくなる(古いファイルは
     # ~/ に残って読み込まれ続ける)。列挙から外したファイルとその理由は .chezmoiexternal.toml のコメント
-    run "$RENDER_CHEZMOI" managed --config "$CONFIG" --source "$RENDER_SOURCE" --include=files
+    run render_chezmoi personal managed --include=files
     assert_success
     local ecc_rules
     ecc_rules=$(printf '%s\n' "$output" | grep -E '^\.claude/rules/(typescript|web)/')

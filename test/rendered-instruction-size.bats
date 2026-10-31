@@ -35,20 +35,18 @@ measure_rendered() {
     (cd "$RENDER_REPO" && bash "$SCRIPT" --rendered "$1" "$out")
 }
 
-# load_profiles: test/fixtures/chezmoi-*.toml の profile の名前を profiles に入れる
+# load_profiles: Machine Profile の名前(描画の module の render_profiles)を profiles に入れる
 load_profiles() {
-    local config profile
+    local list profile
+    list=$(render_profiles) || fail "Machine Profile の一覧を取れない"
     profiles=()
-    for config in "$RENDER_REPO"/test/fixtures/chezmoi-*.toml; do
-        [ -f "$config" ] || continue
-        profile=${config##*/chezmoi-}
-        profiles+=("${profile%.toml}")
-    done
-    [ "${#profiles[@]}" -gt 0 ] || fail "profile の fixture が 1 件も無い"
+    while IFS= read -r profile; do
+        profiles+=("$profile")
+    done <<<"$list"
 }
 
 # measure_templates REPO: REPO の --list-templates の各テンプレートをすべての profile で描画し、REPO の上限の一覧で測る。
-# 描画は RENDER_SOURCE(RENDER_REPO の作業ツリーの写し)を source にする(REPO のテンプレートがその .chezmoitemplates を取り込んでも描画できる)
+# 描画の source は REPO ではなく RENDER_REPO の作業ツリーの写しなので、REPO のテンプレートが RENDER_REPO の .chezmoitemplates を取り込んでも描画できる
 measure_templates() {
     local repo=$1 templates template profile out profiles
     templates=$(cd "$repo" && bash "$SCRIPT" --list-templates) || return
