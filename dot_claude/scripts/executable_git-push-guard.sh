@@ -27,86 +27,29 @@
 # shellcheck disable=SC2317,SC2329
 set -euo pipefail
 
-# Errors go to a log file when one can be opened, and to the hook's own stderr
-# otherwise. This lives here rather than in the settings.json wrapper because a
-# wrapper of the form `mkdir -p … && script 2>>…` skips the script entirely when
-# the log directory cannot be created — a failed redirection abandons the
-# command — which turns a logging problem into a missing decision, i.e. into
-# fail-open. Nothing here may abort the run.
-# The append probe is the guard rather than a `-w` test: `exec` is a special
-# builtin, so an open that fails anyway (read-only mount, full disk, immutable
-# flag) exits the shell with no output — the very fail-open this avoids.
-LOG_DIR="${HOME:-}/.claude/logs"
-LOG_FILE="$LOG_DIR/git-push-guard-errors.log"
-if [[ -n "${HOME:-}" ]] && mkdir -p "$LOG_DIR" 2>/dev/null &&
-    (: >>"$LOG_FILE") 2>/dev/null; then
-    exec 2>>"$LOG_FILE"
+# 起動の自前の部分。起動 module(lib/command-guard.bash)が無い・壊れているときも ask を返すため、各 guard が持つ。
+# 手順と理由は module のヘッダ。動詞を含まない入力は module を読まずに終わる。
+COMMAND_GUARD_STDIN_FAILED=0
+COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
+# 動詞は自前の部分の照合と command_guard_start の --verb で共有する(ずれると動詞を含む入力が module に届かない)。
+COMMAND_GUARD_VERB='*push*'
+# shellcheck disable=SC2053 # 動詞は glob として照合する
+[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB ]] || exit 0
+command_guard_dir=${BASH_SOURCE[0]%/*}
+[[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
+# shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
+if [[ ! -r "$command_guard_dir/lib/command-guard.bash" ]] || ! "$BASH" -n "$command_guard_dir/lib/command-guard.bash" ||
+    ! source "$command_guard_dir/lib/command-guard.bash" || ! declare -F command_guard_start command_guard_emit >/dev/null; then
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"git-push-guard: フックの部品を読めないため承認が必要です(起動 module を読めない)"}}'
+    exit 0
 fi
 
-emit() {
-    # $1 = permissionDecision, $2 = reason shown to Claude
-    if command -v jq >/dev/null 2>&1; then
-        jq -n --arg d "$1" --arg r "$2" \
-            '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'
-    else
-        # No jq means no safe way to escape a reason, so the text is a literal.
-        printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"git-push-guard: jq unavailable, cannot classify this push"}}\n' "$1"
-    fi
-}
+command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --on-unreadable ask \
+    --lib shell-reader.bash \
+    --require 'shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches'
+# command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 ASK_REASON='git-push-guard: この push は引数を読み切れないため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
-
-STDIN_JSON=$(cat) || {
-    emit ask "$ASK_REASON"
-    exit 0
-}
-
-# jq が無い・stdin が JSON でないときは push の有無を確かめられない。生の入力に push があれば ask、
-# 無ければ無出力(無関係なコマンドまで ask にしても守れるものは無く、承認を惰性にするだけ)。
-# 起動時の約束の正本は test/guard-contract.bats。
-if ! command -v jq >/dev/null 2>&1; then
-    case "$STDIN_JSON" in *push*) emit ask "$ASK_REASON" ;; esac
-    exit 0
-fi
-
-COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null) || {
-    case "$STDIN_JSON" in *push*) emit ask "$ASK_REASON" ;; esac
-    exit 0
-}
-
-# An empty command means either a non-Bash tool or a malformed payload. A
-# payload that is not JSON at all fails the jq extraction of COMMAND, so
-# reaching here with an empty string is the benign case.
-[[ -z "$COMMAND" ]] && exit 0
-
-# Cheap bail-out before any parsing: nothing to guard without the verb.
-case "$COMMAND" in
-*push*) ;;
-*) exit 0 ;;
-esac
-
-# 共有 reader を読む。このフックの無出力はフェイルオープンなので、読めないときは ask に倒す。
-# `source` は存在しないファイルで `||` に届く前に bash 自身が終了する
-# (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
-# 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `"$BASH" -n` で
-# 先に確かめ(PATH 上の bash ではなく、このフックを動かしている interpreter で検査する)、
-# 空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)になるので
-# `declare -F` で確かめる。
-reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
-if [[ ! -r "$reader_library" ]] || ! "$BASH" -n "$reader_library"; then
-    emit ask "$ASK_REASON"
-    exit 0
-fi
-# shellcheck source-path=SCRIPTDIR
-# shellcheck source=lib/shell-reader.bash
-source "$reader_library" || {
-    emit ask "$ASK_REASON"
-    exit 0
-}
-declare -F shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches >/dev/null || {
-    emit ask "$ASK_REASON"
-    exit 0
-}
 
 DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
 # 長オプションは token の判定(long_option_is_dangerous)と同じく前方一致も見る(`--forc` / `--dele`)。
@@ -513,12 +456,12 @@ if [[ -z "$DANGER_TOKEN" ]] && shell_reader_text_floor_matches "$DANGER_TEXT_RE"
 fi
 
 if [[ -n "$DANGER_TOKEN" ]]; then
-    emit deny "git-push-guard: 破壊的な push の綴りを検出しました(${DANGER_TOKEN})。force push とリモートブランチ削除は人間が自分の端末で行う方針です。"
+    command_guard_emit deny "git-push-guard: 破壊的な push の綴りを検出しました(${DANGER_TOKEN})。force push とリモートブランチ削除は人間が自分の端末で行う方針です。"
     exit 0
 fi
 
 if [[ $NEEDS_ASK -eq 1 ]]; then
-    emit ask "$ASK_REASON"
+    command_guard_emit ask "$ASK_REASON"
     exit 0
 fi
 

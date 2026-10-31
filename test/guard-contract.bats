@@ -2,12 +2,16 @@
 # PreToolUse の guard hook が起動時に守る約束の契約テスト。起動時の約束の正本はこのファイル。
 #
 # ADR 0009 の中核は「読めなければ ask(無出力にも、理由の無い exit 2 にもしない)」。この約束を守る
-# 起動部(ログの確保、stdin・jq・.tool_input.command の取り出し、shell-reader の lib の検査)は
-# guard ごとに写してあるので、写し同士のずれをここで捕まえる。guard 固有の判定は各 guard の bats にある。
+# 起動部(ログの確保、stdin・jq・.tool_input.command の取り出し、lib の検査)は起動 module
+# (dot_claude/scripts/lib/command-guard.bash)にあり、起動 module 自体が読めないときの自前の部分だけを guard ごとに
+# 写してある。module の振る舞いと写し同士のずれを、guard ごとの stdin → stdout でここで捕まえる。
+# guard 固有の判定は各 guard の bats にある。
 #
 # 起動時の失敗と、そのとき見る入力:
-#   lib が無い / 空 / 構文エラー / guard が呼ぶ関数の 1 つが無い(古い lib)、jq が無い、stdin が JSON でない
-#     → 動詞を含む入力(VERB_INPUT)は ask、含まない入力(SILENT_INPUT)は無出力
+#   起動 module か lib が無い / 空 / 構文エラー / guard が呼ぶ関数の 1 つが無い(古い lib)、jq が無い、
+#   stdin が JSON でない
+#     → 動詞を含む入力(VERB_INPUT)は ask(理由は起動 module の共通の固定文)、含まない入力(SILENT_INPUT)は無出力
+#   stdin を読めない → ask
 #   HOME に書き込めない / 未設定
 #     → 判定を返す入力(DECISION_INPUT)の判定が変わらない、VERB_INPUT と SILENT_INPUT は無出力
 #     (ログを開けないだけで guard は読めるので、VERB_INPUT を ask にするのは誤り。DECISION_INPUT の
@@ -100,9 +104,21 @@ expect() {
     fi
 }
 
+# 起動の失敗で ask を返すときの理由は起動 module の共通の固定文。判定中の ask の理由は guard ごとに違う。
+STARTUP_REASON='フックの部品を読めないため承認が必要です('
+
+# expect_startup_ask GUARD MODE INPUT: 直前の run の結果が、起動の失敗の共通の理由を持つ ask か。
+expect_startup_ask() {
+    expect "$1" "$2" "$3" ask
+    local reason
+    reason=$(printf '%s' "$output" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty')
+    [[ "$reason" == "$1: $STARTUP_REASON"*')' ]] ||
+        fail "$1 [$2] '$3': 起動の失敗の共通の理由のはずが: $reason"
+}
+
 # lib_functions_called NAME: guard が呼ぶ lib の関数を 1 行に 1 つ出す。lib に `name() {` で定義され、
-# guard の script に名前が出る関数を拾う。guard の declare -F の一覧から独立に選ぶので、呼んでいるのに
-# declare -F に無い関数も拾える(guard のコメントに lib の関数名を書くと、呼んでいなくても拾う)。
+# guard の script に名前が出る関数を拾う。guard の --require の一覧から独立に選ぶので、呼んでいるのに
+# --require に無い関数も拾える(guard のコメントに lib の関数名を書くと、呼んでいなくても拾う)。
 lib_functions_called() {
     local function_name
     while IFS= read -r function_name; do
@@ -112,24 +128,48 @@ lib_functions_called() {
     done < <(sed -nE 's/^([a-z][a-z0-9_]*)\(\).*/\1/p' "$SCRIPTS"/lib/*.bash)
 }
 
-# copy_guard NAME LIB_KIND [FUNCTION]: guard を lib ごと別の場所に写し、写した script の path を出す。
-# LIB_KIND は missing / empty / syntax / stale / intact。missing は lib ディレクトリごと写さない。
-# empty / syntax は shell-reader.bash だけを壊し、他の lib は正常なまま写す。
-# stale は FUNCTION を定義する lib の末尾に `unset -f FUNCTION` を足す(読めて構文も正しいが、その関数だけが無い)。
+# guard_libraries NAME: guard が読む lib のうち、起動 module(command-guard.bash)以外の basename を 1 行に 1 つ出す。
+# guard の script に basename が出る lib を拾う。拾える lib が無ければ失敗する(テストを空振りさせない)。
+guard_libraries() {
+    local library found=0
+    for library in "$SCRIPTS"/lib/*.bash; do
+        library=${library##*/}
+        [[ "$library" == command-guard.bash ]] && continue
+        if grep -qF -- "$library" "$SCRIPTS/executable_$1.sh"; then
+            printf '%s\n' "$library"
+            found=1
+        fi
+    done
+    if [[ $found -eq 0 ]]; then
+        printf '%s\n' "guard_libraries: $1 が読む lib が見つからない" >&2
+        return 1
+    fi
+}
+
+# copy_guard NAME KIND [TARGET]: guard を lib ごと別の場所に写し、写した script の path を出す。
+# KIND は missing / empty / syntax / stale / intact。
+# missing / empty / syntax は lib/ の TARGET(basename)だけを消す・空にする・構文エラーにし、他の lib は正常なまま写す。
+# TARGET を command-guard.bash にすると起動 module 自体が壊れ、guard_libraries の lib にすると起動 module は正常なまま
+# reader などの lib だけが壊れる。
+# stale は TARGET(関数名)を定義する lib の末尾に `unset -f TARGET` を足す(読めて構文も正しいが、その関数だけが無い)。
 copy_guard() {
-    # 写し先は FUNCTION ごとに分ける(stale_copies は写しを全部作ってから使うので、同じ場所だと上書きし合う)。
-    local dir="$BATS_TEST_TMPDIR/$1${3:+-$3}"
-    mkdir -p "$dir"
-    cp "$SCRIPTS/executable_$1.sh" "$dir/guard.sh"
-    [[ $2 == missing ]] && {
-        printf '%s\n' "$dir/guard.sh"
-        return
-    }
+    # 写し先は KIND と TARGET ごとに分ける(stale_copies などは写しを全部作ってから使うので、同じ場所だと上書きし合う)。
+    local dir="$BATS_TEST_TMPDIR/$1-$2${3:+-$3}"
     mkdir -p "$dir/lib"
+    cp "$SCRIPTS/executable_$1.sh" "$dir/guard.sh"
     cp "$SCRIPTS"/lib/*.bash "$dir/lib/"
     case $2 in
-    empty) : >"$dir/lib/shell-reader.bash" ;;
-    syntax) printf '%s\n' 'shell_reader_read() {' >"$dir/lib/shell-reader.bash" ;;
+    missing | empty | syntax)
+        if [[ ! -f "$dir/lib/$3" ]]; then
+            printf '%s\n' "copy_guard: 壊す lib が無い: ${3:-指定なし}" >&2
+            return 1
+        fi
+        ;;
+    esac
+    case $2 in
+    missing) rm "$dir/lib/$3" ;;
+    empty) : >"$dir/lib/$3" ;;
+    syntax) printf '%s\n' 'broken_function() {' >"$dir/lib/$3" ;;
     stale)
         local library
         library=$(grep -l -- "^$3()" "$dir"/lib/*.bash) || library=
@@ -140,6 +180,10 @@ copy_guard() {
         printf 'unset -f %s\n' "$3" >>"$library"
         ;;
     intact) ;;
+    *)
+        printf '%s\n' "copy_guard: 未知の KIND: $2" >&2
+        return 1
+        ;;
     esac
     printf '%s\n' "$dir/guard.sh"
 }
@@ -162,14 +206,19 @@ stale_copies() {
 
 # 読めない lib: 無いと source が exit 1、構文エラーだと exit 2(理由なしのブロック)、
 # 空だと関数が無いまま exit 127(フェイルオープン)になる。どれも動詞があれば ask。
+# assert_lib_contract KIND: 起動 module は正常なまま、guard が読む lib を 1 つずつ KIND で壊して確かめる。
 assert_lib_contract() {
-    local index script
+    local index name libraries library script
     for index in "${!GUARD_NAMES[@]}"; do
-        script=$(copy_guard "${GUARD_NAMES[$index]}" "$1")
-        run --separate-stderr bash "$script" <<<"$(payload "${GUARD_VERB_INPUTS[$index]}")"
-        expect "${GUARD_NAMES[$index]}" "lib $1" "${GUARD_VERB_INPUTS[$index]}" ask
-        run --separate-stderr bash "$script" <<<"$(payload "${GUARD_SILENT_INPUTS[$index]}")"
-        expect "${GUARD_NAMES[$index]}" "lib $1" "${GUARD_SILENT_INPUTS[$index]}" ''
+        name=${GUARD_NAMES[$index]}
+        libraries=$(guard_libraries "$name") || fail "$name の lib を拾えない"
+        while IFS= read -r library; do
+            script=$(copy_guard "$name" "$1" "$library") || fail "$name の写しを作れない"
+            run --separate-stderr bash "$script" <<<"$(payload "${GUARD_VERB_INPUTS[$index]}")"
+            expect_startup_ask "$name" "$library $1" "${GUARD_VERB_INPUTS[$index]}"
+            run --separate-stderr bash "$script" <<<"$(payload "${GUARD_SILENT_INPUTS[$index]}")"
+            expect "$name" "$library $1" "${GUARD_SILENT_INPUTS[$index]}" ''
+        done <<<"$libraries"
     done
 }
 
@@ -181,23 +230,77 @@ assert_lib_contract() {
     done
 }
 
-@test "lib が無いとき、動詞を含む入力は ask、含まない入力は無出力" {
+@test "起動 module は正常で lib が無いとき、動詞を含む入力は ask、含まない入力は無出力" {
     assert_lib_contract missing
 }
 
-@test "lib が空のとき、動詞を含む入力は ask、含まない入力は無出力" {
+@test "起動 module は正常で lib が空のとき、動詞を含む入力は ask、含まない入力は無出力" {
     assert_lib_contract empty
 }
 
-@test "lib が構文エラーのとき、動詞を含む入力は ask、含まない入力は無出力" {
+@test "起動 module は正常で lib が構文エラーのとき、動詞を含む入力は ask、含まない入力は無出力" {
     assert_lib_contract syntax
 }
 
+# 起動 module 自体が読めないときは、各 guard に残した自前の部分が固定文の ask を返す。
+# assert_module_contract KIND: 起動 module を KIND で壊して確かめる。
+assert_module_contract() {
+    local index name script
+    for index in "${!GUARD_NAMES[@]}"; do
+        name=${GUARD_NAMES[$index]}
+        script=$(copy_guard "$name" "$1" command-guard.bash) || fail "$name の写しを作れない"
+        run --separate-stderr bash "$script" <<<"$(payload "${GUARD_VERB_INPUTS[$index]}")"
+        expect_startup_ask "$name" "module $1" "${GUARD_VERB_INPUTS[$index]}"
+        run --separate-stderr bash "$script" <<<"$(payload "${GUARD_SILENT_INPUTS[$index]}")"
+        expect "$name" "module $1" "${GUARD_SILENT_INPUTS[$index]}" ''
+    done
+}
+
+@test "起動 module が無いとき、動詞を含む入力は ask、含まない入力は無出力" {
+    assert_module_contract missing
+}
+
+@test "起動 module が空のとき、動詞を含む入力は ask、含まない入力は無出力" {
+    assert_module_contract empty
+}
+
+@test "起動 module が構文エラーのとき、動詞を含む入力は ask、含まない入力は無出力" {
+    assert_module_contract syntax
+}
+
+# assert_diagnostics_kept NAME INPUT: 動詞を含む INPUT で、壊れた lib の診断がログに、壊れた起動 module の診断が
+# フックの stderr に残るか。
+assert_diagnostics_kept() {
+    local name=$1 input=$2 libraries library script log="$HOME/.claude/logs/$1-errors.log"
+    libraries=$(guard_libraries "$name") || fail "$name の lib を拾えない"
+    while IFS= read -r library; do
+        rm -f "$log"
+        script=$(copy_guard "$name" syntax "$library") || fail "$name の写しを作れない"
+        run --separate-stderr bash "$script" <<<"$(payload "$input")"
+        grep -qF -- "$library" "$log" 2>/dev/null ||
+            fail "$name [$library syntax]: ログに診断が無い: $(cat "$log" 2>/dev/null)"
+    done <<<"$libraries"
+    script=$(copy_guard "$name" syntax command-guard.bash) || fail "$name の写しを作れない"
+    run --separate-stderr bash "$script" <<<"$(payload "$input")"
+    [[ "$stderr" == *command-guard.bash* ]] || fail "$name [module syntax]: stderr に診断が無い: $stderr"
+}
+
+# 壊れた lib の診断(`"$BASH" -n` の構文エラー)は、ログを開けるならログに残る。起動 module 自体の診断は
+# ログを開く前に出るので、フックの stderr に出る。
+@test "lib が構文エラーのときの診断はログに、起動 module の診断はフックの stderr に残る" {
+    local index
+    for index in "${!GUARD_NAMES[@]}"; do
+        assert_diagnostics_kept "${GUARD_NAMES[$index]}" "${GUARD_VERB_INPUTS[$index]}"
+    done
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        assert_diagnostics_kept "${FAIL_OPEN_NAMES[$index]}" "${FAIL_OPEN_DECISION_INPUTS[$index]}"
+    done
+}
+
 # デプロイ先で guard だけが新しく lib が古い場合。lib は読めて構文も正しいので、declare -F だけが
-# exit 127(フェイルオープン)を塞ぐ。guard が呼ぶ関数を 1 つずつ欠かし、そのときの振る舞いを関数ごとに確かめる。
-# 確かめるのは振る舞いなので、未定義の 127 が呼び出し側でたまたま契約どおりの結果になる関数は、declare -F から
-# 漏れても red にならない(curl-localhost-guard の `if ! shell_reader_each_segment …` は ask、issue-linkage-guard の
-# `issue_linkage_scope_in_scope … || return 0` は無出力になる)。
+# exit 127(フェイルオープン)を塞ぐ。guard が呼ぶ関数(起動 module の関数を含む)を 1 つずつ欠かし、そのときの
+# 振る舞いを関数ごとに確かめる。理由まで共通の固定文であることを見るので、guard が呼ぶのに --require に無い関数は、
+# 未定義の 127 が呼び出し側でたまたま ask になっても red になる。
 @test "lib に guard が呼ぶ関数の 1 つが無いとき、動詞を含む入力は ask、含まない入力は無出力" {
     local index name copies function_name script
     for index in "${!GUARD_NAMES[@]}"; do
@@ -205,7 +308,7 @@ assert_lib_contract() {
         copies=$(stale_copies "$name")
         while read -r function_name script; do
             run --separate-stderr bash "$script" <<<"$(payload "${GUARD_VERB_INPUTS[$index]}")"
-            expect "$name" "lib without $function_name" "${GUARD_VERB_INPUTS[$index]}" ask
+            expect_startup_ask "$name" "lib without $function_name" "${GUARD_VERB_INPUTS[$index]}"
             run --separate-stderr bash "$script" <<<"$(payload "${GUARD_SILENT_INPUTS[$index]}")"
             expect "$name" "lib without $function_name" "${GUARD_SILENT_INPUTS[$index]}" ''
         done <<<"$copies"
@@ -235,7 +338,7 @@ assert_lib_contract() {
         name=${GUARD_NAMES[$index]}
         input=$(payload "${GUARD_VERB_INPUTS[$index]}")
         run --separate-stderr env PATH="$stub" "$BASH" "$SCRIPTS/executable_$name.sh" <<<"$input"
-        expect "$name" "no jq" "${GUARD_VERB_INPUTS[$index]}" ask
+        expect_startup_ask "$name" "no jq" "${GUARD_VERB_INPUTS[$index]}"
         input=$(payload "${GUARD_SILENT_INPUTS[$index]}")
         run --separate-stderr env PATH="$stub" "$BASH" "$SCRIPTS/executable_$name.sh" <<<"$input"
         expect "$name" "no jq" "${GUARD_SILENT_INPUTS[$index]}" ''
@@ -247,9 +350,18 @@ assert_lib_contract() {
     for index in "${!GUARD_NAMES[@]}"; do
         name=${GUARD_NAMES[$index]}
         run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <<<"not json: ${GUARD_VERB_INPUTS[$index]}"
-        expect "$name" "not json" "${GUARD_VERB_INPUTS[$index]}" ask
+        expect_startup_ask "$name" "not json" "${GUARD_VERB_INPUTS[$index]}"
         run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <<<"not json: ${GUARD_SILENT_INPUTS[$index]}"
         expect "$name" "not json" "${GUARD_SILENT_INPUTS[$index]}" ''
+    done
+}
+
+# stdin の読み取りの失敗は空の入力と区別する(空なら動詞が無いので無出力になる)。ディレクトリを stdin にすると cat が失敗する。
+@test "stdin を読めないとき、ask" {
+    local name
+    for name in "${GUARD_NAMES[@]}"; do
+        run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <"$BATS_TEST_TMPDIR"
+        expect_startup_ask "$name" "stdin unreadable" '(ディレクトリ)'
     done
 }
 
@@ -305,13 +417,29 @@ assert_lib_contract() {
     done
 }
 
-@test "フェイルオープンの guard は、lib が無い・空・構文エラーのとき無出力" {
-    local index script kind
-    for kind in missing empty syntax; do
-        for index in "${!FAIL_OPEN_NAMES[@]}"; do
-            script=$(copy_guard "${FAIL_OPEN_NAMES[$index]}" "$kind")
+@test "フェイルオープンの guard は、起動 module は正常で lib が無い・空・構文エラーのとき無出力" {
+    local index name script kind libraries library
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        name=${FAIL_OPEN_NAMES[$index]}
+        libraries=$(guard_libraries "$name") || fail "$name の lib を拾えない"
+        for kind in missing empty syntax; do
+            while IFS= read -r library; do
+                script=$(copy_guard "$name" "$kind" "$library") || fail "$name の写しを作れない"
+                run --separate-stderr bash "$script" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
+                expect "$name" "$library $kind" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
+            done <<<"$libraries"
+        done
+    done
+}
+
+@test "フェイルオープンの guard は、起動 module が無い・空・構文エラーのとき無出力" {
+    local index name script kind
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        name=${FAIL_OPEN_NAMES[$index]}
+        for kind in missing empty syntax; do
+            script=$(copy_guard "$name" "$kind" command-guard.bash) || fail "$name の写しを作れない"
             run --separate-stderr bash "$script" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
-            expect "${FAIL_OPEN_NAMES[$index]}" "lib $kind" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
+            expect "$name" "module $kind" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
         done
     done
 }
@@ -339,6 +467,14 @@ assert_lib_contract() {
         expect "$name" "no jq" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
         run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <<<"not json: ${FAIL_OPEN_DECISION_INPUTS[$index]}"
         expect "$name" "not json" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
+    done
+}
+
+@test "フェイルオープンの guard は、stdin を読めないとき無出力" {
+    local name
+    for name in "${FAIL_OPEN_NAMES[@]}"; do
+        run --separate-stderr bash "$SCRIPTS/executable_$name.sh" <"$BATS_TEST_TMPDIR"
+        expect "$name" "stdin unreadable" '(ディレクトリ)' ''
     done
 }
 

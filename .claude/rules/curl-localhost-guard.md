@@ -19,7 +19,7 @@ default / auto の両 mode で効く。
 含むコマンドのうち、宛先がすべてループバックと読み切れないものに `ask` を返し、ループバック宛だけを
 無出力(= `defaultMode: auto` のクラシファイア判定)に落とす。未配置・クラッシュでは
 無出力になり、curl の確認が**外れる**(フェイルオープン)ことに注意 — 下に ask ルールの床は無い。`jq` が無いとき・stdin が JSON でないときは生の入力に `curl` があれば `ask`、
-lib が読めない・壊れているときも `ask` を返す(正本は `test/guard-contract.bats`)。
+lib が読めない・壊れているときも `ask` を返す(起動部は `.claude/rules/command-guard.md`、正本は `test/guard-contract.bats`)。
 
 存在理由は `permissions` のプレフィックス照合の限界で、これも git push と同じ形: URL はフラグの
 後ろ(`curl -sS -H … URL`)に来るので `Bash(curl http://localhost:*)` という allow エントリでは

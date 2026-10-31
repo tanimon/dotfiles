@@ -26,31 +26,31 @@
 # shellcheck disable=SC2317,SC2329
 set -uo pipefail
 
-LOG_DIR="${HOME:-}/.claude/logs"
-LOG_FILE="$LOG_DIR/issue-linkage-guard-errors.log"
-if [[ -n "${HOME:-}" ]] && mkdir -p "$LOG_DIR" 2>/dev/null &&
-    (: >>"$LOG_FILE") 2>/dev/null; then
-    exec 2>>"$LOG_FILE"
+# 起動の自前の部分。起動 module(lib/command-guard.bash)が無い・壊れているときは、この guard の失敗の向きどおり
+# 無出力で通す。手順と理由は module のヘッダ。動詞を含まない入力は module を読まずに終わる。
+COMMAND_GUARD_STDIN_FAILED=0
+COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
+# 動詞は自前の部分の照合と command_guard_start の --verb で共有する(ずれると動詞を含む入力が module に届かない)。
+COMMAND_GUARD_VERB_CREATE='*gh*create*'
+COMMAND_GUARD_VERB_NEW='*gh*new*'
+# shellcheck disable=SC2053 # 動詞は glob として照合する
+[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB_CREATE ||
+    "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB_NEW ]] || exit 0
+command_guard_dir=${BASH_SOURCE[0]%/*}
+[[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
+# shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
+if [[ ! -r "$command_guard_dir/lib/command-guard.bash" ]] || ! "$BASH" -n "$command_guard_dir/lib/command-guard.bash" ||
+    ! source "$command_guard_dir/lib/command-guard.bash" || ! declare -F command_guard_start command_guard_emit >/dev/null; then
+    exit 0
 fi
 
+command_guard_start --name issue-linkage-guard --verb "$COMMAND_GUARD_VERB_CREATE" --verb "$COMMAND_GUARD_VERB_NEW" --on-unreadable pass \
+    --lib shell-reader.bash --lib issue-linkage-scope.bash \
+    --require 'shell_reader_read shell_reader_each_segment issue_linkage_scope_in_scope issue_linkage_scope_repo_flag'
+# command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
+
 MARKER='<!-- issue-linkage -->'
-
-STDIN_JSON=$(cat) || exit 0
-command -v jq >/dev/null 2>&1 || exit 0
-COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
-CWD=$(printf '%s' "$STDIN_JSON" | jq -r '.cwd // empty' 2>/dev/null) || exit 0
-case "$COMMAND" in
-*gh*create* | *gh*new*) ;;
-*) exit 0 ;;
-esac
-
-script_dir=$(dirname "${BASH_SOURCE[0]}")
-for library in "$script_dir/lib/shell-reader.bash" "$script_dir/lib/issue-linkage-scope.bash"; do
-    [[ -r "$library" ]] && "$BASH" -n "$library" 2>/dev/null || exit 0
-    # shellcheck source=/dev/null
-    source "$library" || exit 0
-done
-declare -F shell_reader_read shell_reader_each_segment issue_linkage_scope_in_scope issue_linkage_scope_repo_flag >/dev/null || exit 0
+CWD=$(printf '%s' "$COMMAND_GUARD_STDIN" | jq -r '.cwd // empty' 2>/dev/null) || exit 0
 
 shell_reader_read "$COMMAND"
 if [[ $SHELL_READER_TOO_LONG -eq 1 || $SHELL_READER_SEP_IN_INPUT -eq 1 ||
@@ -195,10 +195,9 @@ check_segment() {
 
 shell_reader_each_segment check_segment && exit 0
 
-jq -n --arg detail "$DENY_DETAIL" '{hookSpecificOutput: {hookEventName: "PreToolUse",
-    permissionDecision: "deny",
-    permissionDecisionReason: ("issue-linkage-guard: " + $detail
-        + " issue-linkage スキル(~/.claude/skills/issue-linkage/SKILL.md)の手順で本文を作り"
-        + "(関連 issue のメンション、relationship、PR なら Closes と AC 対応表)、末尾に <!-- issue-linkage --> を付ける。"
-        + "本文ファイルは git rev-parse --absolute-git-dir の出力の下の issue-linkage/ に置き、PR は gh pr create --body-file <絶対パス>、"
-        + "issue は bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh --title <title> --body-file <絶対パス> で作る。")}}'
+command_guard_emit deny "issue-linkage-guard: ${DENY_DETAIL}\
+ issue-linkage スキル(~/.claude/skills/issue-linkage/SKILL.md)の手順で本文を作り\
+(関連 issue のメンション、relationship、PR なら Closes と AC 対応表)、末尾に <!-- issue-linkage --> を付ける。\
+本文ファイルは git rev-parse --absolute-git-dir の出力の下の issue-linkage/ に置き、PR は gh pr create --body-file <絶対パス>、\
+issue は bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh --title <title> --body-file <絶対パス> で作る。"
+exit 0
