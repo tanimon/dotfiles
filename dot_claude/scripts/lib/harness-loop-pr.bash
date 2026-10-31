@@ -22,8 +22,7 @@
 #   振り分けは、選別を省いた週の Metrics-only PR(harness_loop_pr_publish_metrics_only_if_due)と同じ判定
 #   (_harness_loop_pr_metrics_only_or_discard)を通る。
 # - 作業場所の準備。当日のブランチの origin への照会、pnpm の確認、worktree の準備、依存のインストールを 2 つの入口で共有し、
-#   当日のブランチが origin にあるときの扱いだけを入口ごとに判定する(照会の失敗はどちらの入口も失敗にする)。worktree の
-#   作成から削除までをこの lib が持つ。
+#   当日のブランチが origin にあるときの扱いだけを入口ごとに判定する。worktree の作成から削除までをこの lib が持つ。
 # - Metrics-only PR が要るかの判定(_harness_loop_pr_metrics_only_due)。origin/main に無い Weekly Rate Record の件数
 #   (再発率の CLI の export の --dry-run が worktree の base に対して数える)と、開いている Loop PR で決める。選別を省いた週は
 #   worktree を作る前に開いている Loop PR だけを見る。gh の失敗は WARN を出して「要らない」に倒し、CLI の失敗と CLI を呼ぶ
