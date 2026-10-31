@@ -26,7 +26,7 @@
 # shellcheck disable=SC2317,SC2329
 set -uo pipefail
 
-# 起動の自前の部分。起動 module(lib/command-guard.bash)が無い・壊れているときは、この guard の Failure Direction どおり
+# 起動の自前の部分。起動 module(lib/command-guard.bash)が無い・壊れているときは、この guard の失敗の向きどおり
 # 無出力で通す。手順と理由は module のヘッダ。動詞を含まない入力は module を読まずに終わる。
 COMMAND_GUARD_STDIN_FAILED=0
 COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1

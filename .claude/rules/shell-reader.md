@@ -21,7 +21,8 @@ paths:
   2 つ目の URL を redirect の対象として読み飛ばし、無出力になっていた。
   heredoc 演算子(引用符の外の `<<` / `<<-`)の最初の `<` の token の index を `SHELL_READER_HEREDOC_INDEXES` で
   返す。here-string の `<<<` と `< <(…)` も `<`, `<` の token になるので、token 列からは区別できない(git-push-guard の
-  heredoc 本文の格下げが使う)。
+  heredoc 本文の格下げと、issue-linkage-guard が heredoc 演算子より後ろの segment を判定しないのに使う。
+  issue-linkage-guard は `--body` の値の heredoc の本文を token ではなく生のコマンドから読む)。
   `shell_reader_read <文字列>` が引用符を外した token 列(`SHELL_READER_TOKENS`。
   セグメントの境目は `SHELL_READER_SEP` 番兵、リダイレクトは fd の数字ごと 1 token)と、読み切れなかった
   理由の flag(`TOO_LONG` / `EXPANSION` / `WORD_MULTIPLIER` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE`)、
@@ -39,7 +40,8 @@ paths:
   `shell_reader_each_segment <callback>` がセグメントごとに callback を呼び(先頭 index は
   `SHELL_READER_SEGMENT_START`)。「読み切れた」の定義は呼び出し側ごとに違う(curl-guard は flag を 1 つずつ
   見て glob は curl セグメントでだけ判定し、git-push-guard は読み切れるかを判定しない)ので、それを 1 つに
-  まとめる述語は lib に置かない。
+  まとめる述語は lib に置かない(issue-linkage-guard は `TOO_LONG` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE` のどれかが
+  立てば判定せずに通す)。
   each_segment の local は `_sr_` 接頭辞なので、callback はその接頭辞以外の名前を自由に使える。
 - **判定をしない。flag が立っても token は最後まで作る。** 緩める判定(curl のループバック確認)は flag を
   見て諦め、塞ぐ判定(git push の危険な綴り)は同じ token から読み続けられるようにするため。reader が
@@ -55,6 +57,6 @@ paths:
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
 - **読み込みに失敗したとき**の扱いは Command Guard の起動 module(`lib/command-guard.bash`、`.claude/rules/command-guard.md`)が
-  各 guard の Failure Direction どおりに決める(git-push-guard と curl-localhost-guard は `ask`、issue-linkage-guard は
+  各 guard の失敗の向きどおりに決める(git-push-guard と curl-localhost-guard は `ask`、issue-linkage-guard は
   無出力。正本は `test/guard-contract.bats`)。module が関数の中で source するので、このライブラリはトップレベルで
   `declare` / `typeset` を使わない。

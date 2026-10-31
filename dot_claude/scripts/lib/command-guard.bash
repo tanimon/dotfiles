@@ -4,13 +4,13 @@
 # set は呼び出し側に従う。-e の無い guard(issue-linkage-guard)でも同じに動くよう、失敗の経路はすべて if で分岐する。
 #
 # 約束(ADR 0009): 起動に失敗したとき(stdin を読めない、jq が無い、stdin が JSON でない、lib が無い・壊れている)、
-# Failure Direction が ask の guard は ask を返し、無出力にも理由の無い exit 2 にもしない。pass の guard は無出力で
+# 失敗の向きが ask の guard は ask を返し、無出力にも理由の無い exit 2 にもしない。pass の guard は無出力で
 # exit 0 する。ただし動詞を含まない入力は、どちらの向きでも無出力で終わる。振る舞いの正本は test/guard-contract.bats。
 # 配線とログの契約は .claude/rules/command-guard.md。
 #
 #   command_guard_start --name <name> --verb <glob>… --on-unreadable ask|pass [--lib <basename>]… [--require '<関数>…']…
 #     戻った時点で COMMAND(.tool_input.command。空ではなく、どれかの動詞に一致する)が使え、jq があることも保証される。
-#     起動に失敗したら Failure Direction に応じて ask を出すか無出力で exit 0 する。動詞に一致しないときも exit 0。
+#     起動に失敗したら失敗の向きに応じて ask を出すか無出力で exit 0 する。動詞に一致しないときも exit 0。
 #     --name は英小文字と `-` だけ(jq が無くても固定文の JSON に埋めるため)、--lib はこのディレクトリの basename。
 #   command_guard_emit deny|ask <理由>
 #     判定の JSON を出す。deny / ask 以外は受け付けず、起動の失敗と同じに扱う(Command Guard は allow を返さない)。
@@ -37,7 +37,7 @@ _COMMAND_GUARD_NAME=command-guard
 _COMMAND_GUARD_DIRECTION=ask
 _COMMAND_GUARD_VERBS=()
 
-# _command_guard_unreadable <種類>: 起動の失敗。Failure Direction が ask なら共通の固定文で ask を出す。どちらも exit 0。
+# _command_guard_unreadable <種類>: 起動の失敗。失敗の向きが ask なら共通の固定文で ask を出す。どちらも exit 0。
 # 種類は固定の文と lib の basename だけなので、JSON の escape は要らない。
 _command_guard_unreadable() {
     if [[ "$_COMMAND_GUARD_DIRECTION" == ask ]]; then
@@ -58,7 +58,8 @@ _command_guard_matches_verb() {
 }
 
 # _command_guard_unreadable_input <種類>: 入力を読めない。生の stdin に動詞があれば起動の失敗、無ければ無出力で終わる
-# (無関係なコマンドまで ask にしても守れるものは無く、承認を惰性にするだけ)。
+# (無関係なコマンドまで ask にしても守れるものは無く、承認を惰性にするだけ)。今の guard は自前の部分で生の stdin を
+# 照合済みなので無い側には届かないが、module の約束を guard の自前の部分に依存させないために照合し直す。
 _command_guard_unreadable_input() {
     if _command_guard_matches_verb "${COMMAND_GUARD_STDIN-}"; then
         _command_guard_unreadable "$1"
@@ -135,7 +136,7 @@ command_guard_start() {
     if ! COMMAND=$(printf '%s' "${COMMAND_GUARD_STDIN-}" | jq -r '.tool_input.command // empty' 2>/dev/null); then
         _command_guard_unreadable_input 'stdin が JSON でない'
     fi
-    # 空の command は Bash 以外のツールか、command を持たない payload。JSON でない payload は上の取り出しで落ちる。
+    # 空の command は Bash 以外のツールか、command を持たない payload。JSON でない payload は COMMAND の jq での取り出しで落ちる。
     if [[ -z "$COMMAND" ]] || ! _command_guard_matches_verb "$COMMAND"; then
         exit 0
     fi

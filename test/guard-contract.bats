@@ -268,8 +268,6 @@ assert_module_contract() {
     assert_module_contract syntax
 }
 
-# 壊れた lib の診断(`"$BASH" -n` の構文エラー)は、ログを開けるならログに残る。起動 module 自体の診断は
-# ログを開く前に出るので、フックの stderr に出る。
 # assert_diagnostics_kept NAME INPUT: 動詞を含む INPUT で、壊れた lib の診断がログに、壊れた起動 module の診断が
 # フックの stderr に残るか。
 assert_diagnostics_kept() {

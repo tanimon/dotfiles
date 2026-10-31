@@ -90,11 +90,10 @@ Tested by `just test-scripts` (`test/worktree-include.bats`).
 対にして入れてある。`[[:space:]]` は CR を含むため、CRLF でチェックアウトされた
 `.worktreeinclude` もこれで通る。
 
-**git push guard hook** — `executable_git-push-guard.sh` は `PreToolUse`(`matcher: "Bash"`)で走り、`git push` の破壊的な綴りを引数位置に関係なく `deny`、読み切れない綴りを `ask` にし、素の push は無出力にする。判定・残存リスク・テストの書き方は `.claude/rules/git-push-guard.md`(このスクリプトか bats を触ると読み込まれる)。
-
-**curl localhost guard hook** — `executable_curl-localhost-guard.sh` は `PreToolUse`(`matcher: "Bash"`)で走り、宛先がすべてループバックだと読み切れない curl に `ask` を返し、それ以外は無出力。判定・残存リスクは `.claude/rules/curl-localhost-guard.md`。
-
-**Command Guard の lib** — reader の `lib/shell-reader.bash`(`.claude/rules/shell-reader.md`)と起動部の `lib/command-guard.bash`(`.claude/rules/command-guard.md`)。
+**Command Guard** — PreToolUse(`matcher: "Bash"`)で走り、`deny` / `ask` / 無出力だけを返すフック。起動部は `lib/command-guard.bash`(`.claude/rules/command-guard.md`)、コマンドの読み取りは `lib/shell-reader.bash`(`.claude/rules/shell-reader.md`)。
+- `executable_git-push-guard.sh`: git push の破壊的な綴りを `deny`、読み切れない綴りを `ask`。判定・残存リスク・テストの書き方は `.claude/rules/git-push-guard.md`。
+- `executable_curl-localhost-guard.sh`: 宛先がすべてループバックだと読み切れない curl に `ask`。判定・残存リスクは `.claude/rules/curl-localhost-guard.md`。
+- `executable_issue-linkage-guard.sh`: 範囲内のリポジトリの `gh issue create` と、issue-linkage スキルの印の無い `gh pr create` を `deny`。判定・残存はスクリプトのヘッダ。
 
 **secretlint guard hook** — `dot_claude/scripts/executable_secretlint-guard.sh` は `PostToolUse`(`matcher: "Write"`)で走り、`.env` / `*credentials*` / `*secret*` に一致するパスへの書き込みだけを secretlint に通す。対象パスは stdin JSON の `tool_input.file_path` で受け取る — `$CLAUDE_FILE` という環境変数は存在しない。保存時に format する PostToolUse フックは置いていない: インラインで `pnpm lint:fix` を呼ぶと全プロジェクトの .ts 編集ごとに走り、script の無いリポジトリでは失敗するので、置くなら外部スクリプト + `pnpm run --if-present` ガード + bats テストにする。検出時は `exit 2` で stderr をモデルに返す(`exit 1` はユーザーにしか見えない)。`jq` / `secretlint` が無ければ無出力で exit 0。`just test-scripts`(`test/secretlint-guard.bats`)が偽の secretlint で対を検証する。
 
