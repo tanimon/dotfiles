@@ -470,7 +470,7 @@ unpushed_branch() {
     assert [ ! -e "$WT" ]
 }
 
-@test "選別を省いた週: 当日のブランチが origin にあれば worktree を作らずに成功し、照会に失敗したら WARN を出して成功する" {
+@test "選別を省いた週: 当日のブランチが origin にあれば worktree を作らずに成功する" {
     publish_fixture
     four_local_records
     init_real
@@ -480,11 +480,18 @@ unpushed_branch() {
     assert_output ''
     assert [ ! -e "$WT" ]
     refute_pr_create
+}
+
+@test "選別を省いた週: 当日のブランチを origin に照会できなければ、worktree を作らずに失敗する" {
+    publish_fixture
+    four_local_records
+    init_real
     git -C "$REPO" remote set-url origin "$BATS_TEST_TMPDIR/missing.git"
     run harness_loop_pr_publish_metrics_only_if_due
-    assert_success
-    assert_line --regexp "^harness-weekly: WARN failed to query origin for ${BRANCH} \(git ls-remote exit [0-9]+\); no metrics-only PR this week$"
+    assert_failure 1
+    assert_line --regexp "^harness-weekly: failed to query origin for ${BRANCH} \(git ls-remote exit [0-9]+\); no metrics-only PR$"
     assert [ ! -e "$WT" ]
+    refute_pr_create
 }
 
 @test "選別を省いた週: pnpm が PATH に無ければ、原因を名指しして worktree を作らずに失敗する" {

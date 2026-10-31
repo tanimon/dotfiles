@@ -22,7 +22,8 @@
 #   振り分けは、選別を省いた週の Metrics-only PR(harness_loop_pr_publish_metrics_only_if_due)と同じ判定
 #   (_harness_loop_pr_metrics_only_or_discard)を通る。
 # - 作業場所の準備。当日のブランチの origin への照会、pnpm の確認、worktree の準備、依存のインストールを 2 つの入口で共有し、
-#   当日のブランチが origin にあるときの扱いだけを入口ごとに判定する。worktree の作成から削除までをこの lib が持つ。
+#   当日のブランチが origin にあるときの扱いだけを入口ごとに判定する(照会の失敗はどちらの入口も失敗にする)。worktree の
+#   作成から削除までをこの lib が持つ。
 # - Metrics-only PR が要るかの判定(_harness_loop_pr_metrics_only_due)。origin/main に無い Weekly Rate Record の件数
 #   (再発率の CLI の export の --dry-run が worktree の base に対して数える)と、開いている Loop PR で決める。選別を省いた週は
 #   worktree を作る前に開いている Loop PR だけを見る。gh の失敗は WARN を出して「要らない」に倒し、CLI の失敗と CLI を呼ぶ
@@ -733,18 +734,23 @@ _harness_loop_pr_check_unpublished() {
 # 前の run の本文と結果ファイルを消す(消せなくても、本文は Metrics-only PR を作るときに書き直す) → 要否の判定
 # (_harness_loop_pr_metrics_only_or_discard。件数は worktree の base に対して数える) → 要れば依存のインストール →
 # Metrics-only PR。依存は要ると決まった後にだけ入れる。当日のブランチが origin にあれば、その日の
-# PR は作成済みか手で作るのを待っているので作らない(照会の失敗も WARN を出して作らない)。
-# 返り値は 0(作ったか、要らなかった)と 1(前提の確認・準備・判定の照合と CLI・公開の失敗)。前の run の未公開の採用の確認は
-# 入口(harness_loop_pr_publish_metrics_only_if_due)が行う
+# PR は作成済みか手で作るのを待っているので作らない。
+# 照会の失敗は、選別の経路の入口(harness_loop_pr_run_review)と同じく失敗にする。照会に届くのは開いている Loop PR の一覧
+# (gh)が成功した週だけなので、GitHub には届いており、照会の失敗は git の認証や origin の設定のように毎週再発しうる。
+# WARN にとどめると heartbeat が進み、origin に届かないまま何週たっても briefing にも停止の通知にも出ず、
+# Metrics-only PR が出ないまま記録がローカルに溜まり続ける。
+# 返り値は 0(作ったか、要らなかった)と 1(前提の確認・照会・準備・判定の照合と CLI・公開の失敗)。前の run の未公開の採用の
+# 確認は入口(harness_loop_pr_publish_metrics_only_if_due)が行う
 _harness_loop_pr_publish_metrics_only_if_due() {
     local remote_status=0 base skipped='no metrics-only PR'
     _harness_loop_pr_no_open_loop_pr 'harness-weekly: loop PR %s is open; weekly failure rate records carried over\n' || return 0
     _harness_loop_pr_branch_on_origin || remote_status=$?
-    if [[ "$remote_status" -ne 2 ]]; then
-        [[ "$remote_status" -eq 0 ]] ||
-            printf 'harness-weekly: WARN failed to query origin for %s (git ls-remote exit %s); no metrics-only PR this week\n' \
-                "$_HARNESS_LOOP_PR_BRANCH" "$remote_status" >&2
+    if [[ "$remote_status" -eq 0 ]]; then
         return 0
+    elif [[ "$remote_status" -ne 2 ]]; then
+        printf 'harness-weekly: failed to query origin for %s (git ls-remote exit %s); %s\n' \
+            "$_HARNESS_LOOP_PR_BRANCH" "$remote_status" "$skipped" >&2
+        return 1
     fi
     _harness_loop_pr_require_pnpm "$skipped" || return 1
     _harness_loop_pr_prepare_worktree \
