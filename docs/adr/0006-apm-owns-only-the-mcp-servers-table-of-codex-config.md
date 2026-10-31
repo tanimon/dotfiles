@@ -23,3 +23,14 @@ ADR 0005 は #308 の範囲を指示文の共有に縮小し、その一環で `
 - **配布先はサーバー単位で選べない。** MCP 依存ごとの `targets:` キーは APM 0.30 では非対応で、書いても `unknown key(s) preserved in extra: targets` と警告したうえで**そのゴミキーを両製品の設定に書き込む**。よって配布は all-or-nothing になる。これに伴い、Codex 自身を MCP として Codex に配る再帰を避けるため、未使用だった `codex` MCP サーバーを `apm.yml` から削除した（将来 Claude 側で必要になったら、再帰配布の扱いと併せて再検討する）。
 - **配布先の宣言は `apm.yml` の `targets:` と install script の `--target` に意図的に二重化する。** 片方だけにすると、キー名の変更や書式ミスで**黙って auto-detect にフォールバックし、Gemini CLI・Kiro など検出された全ランタイムへ fan-out する**（`--target` を省略した場合の既知の挙動）。フェイルオープンの向きが悪いため冗長さを買う。
 - `apm.lock.yaml` は `~/.apm/` の Runtime State のままとし、version control しない。prune は配備先の lock で動くので、Source に持つ必要が無い。APM パッケージ（`dependencies.apm`）は 2026-08-10 に撤回済みで固定すべき revision が存在しない。
+
+## 追記: APM 0.34 で prune が Target 単位になった(2026-10-31)
+
+Consequences の 1 項目目のうち 2. と 3. は、APM 0.34.0 で成り立たなくなった。0.34 の lock は `mcp_target_servers` に「どの Target にどの名前を書いたか」を記録し、prune は `apm.yml` から外れた名前を、その記録がある Target からだけ消す。既に同名のエントリがあって `already configured` と素通りした Target は記録に載らない。そのため次の 2 点が変わった。
+
+- lock が所有者として記録していない Target にある同名のエントリは、手で書いたものを含めて、名前を `apm.yml` から外しても残る。3. で消えた `[mcp_servers.codex]` は、0.34 では消えない。
+- 4. の回避策「`apm.yml` から消して再 install し、prune させてから足し直す」は、手で書いた同名のエントリには効かない。Target から手でエントリを消してから再 install する。
+
+結論は変わらない。APM の所有は不完全で、その境界は「APM が書いたかどうか」ではなく lock の記録である。変わったのは記録の単位で、名前から (Target, 名前) の組になった。Target に手で足すサーバーを `apm.yml` の名前と衝突させない、という注意も残る。4. のとおり、衝突したエントリは `apm.yml` の定義で更新されないため。
+
+0.34 での実測は偽 `HOME` の fixture で行い、`test/apm-mcp-distribution.bats` が「prune は lock がその名前の所有者として記録した Target からだけ消す」と「既存の同名エントリを素通りした Target は所有者にならず、prune されない」の 2 ケースで固定する。4. の「定義を更新しない」は 0.34 でも手で書いたエントリについて実測したが、テストでは固定していない。「配布先はサーバー単位で選べない」は 0.34 で測り直していない。

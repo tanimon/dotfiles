@@ -11,9 +11,10 @@ targets:
 # MCP として Codex に配る再帰を避けるため、未使用の codex サーバーは宣言しない。
 dependencies:
   mcp:
-    # ここから消すと次の apm install が両 target から prune する(ADR 0006)。prune は
-    # ~/.claude.json が symlink だと install ごと失敗するので、素の `apm install --global`
-    # ではなく `bash scripts/apm-install-global.sh` を使う(dot_apm/CLAUDE.md)。
+    # ここから消すと次の apm install が、lock がこの名前の所有者として記録した target
+    # から prune する(ADR 0006)。prune は ~/.claude.json が symlink だと install ごと
+    # 失敗するので、素の `apm install --global` ではなく
+    # `bash scripts/apm-install-global.sh` を使う(dot_apm/CLAUDE.md)。
     - name: deepwiki
       registry: false
       transport: http
