@@ -215,7 +215,11 @@ assert_distributed_to_claude_and_codex_only() {
     # claude Target にしか書かれない。それだけだと codex 側の refute は
     # 「最初から無かったものが無い」を見る空虚な検査になるので、旧宣言をもう一度
     # 両 Target へ配って、prune の対象を codex にも実在させる。
-    (cd "$HOME" && apm install --global --target claude,codex >/dev/null 2>&1)
+    # seed の codex Target には定義の食い違う手書きの [mcp_servers.codex] があるので、
+    # この install は衝突で非 0 に終わる(衝突の挙動はこのテストの関心ではなく、
+    # 「定義が食い違う既存の同名エントリ…」のテストが固定している)。終了コードは見ず、
+    # 配布の効果は直後の前提 grep で確かめる。
+    run sh -c 'cd "$HOME" && exec apm install --global --target claude,codex'
 
     # 前提: prune 対象が両 Target に実在すること。これが無いと、以下の refute は
     # prune のリグレッションではなく fixture の欠落でも緑になる。
@@ -287,15 +291,20 @@ assert_distributed_to_claude_and_codex_only() {
     assert_output '1'
 }
 
-@test "既存の同名エントリを素通りした Target は所有者にならず、prune されない" {
+@test "定義が食い違う既存の同名エントリがある Target は所有者にならず、prune されない" {
     require_apm
     seed_current_machine_state
-    # 旧宣言を両 Target へ配り直す。codex Target には手で書いた [mcp_servers.codex] が
-    # 既にあるので APM は already configured で素通りし、code-review-graph だけを書く。
-    (cd "$HOME" && apm install --global --target claude,codex >/dev/null 2>&1)
+    # 旧宣言を両 Target へ配り直す。codex Target には定義の食い違う手書きの
+    # [mcp_servers.codex] が既にあるので、APM はそれを衝突として保持したまま
+    # code-review-graph だけを書き、install 全体は非 0 で終わる(ADR 0006)。
+    # APM は端末幅でメッセージを折り返すので、COLUMNS を広げて文言の照合を幅に依存させない。
+    # サーバー名と Target 名がどちらも codex なので、衝突した Target は設定ファイルのパスで見分ける。
+    run env COLUMNS=1000 sh -c 'cd "$HOME" && exec apm install --global --target claude,codex'
+    assert_failure
+    assert_output --partial "MCP server 'codex' conflicts with the existing codex connection in $HOME/.codex/config.toml"
 
     # 前提: 同じ install で APM が codex Target に書いたもの(code-review-graph)と、
-    # 素通りしたもの(codex)が両方実在すること。
+    # 衝突として保持したもの(codex)が両方実在すること。
     run grep -c '^\[mcp_servers\.code-review-graph\]$' "$HOME/.codex/config.toml"
     assert_output '1'
     run grep -c '^\[mcp_servers\.codex\]$' "$HOME/.codex/config.toml"

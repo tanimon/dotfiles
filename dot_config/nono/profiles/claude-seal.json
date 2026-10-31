@@ -4,7 +4,7 @@
     "version": "1.0.0",
     "description": "Claude Code sandbox for this dotfiles setup"
   },
-  "extends": "claude-code",
+  "extends": "nolabs-ai/claude",
   "workdir": { "access": "readwrite" },
   "groups": {
     "include": [

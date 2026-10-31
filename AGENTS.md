@@ -123,11 +123,11 @@ Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go templat
 
 ### nono Sandbox
 
-nono プロファイル(`dot_config/nono/profiles/`)を編集するときの落とし穴(テンプレート化の禁止・`bypass_protection` と `filesystem.deny` の効き方・`nono why` と `nono profile schema` の限界・pack profile との同名衝突)は `dot_config/nono/CLAUDE.md` の「Profile editing pitfalls」節にある。
+nono プロファイル(`dot_config/nono/profiles/`)を編集するときの落とし穴(テンプレート化の禁止・`bypass_protection` と `filesystem.deny` の効き方・`nono why` と `nono profile schema` の限界・pack profile の名前解決)は `dot_config/nono/CLAUDE.md` の「Profile editing pitfalls」節にある。
 
 - **`nono run` needs `--allow-cwd`** — `workdir.access` sets the access *level*, not the grant. Without the flag the working directory is denied outright (`Sandbox denial: … (read)`) and nono falls back to an interactive prompt a non-interactive run cannot answer. Any wrapper must pass it, or stay inside a directory the profile already grants (e.g. `~/ghq`).
 - **MCP stdio servers do not pass through zsh wrapper functions** — MCP entries (declared in `dot_apm/apm.yml`, written by APM into `~/.claude.json`'s `mcpServers` and `~/.codex/config.toml`'s `[mcp_servers.*]`) are exec'd directly, so a `foo()` wrapper defined in `dot_config/zsh/` never runs for a server whose `command` is `foo`. For a server that *does* need a wrapper's behaviour, the flag must go in `args` or the command must point at a shim script.
-- **APM の MCP の所有は lock の Target 単位の記録で決まる** — `dot_apm/apm.yml` から外したサーバーは、lock が所有者と記録した Target からだけ消える。既存の同名エントリは `already configured` で素通りされ(#349)、更新も prune もされないので、`apm.yml` と同じ名前で手書きしない。実測と回避策は `docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md`。
+- **APM の MCP の所有は lock の Target 単位の記録で決まる** — `dot_apm/apm.yml` から外したサーバーは、lock が所有者と記録した Target からだけ消える。同名の既存エントリは prune されず、定義が違えば install が exit 1 になる(APM 0.35、#349)ので、`apm.yml` と同じ名前で手書きしない。実測と回避策は `docs/adr/0006-apm-owns-only-the-mcp-servers-table-of-codex-config.md`。
 - **Verify Homebrew formula names before uninstalling** — a formula name can differ from the command it installs, and `brew uninstall <wrong-name>` silently no-ops and leaves the tool installed. Confirm with `brew list | grep <name>` after any removal.
 - **`.chezmoiremove` with `path/**` can break `chezmoi apply` outright** — a leftover Unix socket under a directory removed via the `path/**` convention produced `unsupported file type socket` and exit 1. Bare directory entries (no `/**`) worked.
 
@@ -161,7 +161,7 @@ Single-context, on mattpocock-skills' default layout: the glossary is `GLOSSARY.
 
 **Identity leak guard(`scripts/scan-sensitive-info.sh`)** — このリポジトリは public なので、work 用 GitHub org 名とローカルアカウント名を git 管理下のファイルに**書かない**(散文中の言及・プロジェクトスラグ `-Users-<user>--` の形も含む。例示はプレースホルダにする)。ガードの 2 層の仕組み・出力の redact・allowlist の書式は `.claude/rules/identity-leak-guard.md`(ガードを触るときだけ読み込まれる)にある。
 
-**Claude Code sandbox (nono)** — `claude-nono` in `dot_config/zsh/sandbox.zsh` (on trial; plain `claude` is unwrapped) runs Claude Code inside [nono](https://github.com/nolabs-ai/nono) (Homebrew, macOS Seatbelt / Linux Landlock, deny-all default), extending the official `claude-code` pack via `dot_config/nono/profiles/claude-seal.json`. See `dot_config/nono/CLAUDE.md` for the full policy detail (egress control, git/gh-inside-the-boundary, 1Password signing, accepted security residuals, the native Bash sandbox).
+**Claude Code sandbox (nono)** — `claude-nono` in `dot_config/zsh/sandbox.zsh` (on trial; plain `claude` is unwrapped) runs Claude Code inside [nono](https://github.com/nolabs-ai/nono) (Homebrew, macOS Seatbelt / Linux Landlock, deny-all default), extending the official `nolabs-ai/claude` pack via `dot_config/nono/profiles/claude-seal.json`. See `dot_config/nono/CLAUDE.md` for the full policy detail (egress control, git/gh-inside-the-boundary, 1Password signing, accepted security residuals, the native Bash sandbox).
 
 **Notification hook ownership** — `dot_claude/scripts/executable_notify.sh` wires notification delivery to `Notification`/`StopFailure` only. See `dot_claude/scripts/CLAUDE.md` for the full detail (matcher filtering, orca handoff, delivery backend fallback).
 
