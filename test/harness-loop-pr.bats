@@ -174,34 +174,6 @@ source_with_siblings() {
     assert_line --partial 'harness-pr-body.bash lacks the PR body sections; run chezmoi apply'
 }
 
-@test "選別の指示は、1 回の初期化だけで、結果ファイル・本文・記録の置き場に触れさせないことを 1 つにまとめて返す" {
-    init_loop_pr
-    run harness_loop_pr_review_instructions
-    assert_success
-    assert_equal "${#lines[@]}" 2
-    assert_line --index 0 --partial "- Always write the result file $HOME/.claude/harness/review-result-2026-10-17.json before you finish"
-    assert_line --index 1 --partial "- Write the PR body (in Japanese) to $HOME/.claude/harness/review-pr-body-2026-10-17.md:"
-    assert_line --index 1 --partial "Never change files under docs/harness/failure-pattern-rates or docs/harness/rule-ledger, or the local Rule Ledger in $HOME/.claude/harness/rule-ledger; this job commits them."
-}
-
-@test "選別に触れさせない Rule Ledger の置き場は、Rule Ledger のスクリプトが書き出す置き場と同じ" {
-    local ledger_repo_dir
-    ledger_repo_dir=$(sed -n 's/^LEDGER_REPO_DIR="\(.*\)"$/\1/p' "$REPO_ROOT/dot_claude/scripts/executable_harness-rule-ledger.sh")
-    assert_equal "$ledger_repo_dir" docs/harness/rule-ledger
-    init_loop_pr
-    run harness_loop_pr_review_instructions
-    assert_output --partial " or ${ledger_repo_dir}, or the local Rule Ledger"
-}
-
-@test "選別に触れさせない Weekly Rate Record の置き場は、再発率の CLI が書き出す置き場と同じ" {
-    local rates_repo_dir
-    rates_repo_dir=$(sed -n 's/^RATES_REPO_DIR="\(.*\)"$/\1/p' "$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh")
-    assert_equal "$rates_repo_dir" docs/harness/failure-pattern-rates
-    init_loop_pr
-    run harness_loop_pr_review_instructions
-    assert_output --partial "Never change files under ${rates_repo_dir} or"
-}
-
 # <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
 guarded() { # <Source> <一覧のファイル>
     local line
@@ -901,12 +873,33 @@ EOF
     printf -- '## [2026-10-03] entry\n\n- **Verdict:** adopted (%s run 0f0e)\n' "$BRANCH" >"$HDIR/queue-archive.md"
 }
 
-# 選別の経路の入口に渡す開始の行
-START_LINE='harness-weekly: review session=s1 queue=1 branch=test/loop-2026-10-17'
+# 選別の経路の入口が出す開始の行(初期化で受け取った選別の session id、入口に渡した queue の件数、当日のブランチ)
+START_LINE='harness-weekly: review session=0f0e queue=1 branch=test/loop-2026-10-17'
 
-# 入口に開始の行と <コマンド> を渡す
+# 週次ジョブが渡す、抽出と選別で共有する書き込みの規則の文の代わり
+WRITE_RULE='- Write rule shared with the reflect prompt.'
+
+# 入口に queue の件数 1・書き込みの規則の文・<コマンド> を渡す。選別の prompt は <コマンド> の最後の引数に足される
 review_with() { # <コマンド> [<引数>…]
-    harness_loop_pr_run_review "$START_LINE" "$@"
+    harness_loop_pr_run_review 1 "$WRITE_RULE" -- "$@"
+}
+
+# 選別の claude の代わり。最後の引数(選別の prompt)を PROMPT_LOG に書き、引数の数を PROMPT_ARGC に書いてから、
+# 採用も陳腐化の修正も無い週として振る舞う
+capture_prompt() { # <引数>… <prompt>
+    printf '%s\n' "$#" >"$PROMPT_ARGC"
+    printf '%s\n' "${@: -1}" >"$PROMPT_LOG"
+    review_no_commits
+}
+
+# 選別の経路の入口を通して選別の prompt を取り、PROMPT に入れる
+review_prompt() {
+    export PROMPT_LOG="$BATS_TEST_TMPDIR/prompt.txt" PROMPT_ARGC="$BATS_TEST_TMPDIR/prompt-argc.txt"
+    review_fixture
+    init_real
+    run review_with capture_prompt first second
+    assert_success
+    PROMPT=$(cat "$PROMPT_LOG")
 }
 
 # 選別の claude の代わり。cwd に採用の commit を 1 つ作り、本文と結果ファイルを書く。呼ばれたときの cwd・採用の印・
@@ -1881,15 +1874,84 @@ leave_uncommitted() {
     done
 }
 
-@test "選別の経路の入口は、開始の行かコマンドが無ければ使い方の誤りとして失敗する" {
+@test "選別の経路の入口は、queue の件数・書き込みの規則の文・区切りの後ろのコマンドのどれかが無ければ使い方の誤りとして失敗する" {
     review_fixture
     init_real
-    run harness_loop_pr_run_review "$START_LINE"
+    local usage='harness-loop-pr: harness_loop_pr_run_review needs <queue entries> <write rule> -- <command that runs the review>'
+    run harness_loop_pr_run_review 1 "$WRITE_RULE" --
     assert_failure 1
-    assert_output 'harness-loop-pr: harness_loop_pr_run_review needs <start line> and the command that runs the review'
-    run harness_loop_pr_run_review '' review_commits
+    assert_output "$usage"
+    run harness_loop_pr_run_review '' "$WRITE_RULE" -- review_commits
     assert_failure 1
-    assert_output 'harness-loop-pr: harness_loop_pr_run_review needs <start line> and the command that runs the review'
+    assert_output "$usage"
+    run harness_loop_pr_run_review 1 '' -- review_commits
+    assert_failure 1
+    assert_output "$usage"
+    run harness_loop_pr_run_review 1 "$WRITE_RULE" review_commits
+    assert_failure 1
+    assert_output "$usage"
     refute_reviewed
     refute_published
+}
+
+@test "選別の prompt: コマンドの最後の引数に足し、harness-review スキルを無人の週次ジョブとして使わせる" {
+    review_prompt
+    assert_line "$START_LINE"
+    run cat "$PROMPT_ARGC"
+    assert_output 3
+    run head -n 2 "$PROMPT_LOG"
+    assert_output "$(printf '%s\n' 'This is the unattended weekly harness job (no human is present, and this session itself is not an input).' \
+        'Use the harness-review skill, following its rules, with these changes:')"
+    assert_equal "$(tail -n 1 "$PROMPT_LOG")" '- Finish with a one-line summary: entries adopted, rejected, handed off.'
+    run grep -cF -- "$WRITE_RULE" "$PROMPT_LOG"
+    assert_output 1
+}
+
+@test "選別の prompt: 作業場所は当日のブランチの worktree で、chezmoi apply・push・PR の作成をさせず、変更ごとに commit させる" {
+    review_prompt
+    run printf '%s\n' "$PROMPT"
+    assert_output --partial "- Your working directory is a git worktree of the chezmoi source repo, on branch ${BRANCH}, freshly created from origin/main with dependencies installed."
+    assert_output --partial '- Skip "Reflect over pending sessions"; this job already ran it.'
+    assert_output --partial '- Never run chezmoi apply'
+    assert_output --partial 'do not create or switch branches, do not push, and do not open a PR; this job does those after you finish.'
+    assert_output --partial 'leave its entry in queue.md (do not move it to the archive'
+    refute_output --partial 'rejected (dropped:'
+    assert_output --partial 'If nothing is adopted and nothing is stale, make no commits.'
+    assert_output --partial '- Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.'
+}
+
+@test "選別の prompt: 結果ファイルと本文の指示を伝え、本文に書かせないものと、このジョブが commit する記録の置き場を伝える" {
+    review_prompt
+    run printf '%s\n' "$PROMPT"
+    assert_output --partial "- Always write the result file ${RESULT} before you finish"
+    assert_output --partial '{"dropped": [...], "deploy_only": [...]}'
+    refute_output --partial 'always write the PR body'
+    assert_output --partial "- Write the PR body (in Japanese) to ${BODY}:"
+    assert_output --partial 'Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body'
+    assert_output --partial "Never change files under docs/harness/failure-pattern-rates or docs/harness/rule-ledger, or the local Rule Ledger in ${HDIR}/rule-ledger; this job commits them. If nothing is adopted and nothing is stale, make no commits."
+    refute_output --partial 'final summary instead'
+    refute_output --partial 'Report a deploy-only fix in the PR body'
+    refute_output --partial 'reads a PR body without commits'
+}
+
+@test "選別の prompt: 記録させない置き場は、Rule Ledger と再発率の CLI が書き出す置き場と同じ" {
+    local ledger_repo_dir rates_repo_dir
+    ledger_repo_dir=$(sed -n 's/^LEDGER_REPO_DIR="\(.*\)"$/\1/p' "$REPO_ROOT/dot_claude/scripts/executable_harness-rule-ledger.sh")
+    rates_repo_dir=$(sed -n 's/^RATES_REPO_DIR="\(.*\)"$/\1/p' "$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh")
+    assert_equal "$ledger_repo_dir" docs/harness/rule-ledger
+    assert_equal "$rates_repo_dir" docs/harness/failure-pattern-rates
+    review_prompt
+    run printf '%s\n' "$PROMPT"
+    assert_output --partial "Never change files under ${rates_repo_dir} or ${ledger_repo_dir}, or the local Rule Ledger"
+}
+
+@test "選別の prompt: Eval Case の依頼の置き場と、--pr-url を付けず Rule Ledger を走らせないことを伝え、採用の印は書かない" {
+    review_prompt
+    run printf '%s\n' "$PROMPT"
+    assert_output --partial "- For every adopted change, write an Eval Case request to ${EVAL_REQUESTS} as described in the skill's \"Eval Case requests\" section"
+    assert_output --partial 'Do not run the evaluation yourself.'
+    assert_output --partial 'HARNESS_REVIEW_RUN is set, so never pass --pr-url'
+    assert_output --partial 'Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.'
+    refute_output --partial 'run 0f0e'
+    refute_output --partial 'adopted ('
 }
