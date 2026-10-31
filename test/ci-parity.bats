@@ -29,7 +29,7 @@ setup() {
 
 require_yq() {
     if ! command -v yq >/dev/null 2>&1; then
-        echo "yq が見つからない(mikefarah 版の v4 が必要。macOS は darwin/Brewfile で入る)" >&2
+        echo "yq が見つからない(mikefarah 版の v4 が必要。リポジトリの mise.toml の版を mise で入れる)" >&2
         return 1
     fi
     local version

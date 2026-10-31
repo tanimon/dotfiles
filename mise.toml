@@ -1,0 +1,10 @@
+# lint ツールの版の正本(ADR 0023)。ローカルは mise がこのリポジトリの中でこの版に切り替え、
+# CI は .github/actions/setup-lint が job ごとに要るものだけをここから入れる。版は Renovate が上げる。
+# リポジトリの外の版はグローバルの dot_config/mise/config.toml が与える。
+[tools]
+actionlint = "1.7.12"
+just = "1.59.0"
+shellcheck = "0.11.0"
+shfmt = "3.14.1"
+yq = "4.54.1"
+zizmor = "1.31.1"

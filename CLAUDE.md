@@ -13,7 +13,7 @@ A chezmoi-managed dotfiles repository for macOS. Source directory is `~/.local/s
 `chezmoi --help` covers the everyday subcommands (`apply`, `diff`, `add`, `edit`, `managed`, `data`). The ones below are not guessable from a tool's own help:
 
 ```sh
-# Linting (`lint` mirrors CI — a subset of these checks also runs on commit via prek, see .pre-commit-config.yaml; requires `just`, installed via darwin/Brewfile)
+# Linting (`lint` mirrors CI — a subset of these checks also runs on commit via prek, see .pre-commit-config.yaml; requires the tools in `mise.toml`)
 just lint-fast                 # 手元の既定。全件は `just lint`
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 
@@ -114,7 +114,7 @@ just lint-fast                 # 手元の既定。全件は `just lint`
 chezmoi apply --dry-run        # Preview changes before applying
 ```
 
-`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also run by CI except those in the `local-only` group (`just --list` shows them under `[local-only]`), so `just lint` is a superset of CI's recipe set. A recipe goes in that group only when CI cannot run it (nono is not installed there; a darwin-only template renders empty on ubuntu). `lint-fast` also skips the `slow` group: after changing what a `[slow]` recipe tests, run that recipe too. `just test-ci-parity` fails when `lint.yml` and `lint:` disagree in either direction, so a new suite must be added to both — job steps get their tools from `.github/actions/setup-lint`, which is the only place tool versions and action pins are written — except `actions/checkout`, which every job must run before it can read the local action (ADR 0013). Green locally still does not guarantee green in CI: CI runs on ubuntu (GNU coreutils), and BSD/GNU differences in `stat` / `sed` / `grep` have turned CI red while local was green (PR #328). After pushing, check the PR's CI before reporting done.
+`just --list` enumerates the individual recipes with their descriptions — do not maintain a copy of that list here, it drifts. Every recipe `lint` depends on is also run by CI except those in the `local-only` group (`just --list` shows them under `[local-only]`), so `just lint` is a superset of CI's recipe set. A recipe goes in that group only when CI cannot run it (nono is not installed there; a darwin-only template renders empty on ubuntu). `lint-fast` also skips the `slow` group: after changing what a `[slow]` recipe tests, run that recipe too. `just test-ci-parity` fails when `lint.yml` and `lint:` disagree in either direction, so a new suite must be added to both — job steps get their tools from `.github/actions/setup-lint`, the only place action pins are written (tool versions: `mise.toml`, ADR 0023) — except `actions/checkout`, which every job must run before it can read the local action (ADR 0013). Green locally still does not guarantee green in CI: CI runs on ubuntu (GNU coreutils), and BSD/GNU differences in `stat` / `sed` / `grep` have turned CI red while local was green (PR #328). After pushing, check the PR's CI before reporting done.
 
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
 

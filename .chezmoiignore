@@ -2,6 +2,8 @@ LICENSE
 README.md
 CLAUDE.md
 AGENTS.md
+# lint ツールの版の正本(ADR 0023)。配置するとホーム全体の版を固定する
+mise.toml
 # glossary とその deprecated な前身。どちらも repo-only（docs/agents/domain.md 参照）
 GLOSSARY.md
 CONCEPTS.md

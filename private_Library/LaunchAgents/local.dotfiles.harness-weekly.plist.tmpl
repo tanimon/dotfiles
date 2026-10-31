@@ -11,7 +11,7 @@
      claude-seal が ~/.claude を付与しているので動き、差し替えられていれば nono が cwd を
      付与せず(cwd は / になる)、ジョブは書き込みに失敗する(どちらも実測)。
      PATH は launchd の既定(/usr/bin:/bin:/usr/sbin:/sbin)に claude(~/.local/bin)、
-     mise の shims(pnpm・node・prek)、jq・gh・just(/opt/homebrew/bin)を足す。pnpm・node・prek は
+     mise の shims(pnpm・node・prek・just)、jq・gh(/opt/homebrew/bin)を足す。pnpm・node・prek・just は
      mise の shims にしか無く、無いと選別の前の pnpm install が毎回失敗し、選別の claude が
      走らせる commit フックと just lint も動かない。実測(2026-10-03、nono 0.79.0): 非対話の
      `nono run --profile claude-seal` の内側で、この PATH から shims の pnpm で

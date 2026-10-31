@@ -226,7 +226,6 @@ jobs:
           pnpm: 'true'
           actionlint: 'true'
       - run: just actionlint
-      # yq は runner に入っているもの(mikefarah 版)を使う。版の確認は bats 側で行う。
       - run: just test-ci-parity
 
   zizmor:
@@ -241,8 +240,8 @@ jobs:
           zizmor: 'true'
       - run: just zizmor
 
-  # ubuntu-latest には ruby と shellcheck が入っているので導入しない。shellcheck が無いと
-  # 検査は bash -n だけに落ち、テストの一部が skip になるので、無ければここで落とす。
+  # ruby は ubuntu-latest に入っているものを使う。shellcheck は setup-lint が常に入れる。
+  # shellcheck が無いと検査は bash -n だけに落ち、テストの一部が skip になるので、無ければここで落とす。
   composite-actions:
     name: composite action scripts
     runs-on: ubuntu-latest

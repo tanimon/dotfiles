@@ -7,6 +7,8 @@ date: 2026-10-02
 
 検証 suite の正本は justfile の `lint:` の依存列とし、CI で回せないレシピには `[group('local-only')]` の印を付ける。lint.yml の job はレシピごとに static に書き、ツールの導入は composite action `.github/actions/setup-lint` に集約する。写しが正本からずれないことは `test/ci-parity.bats`(`just test-ci-parity`)が双方向に検査する。suite の追加で lint.yml を触らずに済む動的 matrix(前段 job が `just --dump` から一覧を作り、1 つの job 定義を `fromJSON` で回す)は採らなかった。suite ごとに要るツール(pnpm・chezmoi・shfmt など)が違うため、matrix にすると「どの suite が何を要るか」を justfile 側に新しく宣言させる必要があり、それが justfile と CI の間の新しい interface になる。全 job に全ツールを入れればその宣言は要らないが、すべての job が遅くなる。
 
+> **注記**: lint ツールの版を書く場所は [ADR 0023](0023-lint-tool-versions-live-in-mise-toml.md) で `setup-lint` からリポジトリの `mise.toml` に移した。導入を `setup-lint` に集約する点は変わらない。Consequences の yq の版(CI は runner、ローカルは `darwin/Brewfile`)も、0023 で `mise.toml` に揃えた。
+
 ## Considered Options
 
 - **動的 matrix** — 却下。上記のとおり。
