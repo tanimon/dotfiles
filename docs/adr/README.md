@@ -49,4 +49,4 @@
 
 ### このリポジトリで該当しやすいもの
 
-`CLAUDE.md` の Architecture セクションにある方式判断（chezmoi のファイルパターン選択、MCP を APM で管理する / Skill を native marketplace に戻す、nono の profile 境界、gitignore を `includeIf` で場所単位に切り替える等）は、いずれも上の3条件を満たす。既に `CLAUDE.md` と `docs/superpowers/specs/` に散在しているため、新規の決定から ADR に寄せていく（既存分の一括移送はしない）。
+`CLAUDE.md` の Architecture セクションにある方式判断（chezmoi のファイルパターン選択、MCP を APM で管理する / Skill を native marketplace に戻す、nono の profile 境界、gitignore を `includeIf` で場所単位に切り替える等）は、いずれも上の3条件を満たす。既に `CLAUDE.md` と `docs/superpowers/specs/` に散在している。`docs/superpowers/specs/` の未抽出の決定は、Working Document の整理の中で ADR へ移す（[ADR 0025](0025-working-documents-never-land-on-main.md)）。

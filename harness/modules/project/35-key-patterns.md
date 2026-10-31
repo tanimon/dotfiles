@@ -10,7 +10,7 @@
 
 **`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
 
-**リポジトリの場所ベースの gitignore 切り替え(includeIf)** — 経緯ドキュメント(`docs/superpowers/` など)を仕事リポジトリでは除外し個人リポジトリでだけ commit する仕組みと不採用案は、`.claude/rules/gitignore-includeif.md`(関連ファイルを扱うときだけ読み込まれる)にある。
+**リポジトリの場所ベースの gitignore 切り替え(includeIf)** — Working Document(`docs/superpowers/` など)を仕事リポジトリでは除外し個人リポジトリでだけ commit する仕組みと不採用案は、`.claude/rules/gitignore-includeif.md`(関連ファイルを扱うときだけ読み込まれる)にある。
 
 **Identity leak guard(`scripts/scan-sensitive-info.sh`)** — このリポジトリは public なので、work 用 GitHub org 名とローカルアカウント名を git 管理下のファイルに**書かない**(散文中の言及・プロジェクトスラグ `-Users-<user>--` の形も含む。例示はプレースホルダにする)。ガードの 2 層の仕組み・出力の redact・allowlist の書式は `.claude/rules/identity-leak-guard.md`(ガードを触るときだけ読み込まれる)にある。
 
