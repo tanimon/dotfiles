@@ -316,4 +316,4 @@ The correct label is **hook-enforced**, a third category alongside the rule-enfo
 
 - 届く範囲は作成先リポジトリの owner を基準に評価する、と改めた。issue-linkage スキルの `create-issue.sh` は
   作成先が個人 owner の範囲内かを自分で検査するので、上の「What deliberately stays in `ask`」の `gh issue create` の行の例外として allow に置く。
-  原則と適用の条件は `docs/adr/0023-reach-is-judged-by-the-target-repository-owner.md`。
+  原則と適用の条件は `docs/adr/0024-reach-is-judged-by-the-target-repository-owner.md`。

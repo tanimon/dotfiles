@@ -115,7 +115,7 @@ assert_guard_wired() {
     done
 }
 
-# create-issue.sh は作成先が個人 owner の範囲内かを自分で検査するので、確認なしで実行できる(ADR 0023)。
+# create-issue.sh は作成先が個人 owner の範囲内かを自分で検査するので、確認なしで実行できる(ADR 0024)。
 # ask に残ると allow より優先されて確認が戻るので、ask に無いことも確かめる。
 @test "create-issue.sh の呼び出しが ~ 形と展開形の両方で permissions.allow にあり、ask に無い" {
     local pattern='^Bash\(bash (~|/.+)/\.claude/skills/issue-linkage/scripts/create-issue\.sh:\*\)$'

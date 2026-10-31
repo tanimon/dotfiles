@@ -32,7 +32,7 @@
       "Bash(gh api repos/*/*/pulls/*/reviews)",
       "Bash(gh api repos/*/*/pulls/*/reviews *)",
       "Bash(gh issue comment:*)",
-      {{/* issue-linkage スキルの create-issue.sh は、作成先が個人 owner の範囲内だと自分で確かめてから issue を作るので、確認なしで通す。理由と残存は docs/adr/0023-reach-is-judged-by-the-target-repository-owner.md。 */ -}}
+      {{/* issue-linkage スキルの create-issue.sh は、作成先が個人 owner の範囲内だと自分で確かめてから issue を作るので、確認なしで通す。理由と残存は docs/adr/0024-reach-is-judged-by-the-target-repository-owner.md。 */ -}}
       "Bash(bash ~/.claude/skills/issue-linkage/scripts/create-issue.sh:*)",
       "Bash(bash {{ .chezmoi.homeDir }}/.claude/skills/issue-linkage/scripts/create-issue.sh:*)",
       {{/* gh pr の write 系は 2026-09-15 に ask から allow へ移した(merge / revert のみ deny。deny 配列内の gh pr merge / revert のコメント参照)。Tier 2(共有オブジェクトの状態遷移)を ask に置く原則からの意図的な逸脱で、判断基準は「他のエンジニアと CI へ実際に外向き作用があるか」に絞り直したもの: PR を作る・閉じる・再オープンする・ready にするだけでは他人のキューには載らず、影響が出るのは明示的な review request(`--reviewer` / `--add-reviewer`)を伴うときだけ、という整理。ただしその review request 自体はプレフィックス照合では切り出せない(`gh pr edit --add-reviewer ...` は当たっても `gh pr edit 123 --add-reviewer ...` は当たらない。`gh pr create --reviewer` も同様)ため、Tier 1 の「rule syntax で強制できること」要件を満たせず、ここはゲートせず受け入れている。read 系(checkout/checks/diff/list/status)も同時に明示 allow して defaultMode: auto のクラシファイア判定を経由させない。lock / unlock / update-branch は未列挙のまま — 前者は他人のコメントを止め、後者は PR head を進めて CI を焚くため、クラシファイア判定に残す。 */ -}}

@@ -62,7 +62,7 @@ if [[ ! -r "$body_file" ]] || ! grep -qF -- "$MARKER" "$body_file"; then
 fi
 
 # 確認なしで実行できる(permissions.allow)のは、作成先が範囲内のときに限るため。範囲は gh と同じ優先順
-# (-R / --repo、GH_REPO、cwd の remote)で決めた作成先の owner で判定する。根拠は chezmoi リポジトリの ADR 0023。
+# (-R / --repo、GH_REPO、cwd の remote)で決めた作成先の owner で判定する。根拠は chezmoi リポジトリの ADR 0024。
 repo=$(issue_linkage_scope_repo_flag "$@")
 [[ -n "$repo" ]] || repo=${GH_REPO:-}
 if ! issue_linkage_scope_in_scope "$PWD" "$repo"; then
