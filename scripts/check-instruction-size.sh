@@ -402,8 +402,10 @@ if ((${#render_names[@]} > 0)); then
     # テンプレートと上限の一覧はカレントディレクトリから読む
     render_work=$(mktemp -d)
     render_output="$render_work/rendered.out"
+    # 読み込みの失敗も exit 2(set -e に任せると exit 1 になり、マージ判定が「上限を超える」と案内する)
+    script_dir=$(dirname "${BASH_SOURCE[0]}") || exit 2
     # shellcheck source=scripts/chezmoi-render.bash
-    source "$(dirname "${BASH_SOURCE[0]}")/chezmoi-render.bash"
+    source "$script_dir/chezmoi-render.bash" || exit 2
     # chezmoi が無いときも exit 2(skip しない。理由は描画の module のヘッダ)
     render_init "$render_work" || exit 2
     profile_list=$(render_profiles) || exit 2
