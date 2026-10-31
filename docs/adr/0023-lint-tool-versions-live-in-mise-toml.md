@@ -23,7 +23,7 @@ lint が使うツール(shellcheck・shfmt・actionlint・zizmor・just・yq)の
 - `mise.toml` は tools だけを持つので、`mise trust` は要らない(mise 2026.10.17 で、untrusted のままリポジトリの中の版が有効になることを確かめた)。env・hook・task を足すと mise は信頼を求めてエラーで止まるので、黙って別の版に落ちはしない。リポジトリの中で `mise install` を実行すると、副作用としてそのディレクトリを信頼済みにする。
 - Renovate が版を上げた後、未導入の版の shim は自動で導入を試み、できなければ失敗する。Homebrew 版に黙って落ちはしない(導入を止めた状態で実測した)。
 - shellcheck と yq は runner にも入っているので、`setup-lint` は just と同じく常に入れる。input にすると、要求し忘れた job が runner の版で黙って走る。actionlint は workflow の `run:` を PATH 上の shellcheck にかけるので、actionlint の job もこれで固定した版を使う。`setup-lint` は導入の後、入れた各ツールが `mise.toml` の版の shim に解決されることを確かめ、そうでなければ落ちる(`mise.toml` に無い名前を `mise install` すると最新版が黙って入るため)。
-- mise 本体の版は `setup-lint` の `jdx/mise-action` の入力に書く。Renovate の github-actions manager はこの入力を読まないので、`renovate.json` の regex の customManager で上げる。
+- mise 本体の版は `setup-lint` の `jdx/mise-action` の入力に書く。Renovate の github-actions manager はこの入力を読まないので、`renovate.json` の regex の customManager で上げる。`# renovate:` の行は `version:` の直前に置く。間に別の行を挟むと、黙って更新されなくなる。
 - `security-alerts.yml` の sweep job も just を curl で直接入れるのをやめ、`setup-lint` を使う。
 - `darwin/Brewfile` から行を消しても、既存のマシンに入っている Homebrew 版は消えない。グローバルの mise に入れてから、手で `brew uninstall` する。
 - ツールが無いときに黙って skip する箇所(pre-commit の hook、`just shellcheck`)は残る。mise の shims が PATH に無い文脈では skip する。この決定の範囲外(#608)。

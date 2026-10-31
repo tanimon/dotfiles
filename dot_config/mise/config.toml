@@ -1,5 +1,5 @@
 # actionlint・just・shellcheck・shfmt・yq・zizmor の版は、dotfiles リポジトリの中では
-# リポジトリの mise.toml の固定した版が優先する(ADR 0023)。ここはリポジトリの外で使う版なので固定しない。
+# リポジトリの mise.toml の固定した版が優先する(ADR 0023)。ここも固定すると、同じツールの版を 2 箇所で上げることになるので固定しない。
 [tools]
 actionlint = "latest"
 bun = "latest"

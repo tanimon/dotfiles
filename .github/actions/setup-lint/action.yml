@@ -1,6 +1,6 @@
 name: Setup lint tools
 description: >
-  lint.yml の各 job が使うツールを導入する。just・shellcheck・yq は常に入れ、それ以外は input で選ぶ。
+  lint を回す job(lint.yml の各 job と security-alerts.yml の sweep)が使うツールを導入する。just・shellcheck・yq は常に入れ、それ以外は input で選ぶ。
   lint ツールの版はリポジトリの mise.toml にだけ書き(ADR 0023)、ここでは mise でそこから入れる。
   node / pnpm の版は .node-version と package.json の packageManager から読む。それ以外の版と、
   checkout 以外の action の pin はこのファイルにだけ書く(job ごとに写すと、更新が一部の job に
@@ -56,8 +56,7 @@ runs:
       name: Install zsh
       shell: bash
       run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
-    # shellcheck と yq は runner にも入っている。input にすると、要求し忘れた job が runner の版で
-    # 黙って走るので、just と同じく常に入れる
+    # shellcheck と yq を常に入れる理由は ADR 0023
     - name: Select mise tools
       id: mise-tools
       shell: bash
@@ -76,19 +75,20 @@ runs:
         # renovate: datasource=github-releases depName=jdx/mise
         version: 2026.10.11
         install_args: ${{ steps.mise-tools.outputs.tools }}
-    # mise.toml に無い名前は `mise install` が最新版を入れて通り、入れ損ねた名前は PATH 上の runner の版に
-    # 解決される。どちらも版の固定が黙って外れるので、mise.toml の版の shim に解決されることを確かめる
+    # 入れた各ツールが mise.toml の版に解決されることを確かめる(ADR 0023)。mise-action は shims に加え、
+    # 各ツールの導入先も shims より前に PATH へ足す(export_path)ので、shims か `mise which` の結果のどちらかを正とする
     - name: Check mise tools
       shell: bash
       env:
         TOOLS: ${{ steps.mise-tools.outputs.tools }}
       run: |
         for tool in $TOOLS; do
-          mise which "$tool" >/dev/null
-          case "$(command -v "$tool")" in
-            */mise/shims/*) ;;
+          expected=$(mise which "$tool")
+          resolved=$(command -v "$tool") || resolved=
+          case "$resolved" in
+            "$expected" | */mise/shims/*) ;;
             *)
-              echo "::error::$tool が mise の shim に解決されない: $(command -v "$tool")"
+              echo "::error::$tool が mise.toml の版($expected)に解決されない: ${resolved:-見つからない}"
               exit 1
               ;;
           esac
