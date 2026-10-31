@@ -103,7 +103,7 @@ source "$reader_library" || {
     emit ask "$ASK_REASON"
     exit 0
 }
-declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches >/dev/null || {
+declare -F shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches >/dev/null || {
     emit ask "$ASK_REASON"
     exit 0
 }
@@ -116,20 +116,12 @@ DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
 DANGER_FLAG_RE='(--(f|fo|for|forc|force(-[[:alnum:]-]*)?|d|de|del|dele|delet|delete|m|mi|mir|mirr|mirro|mirror|p|pr|pru|prun|prune)([^[:alnum:]_-]|$)|[[:space:]](-c|--config-env)[[:space:]=]*[^[:space:]]*([Pp][Uu][Ss][Hh]|[Mm][Ii][Rr][Rr][Oo][Rr])|[[:space:]]-[[:alnum:]]*[fd][[:alnum:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
 # 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
 # 組み合わせて ask にしないようにする。
-# 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_any_line_matches が行う
+# 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_text_floor_matches が行う
 # (`'git' push …` や `git push … \⏎--force` も同じ行の `git push … --force` として見る)。
-text_floor() {
-    shell_reader_any_line_matches "$1" "$DANGER_TEXT_RE" "$DANGER_FLAG_RE"
-}
 
+# 長すぎる入力では reader が token を作らない(安く読めない)。segment の走査は何もせず、字面の床
+# (shell_reader_text_floor_matches)が生のコマンド全体を見る(一致しなければ classifier に任せる。ADR 0009)。
 shell_reader_read "$COMMAND"
-# 長すぎる入力は reader が token を作らない(安く読めない)。字面の床(行単位の正規表現で、
-# reader の byte ごとの走査ではない)だけを生のコマンドに当て、一致したら ask にする。deny に
-# しないのは、長い PR 本文の散文も同じ形になるため。一致しなければ classifier に任せる(ADR 0009)。
-if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
-    text_floor "$COMMAND" && emit ask "$ASK_REASON"
-    exit 0
-fi
 
 DANGER_TOKEN=""
 NEEDS_ASK=0
@@ -511,46 +503,13 @@ classify_segment() {
 
 shell_reader_each_segment classify_segment
 
-# reader は $(…) やバッククォートの中を読まないので、引用符の中の置換に埋まった push
-# (`echo "$(git push origin main --force)"`、PR 本文の heredoc)は token 1 つの文字列になる。
-# 閉じていない引用符(heredoc の `don't`)も、それ以降を 1 token に飲み込む。これらの token に
-# git・push・危険な綴りがそろっていれば ask にする。deny にしないのは、PR 本文の散文も同じ形になるため。
+# reader が読み切れない部分(引用符の中の置換に埋まった push、PR 本文の heredoc、閉じていない引用符、
+# 長さ超過のコマンド全体。対象は lib の shell_reader_text_floor_matches)に、git・push・危険な綴りが
+# 同じ行にそろっていれば ask にする。deny にしないのは、PR 本文の散文も同じ形になるため。
 # 同じ行に「git … push」と ` -f ` や ` :x` を含む散文が ask になるのは、受容した誤 ask。
-# text_floor と正規表現は上(長さ超過の分岐と共用)。
-# 対象の token は改行で区切って 1 つにまとめ、床は 1 回だけ呼ぶ。床は引用符や backslash を含む
-# 入力で awk / tr を fork するので、token ごとに呼ぶと `"$'"` を 1000 個並べただけで秒単位になり、
-# フックの timeout(5 秒)を越えると判定なし = フェイルオープンになる。
-# 引用符の中の置換に入れ子の引用符があると(`"$(echo "a it's")"`)、reader は入れ子の `"` で引用符が
-# 閉じたと読み、その後ろの同期がずれる。`echo "$(echo "a it's")" ; git push origin main --force ; echo ' x'`
-# では、bash が実行する push が改行も `$` も無い 1 token に飲み込まれ、閉じない引用符の最後の token も
-# 空になる。ずれはその置換より後ろでしか起きないので、`$(` / `${` / バッククォートを含む最初の token
-# から後ろはすべて床に当てる(token ごとに 1 行なので、別々の token が 1 行に組み合わさることはない)。
-if [[ -z "$DANGER_TOKEN" && ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
-    last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
-    floor_text=''
-    after_substitution=0
-    for index in "${!SHELL_READER_TOKENS[@]}"; do
-        token=${SHELL_READER_TOKENS[$index]}
-        case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
-        if [[ $after_substitution -eq 1 ]]; then
-            floor_text+=$token$'\n'
-            continue
-        fi
-        case "$token" in
-        # 改行を含む token も見る。reader は heredoc とコメントを知らないので、本文やコメントの中の
-        # 引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、次の同じ引用符までの行(bash が
-        # 実行する push を含む)が 1 token に飲み込まれる。
-        *'$'* | *'`'* | *$'\n'*) floor_text+=$token$'\n' ;;
-        *)
-            if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index ]]; then
-                floor_text+=$token$'\n'
-            fi
-            ;;
-        esac
-    done
-    if [[ -n "$floor_text" ]] && text_floor "$floor_text"; then
-        NEEDS_ASK=1
-    fi
+# deny が決まっていれば ask は出ないので、床を走らせない。
+if [[ -z "$DANGER_TOKEN" ]] && shell_reader_text_floor_matches "$DANGER_TEXT_RE" "$DANGER_FLAG_RE"; then
+    NEEDS_ASK=1
 fi
 
 if [[ -n "$DANGER_TOKEN" ]]; then

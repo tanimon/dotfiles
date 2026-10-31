@@ -7,8 +7,8 @@
 # token は最後まで作る — 緩める判定は flag を見て諦め、塞ぐ判定は token から続けられる
 # ようにするため(ADR 0009)。
 #
-# Interface: shell_reader_read / shell_reader_each_segment / shell_reader_any_line_matches。
-# global の意味は各関数の直前のコメントを参照。
+# Interface: shell_reader_read / shell_reader_each_segment / shell_reader_text_floor_matches。
+# global の意味は各関数の直前のコメントを参照。`_` で始まる関数と global は lib の内部用で、呼び出し側は読まない。
 
 # segment 区切りの番兵。入力に同じ byte があると偽の境界を注入できるので、
 # SHELL_READER_SEP_IN_INPUT で呼び出し側に知らせる。
@@ -62,6 +62,7 @@ shell_reader_read() {
     local LC_ALL=C
     local s=$1
     local length=${#s}
+    _SHELL_READER_TOO_LONG_INPUT=''
     SHELL_READER_TOKENS=()
     SHELL_READER_GLOB_INDEXES=' '
     SHELL_READER_BRACE_INDEXES=' '
@@ -76,6 +77,8 @@ shell_reader_read() {
 
     if [[ $length -gt $SHELL_READER_MAX_LENGTH ]]; then
         SHELL_READER_TOO_LONG=1
+        # token を作らない代わりに、shell_reader_text_floor_matches がコマンド全体を読む。
+        _SHELL_READER_TOO_LONG_INPUT=$s
         return 0
     fi
     case "$s" in *'$'* | *'`'*) SHELL_READER_EXPANSION=1 ;; esac
@@ -326,7 +329,7 @@ shell_reader_each_segment() {
 }
 
 # $1 を行ごとに見て、$2 以降の正規表現(POSIX ERE)すべてに一致する行が 1 つでもあれば 0、
-# 無ければ 1 を返す。各フックの「字面の床」用で、正規表現(= 判定)は呼び出し側が渡す。
+# 無ければ 1 を返す。shell_reader_text_floor_matches の内部で使う(interface には含めない)。
 #
 # 照合の前に、行継続(`\` + 改行)をつなぎ(シェルと同じく何も足さない。空白を足すと
 # `--\⏎force` が `-- force` になって一致しない)、引用符と backslash を取り除く。シェルはこれらを
@@ -381,4 +384,45 @@ shell_reader_any_line_matches() {
         [[ $all -eq 1 ]] && return 0
     done
     return 1
+}
+
+# 直前の shell_reader_read が読んだコマンドの字面の床(GLOSSARY の Text Floor)。reader が bash と同期を外しうる部分を対象に、
+# $1 以降の正規表現(POSIX ERE)すべてに一致する行が 1 つでもあれば 0、無ければ 1 を返す。
+# 正規表現(= 判定)は呼び出し側が渡す。一致しても読み切れないという意味しかないので、呼び出し側は
+# deny ではなく ask にする(散文の PR 本文も同じ形になる)。
+#
+# 対象は次のとおり。どれも reader が heredoc・コメント・置換の中の入れ子の引用符を読まないことから来る。
+# - 長さ超過のとき: token が無いので、コマンド全体
+# - `$(` / `${` / バッククォートを含む最初の token から後ろのすべての token。引用符の中の置換に入れ子の
+#   引用符があると(`"$(echo "a it's")"`)、reader は入れ子の `"` で引用符が閉じたと読み、その後ろの同期が
+#   ずれる。`echo "$(echo "a it's")" ; git push origin main --force ; echo ' x'` では、bash が実行する push が
+#   改行も `$` も無い 1 token に飲み込まれる。ずれはその置換より後ろでしか起きない
+# - `$` かバッククォートを含む token(置換の中は 1 つの文字列の token になる)
+# - 改行を含む token。本文やコメントの中の引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、
+#   次の同じ引用符までの行が 1 token に飲み込まれる
+# - 引用符が閉じないまま終わったときの最後の token(それ以降をすべて飲み込んでいる)
+# token ごとに 1 行なので、別々の token が 1 行に組み合わさることはない。
+# 対象の token は改行で区切って 1 つにまとめ、正規化は 1 回だけ通す。正規化は引用符や backslash を含む
+# 入力で awk / tr を fork するので、token ごとに通すと `"$'"` を 1000 個並べただけで秒単位になり、
+# フックの timeout(5 秒)を越えると判定なし = フェイルオープンになる。
+shell_reader_text_floor_matches() {
+    if [[ $SHELL_READER_TOO_LONG -eq 1 ]]; then
+        shell_reader_any_line_matches "$_SHELL_READER_TOO_LONG_INPUT" "$@"
+        return
+    fi
+    [[ ${#SHELL_READER_TOKENS[@]} -eq 0 ]] && return 1
+    local token text='' after_substitution=0
+    for token in "${SHELL_READER_TOKENS[@]}"; do
+        case "$token" in *\$\(* | *\$\{* | *\`*) after_substitution=1 ;; esac
+        if [[ $after_substitution -eq 1 ]]; then
+            text+=$token$'\n'
+            continue
+        fi
+        case "$token" in *'$'* | *'`'* | *$'\n'*) text+=$token$'\n' ;; esac
+    done
+    if [[ $SHELL_READER_UNCLOSED_QUOTE -eq 1 ]]; then
+        text+=${SHELL_READER_TOKENS[${#SHELL_READER_TOKENS[@]} - 1]}$'\n'
+    fi
+    [[ -n "$text" ]] || return 1
+    shell_reader_any_line_matches "$text" "$@"
 }

@@ -27,8 +27,14 @@ paths:
   引用符の外の `*` / `?` / `[` を含む token の `GLOB_INDEXES` を global に返す。fd の数字として
   演算子に付けるのは引用の無い数字だけ(`"2">x` / `\2>x` の `2` は bash でも zsh でも引数で、curl には
   数字だけのホスト = IPv4 アドレスの URL になる)。zsh の語頭の `=(…)` も `PROCESS_SUBSTITUTION` にする。
-  `shell_reader_any_line_matches <文字列> <ERE>…` は、引用符と backslash を外し行継続をつないだうえで
-  (つなぐ前の各行も残す)、すべての正規表現に一致する行があるかを返す(各フックの字面の床が使う。判定の正規表現は呼び出し側が渡す)。
+  `shell_reader_text_floor_matches <ERE>…` は、直前に読んだコマンドの字面の床(GLOSSARY の Text Floor)を返す。
+  対象を選ぶのは reader で、長さ超過ならコマンド全体、そうでなければ reader が bash と同期を外しうる token
+  (`$(` / `${` / バッククォートを含む最初の token から後ろ、`$` かバッククォートを含む token、改行を含む token、
+  `UNCLOSED_QUOTE` のときの最後の token)。対象を選ぶ規則は reader 自身の弱点(heredoc・コメント・置換の中の
+  入れ子の引用符を読まない)から来るので、各フックには写さない。判定の正規表現だけを呼び出し側が渡す。
+  照合の前に引用符と backslash を外し行継続をつなぎ(つなぐ前の各行も残す)、対象の token はまとめて 1 回だけ
+  正規化する(token ごとに awk / tr を fork すると `"$'"` ×1000 で timeout を越える。`test/shell-reader.bats` が
+  CPU 時間で固定している)。内部の `shell_reader_any_line_matches` は interface に含めない。
   `shell_reader_each_segment <callback>` がセグメントごとに callback を呼び(先頭 index は
   `SHELL_READER_SEGMENT_START`)。「読み切れた」の定義は呼び出し側ごとに違う(curl-guard は flag を 1 つずつ
   見て glob は curl セグメントでだけ判定し、git-push-guard は読み切れるかを判定しない)ので、それを 1 つに
@@ -43,7 +49,7 @@ paths:
   両フックとも素通りしていた(git-push-guard の force push 版は `ask` 止まり。今は `deny`)。`$` は token に
   残すので、`$'\x2d-force'` のようにエスケープが中身を作る綴りは呼び出し側が「`$` を含む token」として
   扱える。`$$` は PID の parameter なので 2 文字まとめて文字として読み(`$$'\'` の `'\'` は普通の引用符)、
-  `\$'` は backslash の分岐が `$` を消費する。heredoc とコメントは読まない(各フックの字面の床が改行を
+  `\$'` は backslash の分岐が `$` を消費する。heredoc とコメントは読まない(字面の床が改行を
   含む token で拾う。reader に heredoc を教えるのは変更が大きすぎるため見送った)。
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
