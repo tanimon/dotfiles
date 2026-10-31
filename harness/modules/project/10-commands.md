@@ -3,7 +3,7 @@
 `chezmoi --help` covers the everyday subcommands (`apply`, `diff`, `add`, `edit`, `managed`, `data`). The ones below are not guessable from a tool's own help:
 
 ```sh
-# Linting (`lint` mirrors CI — a subset of these checks also runs on commit via prek, see .pre-commit-config.yaml; requires `just`, installed via darwin/Brewfile)
+# Linting (`lint` mirrors CI — a subset of these checks also runs on commit via prek, see .pre-commit-config.yaml; requires the tools in `mise.toml`)
 just lint-fast                 # 手元の既定。全件は `just lint`
 pnpm exec secretlint '**/*'   # Scan for leaked secrets only
 

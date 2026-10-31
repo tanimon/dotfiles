@@ -1,9 +1,17 @@
+# actionlint・just・shellcheck・shfmt・yq・zizmor の版は、dotfiles リポジトリの中では
+# リポジトリの mise.toml の固定した版が優先する(ADR 0023)。ここはリポジトリの外で使う版なので固定しない。
 [tools]
+actionlint = "latest"
 bun = "latest"
 herdr = "0.7.3"
+just = "latest"
 node = "24.22.1"
 pnpm = "12.14.0"
 prek = "latest"
+shellcheck = "latest"
+shfmt = "latest"
+yq = "latest"
+zizmor = "latest"
 
 [settings]
 idiomatic_version_file_enable_tools = ["node"]
