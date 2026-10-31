@@ -105,34 +105,15 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `-c push.autoSetupRemote=true` のような無害な設定は巻き込まない。どれが立っても `deny` にはしない。
   初版はこの床が無く、しかも `$`/バッククォートの fail-closed 判定が「binary が git だった」
   分岐の**内側**にあったため、認識器が外れた瞬間に fail-closed 自体が無効化されていた。
-- **字面の床(行単位のテキスト走査)。** 上の床でも、構文として読み切れない入力(閉じない引用符、
-  `$(…)` / バッククォートの内側)は取りこぼす。そこで行ごとに、`$` かバッククォートを含む token、
-  **改行を含む token**、`UNCLOSED_QUOTE` のときの最後の token を対象に、`git … push` と危険な綴りが
-  同じ行にあれば `ask` にする。改行を含む token を見るのは、reader が heredoc とコメントを知らないため:
-  本文やコメントの中の引用符 1 つ(`it"s`、`# "`)で走査だけが引用符の中に入り、次の同じ引用符までの行
-  (bash が実行する force push を含む)が 1 token に飲み込まれる。閉じる引用符もそろうと
-  `UNCLOSED_QUOTE` は立たないので、この条件が無いと無出力で通っていた。
-  加えて、`$(` / `${` / バッククォートを含む最初の token から後ろはすべて対象にする。reader は引用符の
-  中の置換の入れ子の引用符を知らないので、`echo "$(echo "a it's")" ; git push origin main --force ; echo ' x'`
-  では入れ子の `"` で引用符が閉じたと読み、bash が実行する push が改行も `$` も無い 1 token に飲み込まれる
-  (閉じない引用符の最後の token も空になる)。ずれは置換より後ろでしか起きない。
+- **字面の床(GLOSSARY の Text Floor)。** 上の床でも、構文として読み切れない入力(閉じない引用符、
+  `$(…)` / バッククォートの内側、heredoc やコメントに飲み込まれた行)は取りこぼす。そこで共有 reader の
+  `shell_reader_text_floor_matches` に、`git … push` と危険な綴りが同じ行にあるかを問い合わせ、あれば `ask` にする。
+  どの token を対象にするか・照合前の正規化(引用符・backslash・行継続)は reader が受け持つ(`.claude/rules/shell-reader.md`)。
   危険な綴りは token の判定と同じく、長オプションの前方一致(`--forc`)と `-c` の push / mirror の設定も含む。
   `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
   同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
   短フラグ(`-f` など)も対象で、token の判定と同じく数字を含む束(`-4f` は `--ipv4` + `--force`)も一致させる
-  (`test/git-push-guard.bats` が「token の判定で deny する束は床でも ask」を対で固定している)。長さ超過の入力では、同じ床を生のコマンド全体に当てる(下の上限)。
-  行の分割と照合は共有 reader の `shell_reader_any_line_matches` が行う(curl-guard の床と共用)。
-  照合の前に行継続(`\` + 改行)をつなぎ、引用符と backslash を外す — シェルはこれらを外してから
-  語を読むので、生の字面では `"$(git'' push … --force)"` や、長さ超過の `'git' push … --force` /
-  `git push … \⏎--force` が一致しなかった。つなぐときは何も足さず(空白を足すと `--\⏎force` が
-  `-- force` になる)、つなぐ前の各行も残す。行末の `\` は行継続とは限らず(`echo a\\` の `\\` は
-  シェルには `\` 1 文字で、次の行は別のコマンド)、つないだ行だけだと `echo agit push … --force` に
-  なって語頭の `git` に一致しない。reader は二重引用符の中で `\\` を `\` 1 つにするので、`\` の
-  個数では区別できない。正規化は `awk` と `tr` を 1 回通す(bash 3.2 の `${s//…}` は
-  8 KB で 3 秒かかる)。引用符も backslash も無ければ fork しない。行の分割は改行での単語分割
-  (`set -f` の下)で行う。here-string は一時ファイルを使うので `$TMPDIR` に書けないと黙って
-  「一致なし」になり、`${s%%$'\n'*}` / `${s#*$'\n'}` の行ループは毎行残りをコピーして二乗になる
-  (179 KB で 2.3 秒。単語分割は 0.02 秒)。
+  (`test/git-push-guard.bats` が「token の判定で deny する束は床でも ask」を対で固定している)。長さ超過の入力では、reader が同じ床を生のコマンド全体に当てる(下の上限)。
 - **起動時の約束(lib・jq・stdin・`HOME`)の正本は `test/guard-contract.bats`(`just test-guard-contract`)。**
   lib が無い / 空 / 構文エラーなら `ask`(`[[ -r ]]`・フック自身の `"$BASH" -n`・`declare -F` で確かめてから使う。
   素の `source` ではそれぞれ exit 1 / exit 2 = 理由なしのブロック / exit 127 = フェイルオープンになる)。
@@ -141,7 +122,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   (`cwd`・`transcript_path`・`description` を含む)なので、jq が無い間は cwd などに `push` を含む場所では
   無関係なコマンドも `ask` になる(curl-localhost-guard の `curl` も同じ)。jq が無い状況自体がまれなので受容している。新しい PreToolUse guard はこのテストの一覧に 1 行足す。
 - **上限は 8192 byte。** `LC_ALL=C` で数え、超えたら reader は token を作らず `TOO_LONG` を返す。
-  git-push-guard はこのとき上の字面の床を生のコマンドに当て、一致すれば `ask`(`deny` ではない)、
+  このとき上の字面の床は生のコマンド全体に当たり、一致すれば `ask`(`deny` ではない)、
   しなければ何も返さない(classifier に任せる)。長い PR 本文の散文が `ask` になるのは受容している。
   床に一致しない形(危険な綴りが別の行にあるなど)を守るのは、`settings.json.tmpl` の先頭フラグ形
   `deny` 3 行だけになる。

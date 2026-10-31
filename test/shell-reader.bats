@@ -239,38 +239,38 @@ joined() {
 }
 
 @test "any_line_matches needs every regex on the same line" {
-    run shell_reader_any_line_matches $'git push\n--force' 'git' 'force'
+    run _shell_reader_any_line_matches $'git push\n--force' 'git' 'force'
     assert_failure
-    run shell_reader_any_line_matches $'x\ngit push --force' 'git' 'force'
+    run _shell_reader_any_line_matches $'x\ngit push --force' 'git' 'force'
     assert_success
 }
 
 @test "any_line_matches removes quotes and joins continuation lines first" {
-    run shell_reader_any_line_matches "g'i't p\"ush" '^git push$'
+    run _shell_reader_any_line_matches "g'i't p\"ush" '^git push$'
     assert_success
-    run shell_reader_any_line_matches $'git push \\\n--force' 'git push +--force'
+    run _shell_reader_any_line_matches $'git push \\\n--force' 'git push +--force'
     assert_success
 }
 
 # シェルと同じく、行継続は何も足さずにつなぐ。
 @test "any_line_matches joins a continuation without adding a space" {
-    run shell_reader_any_line_matches $'--for\\\nce' '--force'
+    run _shell_reader_any_line_matches $'--for\\\nce' '--force'
     assert_success
 }
 
 # 行末の `\` が行継続とは限らない(`echo a\\` の `\\` はシェルには `\` 1 文字)ので、つなぐ前の行も見る。
 # つないだ行だけだと `echo agit push` になり、語頭の git に一致しない。
 @test "any_line_matches also keeps each line of a continuation on its own" {
-    run shell_reader_any_line_matches $'echo a\\\ngit push' '(^|[^[:alnum:]_-])git[[:space:]]'
+    run _shell_reader_any_line_matches $'echo a\\\ngit push' '(^|[^[:alnum:]_-])git[[:space:]]'
     assert_success
-    run shell_reader_any_line_matches $'echo a\\\ngit push' '^echo agit push$'
+    run _shell_reader_any_line_matches $'echo a\\\ngit push' '^echo agit push$'
     assert_success
 }
 
 @test "any_line_matches does not expand a glob in the text" {
     cd "$BATS_TEST_TMPDIR"
     touch matched-file
-    run shell_reader_any_line_matches 'match*' 'matched-file'
+    run _shell_reader_any_line_matches 'match*' 'matched-file'
     assert_failure
 }
 
@@ -292,4 +292,78 @@ joined() {
     assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
     shell_reader_read 'echo "<<" x \<<y'
     assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
+}
+
+# --- Text Floor ---------------------------------------------------------------
+# shell_reader_text_floor_matches は、直前の shell_reader_read が読んだコマンドのうち、reader が
+# bash と同期を外しうる部分にだけ正規表現を当てる。どの例も、平の token だけなら同じ正規表現でも
+# 当たらないことを対照(最後のテスト)で示す。
+
+@test "text floor reads the whole command when it is too long to tokenize" {
+    printf -v padding '%*s' "$SHELL_READER_MAX_LENGTH" ''
+    shell_reader_read "echo${padding}; git push --force"
+    run shell_reader_text_floor_matches 'git push --force'
+    assert_success
+}
+
+# 引用符の中の置換に入れ子の引用符があると、reader は入れ子の `"` で閉じたと読み、その後ろの同期が
+# ずれる。bash が実行する push は、改行も `$` も無い token に飲み込まれる。
+@test "text floor reads every token after the first substitution" {
+    shell_reader_read "echo \"\$(echo \"a it's\")\" ; git push origin main --force ; echo ' x'"
+    run shell_reader_text_floor_matches 'git push origin main --force'
+    assert_success
+}
+
+@test "text floor reads a token that carries a dollar sign" {
+    shell_reader_read 'echo "$HOME; git push --force"'
+    run shell_reader_text_floor_matches 'git push --force'
+    assert_success
+}
+
+# reader は heredoc とコメントを知らないので、本文の引用符 1 つで後ろの行が 1 token に飲み込まれうる。
+@test "text floor reads a token that spans lines" {
+    shell_reader_read $'echo "a\ngit push --force"'
+    run shell_reader_text_floor_matches '^git push --force$'
+    assert_success
+}
+
+@test "text floor reads the last token when a quote is left open" {
+    shell_reader_read "echo don't; git push --force"
+    run shell_reader_text_floor_matches 'git push --force'
+    assert_success
+}
+
+# 対照: 読み切れた平の token には当てない。これが無いと、コマンド全体に当てる実装でも上のテストが通る。
+@test "text floor ignores plain tokens the reader kept in sync" {
+    shell_reader_read 'git push --force'
+    run shell_reader_text_floor_matches 'git push --force'
+    assert_failure
+    shell_reader_read 'echo "git push --force"'
+    run shell_reader_text_floor_matches 'git push --force'
+    assert_failure
+}
+
+# 正規化は awk / tr を fork するので、対象の token ごとに呼ぶと `"$'"` を 1000 個並べただけで秒単位になり、
+# フックの timeout(5 秒)を越えると判定なし = フェイルオープンになる。CPU 時間(user + sys。子プロセスを
+# 含む)で測るのは、並列の `just lint` の下で壁時計が膨らむため。bats の DEBUG trap は in-process の
+# ループを桁違いに遅くするので、フックと同じく別の bash で走らせる(token ごとに呼ぶ実装は約 4 秒、
+# 1 回にまとめた実装は約 0.1 秒)。
+@test "text floor stays fast when many tokens are suspect" {
+    local command='' i TIMEFORMAT='%3U %3S'
+    for ((i = 0; i < 1000; i++)); do command+="\"\$'\" "; done
+    # 内側の終了コードも残す。lib の読み込みに失敗して即座に終わった実行を「速い」と数えないため。
+    {
+        time bash -c 'source "$1"; shell_reader_read "$2"; shell_reader_text_floor_matches "git push --force"
+                      echo "status=$?"' \
+            _ "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/shell-reader.bash" "$command" >"$BATS_TEST_TMPDIR/status"
+    } 2>"$BATS_TEST_TMPDIR/cpu-time"
+    assert_equal "$(cat "$BATS_TEST_TMPDIR/status")" 'status=1'
+    run awk '
+        NF == 2 && $1 ~ /^[0-9]+\.[0-9]+$/ && $2 ~ /^[0-9]+\.[0-9]+$/ { read = 1; total = $1 + $2 }
+        END {
+            if (!read) { print "time の出力を読めない"; exit 2 }
+            printf "cpu=%.3fs\n", total
+            exit !(total < 1)
+        }' "$BATS_TEST_TMPDIR/cpu-time"
+    assert_success
 }
