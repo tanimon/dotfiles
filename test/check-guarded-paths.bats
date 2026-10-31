@@ -246,3 +246,72 @@ guard() {
     assert_output --partial "$adr"
     assert_output --partial "$trigger"
 }
+
+# 問い合わせのモード: 一覧に覆われていないパスを答える。「覆われている」は、ループの PR がそのパスを
+# 変更(status M)したらガードが落とすこと
+uncovered() {
+    bash "$SCRIPT" --uncovered "$@"
+}
+
+write_list() {
+    LIST="$BATS_TEST_TMPDIR/list.txt"
+    printf '%s\n' '# コメント行' '' 'rules/fixed.md' 'evaluator/' '+ledger/' >"$LIST"
+}
+
+@test "問い合わせのモードは、完全一致の行・ディレクトリ行の配下・+ の行の配下を覆われているとして何も出さない" {
+    write_list
+    run uncovered "$LIST" rules/fixed.md evaluator/detector.sh evaluator/sub/x.sh ledger/a.json
+    assert_success
+    assert_output ''
+}
+
+@test "問い合わせのモードは、コメント行と空行で何も覆わない" {
+    LIST="$BATS_TEST_TMPDIR/list.txt"
+    printf '%s\n' '#rules/fixed.md' '' 'evaluator/' >"$LIST"
+    run uncovered "$LIST" '#rules/fixed.md' rules/fixed.md
+    assert_failure 1
+    assert_output $'#rules/fixed.md\nrules/fixed.md'
+}
+
+@test "問い合わせのモードは、一覧に無いパスとディレクトリ行の名前の前方一致だけのパスを出す" {
+    write_list
+    run uncovered "$LIST" rules/other.md evaluator-other/x.sh ledger-other/a.json rules/fixed.md.bak
+    assert_failure 1
+    assert_output $'rules/other.md\nevaluator-other/x.sh\nledger-other/a.json\nrules/fixed.md.bak'
+}
+
+@test "問い合わせのモードは、覆われているパスと覆われていないパスを混ぜると覆われていないものだけを出す" {
+    write_list
+    run uncovered "$LIST" rules/fixed.md rules/other.md evaluator/detector.sh docs/x.md
+    assert_failure 1
+    assert_output $'rules/other.md\ndocs/x.md'
+}
+
+@test "問い合わせのモードは、パスが 0 個なら判定せずに 2 で終わる" {
+    write_list
+    run uncovered "$LIST"
+    assert_failure 2
+    run uncovered
+    assert_failure 2
+}
+
+@test "問い合わせのモードは、空のパスを 2 で拒む" {
+    write_list
+    run uncovered "$LIST" rules/fixed.md ''
+    assert_failure 2
+}
+
+@test "問い合わせのモードは、一覧のファイルが無ければ 2 で終わる" {
+    run uncovered "$BATS_TEST_TMPDIR/no-such-list.txt" rules/fixed.md
+    assert_failure 2
+    assert_output --partial 'no-such-list.txt'
+}
+
+@test "判定のモードは、- で始まる 1 つ目の引数を、ループの PR の prefix を含んでいても 2 で拒む" {
+    put evaluator/detector.sh 'echo changed'
+    commit change
+    run guard --unknown harness/review-2026-10-04 "$BASE"
+    assert_failure 2
+    run guard -harness/review-2026-10-04 "$BASE"
+    assert_failure 2
+}

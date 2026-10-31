@@ -309,25 +309,9 @@ EOF
     assert_output ''
 }
 
-# <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
-guarded() { # <Source> <一覧のファイル>
-    local line
-    while IFS= read -r line; do
-        [[ -z "$line" || "$line" == '#'* ]] && continue
-        line=${line#+}
-        if [[ "$line" == */ ]]; then
-            [[ "$1" == "$line"* ]] && return 0
-        elif [[ "$1" == "$line" ]]; then
-            return 0
-        fi
-    done <"$2"
-    return 1
-}
-
 @test "この lib とその bats は Guarded Path に載っている" {
-    local list="$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt"
-    run guarded dot_claude/scripts/lib/harness-loop-stalls.bash "$list"
+    run bash "$BATS_TEST_DIRNAME/../scripts/check-guarded-paths.sh" --uncovered "$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt" \
+        dot_claude/scripts/lib/harness-loop-stalls.bash test/harness-loop-stalls.bats
     assert_success
-    run guarded test/harness-loop-stalls.bats "$list"
-    assert_success
+    assert_output ''
 }

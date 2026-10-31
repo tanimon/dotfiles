@@ -288,31 +288,17 @@ source_of() { # <$HOME/.claude/ からの相対パス>
     fi
 }
 
-# <Source> が <一覧> の行(完全一致か、末尾 / の行の配下。先頭の + は外す)に当たれば 0
-guarded() { # <Source> <一覧のファイル>
-    local line
-    while IFS= read -r line; do
-        [[ -z "$line" || "$line" == '#'* ]] && continue
-        line=${line#+}
-        if [[ "$line" == */ ]]; then
-            [[ "$1" == "$line"* ]] && return 0
-        elif [[ "$1" == "$line" ]]; then
-            return 0
-        fi
-    done <"$2"
-    return 1
-}
-
-# 実行時の一覧の Source のうち、<一覧のファイル> に当たらないものを出す
+# 実行時の一覧の Source のうち、<一覧のファイル> に覆われないものを出す。照合はガードの問い合わせのモードに任せる
 unguarded_sources() { # <一覧のファイル>
-    local path src
+    local path src sources=()
     while IFS= read -r path; do
         src=$(source_of "${path#"$HOME/.claude/"}") || {
             printf 'no source: %s\n' "$path"
             continue
         }
-        guarded "$src" "$1" || printf '%s\n' "$src"
+        sources+=("$src")
     done <<<"$(harness_integrity_executables)"
+    bash "$REPO_ROOT/scripts/check-guarded-paths.sh" --uncovered "$1" "${sources[@]}"
 }
 
 @test "実行時の一覧にある実行物の Source は、すべて Guarded Path に載っている" {
@@ -325,12 +311,13 @@ unguarded_sources() { # <一覧のファイル>
     grep -vxF 'dot_claude/scripts/executable_harness-verdict.sh' "$REPO_ROOT/scripts/guarded-paths.txt" \
         >"$BATS_TEST_TMPDIR/guarded.txt"
     run unguarded_sources "$BATS_TEST_TMPDIR/guarded.txt"
+    assert_failure 1
     assert_output 'dot_claude/scripts/executable_harness-verdict.sh'
 }
 
 @test "この lib とその bats は Guarded Path に載っている" {
-    run guarded dot_claude/scripts/lib/harness-integrity.bash "$REPO_ROOT/scripts/guarded-paths.txt"
+    run bash "$BATS_TEST_DIRNAME/../scripts/check-guarded-paths.sh" --uncovered "$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt" \
+        dot_claude/scripts/lib/harness-integrity.bash test/harness-integrity.bats
     assert_success
-    run guarded test/harness-integrity.bats "$REPO_ROOT/scripts/guarded-paths.txt"
-    assert_success
+    assert_output ''
 }

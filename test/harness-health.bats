@@ -189,3 +189,10 @@ weekly() {
     assert_success
     assert_output ''
 }
+
+@test "この lib とその bats は Guarded Path に載っている" {
+    run bash "$BATS_TEST_DIRNAME/../scripts/check-guarded-paths.sh" --uncovered "$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt" \
+        dot_claude/scripts/lib/harness-health.bash test/harness-health.bats
+    assert_success
+    assert_output ''
+}
