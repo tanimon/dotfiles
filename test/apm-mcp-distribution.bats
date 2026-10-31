@@ -267,8 +267,11 @@ assert_distributed_to_claude_and_codex_only() {
     require_apm
     seed_current_machine_state
 
-    # 前提: seed が [mcp_servers.codex] を実際に置いたこと。これが無いと本ケースは
-    # 「最初から無かったものを残した」を検査する空虚なケースへ黙って変わる。
+    # 前提: 消える側と残る側の両方に 'codex' が実在すること。どちらかが欠けると、
+    # その側のアサートは「最初から無かったもの」を見る空虚な検査へ黙って変わる。
+    run grep -c '"codex"' "$HOME/.claude.json"
+    assert_success
+    refute_output '0'
     run grep -c '^\[mcp_servers\.codex\]$' "$HOME/.codex/config.toml"
     assert_output '1'
 
@@ -279,6 +282,31 @@ assert_distributed_to_claude_and_codex_only() {
     # 消える側と残る側を同じ install で対にして見る。残る側だけを見ると、
     # prune が丸ごと止まった状態でも緑になる(ADR 0006)。
     run grep -c '"codex"' "$HOME/.claude.json"
+    assert_output '0'
+    run grep -c '^\[mcp_servers\.codex\]$' "$HOME/.codex/config.toml"
+    assert_output '1'
+}
+
+@test "既存の同名エントリを素通りした Target は所有者にならず、prune されない" {
+    require_apm
+    seed_current_machine_state
+    # 旧宣言を両 Target へ配り直す。codex Target には手で書いた [mcp_servers.codex] が
+    # 既にあるので APM は already configured で素通りし、code-review-graph だけを書く。
+    (cd "$HOME" && apm install --global --target claude,codex >/dev/null 2>&1)
+
+    # 前提: 同じ install で APM が codex Target に書いたもの(code-review-graph)と、
+    # 素通りしたもの(codex)が両方実在すること。
+    run grep -c '^\[mcp_servers\.code-review-graph\]$' "$HOME/.codex/config.toml"
+    assert_output '1'
+    run grep -c '^\[mcp_servers\.codex\]$' "$HOME/.codex/config.toml"
+    assert_output '1'
+
+    install_repo_manifest
+
+    # 両方とも apm.yml から外れているが、codex Target から消えるのは APM が書いて
+    # 所有者として記録された方だけ。消える側を対にしないと、prune が丸ごと止まった
+    # 状態でも緑になる(ADR 0006)。
+    run grep -c '^\[mcp_servers\.code-review-graph\]$' "$HOME/.codex/config.toml"
     assert_output '0'
     run grep -c '^\[mcp_servers\.codex\]$' "$HOME/.codex/config.toml"
     assert_output '1'
