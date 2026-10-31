@@ -6,13 +6,13 @@
 # guard ごとに写してあるので、写し同士のずれをここで捕まえる。guard 固有の判定は各 guard の bats にある。
 #
 # 起動時の失敗と、そのとき見る入力:
-#   lib が無い / 空 / 構文エラー、jq が無い、stdin が JSON でない
+#   lib が無い / 空 / 構文エラー / guard が呼ぶ関数の 1 つが無い(古い lib)、jq が無い、stdin が JSON でない
 #     → 動詞を含む入力(VERB_INPUT)は ask、含まない入力(SILENT_INPUT)は無出力
 #   HOME に書き込めない / 未設定
 #     → 判定を返す入力(DECISION_INPUT)の判定が変わらない、VERB_INPUT と SILENT_INPUT は無出力
 #     (ログを開けないだけで guard は読めるので、VERB_INPUT を ask にするのは誤り。DECISION_INPUT の
 #     期待値が ask の guard では、常に ask を返す退行を VERB_INPUT の無出力で見分ける)
-# lib が必要な関数の一部だけを欠く場合は guard ごとに必要な関数が違うので、空の lib で代表させる。
+# 古い lib で欠かす関数は guard ごとに違うので、lib_functions_called が guard の script から選ぶ。
 #
 # VERB_INPUT は lib が正常なら無出力になる入力にする。正常でも ask になる入力だと、失敗の扱いが
 # 壊れていても ask が出てテストが通ってしまう。SAFE_INPUT が無出力であることを lib が正常な
@@ -100,11 +100,25 @@ expect() {
     fi
 }
 
-# copy_guard NAME LIB_KIND: guard を lib ごと別の場所に写し、写した script の path を出す。
-# LIB_KIND は missing / empty / syntax / intact。missing は lib ディレクトリごと写さない。
+# lib_functions_called NAME: guard が呼ぶ lib の関数を 1 行に 1 つ出す。lib に `name() {` で定義され、
+# guard の script に名前が出る関数を拾う。guard の declare -F の一覧から独立に選ぶので、呼んでいるのに
+# declare -F に無い関数も拾える(guard のコメントに lib の関数名を書くと、呼んでいなくても拾う)。
+lib_functions_called() {
+    local function_name
+    while IFS= read -r function_name; do
+        if grep -qw -- "$function_name" "$SCRIPTS/executable_$1.sh"; then
+            printf '%s\n' "$function_name"
+        fi
+    done < <(sed -nE 's/^([a-z][a-z0-9_]*)\(\).*/\1/p' "$SCRIPTS"/lib/*.bash)
+}
+
+# copy_guard NAME LIB_KIND [FUNCTION]: guard を lib ごと別の場所に写し、写した script の path を出す。
+# LIB_KIND は missing / empty / syntax / stale / intact。missing は lib ディレクトリごと写さない。
 # empty / syntax は shell-reader.bash だけを壊し、他の lib は正常なまま写す。
+# stale は FUNCTION を定義する lib の末尾に `unset -f FUNCTION` を足す(読めて構文も正しいが、その関数だけが無い)。
 copy_guard() {
-    local dir="$BATS_TEST_TMPDIR/$1"
+    # 写し先は FUNCTION ごとに分ける(stale_copies は写しを全部作ってから使うので、同じ場所だと上書きし合う)。
+    local dir="$BATS_TEST_TMPDIR/$1${3:+-$3}"
     mkdir -p "$dir"
     cp "$SCRIPTS/executable_$1.sh" "$dir/guard.sh"
     [[ $2 == missing ]] && {
@@ -116,9 +130,34 @@ copy_guard() {
     case $2 in
     empty) : >"$dir/lib/shell-reader.bash" ;;
     syntax) printf '%s\n' 'shell_reader_read() {' >"$dir/lib/shell-reader.bash" ;;
+    stale)
+        local library
+        library=$(grep -l -- "^$3()" "$dir"/lib/*.bash) || library=
+        if [[ -z "$library" || "$library" == *$'\n'* ]]; then
+            printf '%s\n' "copy_guard: $3 を定義する lib がちょうど 1 つではない: ${library:-なし}" >&2
+            return 1
+        fi
+        printf 'unset -f %s\n' "$3" >>"$library"
+        ;;
     intact) ;;
     esac
     printf '%s\n' "$dir/guard.sh"
+}
+
+# stale_copies NAME: guard が呼ぶ lib の関数を 1 つずつ欠かした写しを作り、`関数名 写した script の path` を
+# 1 行ずつ出す。拾える関数が無ければ失敗する(テストを空振りさせない)。
+# command substitution の中では set -e が効かないので、失敗は return で返す。
+stale_copies() {
+    local functions function_name script
+    functions=$(lib_functions_called "$1")
+    if [[ -z "$functions" ]]; then
+        printf '%s\n' "stale_copies: $1 が呼ぶ lib の関数が見つからない" >&2
+        return 1
+    fi
+    while IFS= read -r function_name; do
+        script=$(copy_guard "$1" stale "$function_name") || return 1
+        printf '%s %s\n' "$function_name" "$script"
+    done <<<"$functions"
 }
 
 # 読めない lib: 無いと source が exit 1、構文エラーだと exit 2(理由なしのブロック)、
@@ -154,7 +193,27 @@ assert_lib_contract() {
     assert_lib_contract syntax
 }
 
-# Contrast Pair: 上の 3 つが「常に ask を返す guard」でも通らないことの裏付け。
+# デプロイ先で guard だけが新しく lib が古い場合。lib は読めて構文も正しいので、declare -F だけが
+# exit 127(フェイルオープン)を塞ぐ。guard が呼ぶ関数を 1 つずつ欠かし、そのときの振る舞いを関数ごとに確かめる。
+# 確かめるのは振る舞いなので、未定義の 127 が呼び出し側でたまたま契約どおりの結果になる関数は、declare -F から
+# 漏れても red にならない(curl-localhost-guard の `if ! shell_reader_each_segment …` は ask、issue-linkage-guard の
+# `issue_linkage_scope_in_scope … || return 0` は無出力になる)。
+@test "lib に guard が呼ぶ関数の 1 つが無いとき、動詞を含む入力は ask、含まない入力は無出力" {
+    local index name copies function_name script
+    for index in "${!GUARD_NAMES[@]}"; do
+        name=${GUARD_NAMES[$index]}
+        copies=$(stale_copies "$name")
+        while read -r function_name script; do
+            run --separate-stderr bash "$script" <<<"$(payload "${GUARD_VERB_INPUTS[$index]}")"
+            expect "$name" "lib without $function_name" "${GUARD_VERB_INPUTS[$index]}" ask
+            run --separate-stderr bash "$script" <<<"$(payload "${GUARD_SILENT_INPUTS[$index]}")"
+            expect "$name" "lib without $function_name" "${GUARD_SILENT_INPUTS[$index]}" ''
+        done <<<"$copies"
+    done
+}
+
+# Contrast Pair: lib が無い・空・構文エラー・関数が無いときに ask を確かめるテストが、「常に ask を返す guard」でも
+# 通るわけではないことの裏付け。
 @test "lib が正常なコピーでは、動詞を含む安全な入力は無出力" {
     local index script
     for index in "${!GUARD_NAMES[@]}"; do
@@ -235,7 +294,8 @@ assert_lib_contract() {
     done
 }
 
-# Contrast Pair: 下の「無出力」が、常に無出力の guard でも通らないことの裏付け。
+# Contrast Pair: lib が無い・空・構文エラー・関数が無いとき、jq が無いとき、stdin が JSON でないときに無出力を
+# 確かめるテストが、常に無出力の guard でも通るわけではないことの裏付け。
 @test "フェイルオープンの guard は、lib が正常なコピーでは判定を返す" {
     local index script
     for index in "${!FAIL_OPEN_NAMES[@]}"; do
@@ -253,6 +313,18 @@ assert_lib_contract() {
             run --separate-stderr bash "$script" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
             expect "${FAIL_OPEN_NAMES[$index]}" "lib $kind" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
         done
+    done
+}
+
+@test "フェイルオープンの guard は、lib に guard が呼ぶ関数の 1 つが無いとき無出力" {
+    local index name copies function_name script
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        name=${FAIL_OPEN_NAMES[$index]}
+        copies=$(stale_copies "$name")
+        while read -r function_name script; do
+            run --separate-stderr bash "$script" <<<"$(payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")"
+            expect "$name" "lib without $function_name" "${FAIL_OPEN_DECISION_INPUTS[$index]}" ''
+        done <<<"$copies"
     done
 }
 

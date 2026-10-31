@@ -50,7 +50,7 @@ for library in "$script_dir/lib/shell-reader.bash" "$script_dir/lib/issue-linkag
     # shellcheck source=/dev/null
     source "$library" || exit 0
 done
-declare -F shell_reader_read shell_reader_each_segment issue_linkage_scope_in_scope >/dev/null || exit 0
+declare -F shell_reader_read shell_reader_each_segment issue_linkage_scope_in_scope issue_linkage_scope_repo_flag >/dev/null || exit 0
 
 shell_reader_read "$COMMAND"
 if [[ $SHELL_READER_TOO_LONG -eq 1 || $SHELL_READER_SEP_IN_INPUT -eq 1 ||
@@ -116,17 +116,8 @@ check_segment() {
         # 作成しない呼び出し。範囲内でも止めると、調べもののたびに実情と合わない理由で deny する。
         --help | -h | --dry-run) return 0 ;;
         # タイトルは自由記述で `-` から始まりうる。値を読み飛ばさないと -F / -b / -R の短縮形と誤読する。
-        -t | --title) j=$((j + 1)) ;;
-        -R | --repo)
-            repo=${tokens[$((j + 1))]:-}
-            j=$((j + 1))
-            ;;
-        --repo=*) repo=${argument#--repo=} ;;
-        # gh(pflag)は短いオプションに値を続けた -R<repo> / -F<path> / -b<text> と、その間に = を挟む形も受け付ける。
-        -R?*)
-            repo=${argument#-R}
-            repo=${repo#=}
-            ;;
+        # 作成先の -R / --repo は issue_linkage_scope_repo_flag が読むので、ここでは値を読み飛ばすだけ。
+        -t | --title | -R | --repo) j=$((j + 1)) ;;
         -F | --body-file)
             has_body_file=1
             body_file=${tokens[$((j + 1))]:-}
@@ -136,6 +127,7 @@ check_segment() {
             has_body_file=1
             body_file=${argument#--body-file=}
             ;;
+        # gh(pflag)は短いオプションに値を続けた -F<path> / -b<text> と、その間に = を挟む形も受け付ける。
         -F?*)
             has_body_file=1
             body_file=${argument#-F}
@@ -154,6 +146,8 @@ check_segment() {
     done
 
     # gh は -R を GH_REPO より優先する。前置の GH_REPO= が無ければ、Bash ツールが引き継ぐフック自身の環境の値を見る。
+    # create-issue.sh も同じ関数で作成先を読む。
+    repo=$(issue_linkage_scope_repo_flag "${tokens[@]:$((i + 3))}")
     [[ -n "$repo" ]] || repo=${env_repo:-${GH_REPO:-}}
     issue_linkage_scope_in_scope "${CWD:-.}" "$repo" || return 0
     if [[ "${tokens[$((i + 1))]}" == issue ]]; then

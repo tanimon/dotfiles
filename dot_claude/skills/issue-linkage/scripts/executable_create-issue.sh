@@ -4,7 +4,7 @@
 # native が未設定、という形)。このスクリプト内の gh は issue-linkage-guard の対象にならない。
 #
 # 使い方: create-issue.sh --title <title> --body-file <絶対パス> [gh issue create に渡すその他の引数...]
-# 終了コード: 0 成功 / 1 issue は作ったが relationship の一部を張れなかった / 2 引数か本文の不備(何も作らない)
+# 終了コード: 0 成功 / 1 issue は作ったが relationship の一部を張れなかった / 2 引数か本文の不備、または作成先が範囲外(何も作らない)
 set -uo pipefail
 export LC_ALL=C
 
@@ -12,6 +12,11 @@ MARKER='<!-- issue-linkage -->'
 
 # shellcheck source=dot_claude/skills/issue-linkage/scripts/sections.bash
 source "$(dirname "${BASH_SOURCE[0]}")/sections.bash"
+# ~/.claude/skills/issue-linkage/scripts から ~/.claude/scripts/lib への相対位置は、ソースツリーでも同じ。
+# shellcheck source=dot_claude/scripts/lib/issue-linkage-scope.bash
+source "$(dirname "${BASH_SOURCE[0]}")/../../../scripts/lib/issue-linkage-scope.bash" || exit 2
+# 古いライブラリで作成先の読み取りだけが欠けると、-R を無視して cwd で範囲を判定してしまう。
+declare -F issue_linkage_scope_repo_flag issue_linkage_scope_in_scope >/dev/null || exit 2
 
 body_file=''
 previous=''
@@ -53,6 +58,15 @@ case "$body_file" in
 esac
 if [[ ! -r "$body_file" ]] || ! grep -qF -- "$MARKER" "$body_file"; then
     echo "create-issue.sh: 本文ファイルが読めないか、マーカー $MARKER が無い(issue-linkage スキルの手順で本文を作る): $body_file" >&2
+    exit 2
+fi
+
+# 確認なしで実行できる(permissions.allow)のは、作成先が範囲内のときに限るため。範囲は gh と同じ優先順
+# (-R / --repo、GH_REPO、cwd の remote)で決めた作成先の owner で判定する。根拠は chezmoi リポジトリの ADR 0024。
+repo=$(issue_linkage_scope_repo_flag "$@")
+[[ -n "$repo" ]] || repo=${GH_REPO:-}
+if ! issue_linkage_scope_in_scope "$PWD" "$repo"; then
+    echo "create-issue.sh: 作成先${repo:+ $repo}が issue-linkage の範囲外か、作成先を決められない。何も作っていない(範囲外のリポジトリには gh issue create を直接使う)" >&2
     exit 2
 fi
 

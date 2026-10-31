@@ -4,7 +4,7 @@ setup() {
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/scripts/executable_issue-linkage-guard.sh"
     export HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$HOME"
-    unset ISSUE_LINKAGE_GUARD_OWNERS GH_REPO
+    unset ISSUE_LINKAGE_GUARD_OWNERS GH_REPO GH_HOST
     REPO_DIR="$BATS_TEST_TMPDIR/repo"
     git init -q "$REPO_DIR"
     git -C "$REPO_DIR" remote add origin https://github.com/tanimon/sample.git
@@ -126,6 +126,11 @@ EOF
     run hook "GH_REPO=tanimon/sample gh pr create -R someone-else/sample --title t --body x"
     assert_success
     assert_output ''
+}
+
+@test "値を取るオプションの値が -R に見えても作成先として読まない" {
+    run hook "gh pr create --label -Rsomeone-else/sample --title t --body x"
+    [ "$(decision "$output")" = deny ]
 }
 
 @test "upstream remote が範囲外の fork の clone では何もしない" {
