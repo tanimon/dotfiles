@@ -70,14 +70,28 @@ runs:
         if [ "$ACTIONLINT" = true ]; then tools="$tools actionlint"; fi
         if [ "$ZIZMOR" = true ]; then tools="$tools zizmor"; fi
         echo "tools=$tools" >> "$GITHUB_OUTPUT"
+    # mise はワークスペースの外に置いた mise.toml の写しだけを読む(ADR 0023)。ワークスペースで動かすと、
+    # mise.local.toml・.tool-versions・mise.<env>.toml など名前の決まらない設定も読み、mise-action が
+    # ワークスペースを信頼済みにするので、それらのテンプレートや [env] _.path も評価して版や PATH を差し替えられる
+    - name: Copy mise.toml
+      id: mise-dir
+      shell: bash
+      run: |
+        dir="${RUNNER_TEMP}/setup-lint-mise"
+        mkdir -p "$dir"
+        cp mise.toml "$dir/"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+    # shims は呼ばれたディレクトリの設定で版を選ぶので PATH に足さない。導入先は env の export_path が PATH に足す
     - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
       with:
         version: 2026.10.11
+        working_directory: ${{ steps.mise-dir.outputs.dir }}
+        add_shims_to_path: 'false'
         install_args: ${{ steps.mise-tools.outputs.tools }}
-    # 入れた各ツールが mise.toml の版に解決されることを確かめる(ADR 0023)。mise-action は shims に加え、
-    # 各ツールの導入先も shims より前に PATH へ足す(export_path)ので、shims か `mise which` の結果のどちらかを正とする
+    # 入れた各ツールが mise.toml の版の導入先に解決されることを確かめる(ADR 0023)
     - name: Check mise tools
       shell: bash
+      working-directory: ${{ steps.mise-dir.outputs.dir }}
       env:
         TOOLS: ${{ steps.mise-tools.outputs.tools }}
       run: |
@@ -88,7 +102,7 @@ runs:
           }
           resolved=$(command -v "$tool") || resolved=
           case "$resolved" in
-            "$expected" | */mise/shims/*) ;;
+            "$expected") ;;
             *)
               echo "::error::${tool} が mise.toml の版(${expected})に解決されない: ${resolved:-見つからない}"
               exit 1

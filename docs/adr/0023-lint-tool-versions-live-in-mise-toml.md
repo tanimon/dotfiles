@@ -22,8 +22,12 @@ lint が使うツール(shellcheck・shfmt・actionlint・zizmor・just・yq)の
 - `mise.toml` は `.chezmoiignore` に入れる。入れないと `~/mise.toml` に配置され、ホーム全体の版を固定する。
 - `mise.toml` は tools だけを持つので、`mise trust` は要らない(mise 2026.10.17 で、untrusted のままリポジトリの中の版が有効になることを確かめた)。env・hook・task を足すと mise は信頼を求めてエラーで止まるので、黙って別の版に落ちはしない。リポジトリの中で `mise install` を実行すると、副作用としてそのディレクトリを信頼済みにする。
 - Renovate が版を上げた後、未導入の版の shim は自動で導入を試み、できなければ失敗する。Homebrew 版に黙って落ちはしない(導入を止めた状態で実測した)。
-- shellcheck と yq は runner にも入っているので、`setup-lint` は just と同じく常に入れる。input にすると、要求し忘れた job が runner の版で黙って走る。actionlint は workflow の `run:` を PATH 上の shellcheck にかけるので、actionlint の job もこれで固定した版を使う。`setup-lint` は導入の後、入れた各ツールが `mise.toml` の版(mise の shim か、`mise which` が返す導入先)に解決されることを確かめ、そうでなければ落ちる(`mise.toml` に無い名前を `mise install` すると最新版が黙って入るため)。
+- shellcheck と yq は runner にも入っているので、`setup-lint` は just と同じく常に入れる。input にすると、要求し忘れた job が runner の版で黙って走る。actionlint は workflow の `run:` を PATH 上の shellcheck にかけるので、actionlint の job もこれで固定した版を使う。`setup-lint` は導入の後、入れた各ツールが `mise.toml` の版の導入先(`mise which` の結果)に解決されることを確かめ、そうでなければ落ちる(`mise.toml` に無い名前を `mise install` すると最新版が黙って入るため)。
+- CI の mise は、ワークスペースの外(`$RUNNER_TEMP`)に置いた `mise.toml` の写しだけを読み、shims は PATH に足さない(導入先は mise-action の `export_path` が足す)。ワークスペースで動かすと、mise は `mise.local.toml`・`.mise.toml`・`.tool-versions`・`.config/mise/conf.d/*.toml`・`mise.<env>.toml`(`.miserc.toml` で env を選べる)なども読む。改善ループの PR がこれらを足すと、`mise.toml` は Guarded Path でも、ガードを走らせる just の版を差し替えられる。shim も呼ばれたディレクトリの設定で版を選ぶので同じ穴になる。
+  - 却下: 読み込まれる設定を Guarded Path に列挙する。名前が開いた集合(`mise.<env>.toml`、mise の版で増える名前)なので漏れる。
+  - 却下: mise-action の後に `mise config ls` で、読み込まれた設定が `mise.toml` だけかを検査する。mise-action はワークスペースを `MISE_TRUSTED_CONFIG_PATHS` で信頼済みにし、`install: false` でも `mise ls` と `mise env` を実行する。検査の前に、足された設定のテンプレート(`exec()`)や `[env] _.path` が評価され、PATH や `mise` 自体を差し替えられる。
 - mise 本体の版は `setup-lint` の `jdx/mise-action` の `version` 入力に書く。Renovate の github-actions manager はこの入力を known action として読み(datasource は `jdx/mise` の GitHub release)、`v` の無い現在の書き方のまま上げるので、`renovate.json` に customManager は足さない。足すと同じ行を 2 つの manager が別々に上げる。
-- `security-alerts.yml` の sweep job も just を curl で直接入れるのをやめ、`setup-lint` を使う。
-- `darwin/Brewfile` から行を消しても、既存のマシンに入っている Homebrew 版は消えない。グローバルの mise に入れてから、手で `brew uninstall` する。
+- `security-alerts.yml` の sweep job も just を curl で直接入れるのをやめ、`setup-lint` を使う。prompt が `just lint` を指示するので、lint.yml の job が要る input をすべて渡す。`contents: write` を持つ job で `pnpm install` が走るが、`package.json` と `pnpm-lock.yaml` は lint.yml の job と同じものを使う。
+- グローバルの mise 設定が変わると、`run_onchange_after_mise-install.sh.tmpl` が `$HOME` で `mise install` を実行する。mise が一度も入れていないツールは shim が無く、リポジトリの中でも PATH 上の別の導入元が黙って使われるため。mise が無ければ失敗させる(`exit 0` で skip すると実行済みと記録され、次の apply で走らない)。
+- `darwin/Brewfile` から行を消しても、既存のマシンに入っている Homebrew 版は消えない。`chezmoi apply` でグローバルの mise に入った後、手で `brew uninstall` する。
 - ツールが無いときに黙って skip する箇所(pre-commit の hook、`just shellcheck`)は残る。mise の shims が PATH に無い文脈では skip する。この決定の範囲外(#608)。

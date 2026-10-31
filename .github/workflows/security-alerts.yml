@@ -140,9 +140,18 @@ jobs:
             echo "has_alerts=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # prompt の `just lint` が完走するよう、lint.yml の各 job が要るものをすべて入れる。local-only の recipe は
+      # nono が無いと skip する
       - name: Install lint tools
         if: steps.alerts.outputs.has_alerts == 'true'
         uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+          chezmoi: 'true'
+          shfmt: 'true'
+          actionlint: 'true'
+          zizmor: 'true'
+          zsh: 'true'
 
       - name: Sweep security alerts
         if: steps.alerts.outputs.has_alerts == 'true'
