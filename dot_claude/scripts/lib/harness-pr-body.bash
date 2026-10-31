@@ -103,7 +103,7 @@ _harness_pr_body_ready() {
     [[ -n "$_HARNESS_PR_BODY_FILE" ]] || _harness_pr_body_usage 'call harness_pr_body_init first'
 }
 
-# 選別の prompt に埋める、本文を書かせる指示の 1 行(末尾の改行なし。週次ジョブが同じ行に続けて書く)。
+# 選別の prompt に埋める、本文を書かせる指示の 1 行(末尾の改行なし。Loop PR の module が同じ行に続けて書く)。
 # ジョブが足す節(純増・検出件数・再発率・ルールの効果・落とした変更・deploy-only の修正)は claude に書かせない
 harness_pr_body_review_instructions() {
     _harness_pr_body_ready || return

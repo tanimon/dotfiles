@@ -1348,14 +1348,13 @@ EOF
 
 @test "選別の結果: 判定の記録にこの run の採用が無ければ、陳腐化の修正だけなら正常と添えて知らせ、成功する" {
     review_fixture
-    printf -- '## [2026-10-03] entry\n\n- **Verdict:** adopted (other run)\n' >"$HDIR/queue-archive.md"
+    # 別の run の採用は PR になったもの(未公開の採用として残らない)にして、入口の最後の確認を通す
+    printf -- '## [2026-10-03] entry\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
     init_real
     run review_with review_commits
+    assert_success
     assert_line "harness-weekly: no verdict adopted in run \"${BRANCH} run 0f0e\" in $HDIR/queue-archive.md; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts with the settle command)"
     refute_output --partial 'WARN'
-    # 別の run の採用は残るので、入口の最後の確認(前の run の未公開の採用)で失敗する
-    assert_failure 1
-    assert_output --partial "publish --run 'other run' --pr-url <PR URL>"
 }
 
 @test "選別の結果: 同じ日の前の run が残した採用は、この run の PR の URL に置き換えない" {
