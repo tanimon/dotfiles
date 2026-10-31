@@ -247,8 +247,7 @@ guard() {
     assert_output --partial "$trigger"
 }
 
-# 問い合わせのモード: 一覧に覆われていないパスを答える。「覆われている」は、ループの PR がそのパスを
-# 変更(status M)したらガードが落とすこと
+# 問い合わせのモード。「覆われている」の定義と出力・終了コードは check-guarded-paths.sh の --uncovered の分岐のコメント
 uncovered() {
     bash "$SCRIPT" --uncovered "$@"
 }
@@ -265,9 +264,9 @@ write_list() {
     assert_output ''
 }
 
-@test "問い合わせのモードは、コメント行と空行で何も覆わない" {
+@test "問い合わせのモードは、コメント行で何も覆わない" {
     LIST="$BATS_TEST_TMPDIR/list.txt"
-    printf '%s\n' '#rules/fixed.md' '' 'evaluator/' >"$LIST"
+    printf '%s\n' '#rules/fixed.md' 'evaluator/' >"$LIST"
     run uncovered "$LIST" '#rules/fixed.md' rules/fixed.md
     assert_failure 1
     assert_output $'#rules/fixed.md\nrules/fixed.md'

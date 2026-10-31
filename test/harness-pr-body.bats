@@ -379,7 +379,7 @@ EOF
 }
 
 @test "この lib とその bats は Guarded Path に載っている" {
-    run bash "$BATS_TEST_DIRNAME/../scripts/check-guarded-paths.sh" --uncovered "$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt" \
+    run bash "$REPO_ROOT/scripts/check-guarded-paths.sh" --uncovered "$REPO_ROOT/scripts/guarded-paths.txt" \
         dot_claude/scripts/lib/harness-pr-body.bash test/harness-pr-body.bats
     assert_success
     assert_output ''
