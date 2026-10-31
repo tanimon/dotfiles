@@ -117,8 +117,8 @@ expect_startup_ask() {
 }
 
 # lib_functions_called NAME: guard が呼ぶ lib の関数を 1 行に 1 つ出す。lib に `name() {` で定義され、
-# guard の script に名前が出る関数を拾う。guard の declare -F の一覧から独立に選ぶので、呼んでいるのに
-# declare -F に無い関数も拾える(guard のコメントに lib の関数名を書くと、呼んでいなくても拾う)。
+# guard の script に名前が出る関数を拾う。guard の --require の一覧から独立に選ぶので、呼んでいるのに
+# --require に無い関数も拾える(guard のコメントに lib の関数名を書くと、呼んでいなくても拾う)。
 lib_functions_called() {
     local function_name
     while IFS= read -r function_name; do
