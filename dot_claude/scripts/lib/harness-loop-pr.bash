@@ -4,18 +4,20 @@
 #
 # 持つもの:
 # - run ごとの値の初期化(harness_loop_pr_init)。週次ジョブが呼ぶ初期化はこれだけで、Review Outcome の lib と本文の lib の
-#   初期化はここから呼ぶ。Loop PR のブランチの prefix だけは週次ジョブが持ち、ここへ渡す。Loop Stall の module
-#   (harness-loop-stalls.bash)も同じ prefix でループのブランチを探すので、週次ジョブが両方に渡す。
+#   初期化はここから呼ぶ。週次ジョブから受け取るのはリポジトリ・run の日付・選別の session id・Loop PR のブランチの prefix
+#   だけで、当日のブランチ・worktree・本文・結果ファイル・Eval Case の依頼と結果のパス、評価の予算、採用の印はここで作る。
+#   prefix は Loop Stall の module(harness-loop-stalls.bash)も同じものでループのブランチを探すので、週次ジョブが両方に渡す。
 # - 公開に使う値(リポジトリ内の記録の置き場、Metrics-only PR を作る週数、署名用の git 設定)。interface には出さない。
 #   記録の置き場は、初期化で Review Outcome の lib と本文の lib に渡す。
-# - 選別の prompt に埋める指示(harness_loop_pr_review_instructions)。結果ファイルの指示(Review Outcome の lib)、本文の
-#   指示(本文の lib)、記録の置き場に触れさせない指示をまとめて返す。
-# - 手で公開するコマンドの綴り(push、draft PR の作成、判定の記録への PR の URL の記録)。週次ジョブの案内文は
-#   文を各箇所に持ち、コマンドの綴りだけをここから受け取る。Loop Stall の module の Issue の本文も同じ関数を使う。
-#   綴りの関数は初期化の値を読まず、引数だけで組み立てる(案内文ごとにリポジトリの表記とブランチが違い、初期化の前に
-#   止まった run の Loop Stall の通知も使うため)。
-# - 選別の経路(harness_loop_pr_run_review): 作業場所の準備、選別の claude の実行(週次ジョブから受け取ったコマンドを、
-#   worktree の中で採用の印を渡し、Integrity Snapshot の工程の入口を通して走らせる。ADR 0017)、Review Outcome の分類、
+# - 選別の prompt(_harness_loop_pr_review_prompt)。harness-review スキルを変える指示を丸ごと組み立て、結果ファイルの指示
+#   (Review Outcome の lib)、本文の指示(本文の lib)、記録の置き場に触れさせない指示もここで埋める。週次ジョブから受け取るのは、
+#   抽出の prompt と共有する書き込みの規則の文だけ。
+# - 手で公開するコマンドの綴り(push、draft PR の作成、判定の記録への PR の URL の記録)。この lib の案内文が使うほか、
+#   module の外では Loop Stall の module の Issue の本文だけが使う(週次ジョブは使わない)。案内文は文を各箇所に持ち、
+#   コマンドの綴りだけをここから受け取る。綴りの関数は初期化の値を読まず、引数だけで組み立てる(案内文ごとにリポジトリの
+#   表記とブランチが違い、初期化の前に止まった run の Loop Stall の通知も使うため)。
+# - 選別の経路(harness_loop_pr_run_review): 作業場所の準備、開始の行、選別の claude の実行(週次ジョブから受け取ったコマンドに
+#   選別の prompt を足し、worktree の中で採用の印を渡し、Integrity Snapshot の工程の入口を通して走らせる。ADR 0017)、Review Outcome の分類、
 #   Eval Case の評価と結果の封印、本文、公開、Rule Ledger の記録、選別が失敗した run の案内。選別が何も commit しなかった週の
 #   振り分けは、選別を省いた週の Metrics-only PR(harness_loop_pr_publish_metrics_only_if_due)と同じ判定
 #   (_harness_loop_pr_metrics_only_or_discard)を通る。
@@ -28,6 +30,8 @@
 # - 記録の commit。base に無い Weekly Rate Record と Rule Ledger の記録を選んで worktree に書き出すのは、それぞれの CLI の
 #   export(harness-failure-rates.sh と harness-rule-ledger.sh)で、この lib は書き出す直前のデータの照合、件数の行の
 #   読み取り、整形(oxfmt)・git add・commit を行う。
+# - 前の run の未公開の採用の確認(_harness_loop_pr_check_unpublished)。2 つの入口が、成功で終わる経路の最後に行う。この run の
+#   印を PR の URL に置き換えた後でないと正しく判定できないので、入口の中に置く。
 # - 本文・選別の結果ファイル・Eval Case の依頼と結果を消すこと。消すのは次の場面だけで、失敗した run(選別の失敗・照合の
 #   失敗・公開の失敗)のものは調べられるように残す。
 #   - 選別の前(同じ日の前の run が残したもの。_harness_loop_pr_clear_review_files): 本文・結果ファイル・Eval Case の依頼と結果
@@ -36,7 +40,8 @@
 # 入口ごとの手順と失敗の扱いの正本は、それぞれの入口の関数のコメント。本文の中身はこの lib では書かず、本文の lib
 # (lib/harness-pr-body.bash)が書く。
 #
-# 入口の返り値は成功(公開した、変更が無かった、当日の PR が既にあった、Metrics-only PR が要らなかった)と失敗の 2 値。
+# 入口の返り値は成功(公開した、変更が無かった、当日の PR が既にあった、Metrics-only PR が要らなかった。どれも前の run の未公開の
+# 採用が残っていないこと)と失敗の 2 値。
 # Integrity Snapshot の照合の失敗(HARNESS_INTEGRITY_FAILED)は入口の中で受け、外には出さない。失敗の理由と手で直す手順はこの lib がログに出す。
 # 公開の手順が出す行は週次ジョブのログの行なので harness-weekly: で始め、この lib 自身の使い方の誤り
 # (初期化の引数など)だけを harness-loop-pr: で出す。
@@ -50,9 +55,8 @@
 # Integrity Snapshot の lib と同じく呼び出しのたびに $HOME から作る(4 つのスクリプトは harness_integrity_executables の行と
 # 一致しなければ実行されない)。
 #
-# Interface: harness_loop_pr_init / harness_loop_pr_review_instructions / harness_loop_pr_push_command /
-# harness_loop_pr_create_command / harness_loop_pr_record_command / harness_loop_pr_run_review /
-# harness_loop_pr_publish_metrics_only_if_due。
+# Interface: harness_loop_pr_init / harness_loop_pr_push_command / harness_loop_pr_create_command /
+# harness_loop_pr_record_command / harness_loop_pr_run_review / harness_loop_pr_publish_metrics_only_if_due。
 # 関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
 
 # Review Outcome の lib と本文の lib を読み込む。読めなければ理由を出して 1 を返す(source の呼び出し元が止まる)。
@@ -112,18 +116,24 @@ _HARNESS_LOOP_PR_EVAL_REQUESTS=""
 _HARNESS_LOOP_PR_EVAL_RESULTS=""
 _HARNESS_LOOP_PR_EVAL_BUDGET_USD=""
 _HARNESS_LOOP_PR_DATE=""
+_HARNESS_LOOP_PR_REVIEW_SESSION_ID=""
 _HARNESS_LOOP_PR_RUN=""
 
-# run ごとの値を受け取り、Review Outcome の lib と本文の lib を初期化する。引数は --repo <パス> --worktree <パス>
-# --branch <ブランチ> --loop-branch-prefix <prefix> --pr-body <パス> --review-result <パス> --eval-requests <パス>
-# --eval-results <パス> --eval-budget-usd <金額> --date <YYYY-MM-DD> --run <採用の印> で、すべて必須。
-# <Eval Case の依頼> は選別の claude に書かせるファイル(週次ジョブが選別の prompt にパスを書く)。<評価の結果> はこの lib の
-# 評価の工程が書いて封印するファイルで、封印されたときだけ Rule Ledger の記録に渡す。<金額> は評価の予算。
-# <YYYY-MM-DD> は run の日付で、本文の lib にも渡す(失敗の検出と推移の節がその日の Weekly Rate Record を読む)。
-# 空の値と知らない引数は受け付けない。<ブランチ> は <prefix> で始まる
+# run ごとの値を作り、Review Outcome の lib と本文の lib を初期化する。引数は --repo <パス> --date <YYYY-MM-DD>
+# --review-session-id <選別の session id> --loop-branch-prefix <prefix> で、すべて必須。空の値と知らない引数は受け付けない。
+# <YYYY-MM-DD> は run の日付で、週次ジョブが Weekly Rate Record の記録にも同じ値を使う(本文の lib にも渡し、失敗の検出と
+# 推移の節がその日の Weekly Rate Record を読む)。引数から作るもの:
+# - 当日のブランチ(<prefix><YYYY-MM-DD>)と worktree のパス
+# - 本文・選別の結果ファイル・Eval Case の依頼と結果のパス。週次ジョブの状態の置き場(~/.claude/harness)の下に日付入りの名前で
+#   作る(日付を入れるのは、失敗した run が残したものを次の週の run が消さないため)。<Eval Case の依頼> は選別の claude に
+#   書かせるファイル(選別の prompt にパスを書く)。<評価の結果> は評価の工程が書いて封印するファイルで、封印されたときだけ
+#   Rule Ledger の記録に渡す
+# - 評価の予算(環境変数 HARNESS_WEEKLY_EVAL_BUDGET_USD。既定 5)
+# - 採用の印。Verdict の CLI の mark で作る(書式は CLI だけが持つ。ADR 0017)。run ごとの印(選別の session id)を入れるのは、
+#   同じ日の前の run が失敗して残した採用を、今回の PR の URL で上書きしないため。初期化は Integrity Snapshot より前
+#   (claude の起動前)に走るので、CLI は Integrity Snapshot の入口を通さずに呼ぶ。作れなければ理由を出して失敗する
 harness_loop_pr_init() {
-    local repo="" worktree="" branch="" prefix="" pr_body="" review_result="" eval_requests="" eval_results="" eval_budget=""
-    local date="" run="" missing=""
+    local repo="" date="" session_id="" prefix="" missing="" harness_dir="$HOME/.claude/harness" branch verdict_cli run
     while [[ $# -gt 0 ]]; do
         if [[ $# -lt 2 ]]; then
             printf 'harness-loop-pr: %s needs a value\n' "$1" >&2
@@ -131,16 +141,9 @@ harness_loop_pr_init() {
         fi
         case $1 in
         --repo) repo=$2 ;;
-        --worktree) worktree=$2 ;;
-        --branch) branch=$2 ;;
-        --loop-branch-prefix) prefix=$2 ;;
-        --pr-body) pr_body=$2 ;;
-        --review-result) review_result=$2 ;;
-        --eval-requests) eval_requests=$2 ;;
-        --eval-results) eval_results=$2 ;;
-        --eval-budget-usd) eval_budget=$2 ;;
         --date) date=$2 ;;
-        --run) run=$2 ;;
+        --review-session-id) session_id=$2 ;;
+        --loop-branch-prefix) prefix=$2 ;;
         *)
             printf 'harness-loop-pr: unknown argument %s to harness_loop_pr_init\n' "$1" >&2
             return 1
@@ -149,22 +152,11 @@ harness_loop_pr_init() {
         shift 2
     done
     [[ -n "$repo" ]] || missing+=" --repo"
-    [[ -n "$worktree" ]] || missing+=" --worktree"
-    [[ -n "$branch" ]] || missing+=" --branch"
-    [[ -n "$prefix" ]] || missing+=" --loop-branch-prefix"
-    [[ -n "$pr_body" ]] || missing+=" --pr-body"
-    [[ -n "$review_result" ]] || missing+=" --review-result"
-    [[ -n "$eval_requests" ]] || missing+=" --eval-requests"
-    [[ -n "$eval_results" ]] || missing+=" --eval-results"
-    [[ -n "$eval_budget" ]] || missing+=" --eval-budget-usd"
     [[ -n "$date" ]] || missing+=" --date"
-    [[ -n "$run" ]] || missing+=" --run"
+    [[ -n "$session_id" ]] || missing+=" --review-session-id"
+    [[ -n "$prefix" ]] || missing+=" --loop-branch-prefix"
     if [[ -n "$missing" ]]; then
         printf 'harness-loop-pr: harness_loop_pr_init needs a value for%s\n' "$missing" >&2
-        return 1
-    fi
-    if [[ "$branch" != "$prefix"* ]]; then
-        printf 'harness-loop-pr: branch %s does not start with the loop branch prefix %s\n' "$branch" "$prefix" >&2
         return 1
     fi
     # 公開に使う値は interface に出さないので、週次ジョブではなくここで確かめる。空の週数は数の比較で 0 と読まれ、
@@ -174,36 +166,33 @@ harness_loop_pr_init() {
         printf 'harness-loop-pr: the publish values of this lib are empty or broken; run chezmoi apply\n' >&2
         return 1
     fi
-    harness_review_outcome_init --worktree "$worktree" --review-result "$review_result" --pr-body "$pr_body" --run "$run" \
-        --date "$date" --rates-repo-dir "$_HARNESS_LOOP_PR_RATES_REPO_DIR" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
+    branch="$prefix$date"
+    verdict_cli=$(_harness_loop_pr_verdict_cli) || return 1
+    # 印を作れない典型は、Verdict の CLI が配置されていないか、この lib だけが新しく CLI に mark が無いことで、どちらも
+    # 配置のずれなので chezmoi apply で直る
+    if ! run=$(bash "$verdict_cli" mark --branch "$branch" --run-id "$session_id") || [[ -z "$run" ]]; then
+        printf 'harness-loop-pr: could not make the adoption mark with %s; run chezmoi apply\n' "$verdict_cli" >&2
         return 1
-    harness_pr_body_init --pr-body "$pr_body" --worktree "$worktree" --review-result "$review_result" \
-        --date "$date" --run "$run" --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" ||
-        return 1
+    fi
     _HARNESS_LOOP_PR_REPO=$repo
-    _HARNESS_LOOP_PR_WORKTREE=$worktree
+    _HARNESS_LOOP_PR_WORKTREE="$harness_dir/review-worktree"
     _HARNESS_LOOP_PR_BRANCH=$branch
     _HARNESS_LOOP_PR_LOOP_BRANCH_PREFIX=$prefix
-    _HARNESS_LOOP_PR_PR_BODY=$pr_body
-    _HARNESS_LOOP_PR_REVIEW_RESULT=$review_result
-    _HARNESS_LOOP_PR_EVAL_REQUESTS=$eval_requests
-    _HARNESS_LOOP_PR_EVAL_RESULTS=$eval_results
-    _HARNESS_LOOP_PR_EVAL_BUDGET_USD=$eval_budget
+    _HARNESS_LOOP_PR_PR_BODY="$harness_dir/review-pr-body-$date.md"
+    # 形・読み方・Deploy-only Fix の記録の正本は Review Outcome の lib
+    _HARNESS_LOOP_PR_REVIEW_RESULT="$harness_dir/review-result-$date.json"
+    _HARNESS_LOOP_PR_EVAL_REQUESTS="$harness_dir/eval-requests-$date.json"
+    _HARNESS_LOOP_PR_EVAL_RESULTS="$harness_dir/eval-results-$date.json"
+    _HARNESS_LOOP_PR_EVAL_BUDGET_USD="${HARNESS_WEEKLY_EVAL_BUDGET_USD:-5}"
     _HARNESS_LOOP_PR_DATE=$date
+    _HARNESS_LOOP_PR_REVIEW_SESSION_ID=$session_id
     _HARNESS_LOOP_PR_RUN=$run
-}
-
-# 選別の prompt に埋める指示の 2 行(末尾の改行なし。週次ジョブが 2 行目に続けて書く)。1 行目は結果ファイルの指示
-# (Review Outcome の lib)、2 行目は本文の指示(本文の lib)に、記録の置き場に触れさせない指示を続けたもの。記録は
-# 週次ジョブの commit だけが書く(改善する側が指標を書き換えられないように)。リポジトリ内の置き場への commit は Review Outcome
-# の lib の分類が、ローカルの Rule Ledger の書き換えは Integrity Snapshot のデータの照合が見つける
-harness_loop_pr_review_instructions() {
-    local result_instructions body_instructions
-    result_instructions=$(harness_review_outcome_result_instructions) || return 1
-    body_instructions=$(harness_pr_body_review_instructions) || return 1
-    printf '%s\n%s Never change files under %s or %s, or the local Rule Ledger in %s; this job commits them.' \
-        "$result_instructions" "$body_instructions" "$_HARNESS_LOOP_PR_RATES_REPO_DIR" "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" \
-        "$(_harness_loop_pr_local_ledger_dir)"
+    harness_review_outcome_init --worktree "$_HARNESS_LOOP_PR_WORKTREE" --review-result "$_HARNESS_LOOP_PR_REVIEW_RESULT" \
+        --pr-body "$_HARNESS_LOOP_PR_PR_BODY" --run "$run" --date "$date" --rates-repo-dir "$_HARNESS_LOOP_PR_RATES_REPO_DIR" \
+        --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" || return 1
+    harness_pr_body_init --pr-body "$_HARNESS_LOOP_PR_PR_BODY" --worktree "$_HARNESS_LOOP_PR_WORKTREE" \
+        --review-result "$_HARNESS_LOOP_PR_REVIEW_RESULT" --date "$date" --run "$run" \
+        --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" || return 1
 }
 
 # ブランチを origin に push するコマンドを、末尾の改行なしで出す。<リポジトリ> を渡せば -C で指す。
@@ -529,20 +518,25 @@ _harness_loop_pr_metrics_only_due() { # <base>
 
 # 判定の記録で、この run の選別の採用(初期化で受け取った印)を PR の URL に置き換える(Verdict の CLI の publish)。
 # 置き換えが 0 件になるのは、陳腐化の修正だけの PR(正常)か、選別が settle で記録しなかったときで、
-# ここでは区別できないので、両方の読み方を添えて知らせる。失敗しても WARN だけにする(残った印は週次ジョブの
-# finish_run が捕まえる)。Integrity Snapshot の照合に落ちたら、CLI を呼ばずに HARNESS_INTEGRITY_FAILED を返す
+# ここでは区別できないので、両方の読み方を添えて知らせる。失敗しても WARN だけにし、この run の印を記録するコマンドを
+# その場で添える(残った印は入口の最後の _harness_loop_pr_check_unpublished も捕まえるが、後の Rule Ledger の記録が
+# 失敗した run はその確認まで進まず、次に成功する run まで案内が出ないため)。
+# Integrity Snapshot の照合に落ちたら、CLI を呼ばずに HARNESS_INTEGRITY_FAILED を返す
 _harness_loop_pr_record_pr_url() { # <PR の URL>
-    local verdict_cli count status=0
+    local verdict_cli archive record_command count status=0
     verdict_cli=$(_harness_loop_pr_verdict_cli) || status=1
+    [[ "$status" -ne 0 ]] || archive=$(_harness_loop_pr_archive) || status=1
     [[ "$status" -ne 0 ]] || count=$(harness_integrity_run "$verdict_cli" publish --run "$_HARNESS_LOOP_PR_RUN" --pr-url "$1") || status=$?
     [[ "$status" -ne "$HARNESS_INTEGRITY_FAILED" ]] || return "$status"
     if [[ "$status" -ne 0 ]]; then
-        printf 'harness-weekly: WARN failed to record the PR URL in %s; finish_run reports the unpublished verdicts\n' "$(_harness_loop_pr_archive)" >&2
+        record_command=$(harness_loop_pr_record_command "$_HARNESS_LOOP_PR_RUN") || record_command='the publish command of the verdict CLI'
+        printf 'harness-weekly: WARN failed to record the PR URL %s in %s; record it by hand with %s (the unpublished check at the end of a successful run also reports it)\n' \
+            "$1" "${archive:-the verdict archive}" "$record_command" >&2
         return 0
     fi
     if [[ "$count" == 0 ]]; then
         printf 'harness-weekly: no verdict adopted in run "%s" in %s; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts with the settle command)\n' \
-            "$_HARNESS_LOOP_PR_RUN" "$(_harness_loop_pr_archive)" >&2
+            "$_HARNESS_LOOP_PR_RUN" "$archive" >&2
         return 0
     fi
     printf 'harness-weekly: recorded the PR URL on %s verdict(s)\n' "$count"
@@ -705,14 +699,44 @@ _harness_loop_pr_metrics_only_or_discard() { # <base> <要らないときの行>
     _harness_loop_pr_publish_metrics_only "$base"
 }
 
+# 前の run の未公開の採用の確認。2 つの入口が、成功で終わる経路の最後に呼ぶ。前の run が採用を記録したまま PR にできなかった
+# (push・PR の作成・選別の claude のどれかが失敗した)ことを、次の週の run が見落とさないよう、判定の記録を確かめる
+# (Verdict の CLI の unpublished)。選別は採用に run の印を付けて記録し、PR を作れた run だけが自分の印を PR の URL に置き換える
+# (_harness_loop_pr_record_pr_url)。この run の印の置き換えより後に呼ぶので、この run が PR にした採用は数えない。手動の
+# /harness-review は最初から PR の URL で記録するので当たらない。ブランチで絞らないので、ループ以外の印(手で書いた
+# `adopted (by hand)` など)も PR になっていない採用として止まる。そうした印には push するブランチが無いので、案内の publish で
+# 記録するか queue に戻す。ローカルの harness/review-* ブランチの有無で判定しないのは、手動の手順もローカルにブランチを残すため。
+# 残っていれば案内を出して 1 を返し、週次ジョブは heartbeat を書かずに失敗する(その週の選別と公開は済ませてから確かめる)。
+# 判定の記録を読めないとき(CLI を呼ぶ入口が照合に落ちたときを含む。予約コードは外に出さない)も 1 を返す
+_harness_loop_pr_check_unpublished() {
+    local verdict_cli archive leftovers run record_command commands="" push_command create_command
+    verdict_cli=$(_harness_loop_pr_verdict_cli) || return 1
+    archive=$(_harness_loop_pr_archive) || return 1
+    leftovers=$(harness_integrity_run "$verdict_cli" unpublished) || {
+        printf 'harness-weekly: failed to read the unpublished verdicts from %s; heartbeat not updated\n' "$archive" >&2
+        return 1
+    }
+    [[ -n "$leftovers" ]] || return 0
+    while IFS= read -r run; do
+        record_command=$(harness_loop_pr_record_command "$run") || return 1
+        commands+="${commands:+; }$record_command"
+    done <<<"$leftovers"
+    push_command=$(harness_loop_pr_push_command '<branch>') || return 1
+    create_command=$(harness_loop_pr_create_command '<branch>') || return 1
+    printf 'harness-weekly: %s still has verdicts that never became a PR. For a loop mark (<branch> or <branch> run <id>), publish that branch from %s by hand (%s, then %s); a mark written by hand has no branch to push and needs only the PR URL. Record the PR URL with: %s. Or move the entries back to queue.md; heartbeat not updated\n' \
+        "$archive" "$_HARNESS_LOOP_PR_REPO" "$push_command" "$create_command" "$commands" >&2
+    return 1
+}
+
 # 選別を省いた週(queue が空)の入口。Metrics-only PR が要れば作る。手順: 開いている Loop PR の確認(あれば worktree を
 # 作らずに成功する。gh の失敗も WARN を出して成功する) → 当日のブランチの origin への照会 → pnpm の確認 → worktree の準備 →
 # 前の run の本文と結果ファイルを消す(消せなくても、本文は Metrics-only PR を作るときに書き直す) → 要否の判定
 # (_harness_loop_pr_metrics_only_or_discard。件数は worktree の base に対して数える) → 要れば依存のインストール →
 # Metrics-only PR。依存は要ると決まった後にだけ入れる。当日のブランチが origin にあれば、その日の
 # PR は作成済みか手で作るのを待っているので作らない(照会の失敗も WARN を出して作らない)。
-# 返り値は 0(作ったか、要らなかった)と 1(前提の確認・準備・判定の照合と CLI・公開の失敗)
-harness_loop_pr_publish_metrics_only_if_due() {
+# 返り値は 0(作ったか、要らなかった)と 1(前提の確認・準備・判定の照合と CLI・公開の失敗)。前の run の未公開の採用の確認は
+# 入口(harness_loop_pr_publish_metrics_only_if_due)が行う
+_harness_loop_pr_publish_metrics_only_if_due() {
     local remote_status=0 base skipped='no metrics-only PR'
     _harness_loop_pr_no_open_loop_pr 'harness-weekly: loop PR %s is open; weekly failure rate records carried over\n' || return 0
     _harness_loop_pr_branch_on_origin || remote_status=$?
@@ -728,6 +752,13 @@ harness_loop_pr_publish_metrics_only_if_due() {
     base=$(git -C "$_HARNESS_LOOP_PR_WORKTREE" rev-parse HEAD) || return 1
     _harness_loop_pr_remove_review_files || true
     _harness_loop_pr_metrics_only_or_discard "$base" '' '' _harness_loop_pr_install_dependencies "$skipped"
+}
+
+# 選別を省いた週(queue が空)の入口。_harness_loop_pr_publish_metrics_only_if_due が成功したときだけ、最後に前の run の未公開の
+# 採用を確かめる(_harness_loop_pr_check_unpublished)。返り値は 0 と 1
+harness_loop_pr_publish_metrics_only_if_due() {
+    _harness_loop_pr_publish_metrics_only_if_due || return 1
+    _harness_loop_pr_check_unpublished
 }
 
 # 選別の前に、本文・選別の結果ファイル・Eval Case の依頼と結果を消す。同じ日の前の run が残したものを、この run の
@@ -868,34 +899,83 @@ _harness_loop_pr_conclude_review() { # <base> <終了コード>
     return 1
 }
 
+# 選別の prompt に埋める指示の 2 行(末尾の改行なし。_harness_loop_pr_review_prompt が 2 行目に続けて書く)。1 行目は結果ファイルの
+# 指示(Review Outcome の lib)、2 行目は本文の指示(本文の lib)に、記録の置き場に触れさせない指示を続けたもの。記録は
+# 週次ジョブの commit だけが書く(改善する側が指標を書き換えられないように)。リポジトリ内の置き場への commit は Review Outcome
+# の lib の分類が、ローカルの Rule Ledger の書き換えは Integrity Snapshot のデータの照合が見つける
+_harness_loop_pr_review_instructions() {
+    local result_instructions body_instructions ledger_dir
+    result_instructions=$(harness_review_outcome_result_instructions) || return 1
+    body_instructions=$(harness_pr_body_review_instructions) || return 1
+    ledger_dir=$(_harness_loop_pr_local_ledger_dir) || return 1
+    printf '%s\n%s Never change files under %s or %s, or the local Rule Ledger in %s; this job commits them.' \
+        "$result_instructions" "$body_instructions" "$_HARNESS_LOOP_PR_RATES_REPO_DIR" "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" \
+        "$ledger_dir"
+}
+
+# 選別の prompt を末尾の改行なしで出す。<書き込みの規則> は週次ジョブが抽出の prompt と共有する 1 項目。
+# 手順は harness-review スキルのまま使い、手動の /harness-review と同じ queue と判定の記録(queue-archive.md・state.json)を
+# 更新させる。変えるのは、作業場所(worktree と依存はこの lib が用意する)、push と PR の作成と判定の記録への PR の URL の
+# 記録をこの lib が行う点(_harness_loop_pr_publish_review)、Eval Case の評価と Rule Ledger の記録をこの lib が行う点
+# (_harness_loop_pr_evaluate_rules と _harness_loop_pr_record_ledger)だけ。採用の印は prompt に書かず、環境変数で渡す
+# (_harness_loop_pr_run_in_worktree)。節は番号ではなく見出しで指す(番号は SKILL.md の変更で黙ってずれる)
+_harness_loop_pr_review_prompt() { # <書き込みの規則>
+    local write_rule=$1 instructions
+    instructions=$(_harness_loop_pr_review_instructions) || return 1
+    printf '%s' "This is the unattended weekly harness job (no human is present, and this session itself is not an input).
+Use the harness-review skill, following its rules, with these changes:
+- Your working directory is a git worktree of the chezmoi source repo, on branch ${_HARNESS_LOOP_PR_BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
+- Skip \"Reflect over pending sessions\"; this job already ran it.
+- Never run chezmoi apply (it would deploy the main source, not this branch, with no human present). List a deploy-only fix (one that a commit cannot fix and that takes effect only when a human applies it) in the result file instead.
+- In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Treat each [slow] recipe (just --list) whose targets a change touches as part of just lint-fast for that change. Fold fixes for a failing commit hook or just lint-fast into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint-fast fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
+${instructions} If nothing is adopted and nothing is stale, make no commits.
+- For every adopted change, write an Eval Case request to ${_HARNESS_LOOP_PR_EVAL_REQUESTS} as described in the skill's \"Eval Case requests\" section (Write tool only; this job runs the evaluation and appends the effect to the PR body). Do not run the evaluation yourself.
+- In \"Bookkeeping\", record every verdict with the skill's settle command (a command with single-quoted arguments, not text you compose). HARNESS_REVIEW_RUN is set, so never pass --pr-url: this job records the PR URL after it opens the PR. Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.
+${write_rule}
+- Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
+- Finish with a one-line summary: entries adopted, rejected, handed off."
+}
+
 # 選別の claude を走らせる <コマンド> を、worktree の中で、採用の印を環境変数 HARNESS_REVIEW_RUN に入れたサブシェルで
 # 実行する(ADR 0017。印は選別の claude にだけ渡し、抽出・分類・評価には渡さない。prompt には書かない)
 _harness_loop_pr_run_in_worktree() { # <コマンド> [<引数>…]
     (cd "$_HARNESS_LOOP_PR_WORKTREE" && export HARNESS_REVIEW_RUN="$_HARNESS_LOOP_PR_RUN" && "$@")
 }
 
-# 選別の経路の入口。<コマンド>(選別の claude を走らせる関数と引数)を受け取り、手順は:
+# 選別の経路の入口。<queue の件数>(開始の行に出す)、<書き込みの規則>(週次ジョブが抽出の prompt と共有する 1 項目。選別の
+# prompt にそのまま入れる)、区切りの -- の後ろに <コマンド>(選別の claude を走らせる関数と引数)を受け取る。選別の prompt
+# (_harness_loop_pr_review_prompt)は <コマンド> の最後の引数に足す。手順は:
 #   1. 当日のブランチの origin への照会。ブランチがあれば選別を起動しない。その日の Loop PR は作成済みか、push 後に PR の
 #      作成が失敗している(その run のログが手で開くよう促しているか、公開の直前の関門で止まってブランチを消すよう促して
 #      いる)。作り直したブランチは non-fast-forward で push できず、選別の費用が無駄になる。PR があれば成功、PR が無ければ
 #      健全に見せないよう失敗する。照会の失敗も失敗。このとき、同じ日の再実行が書き直したその日の Weekly Rate Record は
 #      commit されず、ローカルにだけ残る
-#   2. pnpm の確認 → <開始の行>(週次ジョブの run の識別子を含む行)をログに出す → worktree の準備 → 前回の本文・結果ファイル・
-#      Eval Case の依頼と結果を消す → 依存のインストール。依存を claude に入れさせないのは、失敗したときに予算を使って
-#      直そうとさせないため(commit フックと just lint-fast が node_modules を要るので、claude の前に入れる)
+#   2. pnpm の確認 → 開始の行(選別の session id・queue の件数・当日のブランチ。週次ジョブのログで run を識別する)を出す →
+#      worktree の準備 → 前回の本文・結果ファイル・Eval Case の依頼と結果を消す → 依存のインストール。依存を claude に
+#      入れさせないのは、失敗したときに予算を使って直そうとさせないため(commit フックと just lint-fast が node_modules を
+#      要るので、claude の前に入れる)
 #   3. <コマンド> を Integrity Snapshot の工程の入口(harness_integrity_run_untrusted)を通して実行する
 #      (_harness_loop_pr_run_in_worktree)。<コマンド> の終了コードを claude の成否とみなす。工程の入口が、claude の成否に
 #      関わらず直後にデータを照合する。失敗で終わる経路も repo に写す工程を通らないので、照合しないと書き換えがログに
 #      出ないまま次の run のスナップショットが正として持ち越す
 #   4. 振り分けと公開、または失敗した選別の案内(_harness_loop_pr_conclude_review)
+#   5. 1〜4 が成功したときだけ、前の run の未公開の採用を確かめる(_harness_loop_pr_check_unpublished)
 # 返り値は 0(公開した、変更が無かった、当日の PR が既にあった、Metrics-only PR が要らなかった)と 1(失敗)
-harness_loop_pr_run_review() { # <開始の行> <コマンド> [<引数>…]
-    local start_line=${1:-} remote_status=0 existing_pr create_command base stage_status=0 skipped='skipped review'
-    if [[ $# -lt 2 || -z "$start_line" ]]; then
-        printf 'harness-loop-pr: harness_loop_pr_run_review needs <start line> and the command that runs the review\n' >&2
+harness_loop_pr_run_review() { # <queue の件数> <書き込みの規則> -- <コマンド> [<引数>…]
+    _harness_loop_pr_run_review "$@" || return 1
+    _harness_loop_pr_check_unpublished
+}
+
+# 選別の経路の 1〜4(手順は harness_loop_pr_run_review のコメント)
+_harness_loop_pr_run_review() { # <queue の件数> <書き込みの規則> -- <コマンド> [<引数>…]
+    local queue_entries=${1:-} write_rule=${2:-} prompt remote_status=0 existing_pr create_command base stage_status=0
+    local skipped='skipped review'
+    if [[ $# -lt 4 || -z "$queue_entries" || -z "$write_rule" || "$3" != -- ]]; then
+        printf 'harness-loop-pr: harness_loop_pr_run_review needs <queue entries> <write rule> -- <command that runs the review>\n' >&2
         return 1
     fi
-    shift
+    shift 3
+    prompt=$(_harness_loop_pr_review_prompt "$write_rule") || return 1
     _harness_loop_pr_branch_on_origin || remote_status=$?
     if [[ "$remote_status" -eq 0 ]]; then
         existing_pr=$(cd "$_HARNESS_LOOP_PR_REPO" && gh pr list --head "$_HARNESS_LOOP_PR_BRANCH" --state all --json url --jq '.[0].url // empty') || {
@@ -915,11 +995,12 @@ harness_loop_pr_run_review() { # <開始の行> <コマンド> [<引数>…]
         return 1
     fi
     _harness_loop_pr_require_pnpm "$skipped" || return 1
-    printf '%s\n' "$start_line"
+    printf 'harness-weekly: review session=%s queue=%s branch=%s\n' "$_HARNESS_LOOP_PR_REVIEW_SESSION_ID" "$queue_entries" \
+        "$_HARNESS_LOOP_PR_BRANCH"
     _harness_loop_pr_prepare_worktree "harness-weekly: failed to prepare the review worktree $_HARNESS_LOOP_PR_WORKTREE" || return 1
     _harness_loop_pr_clear_review_files || return 1
     base=$(git -C "$_HARNESS_LOOP_PR_WORKTREE" rev-parse HEAD) || return 1
     _harness_loop_pr_install_dependencies "$skipped" || return 1
-    harness_integrity_run_untrusted _harness_loop_pr_run_in_worktree "$@" || stage_status=$?
+    harness_integrity_run_untrusted _harness_loop_pr_run_in_worktree "$@" "$prompt" || stage_status=$?
     _harness_loop_pr_conclude_review "$base" "$stage_status"
 }

@@ -152,6 +152,10 @@ _Avoid_: digest の一覧、Guarded Path(CI がループの PR から守るパ�
 選別が queue の項目に下した結果。adopted(採用)・rejected(却下)・handoff(別リポジトリへ渡す)・merged(別の項目に統合)のどれか1つで、項目と一緒に queue から外れる。Dropped Change は Verdict を持たず、queue に残る。採用の Verdict は、その変更が PR になるまで PR と結びついていない。
 _Avoid_: 判定(Evaluator の判定と混同する)、採否
 
+**Run Mark**:
+週次ジョブの選別が採用の Verdict に付ける、ループのブランチと選別の run を表す値(採用の印)。書式は Verdict の CLI だけが持ち、その採用が PR になると PR の URL に置き換わる。
+_Avoid_: run(無限定)
+
 **Dropped Change**:
 自己改善ループが採用したが、commit フックや lint を通せずに commit しなかった変更。失敗ではなく、queue に戻して次の選別にかけ直す。commit が1件も無く Dropped Change がある週だけを、ループの失敗として扱う(陳腐化の修正などの commit があれば PR を作り、Dropped Change はその本文に載せる)。
 _Avoid_: 却下(採否の判定と混同する)、失敗した採用

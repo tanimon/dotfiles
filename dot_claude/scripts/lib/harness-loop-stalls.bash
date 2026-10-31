@@ -5,7 +5,7 @@
 # Loop Stall を見つけて知らせる。知らせるのは 2 種類で、タイトルが重複を避ける鍵なので PR ごと・ブランチごとに分ける:
 # - 放置された Loop PR: ループの PR が _HARNESS_LOOP_STALLS_STALE_PR_DAYS 日以上開いたまま(PR ごと)
 # - PR にならないループのブランチ: PR にならないまま origin/main に無い commit を持つ、7 日以上前の日付のループのブランチ
-#   (ブランチごと)。採用の記録が残る run は週次ジョブの finish_run が失敗させ、失敗の Issue が知らせるので、ここでは
+#   (ブランチごと)。採用の記録が残る run は Loop PR の module の入口の最後の確認が失敗させ、失敗の Issue が知らせるので、ここでは
 #   知らせない。陳腐化の修正だけの commit は記録を残さないので、この判定でしか見つからない。PR があれば(手動の review が
 #   残したブランチや squash マージ)知らせない
 # 週次ジョブ自身の停止(この run の失敗、前の週に成功しなかったこと)は Loop Stall ではないので、週次ジョブが知らせる。
@@ -132,7 +132,7 @@ _harness_loop_stalls_report_branches() { # <repo> <prefix> <送る関数>
     shown_repo=$(_harness_loop_stalls_home_relative "$repo")
     while IFS=$'\t' read -r branch count; do
         [[ -n "$branch" ]] || continue
-        # PR になっていない採用が残るブランチは finish_run がジョブを失敗させ、失敗の Issue が知らせる。
+        # PR になっていない採用が残るブランチは Loop PR の module の入口の最後の確認がジョブを失敗させ、失敗の Issue が知らせる。
         # Verdict の CLI は Integrity Snapshot の入口を通してだけ呼ぶ。スナップショットの前に止まった run と、照合に落ちた
         # run では CLI を呼ばず、採用の有無を確かめずにブランチの Issue を作って、そのことを本文に書く(通知は止めない)
         verdict_note=""
