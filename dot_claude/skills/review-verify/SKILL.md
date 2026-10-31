@@ -1,7 +1,7 @@
 ---
 name: review-verify
 description: 既にコミットされたブランチに、要件文書(plan または spec)を基準にしたレビュー修正ループ(上限付き)と動作確認だけをかけ、PR は作らずに人間へ報告する。「このブランチをレビューして直して動作確認まで」「spec を渡すのでレビューループだけ回して」「/review-verify」など、実装は済んでいて仕上げだけを自律で回したいときに使う。実装そのものはしない。要件文書が無いブランチ、main などの保護ブランチ上での作業には使わない。
-argument-hint: "<要件文書のパス> [base=] [verify=] [rounds=] [stats-issue=<Issue の URL>]"
+argument-hint: "<要件文書のパス> [base=] [verify=] [rounds=] [stats-issue=<Issue の URL>] [pr=<PR の URL>]"
 ---
 
 # review-verify
@@ -13,7 +13,7 @@ Workflow は実装も push も PR の作成もしない。修正エージェン�
 ## 手順
 
 1. **ブランチを検査する。** `git rev-parse --abbrev-ref HEAD` が `main` / `master` / `development` / `HEAD`(detached)であれば、理由を伝えて**中止する**。worktree やブランチは作らない。`git status --porcelain` が空でなければ、未コミットの変更があることを伝えて中止する(修正エージェントのコミットに混ざるため)。検査を通ったら `git rev-parse HEAD` を起動前の SHA として控える(手順8で使う)。
-2. **要件文書を確認する。** 引数の文書パスを絶対パスにし、ファイルが存在することを確認する。plan でも spec でもよく、タスク分解は要らない。文書が渡されていなければ中止し、意図を書いた文書を渡すよう伝える(レビュー・修正の見送り・動作確認は、すべてこの文書を意図の正本として判断する)。
+2. **要件文書を確認する。** 引数の文書パスを絶対パスにし、ファイルが存在することを確認する。plan でも spec でもよく、タスク分解は要らない。文書が渡されていなければ中止し、意図を書いた文書を渡すよう伝える(レビュー・修正の見送り・動作確認は、すべてこの文書を意図の正本として判断する)。引数 `pr=` があれば、開発者が PR 本文に書いた要件文書からの意図した逸脱をレビューが「直して」しまわないよう、`gh pr view <URL> --json body -q .body` で本文を取り、要件文書の末尾に「追補: PR 本文(要件文書からの意図した逸脱・既知の挙動を含む。要件文書と食い違う箇所はこの節が正本)」の節として連結したファイルを `$(git rev-parse --absolute-git-dir)/review-verify/requirements.md` に書く(親ディレクトリが無ければ先に作る)。以降の手順で Workflow に渡す要件文書はこのファイルにする。ただし手順8の要件文書の書き換えの確認は、連結したファイルではなく元の要件文書の絶対パスで行う(連結したファイルは git の外にあり、確認が黙って通ってしまう)。
 3. **差分の基点を決める。** 引数 `base=` があればそれを使う。無ければ `origin/HEAD` が指すブランチ(`git symbolic-ref --short refs/remotes/origin/HEAD`。`origin/main` の形で出る)を使う。`refs/remotes/origin/HEAD` は clone の仕方によってはローカルに無く、このコマンドが失敗する。その場合は推測せず `AskUserQuestion` で基点を聞く。プロジェクトの規約で別のブランチと比較するもの(例: hotfix 以外は `development` と比較する)があれば、その規約に従う。`git rev-list --count <基点>..HEAD` が 0 なら、レビューする差分が無いことを伝えて中止する。
 4. **テスト/lint のコマンドを決める。** プロジェクトの CLAUDE.md が示す検証コマンド(例: `just lint`、`bash scripts/lint/git-diff-lint.sh`、`npm test`)を列挙する。特定できない、または候補が複数あって選べない場合は、`AskUserQuestion` で選んでもらう。1件以上が必要。落ちているコマンドがあっても、Workflow がレビューの前に直そうとする(直らなければ止まる。要件文書のうちブランチが未着手の項目を検査するテストは、実装せずに止まる)ので、起動前に走らせて止める必要はない。
 5. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。`verify=` で渡された場合も含め、動作確認 skill が起動時に人間に確かめる事項があれば、ここで確かめて `verifyArgs` に1つの文字列で入れる(Workflow の動作確認エージェントは質問できない)。`web-verify` なら、確かめる事項・順序・`verifyArgs` の形は web-verify の SKILL.md の「起動前に人間が確かめる事項」に従う。その SKILL.md は Skill ツールで起動せずファイルとして読む(起動すると、ここで動作確認そのものが始まる)。場所はまずこの skill と同じ skills ディレクトリの `web-verify/SKILL.md` を見て、無ければ `~/.claude/skills`・プロジェクトの `.claude/skills`・`~/.claude/plugins` の配下から `web-verify/SKILL.md` を探す。見つからなければ保存場所だけを聞き、`検証資産の保存場所: <絶対パス>(質問)` の形で渡す。確かめる事項が無ければ省略する。

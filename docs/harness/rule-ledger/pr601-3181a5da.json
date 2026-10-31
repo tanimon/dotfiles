@@ -1,0 +1,14 @@
+{
+  "id": "pr601-3181a5da",
+  "adopted": "2026-10-31",
+  "title": "[2026-10-31] web-verify にも `--list` が HTML レポートを空で上書きする注意を入れる",
+  "failure_patterns": ["unclassified"],
+  "eval": {
+    "status": "invalid",
+    "case_id": "2026-10-31-3181a5da",
+    "with": 1,
+    "without": 1
+  },
+  "pr": 601,
+  "via": "weekly"
+}

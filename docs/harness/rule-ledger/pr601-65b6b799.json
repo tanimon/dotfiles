@@ -1,0 +1,15 @@
+{
+  "id": "pr601-65b6b799",
+  "adopted": "2026-10-31",
+  "title": "[2026-10-30] サンドボックス内で動くスクリプトの永続ファイルは ~/.cache 配下に置く",
+  "failure_patterns": ["unclassified"],
+  "eval": {
+    "status": "evaluated",
+    "case_id": "2026-10-31-65b6b799",
+    "with": 1,
+    "without": 0,
+    "delta": 1
+  },
+  "pr": 601,
+  "via": "weekly"
+}

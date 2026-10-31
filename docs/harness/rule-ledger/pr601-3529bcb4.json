@@ -1,0 +1,14 @@
+{
+  "id": "pr601-3529bcb4",
+  "adopted": "2026-10-31",
+  "title": "[2026-10-30] ファイルに書かせる委譲には Explore ではなく general-purpose を使う",
+  "failure_patterns": ["unclassified"],
+  "eval": {
+    "status": "invalid",
+    "case_id": "2026-10-31-3529bcb4",
+    "with": 1,
+    "without": 1
+  },
+  "pr": 601,
+  "via": "weekly"
+}
