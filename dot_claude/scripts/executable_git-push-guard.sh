@@ -31,7 +31,10 @@ set -euo pipefail
 # 手順と理由は module のヘッダ。動詞を含まない入力は module を読まずに終わる。
 COMMAND_GUARD_STDIN_FAILED=0
 COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
-[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == *push* ]] || exit 0
+# 動詞は自前の部分の照合と command_guard_start の --verb で共有する(ずれると動詞を含む入力が module に届かない)。
+COMMAND_GUARD_VERB='*push*'
+# shellcheck disable=SC2053 # 動詞は glob として照合する
+[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB ]] || exit 0
 command_guard_dir=${BASH_SOURCE[0]%/*}
 [[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
 # shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
@@ -41,9 +44,10 @@ if [[ ! -r "$command_guard_dir/lib/command-guard.bash" ]] || ! "$BASH" -n "$comm
     exit 0
 fi
 
-command_guard_start --name git-push-guard --verb '*push*' --on-unreadable ask \
+command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --on-unreadable ask \
     --lib shell-reader.bash \
     --require 'shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches'
+# command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 ASK_REASON='git-push-guard: この push は引数を読み切れないため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
 

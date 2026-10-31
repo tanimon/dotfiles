@@ -30,7 +30,12 @@ set -uo pipefail
 # 無出力で通す。手順と理由は module のヘッダ。動詞を含まない入力は module を読まずに終わる。
 COMMAND_GUARD_STDIN_FAILED=0
 COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
-[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == *gh*create* || "$COMMAND_GUARD_STDIN" == *gh*new* ]] || exit 0
+# 動詞は自前の部分の照合と command_guard_start の --verb で共有する(ずれると動詞を含む入力が module に届かない)。
+COMMAND_GUARD_VERB_CREATE='*gh*create*'
+COMMAND_GUARD_VERB_NEW='*gh*new*'
+# shellcheck disable=SC2053 # 動詞は glob として照合する
+[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB_CREATE ||
+    "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB_NEW ]] || exit 0
 command_guard_dir=${BASH_SOURCE[0]%/*}
 [[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
 # shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
@@ -39,12 +44,12 @@ if [[ ! -r "$command_guard_dir/lib/command-guard.bash" ]] || ! "$BASH" -n "$comm
     exit 0
 fi
 
-command_guard_start --name issue-linkage-guard --verb '*gh*create*' --verb '*gh*new*' --on-unreadable pass \
+command_guard_start --name issue-linkage-guard --verb "$COMMAND_GUARD_VERB_CREATE" --verb "$COMMAND_GUARD_VERB_NEW" --on-unreadable pass \
     --lib shell-reader.bash --lib issue-linkage-scope.bash \
     --require 'shell_reader_read shell_reader_each_segment issue_linkage_scope_in_scope issue_linkage_scope_repo_flag'
+# command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 MARKER='<!-- issue-linkage -->'
-# jq があることは command_guard_start が保証している。
 CWD=$(printf '%s' "$COMMAND_GUARD_STDIN" | jq -r '.cwd // empty' 2>/dev/null) || exit 0
 
 shell_reader_read "$COMMAND"

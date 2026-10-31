@@ -42,7 +42,10 @@ set -euo pipefail
 # 手順と理由は module のヘッダ。動詞を含まない入力は module を読まずに終わる。
 COMMAND_GUARD_STDIN_FAILED=0
 COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
-[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == *curl* ]] || exit 0
+# 動詞は自前の部分の照合と command_guard_start の --verb で共有する(ずれると動詞を含む入力が module に届かない)。
+COMMAND_GUARD_VERB='*curl*'
+# shellcheck disable=SC2053 # 動詞は glob として照合する
+[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB ]] || exit 0
 command_guard_dir=${BASH_SOURCE[0]%/*}
 [[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
 # shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
@@ -54,9 +57,10 @@ fi
 
 # 引用符を解釈して token に分ける reader は他のフックと共有している。読めなかった理由は flag で返るだけで、
 # 扱いは segment の走査(classify_segment)の前の判定で決める。
-command_guard_start --name curl-localhost-guard --verb '*curl*' --on-unreadable ask \
+command_guard_start --name curl-localhost-guard --verb "$COMMAND_GUARD_VERB" --on-unreadable ask \
     --lib shell-reader.bash \
     --require 'shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches'
+# command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 ASK_REASON='curl-localhost-guard: 宛先がループバック(localhost / 127.0.0.0/8 / [::1])だけだと確認できないため、承認が必要です。'
 
