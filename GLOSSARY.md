@@ -241,3 +241,9 @@ _Avoid_: 本文更新(食い違いが無い場合を含まない)
 **Stale PR Body**:
 現在の差分と食い違う記述(変更点、テスト方法、Acceptance criteria の対応など)を含む PR 本文。新しいコミットが積まれただけでは Stale PR Body にならず、食い違いの有無は PR Body Review が判断する。
 _Avoid_: 古い本文、陳腐化した description
+
+### Documentation
+
+**Working Document**:
+作業の途中で書かれ、作業が終わると価値のある部分を正本へ移して役目を終える文書。brainstorm・ideation・plan・spec がこれに当たり、開いているブランチの spec と plan は同時に Requirements Document でもある。
+_Avoid_: 経緯ドキュメント、開発経緯
