@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-31",
+  "since": 1792803691,
+  "until": 1793408452,
+  "sessions": 68,
+  "detections": 79,
+  "classified": 79,
+  "classification": "ok",
+  "patterns": {
+    "unverified-claim": {
+      "occurrences": 5,
+      "sessions": 5,
+      "rate": 0.0735
+    },
+    "wrong-verification-path": {
+      "occurrences": 1,
+      "sessions": 1,
+      "rate": 0.0147
+    },
+    "sandbox-boundary": {
+      "occurrences": 12,
+      "sessions": 11,
+      "rate": 0.1618
+    },
+    "shell-pitfall": {
+      "occurrences": 3,
+      "sessions": 3,
+      "rate": 0.0441
+    },
+    "tool-contract": {
+      "occurrences": 16,
+      "sessions": 7,
+      "rate": 0.1029
+    },
+    "stale-environment": {
+      "occurrences": 0,
+      "sessions": 0,
+      "rate": 0
+    },
+    "instruction-violation": {
+      "occurrences": 1,
+      "sessions": 1,
+      "rate": 0.0147
+    },
+    "wait-and-lifecycle": {
+      "occurrences": 0,
+      "sessions": 0,
+      "rate": 0
+    },
+    "external-cause": {
+      "occurrences": 3,
+      "sessions": 3,
+      "rate": 0.0441
+    },
+    "unclassified": {
+      "occurrences": 38,
+      "sessions": 24,
+      "rate": 0.3529
+    }
+  }
+}
