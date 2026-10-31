@@ -5,7 +5,7 @@
 spec の置き場所は、作ったスキルで決まる。
 
 - mattpocock の `/to-spec` が作る spec は GitHub Issue に置く。`docs/` には書かない。
-- superpowers の brainstorming が作る spec は `docs/superpowers/specs/` に、writing-plans が作る plan は `docs/superpowers/plans/` にブランチ上で commit する。どちらも Working Document なので main には入れず、マージ前に正本へ抽出して消す([ADR 0024](../adr/0024-working-documents-never-land-on-main.md))。
+- superpowers の brainstorming が作る spec は `docs/superpowers/specs/` に、writing-plans が作る plan は `docs/superpowers/plans/` にブランチ上で commit する。どちらも Working Document なので main には入れず、マージ前に正本へ抽出して消す([ADR 0025](../adr/0025-working-documents-never-land-on-main.md))。
 
 ## Conventions
 
