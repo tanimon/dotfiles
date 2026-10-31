@@ -597,6 +597,55 @@ RUN='harness/review-2026-10-10 run aaaa'
     assert_failure 1
 }
 
+@test "mark はブランチと run id から採用の印を 1 行で出す" {
+    run --separate-stderr bash "$SCRIPT" mark --branch harness/review-2026-10-04 --run-id abc
+    assert_success
+    assert_output 'harness/review-2026-10-04 run abc'
+}
+
+@test "mark の引数の誤りは exit 2" {
+    local args
+    for args in \
+        'mark' \
+        'mark|--branch|b' \
+        'mark|--run-id|r' \
+        'mark|--branch||--run-id|r' \
+        'mark|--branch|b|--run-id|' \
+        'mark|--branch|a)b|--run-id|r' \
+        'mark|--branch|b|--run-id|a)b' \
+        'mark|--branch|PR b|--run-id|r' \
+        'mark|--branch|b|--run-id|r|extra' \
+        'mark|--run|b'; do
+        IFS='|' read -r -a argv <<<"$args"
+        run --separate-stderr bash "$SCRIPT" "${argv[@]}"
+        [[ "$status" -eq 2 ]] || fail "expected exit 2 for $args (got $status)"
+        assert_output ''
+    done
+    run --separate-stderr bash "$SCRIPT" mark --branch b --run-id "$(printf 'a\nb')"
+    assert_failure 2
+    # 末尾の空の値は IFS の分割で落ちる(「値が無い」の経路になる)ので、空の --run-id は別に渡す
+    run --separate-stderr bash "$SCRIPT" mark --branch b --run-id ''
+    assert_failure 2
+    assert_output ''
+    assert_equal "$stderr" "harness-verdict: --run-id is empty; nothing written"
+}
+
+@test "mark の印で settle した採用は、unpublished --branch が挙げ、publish --run が PR の URL に置き換える" {
+    local mark
+    printf '## entry\n\n- **What happened:** x\n' >"$QUEUE"
+    mark=$(bash "$SCRIPT" mark --branch harness/review-2026-10-04 --run-id abc)
+    HARNESS_REVIEW_RUN=$mark run --separate-stderr bash "$SCRIPT" settle --title entry adopted
+    assert_success
+    run --separate-stderr bash "$SCRIPT" unpublished --branch harness/review-2026-10-04
+    assert_success
+    assert_output "$mark"
+    run --separate-stderr bash "$SCRIPT" publish --run "$mark" --pr-url "$URL"
+    assert_success
+    assert_output 1
+    run --separate-stderr bash "$SCRIPT" unpublished
+    assert_output ''
+}
+
 @test "publish は書き戻す直前に判定の記録が変わっていたら作り直し、3 回続けば何も書かずに exit 1" {
     entry 'a' "adopted ($RUN)"
     install_racing_cmp

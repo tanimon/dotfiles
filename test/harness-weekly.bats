@@ -17,12 +17,12 @@
 # gh と pnpm はスタブで、gh は呼ばれた引数と --body-file の中身を記録する。
 #
 # 検査するのは入口スクリプトの振る舞い: 工程の順序、早期に終わる分岐、lib の読み込みの失敗、週次ジョブ自身の停止の通知
-# (失敗の Issue・走らなかった週の Issue)と EXIT trap が Loop Stall の module を呼ぶ配線、選別の prompt と claude の起動。Loop Stall の
+# (失敗の Issue・走らなかった週の Issue)と EXIT trap が Loop Stall の module を呼ぶ配線、抽出の prompt と claude の起動。Loop Stall の
 # 判定と文面は test/harness-loop-stalls.bats が Loop Stall の module の interface で検査する。Loop PR の経路(当日のブランチの照会・worktree の準備・依存のインストール・本文・公開・
-# Metrics-only PR・評価・Rule Ledger・失敗した選別の案内)は test/harness-loop-pr.bats が Loop PR の module の interface で
-# 検査する。ここに残す Loop PR の経路の通し実行は、入口スクリプトの配線(選別の claude の失敗が module に届くこと、
-# module の失敗で run が失敗して heartbeat を書かないこと、選別の後に締めの確認をすること、queue が空の週に
-# Metrics-only PR の入口を呼ぶこと)を見るものだけ。
+# Metrics-only PR・評価・Rule Ledger・失敗した選別の案内)と選別の prompt の中身は test/harness-loop-pr.bats が Loop PR の
+# module の interface で検査する。ここに残す Loop PR の経路の通し実行は、入口スクリプトの配線(選別の claude の失敗が module に届くこと、
+# module の失敗で run が失敗して heartbeat を書かないこと、選別の後に締めの確認(前の run の未公開の採用と finish_run)をすること、queue が空の週に
+# Metrics-only PR の入口を呼ぶこと、選別の claude に採用の印と書き込みの規則の文が渡ること)を見るものだけ。
 setup() {
     load 'helpers/setup'
     load 'helpers/exec-cache'
@@ -603,23 +603,15 @@ PRE
     assert_output 'review'
 }
 
-@test "claude に push と PR の作成をさせず、ファイルの書き込みは Write / Edit で行わせる" {
+@test "抽出と選別の claude の prompt に、書き込みの規則の文を 1 つずつ入れる" {
     seed_queue
     run weekly
     assert_success
     run cat "$ARGV_LOG"
+    assert_output --partial 'harness-reflect skill'
     assert_output --partial 'harness-review skill'
-    assert_output --partial 'do not push'
-    assert_output --partial "${BRANCH}"
-    run grep -c 'only with the Write and Edit tools' "$ARGV_LOG"
+    run grep -c 'only with the Write and Edit tools, never with heredocs, echo or printf: .* moving it into place' "$ARGV_LOG"
     assert_output '2'
-}
-
-@test "選別の開始の行に、選別の session id・queue の件数・ループのブランチを出す" {
-    seed_queue
-    run weekly
-    assert_success
-    assert_line "harness-weekly: review session=aaaaaaaa-0000-0000-0000-000000000001 queue=1 branch=${BRANCH}"
 }
 
 @test "選別の claude にだけ採用の印を HARNESS_REVIEW_RUN で渡し、prompt には印を書かない" {
@@ -670,6 +662,8 @@ EOF
     assert_output $'reflect\nreview'
 }
 
+# 前の run の未公開の採用の確認の中身(案内の文言・成功で終わる各経路・読めないときと照合に落ちたとき)は
+# test/harness-loop-pr.bats が検査する。ここでは、Loop PR の module の入口の失敗が run の失敗と heartbeat に届く配線だけを見る
 @test "前の run の採用が PR にならないまま判定の記録に残っていれば、heartbeat を書かずに失敗する" {
     printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
     run weekly
@@ -685,93 +679,10 @@ EOF
     assert_heartbeat_written
 }
 
-@test "手書きの印が ' を含んでも、復旧の案内の publish のコマンドは貼り付けて動く" {
-    printf -- "## [2026-01-01] old\n\n- **Verdict:** adopted (Bob's fix)\n" >"$HDIR/queue-archive.md"
-    run weekly
-    assert_failure
-    assert_output --partial "a mark written by hand has no branch to push"
-    local command
-    command=$(printf '%s\n' "$output" | grep -o "bash ~/.claude/scripts/harness-verdict.sh publish --run '.*' --pr-url <PR URL>")
-    command=${command/<PR URL>/https:\/\/github.com\/example\/dotfiles\/pull\/7}
-    run eval "$command"
-    assert_success
-    assert_output '1'
-    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/7)' "$HDIR/queue-archive.md"
-    assert_output '1'
-}
-
-@test "判定の記録の採用がすべて PR の URL になっていれば heartbeat を書く" {
-    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (PR https://github.com/example/dotfiles/pull/1)\n' >"$HDIR/queue-archive.md"
-    run weekly
-    assert_success
-    assert_heartbeat_written
-}
-
-@test "前の run の採用の残りは、その週の選別と PR の作成を済ませてから知らせる" {
-    printf -- '## [2026-01-01] old\n\n- **Verdict:** adopted (harness/review-2026-01-01)\n' >"$HDIR/queue-archive.md"
-    seed_queue
-    run weekly
-    assert_failure
-    assert_output --partial 'never became a PR'
-    run cat "$GH_LOG"
-    assert_output --regexp "^pr create --draft --base main --head ${BRANCH} "
-    run grep -c 'adopted (PR https://github.com/example/dotfiles/pull/42)' "$HDIR/queue-archive.md"
-    assert_output '1'
-    refute_heartbeat_written
-}
-
 @test "permission の拒否(headless では hook の ask も拒否)があれば実行ログに警告を出す" {
     STUB_CLAUDE_MODE=denied run weekly
     assert_success
     assert_output --partial 'WARN reflect: 1 permission denial'
-}
-
-@test "無人の選別に chezmoi apply をさせない" {
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$ARGV_LOG"
-    assert_output --partial 'Never run chezmoi apply'
-}
-
-@test "陳腐化したルールの修正だけでも commit させる(採用 0 件で PR を諦めさせない)" {
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$ARGV_LOG"
-    assert_output --partial 'If nothing is adopted and nothing is stale'
-}
-
-@test "commit フックや lint で落とした変更は queue に残させ、結果ファイルに書かせる" {
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$ARGV_LOG"
-    assert_output --partial 'leave its entry in queue.md (do not move it to the archive'
-    refute_output --partial 'rejected (dropped:'
-    assert_output --partial "Always write the result file $HDIR/review-result-$(date +%Y-%m-%d).json"
-    assert_output --partial '{"dropped": [...], "deploy_only": [...]}'
-    refute_output --partial 'always write the PR body'
-}
-
-@test "コマンドの出力を一時ファイルに書いて mv する Bookkeeping は禁じない" {
-    seed_queue
-    run weekly
-    assert_success
-    run grep -c 'moving it into place' "$ARGV_LOG"
-    assert_output '2'
-}
-
-@test "落とした変更と deploy-only の修正は本文に書かせず、本文を書かないことで区別させない" {
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$ARGV_LOG"
-    assert_output --partial 'Do not write line counts, failure detection counts, failure pattern rates, rule effects, dropped changes or deploy-only fixes in the PR body'
-    assert_output --partial "Never change files under ${RATES_REPO_DIR} or ${LEDGER_REPO_DIR}, or the local Rule Ledger in ${LEDGER}; this job commits them"
-    refute_output --partial 'final summary instead'
-    refute_output --partial 'Report a deploy-only fix in the PR body'
-    refute_output --partial 'reads a PR body without commits'
 }
 
 # add_session <session_id> <fixture>: 検出器の fixture を transcript として置き、pending に積む
@@ -838,7 +749,7 @@ PRE
 
 # 失敗の検出の節の期間の中身(期間の切り方・読めない行・表の形)は test/harness-failure-rates.bats が再発率の CLI で検査する。
 # ここでは、PR を作った後に失敗した run(heartbeat を書かない)の次の run の PR が、前の PR の期間を重ねて数えないことを見る。
-# 1 回目の run は Weekly Rate Record を書いた後で PR を作り、finish_run が前の run の採用の残りで失敗する
+# 1 回目の run は Weekly Rate Record を書いた後で PR を作り、Loop PR の module の入口の最後の確認が前の run の採用の残りで失敗する
 @test "PR を作った後に失敗した run の次の run の PR は、前の PR が数えた期間の検出を数えない" {
     : >"$HDIR/pending.jsonl"
     now=$(date +%s)
@@ -1218,15 +1129,6 @@ old_record() {
     assert [ -f "$ARGV_LOG" ]
 }
 
-@test "選別のプロンプトは Rule Ledger を書かせず、ジョブが記録することを伝える" {
-    seed_queue
-    run weekly
-    assert_success
-    run cat "$ARGV_LOG"
-    assert_output --partial 'Never change files under docs/harness/failure-pattern-rates or docs/harness/rule-ledger'
-    assert_output --partial 'Do not run harness-rule-ledger.sh'
-}
-
 # Integrity Snapshot(lib/harness-integrity.bash、ADR 0019)が新しく守る経路の contrast pair。
 # 書き換えはスナップショットの後(抽出か選別の claude)に限る。分類器の claude はスナップショットの前に走るので、
 # そこで書き換えるとスナップショットが書き換えた後の値を取ってしまう
@@ -1255,23 +1157,6 @@ tamper_in() {
 # rewrite_record_in <reflect|review> <日付>: その工程の claude がローカルの週の記録を書き換える
 rewrite_record_in() {
     run_in "$1" "printf '{\"tampered\":true}\n' >\"$RATES/$2.json\""
-}
-
-@test "queue が空の週は、Verdict の CLI が書き換えられていなければ finish_run が heartbeat を書く" {
-    run weekly
-    assert_success
-    assert_heartbeat_written
-}
-
-@test "queue が空の週に抽出の claude が Verdict の CLI を書き換えたら、finish_run は CLI を呼ばずに失敗する" {
-    tamper_in reflect harness-verdict.sh
-    # Loop PR が開いていれば Metrics-only PR の判定は再発率の CLI を呼ばずに終わり、finish_run が最初に実行物を照合する
-    # (開いていなければ、判定が入口を通して CLI を呼ぶときに照合に落ちて、finish_run の前に止まる)
-    STUB_GH_OPEN_LOOP_PR=https://github.com/example/dotfiles/pull/40 run weekly
-    assert_failure
-    assert_output --partial "changed: $HOME/.claude/scripts/harness-verdict.sh"
-    assert_output --partial 'failed to read the unpublished verdicts'
-    refute_heartbeat_written
 }
 
 # Loop PR の module だけが無いか壊れた(ほかの lib は在る)入口スクリプトの複製で起動する
@@ -1311,7 +1196,7 @@ weekly_without_loop_pr_lib() { # [<lib に置く中身>]
     assert_failure
     assert_output --partial 'harness-loop-pr.bash lacks the publish steps'
     refute_output --partial 'command not found'
-    run weekly_without_loop_pr_lib "$(sed 's/^harness_loop_pr_review_instructions() {/_removed() {/' "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash")"
+    run weekly_without_loop_pr_lib "$(sed 's/^harness_loop_pr_record_command() {/_removed() {/' "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/harness-loop-pr.bash")"
     assert_failure
     assert_output --partial 'harness-loop-pr.bash lacks the publish steps'
     run cat "$ALERT_LOG"
