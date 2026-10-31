@@ -623,6 +623,11 @@ RUN='harness/review-2026-10-10 run aaaa'
     done
     run --separate-stderr bash "$SCRIPT" mark --branch b --run-id "$(printf 'a\nb')"
     assert_failure 2
+    # 末尾の空の値は IFS の分割で落ちる(「値が無い」の経路になる)ので、空の --run-id は別に渡す
+    run --separate-stderr bash "$SCRIPT" mark --branch b --run-id ''
+    assert_failure 2
+    assert_output ''
+    assert_equal "$stderr" "harness-verdict: --run-id is empty; nothing written"
 }
 
 @test "mark の印で settle した採用は、unpublished --branch が挙げ、publish --run が PR の URL に置き換える" {

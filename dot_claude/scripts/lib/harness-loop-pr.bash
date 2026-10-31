@@ -12,10 +12,10 @@
 # - 選別の prompt(_harness_loop_pr_review_prompt)。harness-review スキルを変える指示を丸ごと組み立て、結果ファイルの指示
 #   (Review Outcome の lib)、本文の指示(本文の lib)、記録の置き場に触れさせない指示もここで埋める。週次ジョブから受け取るのは、
 #   抽出の prompt と共有する書き込みの規則の文だけ。
-# - 手で公開するコマンドの綴り(push、draft PR の作成、判定の記録への PR の URL の記録)。週次ジョブの案内文は
-#   文を各箇所に持ち、コマンドの綴りだけをここから受け取る。Loop Stall の module の Issue の本文も同じ関数を使う。
-#   綴りの関数は初期化の値を読まず、引数だけで組み立てる(案内文ごとにリポジトリの表記とブランチが違い、初期化の前に
-#   止まった run の Loop Stall の通知も使うため)。
+# - 手で公開するコマンドの綴り(push、draft PR の作成、判定の記録への PR の URL の記録)。この lib の案内文が使うほか、
+#   module の外では Loop Stall の module の Issue の本文だけが使う(週次ジョブは使わない)。案内文は文を各箇所に持ち、
+#   コマンドの綴りだけをここから受け取る。綴りの関数は初期化の値を読まず、引数だけで組み立てる(案内文ごとにリポジトリの
+#   表記とブランチが違い、初期化の前に止まった run の Loop Stall の通知も使うため)。
 # - 選別の経路(harness_loop_pr_run_review): 作業場所の準備、開始の行、選別の claude の実行(週次ジョブから受け取ったコマンドに
 #   選別の prompt を足し、worktree の中で採用の印を渡し、Integrity Snapshot の工程の入口を通して走らせる。ADR 0017)、Review Outcome の分類、
 #   Eval Case の評価と結果の封印、本文、公開、Rule Ledger の記録、選別が失敗した run の案内。選別が何も commit しなかった週の
@@ -167,9 +167,11 @@ harness_loop_pr_init() {
         return 1
     fi
     branch="$prefix$date"
-    verdict_cli=$(_harness_loop_pr_verdict_cli)
+    verdict_cli=$(_harness_loop_pr_verdict_cli) || return 1
+    # 印を作れない典型は、Verdict の CLI が配置されていないか、この lib だけが新しく CLI に mark が無いことで、どちらも
+    # 配置のずれなので chezmoi apply で直る
     if ! run=$(bash "$verdict_cli" mark --branch "$branch" --run-id "$session_id") || [[ -z "$run" ]]; then
-        printf 'harness-loop-pr: could not make the adoption mark with %s\n' "$verdict_cli" >&2
+        printf 'harness-loop-pr: could not make the adoption mark with %s; run chezmoi apply\n' "$verdict_cli" >&2
         return 1
     fi
     _HARNESS_LOOP_PR_REPO=$repo
@@ -516,21 +518,25 @@ _harness_loop_pr_metrics_only_due() { # <base>
 
 # 判定の記録で、この run の選別の採用(初期化で受け取った印)を PR の URL に置き換える(Verdict の CLI の publish)。
 # 置き換えが 0 件になるのは、陳腐化の修正だけの PR(正常)か、選別が settle で記録しなかったときで、
-# ここでは区別できないので、両方の読み方を添えて知らせる。失敗しても WARN だけにする(残った印は入口の最後の
-# _harness_loop_pr_check_unpublished が捕まえる)。
+# ここでは区別できないので、両方の読み方を添えて知らせる。失敗しても WARN だけにし、この run の印を記録するコマンドを
+# その場で添える(残った印は入口の最後の _harness_loop_pr_check_unpublished も捕まえるが、後の Rule Ledger の記録が
+# 失敗した run はその確認まで進まず、次に成功する run まで案内が出ないため)。
 # Integrity Snapshot の照合に落ちたら、CLI を呼ばずに HARNESS_INTEGRITY_FAILED を返す
 _harness_loop_pr_record_pr_url() { # <PR の URL>
-    local verdict_cli count status=0
+    local verdict_cli archive record_command count status=0
     verdict_cli=$(_harness_loop_pr_verdict_cli) || status=1
+    [[ "$status" -ne 0 ]] || archive=$(_harness_loop_pr_archive) || status=1
     [[ "$status" -ne 0 ]] || count=$(harness_integrity_run "$verdict_cli" publish --run "$_HARNESS_LOOP_PR_RUN" --pr-url "$1") || status=$?
     [[ "$status" -ne "$HARNESS_INTEGRITY_FAILED" ]] || return "$status"
     if [[ "$status" -ne 0 ]]; then
-        printf 'harness-weekly: WARN failed to record the PR URL in %s; the check at the end of this run reports the unpublished verdicts\n' "$(_harness_loop_pr_archive)" >&2
+        record_command=$(harness_loop_pr_record_command "$_HARNESS_LOOP_PR_RUN") || record_command='the publish command of the verdict CLI'
+        printf 'harness-weekly: WARN failed to record the PR URL %s in %s; record it by hand with %s (the unpublished check at the end of a successful run also reports it)\n' \
+            "$1" "${archive:-the verdict archive}" "$record_command" >&2
         return 0
     fi
     if [[ "$count" == 0 ]]; then
         printf 'harness-weekly: no verdict adopted in run "%s" in %s; PR URL not recorded (normal if the PR only fixes stale rules; otherwise the review did not record its verdicts with the settle command)\n' \
-            "$_HARNESS_LOOP_PR_RUN" "$(_harness_loop_pr_archive)" >&2
+            "$_HARNESS_LOOP_PR_RUN" "$archive" >&2
         return 0
     fi
     printf 'harness-weekly: recorded the PR URL on %s verdict(s)\n' "$count"
@@ -703,19 +709,22 @@ _harness_loop_pr_metrics_only_or_discard() { # <base> <要らないときの行>
 # 残っていれば案内を出して 1 を返し、週次ジョブは heartbeat を書かずに失敗する(その週の選別と公開は済ませてから確かめる)。
 # 判定の記録を読めないとき(CLI を呼ぶ入口が照合に落ちたときを含む。予約コードは外に出さない)も 1 を返す
 _harness_loop_pr_check_unpublished() {
-    local verdict_cli leftovers run commands=""
-    verdict_cli=$(_harness_loop_pr_verdict_cli)
+    local verdict_cli archive leftovers run record_command commands="" push_command create_command
+    verdict_cli=$(_harness_loop_pr_verdict_cli) || return 1
+    archive=$(_harness_loop_pr_archive) || return 1
     leftovers=$(harness_integrity_run "$verdict_cli" unpublished) || {
-        printf 'harness-weekly: failed to read the unpublished verdicts from %s; heartbeat not updated\n' "$(_harness_loop_pr_archive)" >&2
+        printf 'harness-weekly: failed to read the unpublished verdicts from %s; heartbeat not updated\n' "$archive" >&2
         return 1
     }
     [[ -n "$leftovers" ]] || return 0
     while IFS= read -r run; do
-        commands+="${commands:+; }$(harness_loop_pr_record_command "$run")"
+        record_command=$(harness_loop_pr_record_command "$run") || return 1
+        commands+="${commands:+; }$record_command"
     done <<<"$leftovers"
+    push_command=$(harness_loop_pr_push_command '<branch>') || return 1
+    create_command=$(harness_loop_pr_create_command '<branch>') || return 1
     printf 'harness-weekly: %s still has verdicts that never became a PR. For a loop mark (<branch> or <branch> run <id>), publish that branch from %s by hand (%s, then %s); a mark written by hand has no branch to push and needs only the PR URL. Record the PR URL with: %s. Or move the entries back to queue.md; heartbeat not updated\n' \
-        "$(_harness_loop_pr_archive)" "$_HARNESS_LOOP_PR_REPO" "$(harness_loop_pr_push_command '<branch>')" \
-        "$(harness_loop_pr_create_command '<branch>')" "$commands" >&2
+        "$archive" "$_HARNESS_LOOP_PR_REPO" "$push_command" "$create_command" "$commands" >&2
     return 1
 }
 
@@ -895,12 +904,13 @@ _harness_loop_pr_conclude_review() { # <base> <終了コード>
 # 週次ジョブの commit だけが書く(改善する側が指標を書き換えられないように)。リポジトリ内の置き場への commit は Review Outcome
 # の lib の分類が、ローカルの Rule Ledger の書き換えは Integrity Snapshot のデータの照合が見つける
 _harness_loop_pr_review_instructions() {
-    local result_instructions body_instructions
+    local result_instructions body_instructions ledger_dir
     result_instructions=$(harness_review_outcome_result_instructions) || return 1
     body_instructions=$(harness_pr_body_review_instructions) || return 1
+    ledger_dir=$(_harness_loop_pr_local_ledger_dir) || return 1
     printf '%s\n%s Never change files under %s or %s, or the local Rule Ledger in %s; this job commits them.' \
         "$result_instructions" "$body_instructions" "$_HARNESS_LOOP_PR_RATES_REPO_DIR" "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" \
-        "$(_harness_loop_pr_local_ledger_dir)"
+        "$ledger_dir"
 }
 
 # 選別の prompt を末尾の改行なしで出す。<書き込みの規則> は週次ジョブが抽出の prompt と共有する 1 項目。

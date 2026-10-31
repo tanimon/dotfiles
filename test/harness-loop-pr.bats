@@ -114,7 +114,7 @@ init_loop_pr() { # [<上書きする引数>…]
     rm "$HOME/.claude/scripts/harness-verdict.sh"
     run init_loop_pr
     assert_failure
-    assert_output --partial 'harness-loop-pr: could not make the adoption mark'
+    assert_output --partial "harness-loop-pr: could not make the adoption mark with $HOME/.claude/scripts/harness-verdict.sh; run chezmoi apply"
 }
 
 @test "初期化は公開に使う値が空か壊れていれば失敗する" {
@@ -1385,7 +1385,7 @@ exec bash "$HOME/.claude/scripts/harness-verdict-real.sh" "$@"
 EOF
     init_real
     STUB_LEDGER_EXPORT=1 run review_with review_commits
-    assert_line "harness-weekly: WARN failed to record the PR URL in $HDIR/queue-archive.md; the check at the end of this run reports the unpublished verdicts"
+    assert_line "harness-weekly: WARN failed to record the PR URL https://github.com/example/dotfiles/pull/42 in $HDIR/queue-archive.md; record it by hand with bash ~/.claude/scripts/harness-verdict.sh publish --run '${BRANCH} run 0f0e' --pr-url <PR URL> (the unpublished check at the end of a successful run also reports it)"
     assert_line 'harness-weekly: committed 1 Rule Ledger record(s) to https://github.com/example/dotfiles/pull/42'
     # 置き換えられなかった印は、入口の最後の確認(前の run の未公開の採用)が捕まえて失敗にする
     assert_failure 1
@@ -1977,7 +1977,7 @@ leftover_line() {
         "$HDIR/queue-archive.md" "$REPO"
 }
 
-@test "前の run の未公開の採用: 公開した run は公開の後に確かめ、残っていれば案内を出して失敗し、残っていなければ成功する" {
+@test "前の run の未公開の採用: 公開した run は公開の後に確かめ、残っていれば案内を出して失敗する。案内どおりに記録すれば、同じ日の再実行は成功する" {
     review_fixture
     leftover_verdict
     init_real
@@ -2081,6 +2081,21 @@ review_writes_result_only() {
     run review_with then_fail review_commits
     assert_failure 1
     assert_output --partial "harness-weekly: review failed after 1 commit(s) on local branch ${BRANCH}"
+    refute_output --partial 'never became a PR'
+}
+
+@test "前の run の未公開の採用: 選別を省いた週の入口も、失敗で終わる経路では確かめない" {
+    publish_fixture
+    leftover_verdict
+    four_local_records
+    init_real
+    STUB_RATES_EXPORT_FAIL=1 run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_line "harness-weekly: no metrics-only PR; counting the weekly failure rate records not on origin/main failed (records stay in $RATES)"
+    refute_output --partial 'never became a PR'
+    STUB_RATES_EXPORT_FAIL='' STUB_GH_FAIL=1 run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial "harness-weekly: pushed ${BRANCH} but gh pr create failed"
     refute_output --partial 'never became a PR'
 }
 

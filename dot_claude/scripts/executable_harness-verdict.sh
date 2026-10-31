@@ -26,7 +26,8 @@
 #   mark         週次ジョブの採用の印 `<ブランチ> run <run id>` を 1 行で出す。判定の記録は読まない。印は settle が括弧で
 #                囲む値なので、どちらの値も settle と同じ規則で検査する。`PR ` で始まるブランチは、印が publish の --run に
 #                渡せなくなるので誤り
-# 値の誤り(欠落・空・改行や ) を含む・余分な引数、`PR ` で始まる --run と --branch)は exit 2。判定の記録が無ければ、何も出さない(publish は 0 を出す)。
+# 値の誤り(欠落・空・改行や ) を含む・余分な引数、`PR ` で始まる --run、mark の `PR ` で始まる --branch)は exit 2
+# (unpublished の --branch は印を作らず絞るだけなので、`PR ` で始まっても拒まない)。判定の記録が無ければ、何も出さない(publish は 0 を出す)。
 #
 # settle は queue(~/.claude/harness/queue.md)の見出し `## <見出し>` の項目(区切りは entries と同じ)を queue から外し、
 # 末尾の空行を落として Verdict 行を 1 行付け、判定の記録の末尾に前の項目と空行で区切って足す。書く Verdict 行:
