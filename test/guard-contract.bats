@@ -194,7 +194,10 @@ assert_lib_contract() {
 }
 
 # デプロイ先で guard だけが新しく lib が古い場合。lib は読めて構文も正しいので、declare -F だけが
-# exit 127(フェイルオープン)を塞ぐ。guard が呼ぶ関数を 1 つずつ欠かし、declare -F の漏れを関数ごとに捕まえる。
+# exit 127(フェイルオープン)を塞ぐ。guard が呼ぶ関数を 1 つずつ欠かし、そのときの振る舞いを関数ごとに確かめる。
+# 確かめるのは振る舞いなので、未定義の 127 が呼び出し側でたまたま契約どおりの結果になる関数は、declare -F から
+# 漏れても red にならない(curl-localhost-guard の `if ! shell_reader_each_segment …` は ask、issue-linkage-guard の
+# `issue_linkage_scope_in_scope … || return 0` は無出力になる)。
 @test "lib に guard が呼ぶ関数の 1 つが無いとき、動詞を含む入力は ask、含まない入力は無出力" {
     local index name copies function_name script
     for index in "${!GUARD_NAMES[@]}"; do
@@ -291,7 +294,8 @@ assert_lib_contract() {
     done
 }
 
-# Contrast Pair: 下の「無出力」が、常に無出力の guard でも通らないことの裏付け。
+# Contrast Pair: lib が無い・空・構文エラー・関数が無いとき、jq が無いとき、stdin が JSON でないときに無出力を
+# 確かめるテストが、常に無出力の guard でも通るわけではないことの裏付け。
 @test "フェイルオープンの guard は、lib が正常なコピーでは判定を返す" {
     local index script
     for index in "${!FAIL_OPEN_NAMES[@]}"; do
