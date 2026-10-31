@@ -38,42 +38,27 @@
 # shellcheck disable=SC2317,SC2329
 set -euo pipefail
 
-# このフックが落ちると curl は classifier の判定だけになる(フェイルオープン)ので、後から原因を
-# 追えるようにエラーをログに残す。開けないときはフック自身の stderr のまま。git-push-guard と同じ形で、
-# `exec` は特殊組み込みなので、開けない場合に shell ごと無出力で終わらないよう先に追記を試す。
-LOG_DIR="${HOME:-}/.claude/logs"
-LOG_FILE="$LOG_DIR/curl-localhost-guard-errors.log"
-if [[ -n "${HOME:-}" ]] && mkdir -p "$LOG_DIR" 2>/dev/null &&
-    (: >>"$LOG_FILE") 2>/dev/null; then
-    exec 2>>"$LOG_FILE"
-fi
-
-# 理由の文言に変数を入れない固定文(jq が無くても出せる)。
-emit_ask() {
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"curl-localhost-guard: 宛先がループバック(localhost / 127.0.0.0/8 / [::1])だけだと確認できないため、承認が必要です。"}}'
-}
-
-# stdin・jq・command の取り出しに失敗したら curl の有無を確かめられない。
-# 生の入力に curl があれば ask、無ければ無出力。
-STDIN_JSON=$(cat) || {
-    emit_ask
-    exit 0
-}
-if ! command -v jq >/dev/null 2>&1; then
-    case "$STDIN_JSON" in *curl*) emit_ask ;; esac
+# 起動の自前の部分。起動 module(lib/command-guard.bash)が無い・壊れているときも ask を返すため、各 guard が持つ。
+# 手順と理由は module のヘッダ。動詞を含まない入力は module を読まずに終わる。
+COMMAND_GUARD_STDIN_FAILED=0
+COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
+[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == *curl* ]] || exit 0
+command_guard_dir=${BASH_SOURCE[0]%/*}
+[[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
+# shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
+if [[ ! -r "$command_guard_dir/lib/command-guard.bash" ]] || ! "$BASH" -n "$command_guard_dir/lib/command-guard.bash" ||
+    ! source "$command_guard_dir/lib/command-guard.bash" || ! declare -F command_guard_start command_guard_emit >/dev/null; then
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"curl-localhost-guard: フックの部品を読めないため承認が必要です(起動 module を読めない)"}}'
     exit 0
 fi
-COMMAND=$(printf '%s' "$STDIN_JSON" | jq -r '.tool_input.command // empty' 2>/dev/null) || {
-    case "$STDIN_JSON" in *curl*) emit_ask ;; esac
-    exit 0
-}
-[[ -z "$COMMAND" ]] && exit 0
 
-# Cheap bail-out before any parsing.
-case "$COMMAND" in
-*curl*) ;;
-*) exit 0 ;;
-esac
+# 引用符を解釈して token に分ける reader は他のフックと共有している。読めなかった理由は flag で返るだけで、
+# 扱いは segment の走査(classify_segment)の前の判定で決める。
+command_guard_start --name curl-localhost-guard --verb '*curl*' --on-unreadable ask \
+    --lib shell-reader.bash \
+    --require 'shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches'
+
+ASK_REASON='curl-localhost-guard: 宛先がループバック(localhost / 127.0.0.0/8 / [::1])だけだと確認できないため、承認が必要です。'
 
 # curl は引数を見る前に curlrc を読み、`proxy = …` の 1 行でループバック URL が任意のホストへ
 # 振り替わる。`--resolve` / `--connect-to` / `-x` を綴りで落としても、コマンド文字列に痕跡を
@@ -92,33 +77,6 @@ for rc in "${CURL_HOME:-}/.curlrc" "${XDG_CONFIG_HOME:-}/curlrc" "${HOME:-}/.cur
         break
     fi
 done
-
-# --- reader ------------------------------------------------------------------
-
-# 引用符を解釈して token に分ける reader は他のフックと共有している。読めなかった
-# 理由は flag で返るだけで、扱いはここ(下の segment walk の直前)で決める。
-# 読み込みに失敗したら curl の有無を確かめられない(この時点で COMMAND は `*curl*` に一致)ので ask。
-# `source` は存在しないファイルで `||` に届く前に bash 自身が終了する
-# (bash 3.2 で実測、終了コード 1)ので、先に読めることを確かめる。
-# 構文エラーの lib は `source` 自体を exit 2(= 理由なしのブロック)で終わらせるので `"$BASH" -n` で
-# 先に確かめ(PATH 上の bash ではなく、このフックを動かしている interpreter で検査する)、
-# 空や途中で切れた lib は関数が無いまま進んで exit 127(= フェイルオープン)になるので
-# `declare -F` で確かめる。`-n` の診断は捨てる(壊れた lib は ask で知らせるので、ログには残さない)。
-reader_library="$(dirname "${BASH_SOURCE[0]}")/lib/shell-reader.bash"
-if [[ ! -r "$reader_library" ]] || ! "$BASH" -n "$reader_library" 2>/dev/null; then
-    emit_ask
-    exit 0
-fi
-# shellcheck source-path=SCRIPTDIR
-# shellcheck source=lib/shell-reader.bash
-source "$reader_library" || {
-    emit_ask
-    exit 0
-}
-declare -F shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches >/dev/null || {
-    emit_ask
-    exit 0
-}
 
 # --- host classification -----------------------------------------------------
 
@@ -526,7 +484,7 @@ done
 # あれば ask にする。
 # 受容した誤 ask: 置換より後ろの引用符付きの引数が `curl ` で始まるもの(`-m "$(date)" -m "curl …"`)。
 if shell_reader_text_floor_matches "$CURL_LINE_RE"; then
-    emit_ask
+    command_guard_emit ask "$ASK_REASON"
     exit 0
 fi
 if [[ $CURL_PRESENT -eq 0 ]]; then
@@ -557,7 +515,7 @@ done
 if [[ $CURLRC_PRESENT -eq 1 || $SHELL_READER_EXPANSION -eq 1 ||
     $SHELL_READER_SEP_IN_INPUT -eq 1 || $SHELL_READER_WORD_MULTIPLIER -eq 1 ||
     $SHELL_READER_UNCLOSED_QUOTE -eq 1 || $SHELL_READER_PROCESS_SUBSTITUTION -eq 1 ]]; then
-    emit_ask
+    command_guard_emit ask "$ASK_REASON"
     exit 0
 fi
 
@@ -566,6 +524,6 @@ fi
 # (`grep -rn curl dot_claude/`、`echo curl`)ので無出力にする。`xargs curl` や `find … -exec curl` は
 # xargs / find が INERT_COMMANDS に無いので、classify_segment が 1 を返して ask になる。
 if ! shell_reader_each_segment classify_segment; then
-    emit_ask
+    command_guard_emit ask "$ASK_REASON"
 fi
 exit 0

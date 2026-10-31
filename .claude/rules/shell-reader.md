@@ -6,10 +6,11 @@ paths:
   - "test/shell-reader.bats"
   - "dot_claude/scripts/executable_git-push-guard.sh"
   - "dot_claude/scripts/executable_curl-localhost-guard.sh"
+  - "dot_claude/scripts/executable_issue-linkage-guard.sh"
 ---
 
 **shell command reader** — `dot_claude/scripts/lib/shell-reader.bash` は、Bash ツールのコマンド文字列を
-読む処理を git-push-guard と curl-localhost-guard で共有するための source 専用ライブラリ
+読む処理を git-push-guard・curl-localhost-guard・issue-linkage-guard で共有するための source 専用ライブラリ
 (`test/shell-reader.bats` が単体でテストする)。`set` は呼び出し側に従う。
 
 - **interface。** ブレース展開を始めうる `{`(後ろが空白でないもの)の直後の token の index を
@@ -53,4 +54,7 @@ paths:
   含む token で拾う。reader に heredoc を教えるのは変更が大きすぎるため見送った)。
 - **`LC_ALL=C` と byte 数の上限。** 走査は byte 単位(多バイトのロケールで `${s:i:1}` が先頭から数え直して
   二乗で遅くなるのを避ける)。上限 8192 は byte で数えるので、呼び出し側のロケールに依存しない。
-- **読み込みに失敗したとき**の扱いは各フックの起動部が持つ(git-push-guard と curl-localhost-guard はどの経路でも `ask`、issue-linkage-guard は設計上フェイルオープンで無出力。どちらも `test/guard-contract.bats`)。
+- **読み込みに失敗したとき**の扱いは Command Guard の起動 module(`lib/command-guard.bash`、`.claude/rules/command-guard.md`)が
+  各 guard の Failure Direction どおりに決める(git-push-guard と curl-localhost-guard は `ask`、issue-linkage-guard は
+  無出力。正本は `test/guard-contract.bats`)。module が関数の中で source するので、このライブラリはトップレベルで
+  `declare` / `typeset` を使わない。

@@ -114,13 +114,12 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
   短フラグ(`-f` など)も対象で、token の判定と同じく数字を含む束(`-4f` は `--ipv4` + `--force`)も一致させる
   (`test/git-push-guard.bats` が「token の判定で deny する束は床でも ask」を対で固定している)。長さ超過の入力では、reader が同じ床を生のコマンド全体に当てる(下の上限)。
-- **起動時の約束(lib・jq・stdin・`HOME`)の正本は `test/guard-contract.bats`(`just test-guard-contract`)。**
-  lib が無い / 空 / 構文エラーなら `ask`(`[[ -r ]]`・フック自身の `"$BASH" -n`・`declare -F` で確かめてから使う。
-  素の `source` ではそれぞれ exit 1 / exit 2 = 理由なしのブロック / exit 127 = フェイルオープンになる)。
-  jq が無い・stdin が JSON でないときは、生の入力に `push` があれば `ask`、無ければ無出力(無関係な
-  コマンドまで `ask` にしても承認を惰性にするだけ)。「生の入力」は command だけでなく stdin の JSON 全体
-  (`cwd`・`transcript_path`・`description` を含む)なので、jq が無い間は cwd などに `push` を含む場所では
-  無関係なコマンドも `ask` になる(curl-localhost-guard の `curl` も同じ)。jq が無い状況自体がまれなので受容している。新しい PreToolUse guard はこのテストの一覧に 1 行足す。
+- **起動時の約束(lib・起動 module・jq・stdin・`HOME`)は Command Guard の起動 module が持つ**
+  (`.claude/rules/command-guard.md`。正本は `test/guard-contract.bats`)。lib や起動 module が読めない、jq が無い、
+  stdin が JSON でない・読めないときは、生の入力に `push` があれば `ask`、無ければ無出力。
+  「生の入力」は command だけでなく stdin の JSON 全体(`cwd`・`transcript_path`・`description` を含む)なので、
+  jq が無い間は cwd などに `push` を含む場所では無関係なコマンドも `ask` になる(curl-localhost-guard の `curl` も同じ)。
+  jq が無い状況自体がまれなので受容している。
 - **上限は 8192 byte。** `LC_ALL=C` で数え、超えたら reader は token を作らず `TOO_LONG` を返す。
   このとき上の字面の床は生のコマンド全体に当たり、一致すれば `ask`(`deny` ではない)、
   しなければ何も返さない(classifier に任せる)。長い PR 本文の散文が `ask` になるのは受容している。
@@ -171,14 +170,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 - **残存(受容): 標準入力が運ぶ引数。** `echo --force | xargs git push origin main` の `--force` はパイプの左側にあり、
   push の segment に危険な綴りが無いので無出力になる。
 - **残存(受容): `env -S "<文字列>"`。** `bash -c` の内側と同じく、文字列は 1 token になって読まない。
-- **ログ出力先の決定はスクリプト内に持つ。** `settings.json` 側で
-  `mkdir -p … && script 2>>log` と書くと、ログディレクトリを作れないときに
-  **リダイレクトの失敗でスクリプトごと走らない** = 判定なし = フェイルオープンになる
-  (`;` に変えても直らない。リダイレクトの失敗はそのコマンドを放棄させる)。フックの
-  `command` はスクリプトのパスそのものにして、ログは開けたときだけ `exec 2>>` で繋ぐ。
-  開けるかの判定は `-w` ではなく `(: >>"$LOG_FILE")` の実書き込みで行う — `exec` は
-  special builtin なので、開けなかった場合に**無出力でシェルごと落ちる**(= 塞ごうとしている
-  フェイルオープンそのもの)。書き込めない `$HOME` でも deny が出ることを `test/guard-contract.bats` で固定してある。
+- **配線とログの契約**(フックの `command` はスクリプトのパスそのもの、ログは開けたときだけ繋ぐ)は
+  `.claude/rules/command-guard.md`。
 
 フックが未配置・クラッシュした場合は無出力=判定なしで**フェイルオープン**する。そのため
 `settings.json.tmpl` の `deny` にある先頭フラグ形3行(`--force` / `--force-with-lease` / `-f`)は
