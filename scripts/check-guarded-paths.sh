@@ -8,16 +8,17 @@
 #   base の既定値は、GITHUB_HEAD_REF があれば HEAD^1(pull_request の checkout は
 #   merge commit で、第 1 親が base。checkout に fetch-depth: 2 が要る)、
 #   無ければ origin/main と HEAD の merge-base。
-#   - で始まる 1 つ目の引数は、ブランチ名として受け付けず 2 で終わる。
+#   --uncovered 以外の - で始まる 1 つ目の引数は、ブランチ名として受け付けず 2 で終わる。
 # 問い合わせのモード: check-guarded-paths.sh --uncovered <一覧のファイル> <パス>…
-#   一覧に覆われていないパスを答える(bats の「この lib は Guarded Path に載っている」のテスト用)。
+#   一覧に覆われていないパスを答える(bats の「この lib は Guarded Path に載っている」のテストと、
+#   test/harness-integrity.bats の実行物の Source の検査が使う)。
 #   出力と終了コードは、本文の --uncovered の分岐のコメント。
 #
 # 一覧の行が + で始まるディレクトリは「追加だけ許す」: ループの PR はそこへ新しいファイルを足せるが、
 # 既存のファイルの変更・削除・移動は Guarded Path に触れたものとして落とす。Rule Ledger(1 ルール 1 ファイル)の
 # ように、週次ジョブがループの PR で記録を足すが、ループに過去の記録を書き換えさせない置き場に使う。
 #
-# 終了コード: 0 = 通過、1 = ループの PR が Guarded Path に触れた、2 = 判定できない。
+# 判定のモードの終了コード: 0 = 通過、1 = ループの PR が Guarded Path に触れた、2 = 判定できない。
 # ループの PR で判定できないときは通さない(fail-closed)。
 #
 # CI(lint.yml の guarded-paths job)は、head 側のこのスクリプトに加えて、merge commit の
