@@ -365,6 +365,28 @@ assert_diagnostics_kept() {
     done
 }
 
+# escaped_payload COMMAND: payload の英小文字(backslash の直後を除く)を \uXXXX で書いた JSON。jq で読めば payload と同じ値。
+escaped_payload() {
+    payload "$1" | perl -pe 's/(?<!\\)([a-z])/sprintf("\\u%04x", ord $1)/ge'
+}
+
+# 生の stdin には動詞の字面が無くても、jq で取り出した command に動詞があれば判定する(自前の部分の照合で落とさない)。
+@test "動詞を JSON の \\u エスケープで書いた入力でも、判定は変わらない" {
+    local index input
+    for index in "${!GUARD_NAMES[@]}"; do
+        input=$(escaped_payload "${GUARD_DECISION_INPUTS[$index]}")
+        [[ "$input" != *push* && "$input" != *curl* ]] || fail "動詞がエスケープされていない: $input"
+        run --separate-stderr bash "$SCRIPTS/executable_${GUARD_NAMES[$index]}.sh" <<<"$input"
+        expect "${GUARD_NAMES[$index]}" 'escaped' "${GUARD_DECISION_INPUTS[$index]}" "${GUARD_EXPECTED_DECISIONS[$index]}"
+    done
+    for index in "${!FAIL_OPEN_NAMES[@]}"; do
+        input=$(escaped_payload "${FAIL_OPEN_DECISION_INPUTS[$index]}")
+        [[ "$input" != *create* ]] || fail "動詞がエスケープされていない: $input"
+        run --separate-stderr bash "$SCRIPTS/executable_${FAIL_OPEN_NAMES[$index]}.sh" <<<"$input"
+        expect "${FAIL_OPEN_NAMES[$index]}" 'escaped' "${FAIL_OPEN_DECISION_INPUTS[$index]}" "${FAIL_OPEN_EXPECTED_DECISIONS[$index]}"
+    done
+}
+
 # ログを開けないことが判定を消さない(`exec 2>>` が開けずにシェルごと無出力で終わる経路を塞いでいるか)。
 @test "HOME に書き込めないとき、判定は変わらず、動詞を含む入力も含まない入力も無出力" {
     [[ $EUID -eq 0 ]] && skip "root はディレクトリの mode を無視する"

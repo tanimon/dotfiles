@@ -115,8 +115,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   短フラグ(`-f` など)も対象で、token の判定と同じく数字を含む束(`-4f` は `--ipv4` + `--force`)も一致させる
   (`test/git-push-guard.bats` が「token の判定で deny する束は床でも ask」を対で固定している)。長さ超過の入力では、reader が同じ床を生のコマンド全体に当てる(下の上限)。
 - **起動時の約束(lib・起動 module・jq・stdin・`HOME`)は Command Guard の起動 module が持つ**
-  (`.claude/rules/command-guard.md`。正本は `test/guard-contract.bats`)。lib や起動 module が読めない、jq が無い、
-  stdin が JSON でないときは、生の入力に `push` があれば `ask`、無ければ無出力。stdin を読めないときは `ask`。
+  (`.claude/rules/command-guard.md`。正本は `test/guard-contract.bats`)。起動 module が読めない・jq が無い・
+  stdin が JSON でなければ生の入力に、lib が読めなければ command に `push` があれば `ask`。stdin を読めなければ `ask`。
   「生の入力」は command だけでなく stdin の JSON 全体(`cwd`・`transcript_path`・`description` を含む)なので、
   jq が無い間は cwd などに `push` を含む場所では無関係なコマンドも `ask` になる(curl-localhost-guard の `curl` も同じ)。
   jq が無い状況自体がまれなので受容している。

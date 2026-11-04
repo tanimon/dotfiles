@@ -44,8 +44,10 @@ COMMAND_GUARD_STDIN_FAILED=0
 COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
 # 動詞は自前の部分の照合と command_guard_start の --verb で共有する(ずれると動詞を含む入力が module に届かない)。
 COMMAND_GUARD_VERB='*curl*'
+# JSON は文字を \uXXXX でも書けるので、`\u` を含む入力も module に渡す(module が jq で取り出す COMMAND の照合より狭くしない)。
 # shellcheck disable=SC2053 # 動詞は glob として照合する
-[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB ]] || exit 0
+[[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB ||
+    "$COMMAND_GUARD_STDIN" == *\\u* ]] || exit 0
 command_guard_dir=${BASH_SOURCE[0]%/*}
 [[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
 # shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
