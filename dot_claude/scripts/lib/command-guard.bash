@@ -29,7 +29,8 @@
 # - jq を確かめるまでは builtin と `mkdir` だけを使う。jq が無い環境では PATH に他のコマンドも無いことがある。
 # - source する lib はトップレベルで declare / typeset を使わない。command_guard_start の中で source するので、declare した
 #   変数はその関数のローカル変数になり、start から戻ると消える(bash 3.2 には declare -g が無い)。この関数のローカル
-#   変数は lib のトップレベルの代入と衝突しないよう `_command_guard_` で始める。
+#   変数は lib のトップレベルの代入と衝突しないよう `_command_guard_` で始める。guard が読む lib のトップレベルの
+#   変数が start から戻っても残ることは test/guard-contract.bats が確かめる。
 # - 公開の 2 関数はファイルの末尾に置く。途中で切れた module では公開の関数のどちらかが欠け、guard の declare -F が
 #   捕まえる(内部の関数だけが欠けた module は作られない)。
 

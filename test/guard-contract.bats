@@ -387,6 +387,69 @@ escaped_payload() {
     done
 }
 
+# lib_variables LIB_DIR MODE LIBRARY: LIB_DIR の LIBRARY を読んで増えた変数を `declare -p` の形で 1 行に 1 つ出す。
+# MODE が direct ならトップレベルで source し、start なら guard と同じく command_guard_start の --lib で読む。
+# start が戻らずに終わったとき(起動の失敗)は、最終行の印が出ない。
+lib_variables() {
+    local driver="$BATS_TEST_TMPDIR/lib-variables.bash"
+    cat >"$driver" <<'EOF'
+lib_dir=$1 mode=$2 library=$3 baseline='' name=''
+COMMAND_GUARD_STDIN='{"tool_input":{"command":"x"}}' COMMAND_GUARD_STDIN_FAILED=0
+source "$lib_dir/command-guard.bash" || exit 1
+baseline=$(compgen -v)
+if [[ "$mode" == direct ]]; then
+    source "$lib_dir/$library" || exit 1
+else
+    command_guard_start --name contract-test --verb '*' --on-unreadable ask --lib "$library"
+fi
+for name in $(compgen -v); do
+    [[ "$name" == BASH* || "$name" == COMMAND ]] && continue
+    grep -qxF -- "$name" <<<"$baseline" || declare -p "$name"
+done
+echo LIB_VARIABLES_DONE
+EOF
+    bash "$driver" "$@"
+}
+
+# assert_lib_variables_kept LIB_DIR LIBRARY: トップレベルで読んだときの変数が、start で読んでも同じ値で残るか。
+assert_lib_variables_kept() {
+    local direct start line
+    direct=$(lib_variables "$1" direct "$2") || fail "$2 をトップレベルで読めない"
+    start=$(lib_variables "$1" start "$2") || fail "$2 を command_guard_start で読めない"
+    [[ "$direct" == *LIB_VARIABLES_DONE ]] || fail "$2 をトップレベルで読めない: $direct"
+    [[ "$start" == *LIB_VARIABLES_DONE ]] || fail "$2 の command_guard_start が戻らない: $start"
+    while IFS= read -r line; do
+        grep -qxF -- "$line" <<<"$start" || fail "$2 のトップレベルの変数が command_guard_start から戻ると変わる: $line"
+    done <<<"$direct"
+}
+
+# command_guard_start は lib を関数の中で source するので、lib のトップレベルの declare / typeset はローカル変数になり、
+# start のローカル変数と同じ名前への代入も start から戻ると消える。どちらもエラーにならず判定だけが黙って変わる。
+@test "guard が読む lib のトップレベルの変数は、command_guard_start の中で読んでも同じ値で残る" {
+    # Contrast Pair: declare した変数と start のローカル変数への代入は消え、ただの代入は残ることを、写しの lib で確かめる
+    local probe_dir="$BATS_TEST_TMPDIR/probe"
+    mkdir -p "$probe_dir"
+    cp "$SCRIPTS/lib/command-guard.bash" "$probe_dir/"
+    printf '%s\n' 'PROBE_PLAIN=1' 'declare PROBE_DECLARED=1' '_command_guard_path=1' >"$probe_dir/probe.bash"
+    run --separate-stderr lib_variables "$probe_dir" start probe.bash
+    assert_success
+    assert_line 'declare -- PROBE_PLAIN="1"'
+    refute_line --partial PROBE_DECLARED
+    refute_line --partial _command_guard_path
+    run --separate-stderr lib_variables "$probe_dir" direct probe.bash
+    assert_line 'declare -- PROBE_DECLARED="1"'
+    assert_line 'declare -- _command_guard_path="1"'
+
+    local name library libraries=''
+    for name in "${GUARD_NAMES[@]}" "${FAIL_OPEN_NAMES[@]}"; do
+        libraries+=$(guard_libraries "$name") || fail "$name の lib を拾えない"
+        libraries+=$'\n'
+    done
+    while IFS= read -r library; do
+        assert_lib_variables_kept "$SCRIPTS/lib" "$library"
+    done < <(sort -u <<<"${libraries%$'\n'}")
+}
+
 # ログを開けないことが判定を消さない(`exec 2>>` が開けずにシェルごと無出力で終わる経路を塞いでいるか)。
 @test "HOME に書き込めないとき、判定は変わらず、動詞を含む入力も含まない入力も無出力" {
     [[ $EUID -eq 0 ]] && skip "root はディレクトリの mode を無視する"
