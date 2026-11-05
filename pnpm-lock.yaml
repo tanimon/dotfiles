@@ -186,7 +186,7 @@ importers:
         version: 0.3.0(bats@1.13.0)
       dotenv:
         specifier: ^18.0.6
-        version: 18.0.6
+        version: 18.0.9
       oxfmt:
         specifier: ^0.67.0
         version: 0.67.0
@@ -595,8 +595,8 @@ packages:
       supports-color:
         optional: true
 
-  dotenv@18.0.6:
-    resolution: {integrity: sha512-ZMVmohV6CvAJtj++pZNyggluUt6hbRdQAxc2+Z635RL6/AG/ruXv5lHnybUFoxMPL/yrTL/tsF4paZu2l7RA6Q==}
+  dotenv@18.0.9:
+    resolution: {integrity: sha512-3fVOW4cB02R066PUSwn8O4TJyz9NckQl7F81blIbaq9jKBm2tSmOKky7ZHIXzGvkVPXCSn6jkpziBPZdGFs8Tw==}
     engines: {node: '>=12'}
     hasBin: true
 
@@ -1126,7 +1126,7 @@ snapshots:
     optionalDependencies:
       supports-color: 10.2.2
 
-  dotenv@18.0.6: {}
+  dotenv@18.0.9: {}
 
   editions@6.22.0:
     dependencies:
