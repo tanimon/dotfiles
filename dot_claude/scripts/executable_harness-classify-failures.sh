@@ -183,8 +183,11 @@ SCHEMA=$(jq -c -n --argjson allowed "$ALLOWED" --argjson ids "$ids" '{type: "obj
         items: {type: "object", required: ["id", "pattern"], additionalProperties: false,
             properties: {id: {type: "integer", enum: $ids}, pattern: {type: "string", enum: $allowed}}}}}}')
 status=0
-result=$(claude -p \
+# MCP は読み込ませない。--tools "" では MCP のツール定義が遅延読み込みされずに前置きへ載り、「OK」と返すだけの
+# 起動でもキャッシュへの書き込みが約 18 万トークンになる(MCP を外すと約 3 万)。分類器はツールを使わないので失うものは無い
+result=$(ENABLE_CLAUDEAI_MCP_SERVERS=false claude -p \
     --tools "" \
+    --strict-mcp-config \
     --no-session-persistence \
     --session-id "$CLASSIFY_SESSION_ID" \
     --max-budget-usd "$BUDGET_USD" \
