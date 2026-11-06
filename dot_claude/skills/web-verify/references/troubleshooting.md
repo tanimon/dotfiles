@@ -49,6 +49,10 @@ fail は必ず次の 3 分類のどれかに切り分けてから報告する。
   全体実行でだけ収集される
 - **auth-setup は通るのに全シナリオが未ログイン画面に飛ばされる**
   → `.auth/<feature>/user.json` が古い(セッション失効)。`.auth/<feature>/` を削除して再実行
+- **pass した直後なのに show-report の結果が 0 件**
+  → reporter を指定せずに `npx playwright test --list` を実行し、html reporter が 0 件の空レポートで
+  `report/<runName>/` を上書きした。再実行してレポートを作り直す。一覧の確認には常に
+  `--reporter=list` を付ける(references/scaffold.md の「5. 生成の検証」)
 - **起動確認(readiness)が通らない**
   → profile.md の起動コマンド・readiness 条件を見直す。アプリのログを提示して
   中止する(起動しないままブラウザ操作に進まない)

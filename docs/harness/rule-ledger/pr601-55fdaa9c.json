@@ -1,0 +1,12 @@
+{
+  "id": "pr601-55fdaa9c",
+  "adopted": "2026-10-31",
+  "title": "[2026-10-31] review-verify で PR 本文に書いた plan からの意図した逸脱を要件に含める",
+  "failure_patterns": ["unclassified"],
+  "eval": {
+    "status": "exempt",
+    "reason": "スキルに引数を足す変更で、注入するルールの有無では測れない(引数が無いことによる失敗はスキルの定義そのものの欠落)"
+  },
+  "pr": 601,
+  "via": "weekly"
+}

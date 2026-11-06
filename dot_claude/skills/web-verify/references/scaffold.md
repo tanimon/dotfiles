@@ -95,11 +95,13 @@ npx playwright install chromium
 ## 5. 生成の検証
 
 ```sh
-cd "${DIR}" && npx playwright test --list
+cd "${DIR}" && npx playwright test --list --reporter=list
 ```
 
 Expected: シナリオ一覧が表示され exit 0(config・spec の構文エラーがないことの確認。
 ブラウザ・アプリ起動は不要。`--list` は globalSetup を実行しないので、seed の確認にはならない)。
+`--list` も config の html reporter を通るので、`--reporter=list` を付けないと 0 件の空レポートで
+`report/<runName>/` を上書きする。パイプラインの途中でシナリオ一覧を確かめるときも常に付ける。
 
 通ったら完了マーカーを置き(`touch "${DIR}/.web-verify-suite"`)、references/storage.md の「ロック」の解放を行う。
 

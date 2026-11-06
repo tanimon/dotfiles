@@ -54,7 +54,7 @@ fail しても誤った情報になる。
   固定の識別子を付けて用意し、他シナリオ・他機能が作ったデータに依存しない
 - 新しい観点を追加したら README.md の観点一覧表にも 1 行追加する。「ブランチ」列には検証対象のブランチ名を
   そのまま書く(slug は別のブランチと同じになりうるので、衝突の判定にこの列を使う。SKILL.md の `<feature>`)
-- シナリオは `scenarios/<feature>/` に置き、ファイル名は必ず `<名前>.spec.ts` にする(それ以外は playwright に収集されず、`npx playwright test --list` でもエラーにならないまま静かにスキップされる)
+- シナリオは `scenarios/<feature>/` に置き、ファイル名は必ず `<名前>.spec.ts` にする(それ以外は playwright に収集されず、`npx playwright test --list --reporter=list` でもエラーにならないまま静かにスキップされる)
 
 ## 共通化
 
