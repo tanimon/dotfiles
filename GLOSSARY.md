@@ -231,7 +231,7 @@ _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正
 ### Goal definition
 
 **Goal Condition**:
-Claude Code の `/goal` に渡す、作業の完了を表す条件文。Goal Judge が会話の記録だけから成否を判定できる形で、到達状態・それを示す検証・守るべき制約を書く。
+Claude Code の `/goal` に渡す、作業の完了を表す条件文。到達状態・それを示す検証・守るべき制約から成り、Goal Judge が判定に使う唯一の基準になる。
 _Avoid_: ゴール(無限定)、目標、完了条件(ステップの完了条件と紛らわしい)
 
 **Goal Judge**:
