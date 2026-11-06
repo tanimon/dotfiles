@@ -193,6 +193,8 @@ result=$(claude -p \
 if [[ "$status" -ne 0 ]] || ! jq -e '.is_error == false' >/dev/null 2>&1 <<<"$result"; then
     fail "claude failed (exit $status) or reported an error; nothing recorded"
 fi
+# 分類の費用を週次ジョブのログに残す。抽出と選別は run_claude が結果をそのまま出すが、分類器はここで出さないと費用を測れない
+printf 'harness-classify: usage %s\n' "$(jq -c '{total_cost_usd, modelUsage}' <<<"$result")" >&2
 jq -e '.structured_output | type == "object"' >/dev/null 2>&1 <<<"$result" ||
     fail "claude returned no structured_output (the CLI ignored --json-schema); nothing recorded"
 answer=$(jq -c '.structured_output.classifications' <<<"$result")
