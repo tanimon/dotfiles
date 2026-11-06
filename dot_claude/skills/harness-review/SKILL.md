@@ -121,7 +121,11 @@ of caution are noise — deprecate aggressively; git history preserves them.
 3. Run `just lint-fast`, plus each `[slow]` recipe (`just --list`) whose targets
    you changed, and fix findings.
 4. Open one PR (body in Japanese) listing: adopted entries with their queue
-   titles, rejected/handoff counts, staleness findings. Do NOT merge it.
+   titles, rejected/handoff counts, staleness findings. When run by hand, write
+   the body following the issue-linkage skill's 「PR を作る」 section
+   (`~/.claude/skills/issue-linkage/SKILL.md`) and end it with the
+   `<!-- issue-linkage -->` marker; issue-linkage-guard denies `gh pr create`
+   without it in this repository. Do NOT merge it.
 
 If nothing was adopted and nothing is stale, skip the PR — record verdicts
 and say so. An empty review is a valid outcome.

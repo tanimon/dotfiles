@@ -128,7 +128,12 @@ classification above.
 subset, edit the source directly with the Edit tool. The source content equals
 what `chezmoi cat "$HOME/.zshrc"` prints (the target state before drift), so
 transcribe only the selected `+`/`-` hunks from step 3 into the source. Leave
-the un-selected regions untouched.
+the un-selected regions untouched. For a JSON target, this machine's `chezmoi diff`
+sorts object keys before diffing (`[diff] command` in `.chezmoi.toml.tmpl`), so
+its hunks do not follow the source's line order: read the source and the target,
+and apply the selected changes by key and value rather than by copying hunk lines.
+Its diff can also be empty while `chezmoi status` still lists the file (a
+key-order-only difference); treat that as adopted.
 
 **Template (`.tmpl`) or `modify_` — do NOT auto-write.** The source is not the
 target's content. Adopt by hand, reconciling the change into the source's real

@@ -1,6 +1,6 @@
 # dot_apm/ — APM manifest
 
-このファイルは Claude Code が `dot_apm/` 配下で作業するときだけ読み込まれる repo-only の文脈ファイル(`.chezmoiignore` の `.apm/CLAUDE.md` で除外。同じディレクトリの `apm.yml` は `~/.apm/apm.yml` に配置される)。ルート `CLAUDE.md` には、Key Patterns の 1 行のポインタと、`~/.claude.json` symlink のルール(トポロジを仮定しない / `scripts/apm-install-global.sh` を使う / `mv` 前のガード)だけがある。一次証拠と実測の詳細は下の「`~/.claude.json` symlink と APM」節にある。
+このファイルは Claude Code が `dot_apm/` 配下で作業するときだけ読み込まれる repo-only の文脈ファイル(`.chezmoiignore` の `.apm/CLAUDE.md` で除外。同じディレクトリの `apm.yml` は `~/.apm/apm.yml` に配置される)。ルート `CLAUDE.md` には、Key Patterns の 1 行のポインタと、Known Pitfalls の `~/.claude.json` symlink のルール(トポロジを仮定しない / `scripts/apm-install-global.sh` を使う / `mv` 前のガード)・APM の MCP の所有・MCP stdio の項がある。一次証拠と実測の詳細は下の「`~/.claude.json` symlink と APM」節にある。
 
 ## `dot_apm/apm.yml` + APM (microsoft/apm)
 
