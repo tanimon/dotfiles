@@ -7,7 +7,7 @@ source ~/.config/zsh/aws.zsh
 # Environment variables
 [[ -f $HOME/.env ]] && source ${HOME}/.env
 export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
-export EDITOR="hx"
+export EDITOR="vim"
 
 
 # History
