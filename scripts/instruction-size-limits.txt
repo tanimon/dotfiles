@@ -66,8 +66,8 @@
 * 200 32768
 skill:* 500 15000
 
-AGENTS.md 204 41365
-CLAUDE.md 219 39885
+AGENTS.md 200 40540
+CLAUDE.md 215 39060
 .claude/rules/shell-scripts.md 221 11866
 dot_claude/scripts/CLAUDE.md 100 10079
 .claude/rules/git-push-guard.md 183 20659

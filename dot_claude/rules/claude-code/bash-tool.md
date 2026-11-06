@@ -89,17 +89,9 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 - **`dangerouslyDisableSandbox: true` のコマンドは、完了しているのにタイムアウトを誤報告することがある。** コマンド本体は
   終わっているのにシェルが生き残り、60s/120s で「background に移した」と報告される。**再実行する前にタスク出力ファイルを
   読むこと** — 中身が完了を示していれば、そのまま再実行すると同じ破壊的操作を二度走らせる。
-- **`run_in_background` の Bash の完了を `sleep` で待たない。** background の Bash も終了すると task-notification で
-  呼び戻される(サブエージェントと同じ。`subagents.md`)。待つ間はターンを終えるか別の作業をする。
-  途中経過が要るときだけ、sleep を付けずに出力ファイルを 1 回読む。`sleep 120〜300; tail <output>` を
-  1 セッションで 6 回繰り返した例がある。
 - **`gh auth token` の出力を表示しない。** `| head -c 20` のように一部だけ出しても分類器が拒否する。
   認証の確認は `gh auth status` か `gh auth token >/dev/null 2>&1 && echo ok` で行う。
 - **`git diff` は difftastic で表示される。** このマシンは `diff.external = difft` なので、出力に `+` / `-` の行頭記号が無い。
   grep や wc で機械処理するときは `git diff --no-ext-diff` を使う。行頭記号の grep が 0 行でも「差分なし」の証拠にならない。
-- **`chezmoi diff` の出力に `diff --git` ヘッダは無い。** このマシンの chezmoi は `[diff] command` が `chezmoi-json-diff`
-  (`diff -u --label`)なので、`chezmoi diff | grep '^diff --git'` は差分があっても 0 件になる。apply で変わるファイルの一覧は
-  `chezmoi status` で見て、差分の中身は `chezmoi diff` をそのまま読む。chezmoi-json-diff は JSON のキーの並びとファイルモードの差を
-  出さないので、status に載っても diff が空のファイルがある(apply でバイト列やモードは変わる)。
 - **Bash で読んだだけのファイルは Edit できない。** `Edit` / `Write` は `Read` ツールで読んだファイルにしか使えず、
   `cat` や `sed -n` で読んでも `File has not been read yet` で失敗する。直前に `Read` するか、編集も Bash で行う。
