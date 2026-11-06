@@ -26,8 +26,7 @@
 # 読み込む(harness_integrity_run・harness_review_outcome_sections を使う)。入口を呼ぶのは Loop PR の module だけで、初期化も
 # その初期化が呼び、Rule Ledger の記録の置き場もそこから受け取る。メモリに載った後は
 # claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので
-# Guarded Path(scripts/guarded-paths.txt)に載せてある。判定の記録・再発率のスクリプト・Verdict の CLI のパスは、呼び出しの
-# たびに $HOME から作る(2 つのスクリプトは harness_integrity_executables の行と一致しなければ実行されない)。
+# Guarded Path(scripts/guarded-paths.txt)に載せてある。判定の記録のパスは、呼び出しのたびに $HOME から作る。
 #
 # Interface: harness_pr_body_init / harness_pr_body_review_instructions / harness_pr_body_adopted_titles /
 # harness_pr_body_review / harness_pr_body_metrics_only / harness_pr_body_failed_review。関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、
@@ -43,14 +42,6 @@ _HARNESS_PR_BODY_LEDGER_REPO_DIR=""
 
 _harness_pr_body_archive() {
     printf '%s\n' "$HOME/.claude/harness/queue-archive.md"
-}
-
-_harness_pr_body_failure_rates() {
-    printf '%s\n' "$HOME/.claude/scripts/harness-failure-rates.sh"
-}
-
-_harness_pr_body_verdict_cli() {
-    printf '%s\n' "$HOME/.claude/scripts/harness-verdict.sh"
 }
 
 _harness_pr_body_usage() {
@@ -192,7 +183,7 @@ _harness_pr_body_append_metric() { # <detections|trend> [--for-pr]
         return
         ;;
     esac
-    section=$(harness_integrity_run "$(_harness_pr_body_failure_rates)" "${args[@]}") || status=$?
+    section=$(harness_integrity_run failure-rates "${args[@]}") || status=$?
     if [[ "$status" -eq 0 ]]; then
         printf '%s\n' "$section" >>"$_HARNESS_PR_BODY_FILE"
     elif [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
@@ -209,7 +200,7 @@ _harness_pr_body_append_metric() { # <detections|trend> [--for-pr]
 # もの(照合に落ちたら予約コード)
 harness_pr_body_adopted_titles() {
     _harness_pr_body_ready || return
-    harness_integrity_run "$(_harness_pr_body_verdict_cli)" adopted --run "$_HARNESS_PR_BODY_RUN"
+    harness_integrity_run verdict adopted --run "$_HARNESS_PR_BODY_RUN"
 }
 
 # Rule Ledger の節。記録は PR 番号が要るので、PR を作った後の commit で足す(Loop PR の module の公開の手順)。

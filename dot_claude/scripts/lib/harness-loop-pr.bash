@@ -51,9 +51,7 @@
 # 初期化と入口を使う。依存はこの lib から 2 つの lib への一方向で、2 つの lib はこの lib を読まない)。メモリに載った後は
 # claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので、
 # この lib は Guarded Path(scripts/guarded-paths.txt)に載せてある。
-# Rule Ledger のローカルの置き場、判定の記録、Verdict の CLI・再発率の CLI・Rule Ledger と Eval Case のスクリプトのパスは、
-# Integrity Snapshot の lib と同じく呼び出しのたびに $HOME から作る(4 つのスクリプトは harness_integrity_executables の行と
-# 一致しなければ実行されない)。
+# Rule Ledger のローカルの置き場と判定の記録のパスは、Integrity Snapshot の lib と同じく呼び出しのたびに $HOME から作る。
 #
 # Interface: harness_loop_pr_init / harness_loop_pr_push_command / harness_loop_pr_create_command /
 # harness_loop_pr_record_command / harness_loop_pr_run_review / harness_loop_pr_publish_metrics_only_if_due。
@@ -167,7 +165,7 @@ harness_loop_pr_init() {
         return 1
     fi
     branch="$prefix$date"
-    verdict_cli=$(_harness_loop_pr_verdict_cli) || return 1
+    verdict_cli=$(harness_integrity_executable verdict) || return 1
     # 印を作れない典型は、Verdict の CLI が配置されていないか、この lib だけが新しく CLI に mark が無いことで、どちらも
     # 配置のずれなので chezmoi apply で直る
     if ! run=$(bash "$verdict_cli" mark --branch "$branch" --run-id "$session_id") || [[ -z "$run" ]]; then
@@ -214,8 +212,9 @@ harness_loop_pr_create_command() { # <ブランチ> [<本文のパス>]
 # 印 <run> の採用を PR の URL で記録するコマンドを、ログにそのまま貼れる 1 行で、末尾の改行なしで出す。
 # 印は空白を含むのでシングルクォートで囲み、手書きの印に入りうる ' は '\'' に置き換える
 harness_loop_pr_record_command() { # <run>
-    local quote="'\\''"
-    printf "bash ~/.claude/scripts/harness-verdict.sh publish --run '%s' --pr-url <PR URL>" "${1//\'/$quote}"
+    local quote="'\\''" verdict_cli
+    verdict_cli=$(harness_integrity_executable verdict) || return
+    printf "bash ~%s publish --run '%s' --pr-url <PR URL>" "${verdict_cli#"$HOME"}" "${1//\'/$quote}"
 }
 
 # 公開の手順が数えた件数。_harness_loop_pr_commit_rate_records と _harness_loop_pr_commit_ledger_records が入れる
@@ -302,24 +301,6 @@ _harness_loop_pr_local_ledger_dir() {
     printf '%s\n' "$HOME/.claude/harness/rule-ledger"
 }
 
-# 再発率の CLI(Weekly Rate Record の形式・期間・置き場の正本)
-_harness_loop_pr_failure_rates() {
-    printf '%s\n' "$HOME/.claude/scripts/harness-failure-rates.sh"
-}
-
-_harness_loop_pr_rule_ledger() {
-    printf '%s\n' "$HOME/.claude/scripts/harness-rule-ledger.sh"
-}
-
-_harness_loop_pr_verdict_cli() {
-    printf '%s\n' "$HOME/.claude/scripts/harness-verdict.sh"
-}
-
-# 採用したルールの Eval Case を評価するスクリプト(ADR 0011)
-_harness_loop_pr_eval_cases() {
-    printf '%s\n' "$HOME/.claude/scripts/harness-eval-cases.sh"
-}
-
 # 判定の記録(Verdict の CLI が読み書きする)
 _harness_loop_pr_archive() {
     printf '%s\n' "$HOME/.claude/harness/queue-archive.md"
@@ -352,8 +333,8 @@ _harness_loop_pr_export_rate_records() { # <base> [--dry-run]
     local base=$1 failure_rates output count verb=exported
     shift
     [[ "${1:-}" != --dry-run ]] || verb='would export'
-    failure_rates=$(_harness_loop_pr_failure_rates) || return 1
-    output=$(harness_integrity_run "$failure_rates" export "$_HARNESS_LOOP_PR_DATE" --base "$base" \
+    failure_rates=$(harness_integrity_executable failure-rates) || return
+    output=$(harness_integrity_run failure-rates export "$_HARNESS_LOOP_PR_DATE" --base "$base" \
         --worktree "$_HARNESS_LOOP_PR_WORKTREE" "$@") || return $?
     count=$(sed -n "s/^harness-failure-rates: $verb \\([0-9][0-9]*\\) record(s)\$/\\1/p" <<<"$output")
     # 件数は呼び出し側の行がログに出すので、CLI の出力をそのまま出すのは件数の行を読めなかったときだけにする
@@ -406,15 +387,14 @@ _harness_loop_pr_drop_ledger_commit() { # <revision>
 # データの照合がローカルの記録を確かめる)。写した件数を _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED に入れる。
 # 失敗しても記録はローカルに残り、後の PR が足す。照合に落ちたら HARNESS_INTEGRITY_FAILED を返す
 _harness_loop_pr_commit_ledger_records() { # <base> [この run の PR の番号]
-    local base=$1 rule_ledger output count pr_args=()
+    local base=$1 output count pr_args=()
     _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED=0
     [[ -z "${2:-}" ]] || pr_args=(--pr "$2")
     harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
-    rule_ledger=$(_harness_loop_pr_rule_ledger) || return 1
     # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを渡す。
     # export は書き出した形を rule-ledger/exported/ に残す(封印しない)ので、この後にデータを照合しないこと
     output=$(SENSITIVE_PATTERNS_LOCAL="${SENSITIVE_PATTERNS_LOCAL-$_HARNESS_LOOP_PR_REPO/scripts/sensitive-patterns.local.txt}" \
-        harness_integrity_run "$rule_ledger" export --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE" ${pr_args[@]+"${pr_args[@]}"}) || return $?
+        harness_integrity_run rule-ledger export --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE" ${pr_args[@]+"${pr_args[@]}"}) || return $?
     printf '%s\n' "$output"
     count=$(sed -n 's/^harness-rule-ledger: exported \([0-9][0-9]*\) record(s)$/\1/p' <<<"$output")
     [[ "$count" =~ ^[0-9]+$ ]] || return 1
@@ -523,10 +503,9 @@ _harness_loop_pr_metrics_only_due() { # <base>
 # 失敗した run はその確認まで進まず、次に成功する run まで案内が出ないため)。
 # Integrity Snapshot の照合に落ちたら、CLI を呼ばずに HARNESS_INTEGRITY_FAILED を返す
 _harness_loop_pr_record_pr_url() { # <PR の URL>
-    local verdict_cli archive record_command count status=0
-    verdict_cli=$(_harness_loop_pr_verdict_cli) || status=1
-    [[ "$status" -ne 0 ]] || archive=$(_harness_loop_pr_archive) || status=1
-    [[ "$status" -ne 0 ]] || count=$(harness_integrity_run "$verdict_cli" publish --run "$_HARNESS_LOOP_PR_RUN" --pr-url "$1") || status=$?
+    local archive record_command count status=0
+    archive=$(_harness_loop_pr_archive) || status=1
+    [[ "$status" -ne 0 ]] || count=$(harness_integrity_run verdict publish --run "$_HARNESS_LOOP_PR_RUN" --pr-url "$1") || status=$?
     [[ "$status" -ne "$HARNESS_INTEGRITY_FAILED" ]] || return "$status"
     if [[ "$status" -ne 0 ]]; then
         record_command=$(harness_loop_pr_record_command "$_HARNESS_LOOP_PR_RUN") || record_command='the publish command of the verdict CLI'
@@ -550,7 +529,7 @@ _harness_loop_pr_record_pr_url() { # <PR の URL>
 _harness_loop_pr_record_ledger() { # <base> <PR の URL>
     local base=$1 url=$2 pushed_revision rule_ledger output status=0 id ledger_dir results=()
     ledger_dir=$(_harness_loop_pr_local_ledger_dir)
-    rule_ledger=$(_harness_loop_pr_rule_ledger) || return 0
+    rule_ledger=$(harness_integrity_executable rule-ledger) || return
     pushed_revision=$(git -C "$_HARNESS_LOOP_PR_WORKTREE" rev-parse HEAD) || return 0
     # 評価の工程が書いて封印した結果だけを渡す。評価が失敗した run では渡さず、採用を「測っていない」として
     # 記録する(選別の claude が置いた偽の得点を記録しない)。封印の後の書き換えは次のデータの照合が見つける
@@ -559,7 +538,7 @@ _harness_loop_pr_record_ledger() { # <base> <PR の URL>
     fi
     # record は分類の記録と評価の結果から記録を作るので、その直前にデータを照合する
     harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
-    output=$(harness_integrity_run "$rule_ledger" record --pr-url "$url" --date "$_HARNESS_LOOP_PR_DATE" --via weekly ${results[@]+"${results[@]}"}) ||
+    output=$(harness_integrity_run rule-ledger record --pr-url "$url" --date "$_HARNESS_LOOP_PR_DATE" --via weekly ${results[@]+"${results[@]}"}) ||
         status=$?
     [[ -z "$output" ]] || printf '%s\n' "$output"
     [[ "$status" -ne "$HARNESS_INTEGRITY_FAILED" ]] || return "$status"
@@ -709,10 +688,9 @@ _harness_loop_pr_metrics_only_or_discard() { # <base> <要らないときの行>
 # 残っていれば案内を出して 1 を返し、週次ジョブは heartbeat を書かずに失敗する(その週の選別と公開は済ませてから確かめる)。
 # 判定の記録を読めないとき(CLI を呼ぶ入口が照合に落ちたときを含む。予約コードは外に出さない)も 1 を返す
 _harness_loop_pr_check_unpublished() {
-    local verdict_cli archive leftovers run record_command commands="" push_command create_command
-    verdict_cli=$(_harness_loop_pr_verdict_cli) || return 1
+    local archive leftovers run record_command commands="" push_command create_command
     archive=$(_harness_loop_pr_archive) || return 1
-    leftovers=$(harness_integrity_run "$verdict_cli" unpublished) || {
+    leftovers=$(harness_integrity_run verdict unpublished) || {
         printf 'harness-weekly: failed to read the unpublished verdicts from %s; heartbeat not updated\n' "$archive" >&2
         return 1
     }
@@ -781,7 +759,7 @@ _HARNESS_LOOP_PR_EVAL_SECTION=""
 _harness_loop_pr_evaluate_rules() {
     local adopted="$HOME/.claude/harness/.eval-adopted-$_HARNESS_LOOP_PR_DATE" eval_cases section status=0
     _HARNESS_LOOP_PR_EVAL_SECTION=""
-    eval_cases=$(_harness_loop_pr_eval_cases)
+    eval_cases=$(harness_integrity_executable eval-cases) || return
     harness_pr_body_adopted_titles >"$adopted" || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         rm -f "$adopted"
@@ -798,10 +776,10 @@ _harness_loop_pr_evaluate_rules() {
     # 渡す(_harness_loop_pr_record_ledger は封印したものだけを渡し、データの照合が封印の後の書き換えを見つける)
     rm -f "$_HARNESS_LOOP_PR_EVAL_RESULTS" || return 1
     status=0
-    HARNESS_EVAL_BUDGET_USD="$_HARNESS_LOOP_PR_EVAL_BUDGET_USD" harness_integrity_run "$eval_cases" run \
+    HARNESS_EVAL_BUDGET_USD="$_HARNESS_LOOP_PR_EVAL_BUDGET_USD" harness_integrity_run eval-cases run \
         --requests "$_HARNESS_LOOP_PR_EVAL_REQUESTS" --date "$_HARNESS_LOOP_PR_DATE" --out "$_HARNESS_LOOP_PR_EVAL_RESULTS" || status=$?
     [[ "$status" -ne 0 ]] ||
-        section=$(harness_integrity_run "$eval_cases" section --results "$_HARNESS_LOOP_PR_EVAL_RESULTS" --adopted "$adopted") || status=$?
+        section=$(harness_integrity_run eval-cases section --results "$_HARNESS_LOOP_PR_EVAL_RESULTS" --adopted "$adopted") || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         rm -f "$adopted"
         return "$status"
@@ -925,8 +903,9 @@ _harness_loop_pr_review_instructions() {
 # (_harness_loop_pr_evaluate_rules と _harness_loop_pr_record_ledger)だけ。採用の印は prompt に書かず、環境変数で渡す
 # (_harness_loop_pr_run_in_worktree)。節は番号ではなく見出しで指す(番号は SKILL.md の変更で黙ってずれる)
 _harness_loop_pr_review_prompt() { # <書き込みの規則>
-    local write_rule=$1 instructions
+    local write_rule=$1 instructions rule_ledger
     instructions=$(_harness_loop_pr_review_instructions) || return 1
+    rule_ledger=$(harness_integrity_executable rule-ledger) || return 1
     printf '%s' "This is the unattended weekly harness job (no human is present, and this session itself is not an input).
 Use the harness-review skill, following its rules, with these changes:
 - Your working directory is a git worktree of the chezmoi source repo, on branch ${_HARNESS_LOOP_PR_BRANCH}, freshly created from origin/main with dependencies installed. Make every repository change here. Do not cd to the chezmoi source path or any other checkout.
@@ -935,7 +914,7 @@ Use the harness-review skill, following its rules, with these changes:
 - In \"Implement and open ONE PR\": do not create or switch branches, do not push, and do not open a PR; this job does those after you finish. Commit on the current branch and leave the working tree clean: one commit per adopted change, with its queue title in the subject, and one commit per staleness fix, with what it fixes in the subject (this job counts the additions and deletions of each change from its commit). Treat each [slow] recipe (just --list) whose targets a change touches as part of just lint-fast for that change. Fold fixes for a failing commit hook or just lint-fast into that change's commit instead of adding a separate commit. Never use --no-verify and do not install dependencies; if a commit hook or just lint-fast fails and you cannot fix the change, drop that change, leave its entry in queue.md (do not move it to the archive; the failure may come from the environment, so a later run triages it again), and list it in the result file with the failing hook or lint check.
 ${instructions} If nothing is adopted and nothing is stale, make no commits.
 - For every adopted change, write an Eval Case request to ${_HARNESS_LOOP_PR_EVAL_REQUESTS} as described in the skill's \"Eval Case requests\" section (Write tool only; this job runs the evaluation and appends the effect to the PR body). Do not run the evaluation yourself.
-- In \"Bookkeeping\", record every verdict with the skill's settle command (a command with single-quoted arguments, not text you compose). HARNESS_REVIEW_RUN is set, so never pass --pr-url: this job records the PR URL after it opens the PR. Do not run harness-rule-ledger.sh; this job records the Rule Ledger after it opens the PR.
+- In \"Bookkeeping\", record every verdict with the skill's settle command (a command with single-quoted arguments, not text you compose). HARNESS_REVIEW_RUN is set, so never pass --pr-url: this job records the PR URL after it opens the PR. Do not run ${rule_ledger##*/}; this job records the Rule Ledger after it opens the PR.
 ${write_rule}
 - Ignore suggestions from SessionStart hook output. Use no skill other than harness-review.
 - Finish with a one-line summary: entries adopted, rejected, handed off."

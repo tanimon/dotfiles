@@ -329,7 +329,7 @@ main() {
     # shellcheck source-path=SCRIPTDIR
     # shellcheck source=lib/harness-integrity.bash
     source "$INTEGRITY_LIB"
-    if ! declare -F harness_integrity_snapshot harness_integrity_ready harness_integrity_run harness_integrity_run_untrusted harness_integrity_gate harness_integrity_check_data harness_integrity_seal harness_integrity_sealed >/dev/null ||
+    if ! declare -F harness_integrity_snapshot harness_integrity_executable harness_integrity_ready harness_integrity_run harness_integrity_run_untrusted harness_integrity_gate harness_integrity_check_data harness_integrity_seal harness_integrity_sealed >/dev/null ||
         [[ -z "${HARNESS_INTEGRITY_FAILED:-}" ]]; then
         printf 'harness-weekly: %s lacks the integrity checks; run chezmoi apply\n' "$INTEGRITY_LIB" >&2
         exit 1

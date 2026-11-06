@@ -21,8 +21,7 @@
 # ので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので、この lib は Guarded Path(scripts/guarded-paths.txt)に
 # 載せてある。
 # interface を引数 3 つに保つため、ほかの入力はこの lib の中で決める:
-# - Verdict の CLI と判定の記録のパスは、Integrity Snapshot の lib と同じく呼び出しのたびに $HOME から作る(CLI は
-#   harness_integrity_executables の行と一致しなければ実行されない)
+# - 判定の記録のパスは、Integrity Snapshot の lib と同じく呼び出しのたびに $HOME から作る
 # - Issue の本文に書くリポジトリのパスは、$HOME の下なら ~ で書く(ローカルアカウント名を公開リポジトリに出さない)
 # - 時刻と、ループのブランチを見る基準日(今日の 7 日前)は date から取る
 #
@@ -117,7 +116,7 @@ _harness_loop_stalls_report_prs() { # <repo> <prefix> <送る関数>
 _harness_loop_stalls_report_branches() { # <repo> <prefix> <送る関数>
     local repo=$1 prefix=$2 send=$3 failed=0 now cutoff branches shown_repo branch count verdict_status verdict_note marks pr_count
     local push_command pr_command body
-    local verdict_cli="$HOME/.claude/scripts/harness-verdict.sh" archive="$HOME/.claude/harness/queue-archive.md"
+    local archive="$HOME/.claude/harness/queue-archive.md"
     # 算術式の中の $(date +%s) は失敗しても空として評価され、基準日が 1970 年より前になってどのブランチも当たらなくなるので、
     # 先に代入して確かめる
     if ! now=$(date +%s) ||
@@ -140,7 +139,7 @@ _harness_loop_stalls_report_branches() { # <repo> <prefix> <送る関数>
             verdict_note='Verdict CLI を確かめられなかった(この run は改ざんの検出の準備の前に止まった)ため、このブランチに PR になっていない採用が残っているかは確かめていない。'
         else
             verdict_status=0
-            marks=$(harness_integrity_run "$verdict_cli" unpublished --branch "$branch") || verdict_status=$?
+            marks=$(harness_integrity_run verdict unpublished --branch "$branch") || verdict_status=$?
             if [[ "$verdict_status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
                 # shellcheck disable=SC2016 # 本文の `…` は Markdown のコードスパン
                 verdict_note='Verdict CLI を信頼できなかった(claude の起動後に週次ジョブが使うスクリプトが書き換えられていた。ログの `harness-integrity:` の行を参照)ため、このブランチに PR になっていない採用が残っているかは確かめていない。'

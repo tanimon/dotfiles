@@ -1,5 +1,6 @@
 # 週次ジョブの Integrity Snapshot(lib/harness-integrity.bash)の interface の検査。lib を直接 source する。
 # 週次ジョブの経路ごとの振る舞い(どの呼び出しが入口を通るか)は test/harness-weekly.bats が検査する。
+bats_require_minimum_version 1.5.0
 setup() {
     load 'helpers/setup'
     # 偽の実行物が読む変数を、このマシンのシェルから漏らさない
@@ -37,10 +38,10 @@ teardown() {
 
 @test "スナップショットの後に何も変わらなければ、入口はスクリプトを実行して終了コードをそのまま返す" {
     harness_integrity_snapshot
-    run harness_integrity_run "$SCRIPTS/harness-verdict.sh" unpublished --branch b
+    run harness_integrity_run verdict unpublished --branch b
     assert_success
     assert_output 'harness-verdict.sh unpublished --branch b'
-    STUB_EXIT=2 run harness_integrity_run "$SCRIPTS/harness-verdict.sh" adopted
+    STUB_EXIT=2 run harness_integrity_run verdict adopted
     assert_failure 2
 }
 
@@ -48,7 +49,7 @@ teardown() {
     harness_integrity_snapshot
     printf '# tampered\n' >>"$SCRIPTS/harness-eval-cases.sh"
     digest=$(git hash-object -- "$SCRIPTS/harness-eval-cases.sh")
-    run harness_integrity_run "$SCRIPTS/harness-verdict.sh" unpublished
+    run harness_integrity_run verdict unpublished
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     refute_output --partial 'harness-verdict.sh unpublished'
     assert_output --partial "changed: $SCRIPTS/harness-eval-cases.sh"
@@ -59,7 +60,7 @@ teardown() {
 @test "スナップショットの後に実行物が消されたら、入口は予約コードを返す" {
     harness_integrity_snapshot
     rm "$SCRIPTS/harness-eval-plugin/hooks/hooks.json"
-    run harness_integrity_run "$SCRIPTS/harness-failure-rates.sh" trend
+    run harness_integrity_run failure-rates trend
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     assert_output --partial "missing: $SCRIPTS/harness-eval-plugin/hooks/hooks.json"
 }
@@ -76,7 +77,7 @@ teardown() {
 }
 
 @test "スナップショットの前に入口・関門・データの照合・封印を使うと、実行せずに予約コードを返す" {
-    run harness_integrity_run "$SCRIPTS/harness-verdict.sh" unpublished
+    run harness_integrity_run verdict unpublished
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     assert_output --partial 'used before the snapshot'
     refute_output --partial 'harness-verdict.sh unpublished'
@@ -93,22 +94,58 @@ teardown() {
     assert_success
 }
 
-@test "一覧に無いスクリプトは、照合が通っても入口から実行しない" {
-    cat >"$SCRIPTS/harness-other.sh" <<'EOF'
-#!/usr/bin/env bash
-echo ran
-EOF
+@test "4 つの名前は、それぞれのスクリプトのパスを引き、入口から実行できる" {
+    run harness_integrity_executable verdict
+    assert_success
+    assert_output "$HOME/.claude/scripts/harness-verdict.sh"
+    run harness_integrity_executable failure-rates
+    assert_output "$HOME/.claude/scripts/harness-failure-rates.sh"
+    run harness_integrity_executable rule-ledger
+    assert_output "$HOME/.claude/scripts/harness-rule-ledger.sh"
+    run harness_integrity_executable eval-cases
+    assert_output "$HOME/.claude/scripts/harness-eval-cases.sh"
     harness_integrity_snapshot
-    run harness_integrity_run "$SCRIPTS/harness-other.sh"
+    run harness_integrity_run rule-ledger export
+    assert_success
+    assert_output 'harness-rule-ledger.sh export'
+    run harness_integrity_run eval-cases section
+    assert_output 'harness-eval-cases.sh section'
+}
+
+@test "表に無い名前(設定のファイル名やパスを含む)は、照合が通っても実行せずに予約コードを返し、呼び出し元の誤りと出す" {
+    # 実行されたら分かるよう、設定と一覧に無いスクリプトに命令を書いておく
+    printf 'echo ran\n' >"$SCRIPTS/harness-failure-patterns.json"
+    printf 'echo ran\n' >"$SCRIPTS/harness-other.sh"
+    harness_integrity_snapshot
+    for name in harness-failure-patterns.json "$SCRIPTS/harness-failure-patterns.json" \
+        "$SCRIPTS/harness-other.sh" "$SCRIPTS/harness-verdict.sh" harness-verdict.sh plugin.json ''; do
+        run --separate-stderr harness_integrity_run "$name" x
+        assert_failure "$HARNESS_INTEGRITY_FAILED"
+        assert_output ''
+        [[ "$stderr" == *'a mistake in the caller, not tampering'* ]] || fail "stderr for '$name': $stderr"
+        [[ "$stderr" != *changed:* && "$stderr" != *'chezmoi apply'* ]] || fail "stderr for '$name': $stderr"
+        run --separate-stderr harness_integrity_executable "$name"
+        assert_failure "$HARNESS_INTEGRITY_FAILED"
+        assert_output ''
+        [[ "$stderr" == *'a mistake in the caller, not tampering'* ]] || fail "stderr for '$name': $stderr"
+    done
+}
+
+@test "名前の無い設定の行も、書き換えれば名前で引く入口の照合で落ちる" {
+    harness_integrity_snapshot
+    printf '{"x":1}\n' >"$SCRIPTS/harness-failure-patterns.json"
+    printf '{"x":1}\n' >"$SCRIPTS/harness-eval-plugin/.claude-plugin/plugin.json"
+    run harness_integrity_run failure-rates trend
     assert_failure "$HARNESS_INTEGRITY_FAILED"
-    assert_output --partial 'not in the list of trusted executables'
-    refute_output --partial 'ran'
+    refute_output --partial 'harness-failure-rates.sh trend'
+    assert_output --partial "changed: $SCRIPTS/harness-failure-patterns.json"
+    assert_output --partial "changed: $SCRIPTS/harness-eval-plugin/.claude-plugin/plugin.json"
 }
 
 @test "実行物のハッシュを取れなければ、入口は照合できないとして予約コードを返す" {
     harness_integrity_snapshot
     chmod 000 "$SCRIPTS/harness-failure-patterns.json"
-    run harness_integrity_run "$SCRIPTS/harness-failure-rates.sh" trend
+    run harness_integrity_run failure-rates trend
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     assert_output --partial "could not hash $SCRIPTS/harness-failure-patterns.json"
     assert_output --partial 'chezmoi apply'
@@ -214,7 +251,7 @@ EOF
 printf 'budget=%s\n' "${HARNESS_EVAL_BUDGET_USD:-}"
 EOF
     harness_integrity_snapshot
-    HARNESS_EVAL_BUDGET_USD=7 run harness_integrity_run "$SCRIPTS/harness-eval-cases.sh" run
+    HARNESS_EVAL_BUDGET_USD=7 run harness_integrity_run eval-cases run
     assert_success
     assert_output 'budget=7'
 }
