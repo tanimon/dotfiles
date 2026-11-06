@@ -395,7 +395,7 @@ function checksPrompt(config) {
 - 失敗があれば原因を直してコミットし(push はしない)、全て成功するまで繰り返す。
 - テストを消す・スキップする・lint を無効化するなど、検査そのものを弱める変更はしない。
 ${reportChanges}
-- 3回試しても直らなければ、passed=false と失敗内容を返す。${keepRequirements(config)}${unstartedScope("それを実装しない。未着手の項目を実装しないと通らない場合は、passed=false とし、その旨を details に書く。")}`;
+- 3回試しても直らなければ、passed=false とし、失敗内容を details に書く。${keepRequirements(config)}${unstartedScope("それを実装しない。未着手の項目を実装しないと通らない場合は、passed=false とし、その旨を details に書く。")}`;
 }
 
 function reviewPrompt(reviewer, config) {

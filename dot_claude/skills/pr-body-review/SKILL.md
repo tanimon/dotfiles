@@ -1,6 +1,6 @@
 ---
 name: pr-body-review
-description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。「PR の本文が古くなっていないか見て」「push したので PR 本文を見直して」「PR description を差分に合わせて直して」「/pr-body-review」など。PR を新しく作るとき(骨格は /pr スキル、個人リポジトリの Issue Linkage の節は issue-linkage スキル)や、レビューコメントへの対応には使わない。
+description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出して、承認を得てから食い違う箇所だけを直す。push の後や作業の区切りで、既存の PR の本文が差分に追いついているかを確かめたい・合わせたいとき(`/pr-body-review` を含む)に使う。PR を新しく作るとき(骨格は /pr スキル、個人リポジトリの Issue Linkage の節は issue-linkage スキル)や、レビューコメントへの対応には使わない。
 argument-hint: "[<PR 番号 | PR の URL>]"
 ---
 

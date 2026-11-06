@@ -30,7 +30,7 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 - Use `printf '%s\n'` (not `printf '%s'`) to preserve trailing newlines stripped by `$(cat)`
 - For new-machine bootstrap (empty stdin), seed a minimal valid document inside the script before merging (see the `Bootstrap` block in `dot_config/karabiner/modify_karabiner.json`); never emit empty output
 - See `dot_config/karabiner/modify_karabiner.json` for a well-documented example of partial JSON management
-- Never target a path that may be a symlink managed outside this repo (e.g. `~/.claude.json`, which nono re-links to its real file (`~/.claude/.claude.json` as of nono 0.79.0) on every `nono run --profile claude-seal`; the topology has changed before, so check it with `ls -la` before relying on it) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` **both** the symlink and the real file (前者だけでは一括 add が実体を拾う)。
+- Never target a path that may be a symlink managed outside this repo (e.g. `~/.claude.json`, which nono re-links to its real file (`~/.claude/.claude.json` on nono 0.79.0, not re-measured on 0.81.0) on every `nono run --profile claude-seal`; the topology has changed before, so check it with `ls -la` before relying on it) — chezmoi reads through the symlink for stdin but writes a plain file back, silently deleting the symlink. Target the real file directly and `.chezmoiignore` **both** the symlink and the real file (前者だけでは一括 add が実体を拾う)。
 
 ## Template Syntax
 
@@ -63,4 +63,4 @@ For files managed by external tools (plugins, extensions):
 
 Examples: gh extensions (`dot_config/gh/extensions.txt` + `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` + `scripts/update-gh-extensions.sh`)
 
-外部ツールが書き込む設定ファイルを、chezmoi 所有の `.tmpl` も毎 apply で再レンダリングする（= 2 者が同じファイルを取り合う）場合だけ、ハッシュゲート(`run_onchange_`)ではなく無条件で毎回実行する `run_after_` を使う。競合する `.tmpl` が無ければ `run_onchange_` で足りる。例: `apm-install` は `~/.claude.json` の `mcpServers` だけを書き、そのファイルを chezmoi は管理しないので `run_onchange_after_apm-install.sh.tmpl`。判断基準の詳細は `docs/solutions/architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md`。
+外部ツールが書き込む設定ファイルを、chezmoi 所有の `.tmpl` も毎 apply で再レンダリングする（= 2 者が同じファイルを取り合う）場合だけ、ハッシュゲート(`run_onchange_`)ではなく無条件で毎回実行する `run_after_` を使う。競合する `.tmpl` が無ければ `run_onchange_` で足りる。例: `apm-install` が書くのは `~/.claude.json` の `mcpServers` と `~/.codex/config.toml` の `[mcp_servers.*]` で、どちらも chezmoi は管理しないので `run_onchange_after_apm-install.sh.tmpl`。判断基準の詳細は `docs/solutions/architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md`。
