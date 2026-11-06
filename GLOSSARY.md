@@ -228,6 +228,16 @@ _Avoid_: 仕様書(無限定)、入力
 実装ではなく Requirements Document そのものに向けられた Review Finding で、何を作るかを agent は決めないため修正せずに人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
 _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正
 
+### Goal definition
+
+**Goal Condition**:
+Claude Code の `/goal` に渡す、作業の完了を表す条件文。Goal Judge が会話の記録だけから成否を判定できる形で、到達状態・それを示す検証・守るべき制約を書く。
+_Avoid_: ゴール(無限定)、目標、完了条件(ステップの完了条件と紛らわしい)
+
+**Goal Judge**:
+毎ターンの終わりに会話の記録を読み、Goal Condition が満たされたか・不可能かを判定するモデル。ツールを呼ばないため、Claude が会話に出していない事実は判定に使えない。
+_Avoid_: Evaluator(自己改善ループの判定の仕組みを指す)、evaluator(公式ドキュメントの呼び方だが Evaluator と衝突する)
+
 ### Issues and pull requests
 
 **Issue Linkage**:

@@ -34,7 +34,7 @@ Breaking this adjacency silently disables Renovate auto-updates for that entry.
 
 ## Existing Entries
 
-See `.chezmoiexternal.toml` for current entries: ECC(affaan-m/ECC)から選んだファイル(`ecc-code-review` コマンド・agent 4 つ・rules/typescript・rules/web)。ECC の 4 エントリは同じ SHA を指す。openai/skills の `define-goal` を `~/.claude/skills/` と `~/.codex/skills/` の 2 エントリで取り込んでおり、この 2 つも同じ SHA を指す。github/gh-stack の `gh-stack` skill も同じく `~/.claude/skills/` と `~/.codex/skills/` の 2 エントリ(同じ SHA)で取り込み、前提の `gh stack` 拡張は `dot_config/gh/extensions.txt` で入れる。ECC を plugin として丸ごと有効化しない理由は `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`。rules/typescript・rules/web は `include` にファイルを列挙しているので、upstream の追加・改名には追随しない(改名されると古いファイルが管理外のまま残り、読み込まれ続ける)。ECC の SHA を上げる PR では、`rules/{typescript,web}/` のファイル一覧が変わっていないかを確認する。
+See `.chezmoiexternal.toml` for current entries: ECC(affaan-m/ECC)から選んだファイル(`ecc-code-review` コマンド・agent 4 つ・rules/typescript・rules/web)。ECC の 4 エントリは同じ SHA を指す。openai/skills の `define-goal` は `~/.codex/skills/` の 1 エントリだけで取り込む(Claude Code の `define-goal` は `dot_claude/skills/define-goal/` の自前の skill)。github/gh-stack の `gh-stack` skill も同じく `~/.claude/skills/` と `~/.codex/skills/` の 2 エントリ(同じ SHA)で取り込み、前提の `gh stack` 拡張は `dot_config/gh/extensions.txt` で入れる。ECC を plugin として丸ごと有効化しない理由は `docs/superpowers/specs/2026-09-24-ecc-minimal-install-design.md`。rules/typescript・rules/web は `include` にファイルを列挙しているので、upstream の追加・改名には追随しない(改名されると古いファイルが管理外のまま残り、読み込まれ続ける)。ECC の SHA を上げる PR では、`rules/{typescript,web}/` のファイル一覧が変わっていないかを確認する。
 
 ## ここに入れないもの — 配布元がパスを所有する外部スキル
 

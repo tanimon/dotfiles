@@ -103,3 +103,6 @@ bin/cco
 .claude/skills/ticket
 .claude/scripts/ticket-guard.sh
 .claude/scripts/lib/ticket-scope.bash
+
+# openai 版 define-goal を Claude Code へ配る external を外した残り。SKILL.md は dot_claude/skills/define-goal/ の自前の skill が上書きする
+.claude/skills/define-goal/LICENSE.txt
