@@ -81,15 +81,22 @@ harness_integrity_executables() {
         "$scripts/harness-eval-plugin/hooks/hooks.json"
 }
 
-# <名前> の実行物のパスを出す。表に無い名前なら何も出さずに 3 を返す
+# <名前> の実行物のパスを出す。表に無い名前なら stdout には何も出さずに 3 を返す。
+# 名前は bash の文字列比較で照らす(awk -v は \ のエスケープを解釈し、表に無い綴りを表の名前として通すため)
 harness_integrity_executable() { # <名前>
-    local rel
-    rel=$(_harness_integrity_named | awk -F'\t' -v name="${1:-}" '$1 == name { print $2; exit }')
-    if [[ -z "$rel" ]]; then
+    local named name rel found=""
+    named=$(_harness_integrity_named) || return "$HARNESS_INTEGRITY_FAILED"
+    while IFS=$'\t' read -r name rel; do
+        if [[ -n "$name" && "$name" == "${1:-}" ]]; then
+            found=$rel
+            break
+        fi
+    done <<<"$named"
+    if [[ -z "$found" ]]; then
         printf 'harness-integrity: no trusted executable is named "%s"; nothing was run (a mistake in the caller, not tampering: pass one of the names in _harness_integrity_named of harness-integrity.bash)\n' "${1:-}" >&2
         return "$HARNESS_INTEGRITY_FAILED"
     fi
-    printf '%s\n' "$HOME/.claude/scripts/$rel"
+    printf '%s\n' "$HOME/.claude/scripts/$found"
 }
 
 # データとして比べるファイルのうち、いま在るものを 1 行ずつ出す

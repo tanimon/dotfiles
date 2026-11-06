@@ -115,10 +115,13 @@ teardown() {
 @test "表に無い名前(設定のファイル名やパスを含む)は、照合が通っても実行せずに予約コードを返し、呼び出し元の誤りと出す" {
     # 実行されたら分かるよう、設定と一覧に無いスクリプトに命令を書いておく
     printf 'echo ran\n' >"$SCRIPTS/harness-failure-patterns.json"
-    printf 'echo ran\n' >"$SCRIPTS/harness-other.sh"
+    cat >"$SCRIPTS/harness-other.sh" <<'EOF'
+#!/usr/bin/env bash
+echo ran
+EOF
     harness_integrity_snapshot
     for name in harness-failure-patterns.json "$SCRIPTS/harness-failure-patterns.json" \
-        "$SCRIPTS/harness-other.sh" "$SCRIPTS/harness-verdict.sh" harness-verdict.sh plugin.json ''; do
+        "$SCRIPTS/harness-other.sh" "$SCRIPTS/harness-verdict.sh" harness-verdict.sh plugin.json 'verdic\164' ''; do
         run --separate-stderr harness_integrity_run "$name" x
         assert_failure "$HARNESS_INTEGRITY_FAILED"
         assert_output ''
@@ -135,11 +138,13 @@ teardown() {
     harness_integrity_snapshot
     printf '{"x":1}\n' >"$SCRIPTS/harness-failure-patterns.json"
     printf '{"x":1}\n' >"$SCRIPTS/harness-eval-plugin/.claude-plugin/plugin.json"
+    printf '{"x":1}\n' >"$SCRIPTS/harness-eval-plugin/hooks/hooks.json"
     run harness_integrity_run failure-rates trend
     assert_failure "$HARNESS_INTEGRITY_FAILED"
     refute_output --partial 'harness-failure-rates.sh trend'
     assert_output --partial "changed: $SCRIPTS/harness-failure-patterns.json"
     assert_output --partial "changed: $SCRIPTS/harness-eval-plugin/.claude-plugin/plugin.json"
+    assert_output --partial "changed: $SCRIPTS/harness-eval-plugin/hooks/hooks.json"
 }
 
 @test "実行物のハッシュを取れなければ、入口は照合できないとして予約コードを返す" {
