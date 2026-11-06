@@ -38,6 +38,13 @@ When adding or modifying managed files, choose the right chezmoi pattern:
 - To output literal template delimiters, use: `{{ "{{ .chezmoi.homeDir }}" }}`
 - `chezmoi add --autotemplate` over-substitutes `:` and `/` in JSON — use `chezmoi add --template` + manual `sed` for homeDir substitution
 
+## `chezmoi diff` の読み方
+
+- **`chezmoi diff` の出力に `diff --git` ヘッダは無い。** このマシンの chezmoi は `[diff] command` が `chezmoi-json-diff`
+  (`diff -u --label`)なので、`chezmoi diff | grep '^diff --git'` は差分があっても 0 件になる。apply で変わるファイルの一覧は
+  `chezmoi status` で見て、差分の中身は `chezmoi diff` をそのまま読む。chezmoi-json-diff は JSON のキーの並びとファイルモードの差を
+  出さないので、status に載っても diff が空のファイルがある(apply でバイト列やモードは変わる)。
+
 ## .chezmoiignore Gotchas
 
 - `*.txt` at root level does NOT match nested paths like `.config/gh/extensions.txt`

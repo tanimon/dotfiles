@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A chezmoi-managed dotfiles repository for macOS. Source directory is `~/.local/share/chezmoi/`, targeting `~/` as the destination. Managed configs include shell (zsh, starship, sheldon), editor (vim, helix), terminal (ghostty, tmux, zellij), git, Claude Code (`~/.claude/`), dev tools (mise, gh, yazi), and macOS packages (Brewfile).
+A chezmoi-managed dotfiles repository for macOS. Source directory is `~/.local/share/chezmoi/`, targeting `~/` as the destination.
 
 ## Common Commands
 
@@ -59,8 +59,6 @@ Only directories whose contents carry a contract an `ls` would not reveal are li
 
 **Declarative gh extension sync** — `dot_config/gh/extensions.txt` lists gh extensions (one `owner/repo` per line). `run_onchange_after_install-gh-extensions.sh.tmpl` installs them when the list changes. `scripts/update-gh-extensions.sh` regenerates the list from `gh extension list`. Note: `gh extension list` is tab-delimited — use `awk -F'\t'` to parse.
 
-**`run_onchange_` scripts** — Track file hashes in comments (e.g., `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`). They re-run only when the tracked content changes.
-
 **リポジトリの場所ベースの gitignore 切り替え(includeIf)** — Working Document(`docs/superpowers/` など)を仕事リポジトリでは除外し個人リポジトリでだけ commit する仕組みと不採用案は、`.claude/rules/gitignore-includeif.md`(関連ファイルを扱うときだけ読み込まれる)にある。
 
 **Identity leak guard(`scripts/scan-sensitive-info.sh`)** — このリポジトリは public なので、work 用 GitHub org 名とローカルアカウント名を git 管理下のファイルに**書かない**(散文中の言及・プロジェクトスラグ `-Users-<user>--` の形も含む。例示はプレースホルダにする)。ガードの 2 層の仕組み・出力の redact・allowlist の書式は `.claude/rules/identity-leak-guard.md`(ガードを触るときだけ読み込まれる)にある。
@@ -74,8 +72,6 @@ Only directories whose contents carry a contract an `ls` would not reveal are li
 **git push guard hook** — `dot_claude/scripts/executable_git-push-guard.sh` は `PreToolUse`(`matcher: "Bash"`)で走り、`git push` の破壊的な綴り(force / delete / mirror / prune / `+refspec` / `:branch`)を**引数位置に関係なく** `deny` し、読み切れない引数は fail-closed で `ask` にする。素の push は無出力で `defaultMode: auto` のクラシファイアに任せる。`Bash(git push:*)` を `permissions.ask` に戻さないこと(承認疲れの構成の置き換え)。判定・残存リスクは `.claude/rules/git-push-guard.md`、共有の reader は `.claude/rules/shell-reader.md`。
 
 **curl localhost guard hook** — `dot_claude/scripts/executable_curl-localhost-guard.sh` は `PreToolUse`(`matcher: "Bash"`)で走り、宛先がすべてループバックだと読み切れない curl に `ask` を返し、それ以外は無出力。**git push guard と同じ向き**: フックは `allow` を返さず、`Bash(curl:*)` も `permissions.ask` に置かない — Claude Code 2.1.285 ではフックの `allow` が ask ルールに負ける(`docs/adr/0009-command-guard-hooks-gate-without-allow.md`)。フックが死ぬと curl の確認は外れる(フェイルオープン)。認識のホワイトリスト・curlrc・対象外のホスト・受容した残存は `.claude/rules/curl-localhost-guard.md`。
-
-**Automated security alert handling** — `.github/workflows/security-alerts.yml` runs a weekly Saturday sweep (schedule) and supports manual dispatch (`gh workflow run security-alerts.yml`). Uses `claude-code-action` to analyze all open security alerts (Dependabot, code scanning, secret scanning) and either auto-fix (low-risk Dependabot/code scanning → PR) or escalate (high-risk/secret scanning → issue with `security` label).
 
 **Scheduled workflow failure alerting** — The scheduled workflow
 (`security-alerts.yml`) ends with an `if: failure()` step calling the local composite

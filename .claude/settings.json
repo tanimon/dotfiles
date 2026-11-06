@@ -1,4 +1,5 @@
 {
+  "claudeMdExcludes": ["**/ghq/github.com/*/*/rules/*.md"],
   "permissions": {
     "allow": [
       "Bash(chezmoi cat:*)",
