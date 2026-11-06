@@ -183,8 +183,11 @@ SCHEMA=$(jq -c -n --argjson allowed "$ALLOWED" --argjson ids "$ids" '{type: "obj
         items: {type: "object", required: ["id", "pattern"], additionalProperties: false,
             properties: {id: {type: "integer", enum: $ids}, pattern: {type: "string", enum: $allowed}}}}}}')
 status=0
-result=$(claude -p \
+# MCP は読み込ませない。--tools "" では MCP のツール定義が遅延読み込みされずに前置きへ載り、「OK」と返すだけの
+# 起動でもキャッシュへの書き込みが約 18 万トークンになる(MCP を外すと約 3 万)。分類器はツールを使わないので失うものは無い
+result=$(ENABLE_CLAUDEAI_MCP_SERVERS=false claude -p \
     --tools "" \
+    --strict-mcp-config \
     --no-session-persistence \
     --session-id "$CLASSIFY_SESSION_ID" \
     --max-budget-usd "$BUDGET_USD" \
@@ -193,6 +196,8 @@ result=$(claude -p \
 if [[ "$status" -ne 0 ]] || ! jq -e '.is_error == false' >/dev/null 2>&1 <<<"$result"; then
     fail "claude failed (exit $status) or reported an error; nothing recorded"
 fi
+# 分類の費用を週次ジョブのログに残す。抽出と選別は run_claude が結果をそのまま出すが、分類器はここで出さないと費用を測れない
+printf 'harness-classify: usage %s\n' "$(jq -c '{total_cost_usd, modelUsage}' <<<"$result")" >&2
 jq -e '.structured_output | type == "object"' >/dev/null 2>&1 <<<"$result" ||
     fail "claude returned no structured_output (the CLI ignored --json-schema); nothing recorded"
 answer=$(jq -c '.structured_output.classifications' <<<"$result")
