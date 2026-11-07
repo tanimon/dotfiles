@@ -27,6 +27,12 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
   `G="git -c core.fsmonitor=false"; $G add x` は `command not found: git -c core.fsmonitor=false`(exit 127)で止まる。
   同じオプションを繰り返したいときは配列にして `G=(git -c core.fsmonitor=false); "${G[@]}" add x` と書くか、毎回書き下す。
   **理由:** この形の `command not found` が 8 つの transcript で 40 回出ていた。
+- **Bash の `grep` はシェルスナップショットが定義する関数で、実体は同梱の ugrep。** ugrep は `.` を UTF-8 のバイト列の
+  選択肢に展開するので、マッチの前後を `'.\{0,300\}X.\{0,300\}'` のように大きい繰り返しで切り出すと
+  `exceeds complexity limits`(rc=2)で止まる。`command grep`(BSD grep)も繰り返しが 255 を超えると止まる。
+  前後の切り出しは `rg -o '.{0,300}X.{0,300}'` で行うか、繰り返しを 30 以下に抑える(前後両側に付けると 40 でも止まった)。`| head` などのパイプの
+  途中で止まると全体は exit 0 で返るので、空の結果を「該当なし」と読まない。
+  **理由:** 少なくとも 5 セッションで同じエラーが出て、そのたびに書き直しの往復が要った。
 
 ## 権限とサンドボックス除外はコマンド文字列の前方一致
 
