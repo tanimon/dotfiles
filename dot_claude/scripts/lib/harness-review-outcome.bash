@@ -23,8 +23,7 @@
 # 週次ジョブは claude の起動前に、Integrity Snapshot の lib の後で Loop PR の module(lib/harness-loop-pr.bash)を読み込み、その module が
 # この lib を読み込む(harness_integrity_run を使う)。分類を呼ぶのも、初期化を呼んで記録の置き場を渡すのも Loop PR の module だけ。
 # メモリに載った後は claude がファイルを書き換えてもその run に効かないので、Integrity Snapshot の一覧には載せない。週次ジョブが読み込むので Guarded Path(scripts/guarded-paths.txt)に載せてある。
-# queue・判定の記録・Deploy-only Fix の記録・Verdict の CLI のパスは、呼び出しのたびに $HOME から作る(Verdict の CLI は
-# harness_integrity_executables の行と一致しなければ実行されない)。
+# queue・判定の記録・Deploy-only Fix の記録のパスは、呼び出しのたびに $HOME から作る。
 #
 # Interface: harness_review_outcome_init / harness_review_outcome_result_instructions / harness_review_outcome_classify /
 # harness_review_outcome_sections。関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
@@ -48,10 +47,6 @@ _harness_review_outcome_archive() {
 
 _harness_review_outcome_deploy_only() {
     printf '%s\n' "$HOME/.claude/harness/deploy-only.md"
-}
-
-_harness_review_outcome_verdict_cli() {
-    printf '%s\n' "$HOME/.claude/scripts/harness-verdict.sh"
 }
 
 _harness_review_outcome_usage() {
@@ -200,7 +195,7 @@ _harness_review_outcome_check_claims() { # <commit の件数> <dropped の件数
         return 1
     fi
     [[ "$commits" -eq 0 ]] || return 0
-    titles=$(harness_integrity_run "$(_harness_review_outcome_verdict_cli)" adopted --run "$_HARNESS_REVIEW_OUTCOME_RUN") || status=$?
+    titles=$(harness_integrity_run verdict adopted --run "$_HARNESS_REVIEW_OUTCOME_RUN") || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         return "$HARNESS_INTEGRITY_FAILED"
     elif [[ "$status" -ne 0 ]]; then

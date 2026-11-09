@@ -20,6 +20,13 @@
 #   harness_integrity_check_data で比べる。
 #   信頼する入口が書いたファイル(評価の結果、record が作った記録)は harness_integrity_seal で後から一覧に足す。
 #   export が書く書き出した形は封印しないので、export より後にデータを比べないこと。
+# 呼び出し元はパスではなく名前で実行物を指す(harness_integrity_run <名前>、スナップショットの前に要るパスは
+# harness_integrity_executable <名前>)。名前からパスを引く表は _harness_integrity_named だけが持ち、名前はファイル名と
+# 別にして、スクリプトを改名しても呼び出し元に波及しないようにする。名前を持つのは実行するスクリプトだけで、
+# それが読む設定(Failure Pattern の一覧と eval 専用 plugin の雛形)は名前を持たず、比べるだけの行として一覧に載る。
+# 表に無い名前(設定のファイル名やパスを含む)は呼び出し元の誤りで、実行せずに予約コード 3 を返す。3 にするのは、
+# 3 以外は呼び出し元で「スクリプトの失敗」として WARN だけで先へ進む分岐があり、節の欠けた PR を公開しうるため。
+# 綴りの誤りは呼び出し元の lib の bats が本物の表で捕まえる。
 # CI の Guarded Path の一覧(scripts/guarded-paths.txt)とは意味が違うので統合しない。実行物の Source がその一覧に
 # 載っていることは test/harness-integrity.bats が確かめる。
 #
@@ -41,7 +48,7 @@
 # - 週次ジョブの run の最中に手動の /harness-reflect(harness-select-pending.sh が検出件数の記録を書く)や
 #   /harness-review(Rule Ledger の記録を作る)が走ると、書き換えとして見つけてその run は PR を作らずに失敗する。
 #
-# Interface: HARNESS_INTEGRITY_FAILED / harness_integrity_executables / harness_integrity_snapshot /
+# Interface: HARNESS_INTEGRITY_FAILED / harness_integrity_executables / harness_integrity_executable / harness_integrity_snapshot /
 # harness_integrity_ready / harness_integrity_run / harness_integrity_run_untrusted / harness_integrity_gate /
 # harness_integrity_check_data / harness_integrity_seal / harness_integrity_sealed。
 # パスは呼び出しのたびに $HOME から作る。関数は || の右や $( ) の中で呼ばれ、set -e が効かないので、失敗は明示的に返す。
@@ -52,17 +59,44 @@ _HARNESS_INTEGRITY_EXECUTABLES=""
 _HARNESS_INTEGRITY_DATA=""
 _HARNESS_INTEGRITY_TAKEN=0
 
-# 実行物のパスを 1 行ずつ出す
+# 名前で実行できる実行物の表。「<名前>\t<$HOME/.claude/scripts からの相対パス>」の行
+_harness_integrity_named() {
+    printf '%s\t%s\n' \
+        verdict harness-verdict.sh \
+        failure-rates harness-failure-rates.sh \
+        rule-ledger harness-rule-ledger.sh \
+        eval-cases harness-eval-cases.sh
+}
+
+# 実行物のパスを 1 行ずつ出す。名前の表の行と、名前を持たず比べるだけの設定の行
 harness_integrity_executables() {
-    local scripts="$HOME/.claude/scripts"
+    local scripts="$HOME/.claude/scripts" named rel
+    named=$(_harness_integrity_named) || return "$HARNESS_INTEGRITY_FAILED"
+    while IFS=$'\t' read -r _ rel; do
+        printf '%s\n' "$scripts/$rel"
+    done <<<"$named"
     printf '%s\n' \
-        "$scripts/harness-failure-rates.sh" \
         "$scripts/harness-failure-patterns.json" \
-        "$scripts/harness-verdict.sh" \
-        "$scripts/harness-rule-ledger.sh" \
-        "$scripts/harness-eval-cases.sh" \
         "$scripts/harness-eval-plugin/.claude-plugin/plugin.json" \
         "$scripts/harness-eval-plugin/hooks/hooks.json"
+}
+
+# <名前> の実行物のパスを出す。表に無い名前なら stdout には何も出さずに 3 を返す。
+# 名前は bash の文字列比較で照らす(awk -v は \ のエスケープを解釈し、表に無い綴りを表の名前として通すため)
+harness_integrity_executable() { # <名前>
+    local named name rel found=""
+    named=$(_harness_integrity_named) || return "$HARNESS_INTEGRITY_FAILED"
+    while IFS=$'\t' read -r name rel; do
+        if [[ -n "$name" && "$name" == "${1:-}" ]]; then
+            found=$rel
+            break
+        fi
+    done <<<"$named"
+    if [[ -z "$found" ]]; then
+        printf 'harness-integrity: no trusted executable is named "%s"; nothing was run (a mistake in the caller, not tampering: pass one of the names in _harness_integrity_named of harness-integrity.bash)\n' "${1:-}" >&2
+        return "$HARNESS_INTEGRITY_FAILED"
+    fi
+    printf '%s\n' "$HOME/.claude/scripts/$found"
 }
 
 # データとして比べるファイルのうち、いま在るものを 1 行ずつ出す
@@ -161,15 +195,11 @@ harness_integrity_gate() {
     return "$HARNESS_INTEGRITY_FAILED"
 }
 
-# 信頼して実行する入口。<スクリプト> が実行物の一覧にあり、実行物の全部がスナップショットと一致すれば
-# bash <スクリプト> <引数…> を実行して、その終了コードを返す。照合に落ちたら実行せずに 3 を返す
-harness_integrity_run() { # <スクリプト> [<引数>…]
-    local script=${1:-} executables
-    executables=$(harness_integrity_executables) || return "$HARNESS_INTEGRITY_FAILED"
-    if ! grep -qxF -- "$script" <<<"$executables"; then
-        printf 'harness-integrity: %s is not in the list of trusted executables; not run\n' "$script" >&2
-        return "$HARNESS_INTEGRITY_FAILED"
-    fi
+# 信頼して実行する入口。<名前> が名前の表にあり、実行物の全部がスナップショットと一致すれば
+# bash <名前のスクリプト> <引数…> を実行して、その終了コードを返す。表に無い名前か照合に落ちたら実行せずに 3 を返す
+harness_integrity_run() { # <名前> [<引数>…]
+    local script
+    script=$(harness_integrity_executable "${1:-}") || return "$HARNESS_INTEGRITY_FAILED"
     harness_integrity_gate || return "$HARNESS_INTEGRITY_FAILED"
     shift
     bash "$script" "$@"
