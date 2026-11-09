@@ -245,9 +245,9 @@ _harness_loop_pr_install_dependencies() { # <省くもの>
 
 # 当日の作業場所を準備する。2 つの入口(_harness_loop_pr_publish_metrics_only_if_due と _harness_loop_pr_run_review)が
 # 共有する手順で、当日のブランチの origin への照会 → pnpm の確認 → worktree の準備(_harness_loop_pr_make_worktree)を行う。
-# 返り値は 0(進める)、2(その日の PR は既にある。入口は何もせずに成功する)、1(失敗)。3 は Integrity Snapshot の
-# 予約コードだが、この手順は照合を通らないので返さない。状態を stdout に出す形にしないのは、$( ) のサブシェルで失敗の行と
-# 混ざるため。<省くもの> は、入口がこの run で省くものを告げる語句で、失敗の行と「既にある」の行の末尾に付ける。
+# 返り値は 0(進める)、2(その日の PR は既にある。入口は何もせずに成功する)、1(失敗)。この手順は照合を通らないので、
+# Integrity Snapshot の予約コード(HARNESS_INTEGRITY_FAILED)とは衝突しない。状態を stdout に出す形にしないのは、
+# $( ) のサブシェルで失敗の行と混ざるため。<省くもの> は、入口がこの run で省くものを告げる語句で、失敗の行と「既にある」の行の末尾に付ける。
 # 依存のインストールはここに入れない(選別を省いた週は、Metrics-only PR が要ると決まった後にだけ入れる)。
 #
 # 当日のブランチの状態ごとの扱い(2 つの入口で同じ):
@@ -749,8 +749,9 @@ _harness_loop_pr_check_unpublished() {
 
 # 選別を省いた週(queue が空)の入口。Metrics-only PR が要れば作る。手順: 開いている Loop PR の確認(あれば worktree を
 # 作らずに成功する。gh の失敗も WARN を出して成功する。問いが「Metrics-only PR が要るか」なので、当日のブランチの PR の
-# 照会の失敗とは扱いを揃えない) → 当日の作業場所の準備(_harness_loop_pr_prepare_workspace。当日のブランチの状態ごとの扱いの
-# 正本はそのコメント) → 前の run の本文と結果ファイルを消す(消せなくても、本文は Metrics-only PR を作るときに書き直す) →
+# 照会の失敗とは扱いを揃えない。当日の PR も Loop PR なので、開いていればここで成功し、作業場所の準備が「既にある」を返すのは
+# 当日の PR が閉じているかマージ済みのときだけ) → 当日の作業場所の準備(_harness_loop_pr_prepare_workspace。当日のブランチの
+# 状態ごとの扱いの正本はそのコメント) → 前の run の本文と結果ファイルを消す(消せなくても、本文は Metrics-only PR を作るときに書き直す) →
 # 要否の判定(_harness_loop_pr_metrics_only_or_discard。件数は worktree の base に対して数える) → 要れば依存のインストール →
 # Metrics-only PR。依存は要ると決まった後にだけ入れる。
 # 返り値は 0(作った、要らなかった、当日の PR が既にあった)と 1(作業場所の準備・判定の照合と CLI・公開の失敗)。前の run の
