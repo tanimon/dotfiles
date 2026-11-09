@@ -470,14 +470,44 @@ unpushed_branch() {
     assert [ ! -e "$WT" ]
 }
 
-@test "選別を省いた週: 当日のブランチが origin にあれば worktree を作らずに成功する" {
+@test "選別を省いた週: 当日のブランチが origin にあり PR もあれば、その URL を出して worktree を作らずに成功する" {
     publish_fixture
     four_local_records
     init_real
     git -C "$REPO" push -q origin "main:refs/heads/$BRANCH"
-    run harness_loop_pr_publish_metrics_only_if_due
+    STUB_GH_HEAD_PRS='[{"url":"https://github.com/example/dotfiles/pull/41"}]' run harness_loop_pr_publish_metrics_only_if_due
     assert_success
-    assert_output ''
+    assert_output "harness-weekly: ${BRANCH} already exists on origin (PR https://github.com/example/dotfiles/pull/41); no metrics-only PR"
+    run grep '^pr list --head' "$GH_LOG"
+    assert_output "pr list --head ${BRANCH} --state all --json url --jq .[0].url // empty"
+    assert [ ! -e "$WT" ]
+    refute_pr_create
+}
+
+@test "選別を省いた週: push の後に Metrics-only PR の作成が失敗した同じ日の再実行は、手で PR を作る手順を出し、worktree を作らずに失敗する" {
+    publish_fixture
+    four_local_records
+    init_real
+    STUB_GH_FAIL=1 run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial "harness-weekly: pushed ${BRANCH} but gh pr create failed"
+    git -C "$REPO" worktree remove --force "$WT"
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output "harness-weekly: ${BRANCH} exists on origin but has no PR; no metrics-only PR. Check the log of the run that pushed it: if it stopped before gh pr create because the scripts could not be trusted, delete the branch (git push origin --delete ${BRANCH}); otherwise open the PR by hand (gh pr create --draft --base main --head ${BRANCH} --body-file ${BODY})"
+    assert [ ! -e "$WT" ]
+    # 手で PR を作るときに使う本文を消さない
+    assert [ -s "$BODY" ]
+}
+
+@test "選別を省いた週: 当日のブランチが origin にあって PR を調べられなければ、worktree を作らずに失敗する" {
+    publish_fixture
+    four_local_records
+    init_real
+    git -C "$REPO" push -q origin "main:refs/heads/$BRANCH"
+    STUB_GH_HEAD_LIST_FAIL=1 run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output "harness-weekly: ${BRANCH} exists on origin but listing its PR failed; no metrics-only PR"
     assert [ ! -e "$WT" ]
     refute_pr_create
 }
@@ -518,7 +548,7 @@ unpushed_branch() {
     assert_failure 1
     assert_output "$(printf '%s\n' \
         "harness-weekly: local branch ${BRANCH} in ${REPO} has 1 commit(s) not on origin/main; push / open the PR by hand (PR body ${BODY}, if present) or delete the branch, then rerun" \
-        "harness-weekly: failed to prepare the worktree ${WT} for a metrics-only PR")"
+        "harness-weekly: failed to prepare the worktree ${WT}; no metrics-only PR")"
     run git -C "$REPO" log --format=%s -1 "$BRANCH"
     assert_output unpushed
     assert [ ! -e "$PNPM_LOG" ]
@@ -996,7 +1026,7 @@ refute_reviewed() {
     git -C "$REPO" remote set-url origin "$BATS_TEST_TMPDIR/missing.git"
     run review_with review_commits
     assert_failure 1
-    assert_line --regexp "^harness-weekly: failed to query origin for ${BRANCH} \(git ls-remote exit [0-9]+\)$"
+    assert_line --regexp "^harness-weekly: failed to query origin for ${BRANCH} \(git ls-remote exit [0-9]+\); skipped review$"
     refute_reviewed
 }
 
@@ -1024,16 +1054,16 @@ refute_reviewed() {
     refute_reviewed
 }
 
-@test "選別の経路: origin/main に無い commit を持つ当日のローカルブランチは作り直さず、手で使う本文も消さずに失敗する" {
+@test "選別の経路: origin/main に無い commit を持つ当日のローカルブランチは作り直さず、開始の行を出さず、手で使う本文も消さずに失敗する" {
     review_fixture
     unpushed_branch
     init_real
     printf 'body of the run that failed to push\n' >"$BODY"
     run review_with review_commits
     assert_failure 1
-    assert_output "$(printf '%s\n' "$START_LINE" \
+    assert_output "$(printf '%s\n' \
         "harness-weekly: local branch ${BRANCH} in ${REPO} has 1 commit(s) not on origin/main; push / open the PR by hand (PR body ${BODY}, if present) or delete the branch, then rerun" \
-        "harness-weekly: failed to prepare the review worktree ${WT}")"
+        "harness-weekly: failed to prepare the worktree ${WT}; skipped review")"
     run git -C "$REPO" log --format=%s -1 "$BRANCH"
     assert_output unpushed
     run cat "$BODY"
@@ -1049,7 +1079,8 @@ refute_reviewed() {
     run review_with review_commits
     assert_failure 1
     assert_line "harness-weekly: could not reset branch ${BRANCH} (is it checked out in another worktree of ${REPO}?)"
-    assert_line "harness-weekly: failed to prepare the review worktree ${WT}"
+    assert_line "harness-weekly: failed to prepare the worktree ${WT}; skipped review"
+    refute_line "$START_LINE"
     refute_reviewed
 }
 
@@ -2040,9 +2071,10 @@ review_writes_result_only() {
     assert_line --index 0 --partial 'weekly failure rate record(s) not on origin/main'
     assert_line --index 1 "$(leftover_line)"
     git -C "$REPO" push -q origin "main:refs/heads/$BRANCH"
-    run harness_loop_pr_publish_metrics_only_if_due
+    STUB_GH_HEAD_PRS='[{"url":"https://github.com/example/dotfiles/pull/41"}]' run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
-    assert_output "$(leftover_line)"
+    assert_line --index 0 "harness-weekly: ${BRANCH} already exists on origin (PR https://github.com/example/dotfiles/pull/41); no metrics-only PR"
+    assert_line --index 1 "$(leftover_line)"
 }
 
 @test "前の run の未公開の採用: 選別を省いた週に Metrics-only PR を作った run も確かめる" {
@@ -2087,6 +2119,11 @@ review_writes_result_only() {
     STUB_RATES_EXPORT_FAIL='' STUB_GH_FAIL=1 run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
     assert_output --partial "harness-weekly: pushed ${BRANCH} but gh pr create failed"
+    refute_output --partial 'never became a PR'
+    git -C "$REPO" worktree remove --force "$WT"
+    STUB_GH_FAIL='' run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_output --partial "harness-weekly: ${BRANCH} exists on origin but has no PR"
     refute_output --partial 'never became a PR'
     git -C "$REPO" remote set-url origin "$BATS_TEST_TMPDIR/missing.git"
     run harness_loop_pr_publish_metrics_only_if_due
