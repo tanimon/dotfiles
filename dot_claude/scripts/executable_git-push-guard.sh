@@ -113,13 +113,18 @@ long_option_is_dangerous() {
     return 1
 }
 
+# 現在の segment の $1 番目(segment の中の index)の token に、ブレース展開かパス名展開の印があるか。
+token_has_expansion_mark() {
+    shell_reader_token_has_mark "$1" brace glob
+}
+
 # 現在の segment(token_count 個の token)にブレース展開かパス名展開(引用符の外の * ? [)があるか。
 # 展開の結果は reader の token に現れない(`{main,--force}` の token は `main,--force`、`-?` は cwd に
 # `-f` があれば `-f` になる)ので、危険な綴りを探す代わりに、展開がある push を読み切れないとして扱う。
 segment_has_expansion_mark() {
     local position=0
     while [[ $position -lt $token_count ]]; do
-        shell_reader_token_has_mark "$position" brace glob && return 0
+        token_has_expansion_mark "$position" && return 0
         position=$((position + 1))
     done
     return 1
@@ -214,7 +219,7 @@ classify_from() {
     [[ $alias_ask -eq 1 ]] && NEEDS_ASK=1
     # サブコマンドそのものを展開で作る綴り(`git {push,origin,main,--force}`)は、token が
     # `push,origin,main,--force` なので push に見えない。印のある token が push を含めば ask。
-    if [[ "$subcommand" != "push" && $index -lt $token_count ]] && shell_reader_token_has_mark "$index" brace glob; then
+    if [[ "$subcommand" != "push" && $index -lt $token_count ]] && token_has_expansion_mark "$index"; then
         case "$subcommand" in *push*) NEEDS_ASK=1 ;; esac
     fi
     [[ "$subcommand" == "push" ]] || return 0
@@ -322,6 +327,8 @@ classify_segment() {
     # 空配列の展開は bash 3.2 の set -u で落ちるが、callback は空でない segment でしか呼ばれない。
     tokens=("$@")
     token_count=$#
+    # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
+    set --
 
     # binary の前に正当に立つもの(代入・シェルのキーワード・コマンド前置詞)を読み飛ばす。
     # 1 行の `for … do git push … ; done` や `if true; then …; fi` はエージェントが普通に書く綴り。
@@ -356,11 +363,10 @@ classify_segment() {
     # 行頭の push と、`` x=`git push origin main` `` の代入の後ろの push を巻き込まないため)。
     command_word_unreadable=0
     if [[ $command_start -lt $token_count ]]; then
-        shell_reader_token_has_mark "$command_start" brace glob && command_word_unreadable=1
+        token_has_expansion_mark "$command_start" && command_word_unreadable=1
         case "${tokens[$command_start]}" in
         '$')
-            if [[ $((command_start + 1)) -lt $token_count ]] &&
-                shell_reader_token_has_mark $((command_start + 1)) brace glob; then
+            if [[ $((command_start + 1)) -lt $token_count ]] && token_has_expansion_mark $((command_start + 1)); then
                 command_word_unreadable=1
             fi
             ;;

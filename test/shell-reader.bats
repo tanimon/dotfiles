@@ -136,6 +136,8 @@ marked() {
     shell_reader_read 'echo a; ls b* c; echo d?'
     shell_reader_each_segment record
     assert_equal "$seen" '|1 |1 |'
+    # 走査の後(callback の外)は、コマンドの先頭の token から数える。
+    assert_equal "$(marked glob)" '4 8 '
 }
 
 @test "token_has_mark rejects an unknown kind" {
@@ -356,6 +358,7 @@ follows() {
     assert_equal "$(follows 'echo "$(date)"; git push' substitution)" 'nn'
     assert_equal "$(follows 'echo \$(x) ; git push' substitution)" 'nnn'
     assert_equal "$(follows "echo \$'('; git push" substitution)" 'nn'
+    assert_equal "$(follows 'echo $$(x); git push' substitution)" 'nnn'
 }
 
 @test "segment_follows is true when either kind comes before the segment" {
@@ -438,20 +441,21 @@ follows() {
     assert_success
 }
 
-# 印の問い合わせは 1 回の費用が印の数に依存しないので、segment の token ごとに引いても二乗にならない。
-# 印を「 3 7 」形式の文字列で返していたときは、`{{{{…` が 1 byte ごとに印を足し、印の全件を走査する呼び出し側が
-# 8 KB で 8 秒かかった(フックの timeout は 5 秒 = 判定なし = フェイルオープン)。`{{{{…` は token を作らないので、
-# 後半に印の付いた token を並べ(` {a *` は brace と glob の印が付いた token を 1 つずつ作る)、すべての token を
-# 3 種類で引く。CPU 時間で測る理由と別の bash で走らせる理由は、Text Floor の時間の test と同じ。
+# 印は 1 回引く費用が印の数に依存しないので、segment の token ごとに引いても二乗にならない。印の全件を走査する
+# 形では、印の多い 8 KB の入力で CPU 時間が 1 秒を越える(bash 3.2 で約 1.7 秒。この形では約 0.3 秒)。
+# `{{{{…` は 1 byte ごとに同じ token に印を付けて token を作らないので、後ろに ` *`(glob の印が付いた token)を
+# 並べ、すべての token を 3 種類で引く。callback は each_segment のコメントの約束どおり、引数を写して `set --` する。
+# CPU 時間で測る理由と別の bash で走らせる理由は、Text Floor の時間の test と同じ。
 @test "querying every token for marks stays fast on an 8 KB input" {
     local command='echo ' TIMEFORMAT='%3U %3S'
-    while [[ ${#command} -lt 4096 ]]; do command+='{{{{{{{{{{'; done
-    while [[ ${#command} -lt 8187 ]]; do command+=' {a *'; done
+    while [[ ${#command} -lt 256 ]]; do command+='{{{{{{{{{{'; done
+    while [[ ${#command} -lt 8189 ]]; do command+=' *'; done
     {
         time bash -c 'source "$1"; shell_reader_read "$2"
                       count_marks() {
-                          local index
-                          for ((index = 0; index < $#; index++)); do
+                          local tokens=("$@") index
+                          set --
+                          for ((index = 0; index < ${#tokens[@]}; index++)); do
                               shell_reader_token_has_mark "$index" brace glob operator && marks=$((marks + 1))
                           done
                           return 0

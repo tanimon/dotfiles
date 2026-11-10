@@ -245,6 +245,8 @@ classify_short_bundle() {
 # Returns 0 when every target is loopback and every flag is recognized.
 classify_curl() {
     local tokens=("$@")
+    # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
+    set --
     local count=${#tokens[@]}
     local index=1 token value urls=0 rc
 
@@ -360,6 +362,8 @@ INERT_COMMANDS='jq head tail cat wc grep egrep fgrep uniq tr cut column echo pri
 classify_segment() {
     # 語頭の `=` は zsh の EQUALS(`=curl` は PATH 上の curl)。外して同じ判定に掛ける。
     local segment=("$@") binary=${1#=} index
+    # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
+    set --
 
     # 改行を含む token は、bash が実行する行を飲み込んでいることがある(なぜ飲み込むかは lib の
     # shell_reader_text_floor_matches)。飲み込まれた行は字面の床の「行頭の curl」に一致しなければ何も見ないので
@@ -461,7 +465,9 @@ marked_token_can_be_curl() {
 # shell_reader_each_segment の callback。curl を実行しうる token を見つけたら 1 を返して走査を止める。
 segment_can_run_curl() {
     local tokens=("$@") index token
-    for ((index = 0; index < $#; index++)); do
+    # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
+    set --
+    for ((index = 0; index < ${#tokens[@]}; index++)); do
         token=${tokens[$index]#\`}
         token=${token#=}
         [[ "${token##*/}" == "curl" ]] && return 1

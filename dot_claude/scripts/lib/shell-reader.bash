@@ -306,6 +306,9 @@ shell_reader_read() {
 # 空でない segment ごとに callback を呼ぶ。callback の引数は segment の token で、callback の中では
 # shell_reader_token_has_mark / shell_reader_segment_follows がその segment について答える。
 # callback が非 0 を返したらそこで止めて 1 を返す。
+# callback の中で token ごとに関数(この lib の述語を含む)を呼ぶなら、引数を配列に写してから `set --` で位置引数を
+# 空にする。bash 3.2 は関数を呼ぶたびに、呼び出し元の位置引数の数に比例する費用が掛かる(4000 個の引数を持つ
+# 関数から 1000 回呼ぶと 0.9 秒、`set --` の後は 0.03 秒)ので、1 つの segment に token が多いと二乗になる。
 # bash は動的スコープなので、callback が local 宣言なしに代入した名前はこの関数の local を
 # 書き換える。そのため local はすべて `_sr_` 接頭辞にしてある。契約: callback は `_sr_` で
 # 始まる名前以外なら global を自由に使ってよい。
@@ -317,7 +320,10 @@ shell_reader_each_segment() {
         if [[ "${SHELL_READER_TOKENS[$_sr_position]}" == "$SHELL_READER_SEP" ]]; then
             if [[ ${#_sr_segment[@]} -gt 0 ]]; then
                 _SHELL_READER_SEGMENT_START=$_sr_start
-                "$_sr_callback" "${_sr_segment[@]}" || return 1
+                if ! "$_sr_callback" "${_sr_segment[@]}"; then
+                    _SHELL_READER_SEGMENT_START=0
+                    return 1
+                fi
             fi
             _sr_segment=()
             _sr_start=$((_sr_position + 1))
@@ -326,15 +332,20 @@ shell_reader_each_segment() {
         fi
         _sr_position=$((_sr_position + 1))
     done
+    _SHELL_READER_SEGMENT_START=0
     if [[ ${#_sr_segment[@]} -gt 0 ]]; then
         _SHELL_READER_SEGMENT_START=$_sr_start
-        "$_sr_callback" "${_sr_segment[@]}" || return 1
+        if ! "$_sr_callback" "${_sr_segment[@]}"; then
+            _SHELL_READER_SEGMENT_START=0
+            return 1
+        fi
+        _SHELL_READER_SEGMENT_START=0
     fi
     return 0
 }
 
-# 今の segment(shell_reader_each_segment の callback の中で、callback が受け取った segment。callback の
-# 外では直前に読んだコマンドの先頭の segment)の $1 番目(segment の中の index。0 が先頭)の token に、
+# 今の segment(shell_reader_each_segment の callback の中で、callback が受け取った segment)の $1 番目
+# (segment の中の index。0 が先頭)の token に、callback の外では直前に読んだコマンドの $1 番目の token に、
 # $2 以降の種類のどれかの印があれば 0、無ければ 1 を返す。fork しないので token ごとに呼んでよい。
 #   brace     ブレース展開を始めうる `{` の直後の token。後ろが空白か入力の終わりの `{` はグループなので付けない
 #   glob      引用符の外の * / ? / [ を含む token。`*` は WORD_MULTIPLIER も立てるが、どの token が展開されるかは

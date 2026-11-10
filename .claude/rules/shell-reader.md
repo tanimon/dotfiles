@@ -22,7 +22,9 @@ paths:
   `shell_reader_each_segment <callback>` がセグメントごとに callback を呼ぶ。callback が非 0 を返すと走査を止めて
   1 を返すので、「どれかの segment に〜がある」は `shell_reader_each_segment <callback> || FOUND=1` と書く
   (curl-guard の `CURL_PRESENT`)。each_segment の local は `_sr_` 接頭辞なので、callback はその接頭辞以外の名前を
-  自由に使える。
+  自由に使える。callback(と segment の token を引数で受け取る関数)が token ごとに関数を呼ぶなら、引数を配列に
+  写して `set --` する — bash 3.2 は関数を呼ぶたびに呼び出し元の位置引数の数に比例する費用が掛かり、token の多い
+  segment で二乗になる(理由と実測は each_segment のコメント)。
 - **token と segment についての事実は、segment の中の位置で問い合わせる。** 座標は callback が受け取った segment の
   中の index だけで、コマンド全体での index は interface に出さない。どちらの述語も終了コードで答え(fork しない)、
   複数の種類を渡すとどれか 1 つで真になる。知らない種類には 2 を返す。
