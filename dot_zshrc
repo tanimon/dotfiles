@@ -10,6 +10,13 @@ export CARAPACE_BRIDGES='zsh,fish,bash,inshellisense'
 export EDITOR="vim"
 
 
+# Key bindings
+# EDITOR か VISUAL に "vi" を含む値があると、zsh は起動時に main キーマップを viins にし、^A / ^E が文字として入力される。
+# emacs キーマップを明示して EDITOR の値から切り離す。-M を付けない bindkey はその時点の main に書き込まれるので、
+# キーを割り当てるプラグインやツール(Tool initializations)より前に置く
+bindkey -e
+
+
 # History
 HISTFILE=~/.zsh_history
 HISTSIZE=10000
