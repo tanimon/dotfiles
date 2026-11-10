@@ -56,8 +56,8 @@ shell_reader_read() {
     local length=${#s}
     _SHELL_READER_TOO_LONG_INPUT=''
     SHELL_READER_TOKENS=()
-    # 印は token の index を添字にした疎な配列(値は 1)。1 回引く費用が印の数に依存しないので、
-    # segment の token ごとに引いても二乗にならない。同じ index に何度印を付けても 1 件のまま。
+    # 印は token の index を添字にした疎な配列(値は 1)。全件を走査せずに添字で引くので、segment の token ごとに
+    # 引いても 8 KB の上限では二乗にならない。同じ index に何度印を付けても 1 件のまま。
     _SHELL_READER_BRACE_MARKS=()
     _SHELL_READER_GLOB_MARKS=()
     _SHELL_READER_OPERATOR_MARKS=()
@@ -320,10 +320,7 @@ shell_reader_each_segment() {
         if [[ "${SHELL_READER_TOKENS[$_sr_position]}" == "$SHELL_READER_SEP" ]]; then
             if [[ ${#_sr_segment[@]} -gt 0 ]]; then
                 _SHELL_READER_SEGMENT_START=$_sr_start
-                if ! "$_sr_callback" "${_sr_segment[@]}"; then
-                    _SHELL_READER_SEGMENT_START=0
-                    return 1
-                fi
+                "$_sr_callback" "${_sr_segment[@]}" || return 1
             fi
             _sr_segment=()
             _sr_start=$((_sr_position + 1))
@@ -332,21 +329,16 @@ shell_reader_each_segment() {
         fi
         _sr_position=$((_sr_position + 1))
     done
-    _SHELL_READER_SEGMENT_START=0
     if [[ ${#_sr_segment[@]} -gt 0 ]]; then
         _SHELL_READER_SEGMENT_START=$_sr_start
-        if ! "$_sr_callback" "${_sr_segment[@]}"; then
-            _SHELL_READER_SEGMENT_START=0
-            return 1
-        fi
-        _SHELL_READER_SEGMENT_START=0
+        "$_sr_callback" "${_sr_segment[@]}" || return 1
     fi
     return 0
 }
 
-# 今の segment(shell_reader_each_segment の callback の中で、callback が受け取った segment)の $1 番目
-# (segment の中の index。0 が先頭)の token に、callback の外では直前に読んだコマンドの $1 番目の token に、
-# $2 以降の種類のどれかの印があれば 0、無ければ 1 を返す。fork しないので token ごとに呼んでよい。
+# shell_reader_each_segment の callback の中で呼ぶ(外での答えは決めていない)。callback が受け取った segment の
+# $1 番目(segment の中の index。0 が先頭)の token に、$2 以降の種類のどれかの印があれば 0、無ければ 1 を返す。
+# fork しないので token ごとに呼んでよい。
 #   brace     ブレース展開を始めうる `{` の直後の token。後ろが空白か入力の終わりの `{` はグループなので付けない
 #   glob      引用符の外の * / ? / [ を含む token。`*` は WORD_MULTIPLIER も立てるが、どの token が展開されるかは
 #             ここでしか分からない(`/usr/bin/curl*` が curl を作る)
@@ -370,7 +362,8 @@ shell_reader_token_has_mark() {
     return 1
 }
 
-# 今の segment(shell_reader_token_has_mark と同じ)が、$1 以降のどれかより後ろにあれば 0、無ければ 1 を返す。
+# shell_reader_each_segment の callback の中で呼ぶ。callback が受け取った segment が、$1 以降のどれかより後ろに
+# あれば 0、無ければ 1 を返す。
 #   heredoc       最初の heredoc 演算子(引用符の外の `<<` / `<<-`。here-string の `<<<` と `< <(…)` は含めない)。
 #                 reader は heredoc の本文を知らないので、後ろの segment は本文の行でありうる
 #   substitution  最初の引用符の外の `$(`(`$((` を含む)。後ろの segment は置換の中身か、置換の出力を

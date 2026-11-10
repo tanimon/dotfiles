@@ -25,16 +25,16 @@ paths:
   自由に使える。callback(と segment の token を引数で受け取る関数)が token ごとに関数を呼ぶなら、引数を配列に
   写して `set --` する — bash 3.2 は関数を呼ぶたびに呼び出し元の位置引数の数に比例する費用が掛かり、token の多い
   segment で二乗になる(理由と実測は each_segment のコメント)。
-- **token と segment についての事実は、segment の中の位置で問い合わせる。** 座標は callback が受け取った segment の
-  中の index だけで、コマンド全体での index は interface に出さない。どちらの述語も終了コードで答え(fork しない)、
+- **token と segment についての事実は、segment の中の位置で問い合わせる。** 述語は each_segment の callback の中で
+  呼び、座標は callback が受け取った segment の中の index だけで、コマンド全体での index は interface に出さない。どちらの述語も終了コードで答え(fork しない)、
   複数の種類を渡すとどれか 1 つで真になる。知らない種類には 2 を返す。
   - `shell_reader_token_has_mark <index> brace|glob|operator…` — token 1 つに印があるか。`brace` はブレース展開を
     始めうる `{`(後ろが空白でないもの)の直後の token、`glob` は引用符の外の `*` / `?` / `[` を含む token、
     `operator` は引用符の外の redirect 演算子の token。引用された `">"` や `\>` は引数なのに演算子と同じ字面の
     token になるので、redirect の対象を読み飛ばす側(curl-guard)は `operator` を見る — 字面で読むと
     `curl http://localhost/ ">" https://evil.example/x` の 2 つ目の URL を redirect の対象として読み飛ばし、
-    無出力になっていた。印は token の index を添字にした疎な配列なので、1 回引く費用は印の数に依存せず、
-    segment の token ごとに引いても二乗にならない(印の全件を走査する形では、`{{{{…` の 8 KB で 8 秒かかって
+    無出力になっていた。印は token の index を添字にした疎な配列で、全件を走査せずに添字で引くので、
+    segment の token ごとに引いても 8 KB の上限では二乗にならない(印の全件を走査する形では、`{{{{…` の 8 KB で 8 秒かかって
     フックの timeout を越えた。`test/shell-reader.bats` が CPU 時間で固定している)。
   - `shell_reader_segment_follows heredoc|substitution…` — 今の segment が、最初の heredoc 演算子(引用符の外の
     `<<` / `<<-`)か最初の引用符の外の `$(`(`$((` を含む)より後ろにあるか。here-string の `<<<` と `< <(…)` も

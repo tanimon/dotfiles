@@ -21,14 +21,21 @@ joined() {
     printf '%s' "$out"
 }
 
-# 今の segment の先頭から MARKED_COUNT 個(省略時は token 全体の数)の token のうち、$@ の種類のどれかの
-# 印が付いたものの index を空白区切りで出す。
+# 直前に読んだコマンドの segment ごとに、$@ の種類のどれかの印が付いた token の index(segment の中の位置)を
+# 空白区切りで並べ、segment の間を「|」で区切って出す。述語は each_segment の callback の中でだけ答える。
 marked() {
-    local index out=''
-    for ((index = 0; index < ${MARKED_COUNT:-${#SHELL_READER_TOKENS[@]}}; index++)); do
-        shell_reader_token_has_mark "$index" "$@" && out+="$index "
-    done
-    printf '%s' "$out"
+    local kinds=("$@") out=''
+    mark_segment() {
+        local tokens=("$@") index
+        set --
+        for ((index = 0; index < ${#tokens[@]}; index++)); do
+            shell_reader_token_has_mark "$index" "${kinds[@]}" && out+="$index "
+        done
+        out+='|'
+        return 0
+    }
+    shell_reader_each_segment mark_segment
+    printf '%s' "${out%|}"
 }
 
 @test "double-quoted text is one token and its separators do not split" {
@@ -84,17 +91,12 @@ marked() {
 
 @test "a brace that can start an expansion marks the next token" {
     shell_reader_read 'git push origin {main,--force}'
-    run shell_reader_token_has_mark 3 brace
-    assert_success
-    run -1 shell_reader_token_has_mark 2 brace
+    assert_equal "$(marked brace)" '3 '
 }
 
 @test "a group brace followed by a space marks no token" {
     shell_reader_read '{ git push origin main; }'
-    local index
-    for index in 0 1 2 3; do
-        run -1 shell_reader_token_has_mark "$index" brace
-    done
+    assert_equal "$(marked brace)" ''
 }
 
 @test "an unquoted star is kept and flagged" {
@@ -130,20 +132,21 @@ marked() {
     assert_equal "$(marked brace glob operator)" '2 3 4 '
 }
 
-@test "token_has_mark answers within the current segment of each_segment" {
-    seen=''
-    record() { seen+="$(MARKED_COUNT=$# marked glob)|"; }
+@test "token_has_mark counts from the start of the current segment" {
     shell_reader_read 'echo a; ls b* c; echo d?'
-    shell_reader_each_segment record
-    assert_equal "$seen" '|1 |1 |'
-    # 走査の後(callback の外)は、コマンドの先頭の token から数える。
-    assert_equal "$(marked glob)" '4 8 '
+    assert_equal "$(marked glob)" '|1 |1 '
 }
 
 @test "token_has_mark rejects an unknown kind" {
+    probe() {
+        shell_reader_token_has_mark 1 star 2>"$BATS_TEST_TMPDIR/stderr"
+        probe_status=$?
+        return 0
+    }
     shell_reader_read 'ls *'
-    run --separate-stderr -2 shell_reader_token_has_mark 1 star
-    assert_equal "$stderr" 'shell_reader_token_has_mark: 知らない種類: star'
+    shell_reader_each_segment probe
+    assert_equal "$probe_status" 2
+    assert_equal "$(cat "$BATS_TEST_TMPDIR/stderr")" 'shell_reader_token_has_mark: 知らない種類: star'
 }
 
 @test "a dollar anywhere sets the expansion flag and tokenizing continues" {
@@ -441,7 +444,7 @@ follows() {
     assert_success
 }
 
-# 印は 1 回引く費用が印の数に依存しないので、segment の token ごとに引いても二乗にならない。印の全件を走査する
+# 印は全件を走査せずに添字で引くので、segment の token ごとに引いても 8 KB の上限では二乗にならない。印の全件を走査する
 # 形では、印の多い 8 KB の入力で CPU 時間が 1 秒を越える(bash 3.2 で約 1.7 秒。この形では約 0.3 秒)。
 # `{{{{…` は 1 byte ごとに同じ token に印を付けて token を作らないので、後ろに ` *`(glob の印が付いた token)を
 # 並べ、すべての token を 3 種類で引く。callback は each_segment のコメントの約束どおり、引数を写して `set --` する。

@@ -145,7 +145,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `git push origin main --force;git push;…` が 5 秒(フックの timeout)を越えて判定なし = フェイルオープンに
   なっていた。segment の走査の前に 1 回だけ数える(`test/git-push-guard.bats` に時間の上限つきのケースがある)。
   展開の印も、push の segment ごとに印の全件を走査すると 8 KB で 8 秒かかった。フックは segment の token ごとに
-  `shell_reader_token_has_mark` で引き、1 回の費用が印の数に依存しないことは reader が受け持つ。
+  `shell_reader_token_has_mark` で引き、全件を走査せずに引くことは reader が受け持つ。
 - **残存(受容): 大文字小文字。** 大文字小文字を区別しない APFS では `GIT push --delete …` も git を
   実行するが、早期終了と basename の比較が大文字小文字を区別するので無出力になる(ADR 0009)。
 - **残存(受容): 早期終了は引用符除去より前。** コマンドに `push` の部分文字列が無ければ reader を
