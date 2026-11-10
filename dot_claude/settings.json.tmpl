@@ -334,8 +334,8 @@
       "effortLevel": "high"
     }
   },
-  {{/* advisorModel: サーバーサイド advisor tool の助言役モデル（指定可能なエイリアスは fable / opus / sonnet）。advisor は executor（メインモデル）と同等以上の能力でないと attach されない（公式ドキュメント https://code.claude.com/docs/en/advisor の「at least as capable as the main model」。同一モデル同士も可）ため、上の "model" と対になって初めて機能する。現在の組み合わせは executor=opus[1m] / advisor=opus で、Opus 5.5 main は Opus 5 以降の advisor を受け付けるので main セッションでも発動する。/model で fable に切り替えたセッションでは Opus advisor は rejected となり main では発動せず（サブエージェントでは発動しうる）、起動時通知でその旨が出る。"model" の [1m] はメインモデルの 1M コンテキスト指定で、advisorModel はエイリアスかフル ID しか受け付けない（[1m] の記載なし。未認識のモデルだと advisor は attach されない）ため、両者を同じ表記に揃えないこと。会話が advisor 側のコンテキスト窓を超えると advisor 呼び出しだけが prompt_too_long で失敗する（セッションは継続）。トークン消費は増える。/advisor ダイアログが書き込む先は ~/.claude/settings.json だが、そのファイルはこの tmpl が全面所有しているため apply で消える。恒久設定はここに書くこと。 */ -}}
-  "advisorModel": "opus",
+  {{/* advisorModel: サーバーサイド advisor tool の助言役モデル（指定可能なエイリアスは fable / opus / sonnet。エイリアスは Claude Code 組み込みの既定バージョンに解決され、Claude Code の更新に追従する。Fable 5.2 は Claude Code v2.1.321 以上が必要）。advisor は executor（メインモデル）と同等以上の順位でないと attach されない（公式ドキュメント https://code.claude.com/docs/en/advisor の「Choose an advisor model」表。同一モデル同士も可）ため、上の "model" と対になって初めて機能する。現在の組み合わせは executor=opus[1m] / advisor=fable で、Opus 5.5 main は Fable の advisor を受け付ける。/model で fable に切り替えたセッションでも Fable 5.2 main は Fable 5.2 advisor を受け付けるので発動する（Opus / Sonnet の advisor は Fable main には attach されない）。プランによっては Fable の利用が usage credits 課金になり、その一回きりの同意（/model fable で「Fable で続ける」を選ぶ）が済むまでは advisor が付かずに送信され、起動時通知で /model fable を案内される。"model" の [1m] はメインモデルの 1M コンテキスト指定で、advisorModel はエイリアスかフル ID しか受け付けない（[1m] の記載なし。未認識のモデルだと advisor は attach されない）ため、両者を同じ表記に揃えないこと。会話が advisor 側のコンテキスト窓を超えると advisor 呼び出しだけが prompt_too_long で失敗する（セッションは継続）。トークン消費は増える。/advisor ダイアログが書き込む先は ~/.claude/settings.json だが、そのファイルはこの tmpl が全面所有しているため apply で消える。恒久設定はここに書くこと。 */ -}}
+  "advisorModel": "fable",
   {{/* orca agent-hooks integration: orca が dispatcher を差し込む event のエントリは .chezmoitemplates/orca-agent-hook(PostCompact は orca-agent-hook-post-compact)から参照する。仕組み・PostCompact だけ別にする理由・live からの再同期手順はそれぞれのファイルの冒頭にある。 */ -}}
   "hooks": {
     "SessionStart": [
