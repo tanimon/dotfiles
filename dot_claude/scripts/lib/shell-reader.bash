@@ -7,7 +7,8 @@
 # token は最後まで作る — 緩める判定は flag を見て諦め、塞ぐ判定は token から続けられる
 # ようにするため(ADR 0009)。
 #
-# Interface: shell_reader_read / shell_reader_each_segment / shell_reader_text_floor_matches。
+# Interface: shell_reader_read / shell_reader_each_segment / shell_reader_token_has_mark /
+# shell_reader_segment_follows / shell_reader_text_floor_matches。
 # global の意味は各関数の直前のコメントを参照。`_` で始まる関数と global は lib の内部用で、呼び出し側は読まない。
 
 # segment 区切りの番兵。入力に同じ byte があると偽の境界を注入できるので、
@@ -20,7 +21,7 @@ SHELL_READER_MAX_LENGTH=8192
 _shell_reader_flush() {
     if [[ $started -eq 1 ]]; then
         if [[ $current_glob -eq 1 ]]; then
-            SHELL_READER_GLOB_INDEXES+="${#SHELL_READER_TOKENS[@]} "
+            _SHELL_READER_GLOB_MARKS[${#SHELL_READER_TOKENS[@]}]=1
         fi
         SHELL_READER_TOKENS+=("$current")
         current=''
@@ -33,17 +34,6 @@ _shell_reader_flush() {
 # $1 を読んで次の global を設定する。常に 0 を返す。
 #   SHELL_READER_TOKENS           token 配列(引用符は外してある)。区切りは SHELL_READER_SEP。
 #                                 redirect は fd の数字ごと 1 token(`2>&1` が余計な `1` を残さない)
-#   SHELL_READER_GLOB_INDEXES     引用符の外の * / ? / [ を含む token の index(" 3 7 " 形式)。
-#                                 `*` は WORD_MULTIPLIER も立てるが、どの token が展開されるかは
-#                                 ここでしか分からない(`/usr/bin/curl*` が curl を作る)
-#   SHELL_READER_BRACE_INDEXES    ブレース展開を始めうる `{` の直後の token の index(同じ形式)。
-#                                 後ろが空白か入力の終わりの `{` はグループなので含めない
-#   SHELL_READER_OPERATOR_INDEXES 引用符の外の redirect 演算子の token の index(同じ形式)。
-#                                 引用された `">"` や `\>` は引数なので含めない — token の字面だけでは
-#                                 演算子と区別できないので、redirect として読み飛ばす側はここを見る
-#   SHELL_READER_HEREDOC_INDEXES  heredoc 演算子(`<<` / `<<-`)の最初の `<` の token の index(同じ形式)。
-#                                 `<<` も here-string の `<<<` も `< <(…)` も token 列では `<`, `<` に
-#                                 なるので、本文を持つ heredoc かどうかは走査の時点でしか分からない
 #   SHELL_READER_TOO_LONG         上限超過。token は空
 #   SHELL_READER_EXPANSION        $ かバッククォートがある(引用符の中も含む)
 #   SHELL_READER_WORD_MULTIPLIER  引用符の外の { } *(シェルの展開で単語数が変わる)
@@ -52,6 +42,8 @@ _shell_reader_flush() {
 #   SHELL_READER_PROCESS_SUBSTITUTION  引用符の外に `<(` / `>(` か、語頭の `=(`(zsh の一時ファイル
 #                                 版)がある。`)` の後ろは外側のコマンドの引数の続きだが、token 列では
 #                                 別の segment に見える
+# token についての印(展開・redirect 演算子)と位置の事実(heredoc・置換)は global ではなく、
+# shell_reader_token_has_mark と shell_reader_segment_follows で問い合わせる。
 # flag は呼び出し側(各フック)だけが読むので、lib 単体の shellcheck には未使用に見える。
 # shellcheck disable=SC2034
 shell_reader_read() {
@@ -64,10 +56,15 @@ shell_reader_read() {
     local length=${#s}
     _SHELL_READER_TOO_LONG_INPUT=''
     SHELL_READER_TOKENS=()
-    SHELL_READER_GLOB_INDEXES=' '
-    SHELL_READER_BRACE_INDEXES=' '
-    SHELL_READER_OPERATOR_INDEXES=' '
-    SHELL_READER_HEREDOC_INDEXES=' '
+    # 印は token の index を添字にした疎な配列(値は 1)。1 回引く費用が印の数に依存しないので、
+    # segment の token ごとに引いても二乗にならない。同じ index に何度印を付けても 1 件のまま。
+    _SHELL_READER_BRACE_MARKS=()
+    _SHELL_READER_GLOB_MARKS=()
+    _SHELL_READER_OPERATOR_MARKS=()
+    # 最初の heredoc 演算子と、最初の引用符の外の `$(` の位置。無ければ -1。
+    _SHELL_READER_FIRST_HEREDOC=-1
+    _SHELL_READER_FIRST_SUBSTITUTION=-1
+    _SHELL_READER_SEGMENT_START=0
     SHELL_READER_TOO_LONG=0
     SHELL_READER_EXPANSION=0
     SHELL_READER_WORD_MULTIPLIER=0
@@ -87,6 +84,9 @@ shell_reader_read() {
     # current_quoted: 今の語に引用符か backslash が含まれる。`"2">x` / `\2>x` の 2 は fd ではなく
     # 引数(bash・zsh で実測)なので、fd の数字として読むのは引用されていない数字だけにする。
     local index character quote='' ansi_c=0 current='' started=0 current_glob=0 current_quoted=0 operator
+    # after_dollar: 直前に読んだのが引用符の外の単独の `$`(`$$` と `$'` を除く)。次の `(` が置換を開く。
+    # bash も zsh も行継続を語の読み取りより先に消すので(`$\⏎(…)` も置換)、行継続ではこの状態を保つ。
+    local after_dollar=0 previous_dollar
 
     # `read -ra` は空白でしか分けないので、`-H "Accept: application/json"` が 2 token に
     # なり(後ろが URL と誤読される)、`-d '{"a":"x|y"}'` の `|` がパイプに見える。
@@ -139,6 +139,8 @@ shell_reader_read() {
             continue
         fi
 
+        previous_dollar=$after_dollar
+        after_dollar=0
         case "$character" in
         '{' | '}')
             # ブレース展開(`{x,https://evil.example/}` は 2 語になる)とブレースグループ
@@ -151,16 +153,9 @@ shell_reader_read() {
             # なる)ので、どの segment に展開があるかを塞ぐ側が知れるように位置を残す。
             # bash は後ろが空白の `{` を展開しない(グループの `{ … ; }`)。
             if [[ "$character" == '{' ]]; then
-                # 同じ index は 1 回だけ残す。`{{{{…` は 1 byte ごとに同じ index を足すので、重複を許すと
-                # 印の数が入力の長さに比例し、印を走査する呼び出し側が二乗になる(8 KB で 8 秒)。
                 case "${s:index+1:1}" in
                 '' | ' ' | $'\t' | $'\n') ;;
-                *)
-                    case "$SHELL_READER_BRACE_INDEXES" in
-                    *" ${#SHELL_READER_TOKENS[@]} ") ;;
-                    *) SHELL_READER_BRACE_INDEXES+="${#SHELL_READER_TOKENS[@]} " ;;
-                    esac
-                    ;;
+                *) _SHELL_READER_BRACE_MARKS[${#SHELL_READER_TOKENS[@]}]=1 ;;
                 esac
             fi
             ;;
@@ -200,7 +195,10 @@ shell_reader_read() {
                 ansi_c=1
                 current_quoted=1
                 ;;
-            *) current+=$character ;;
+            *)
+                current+=$character
+                after_dollar=1
+                ;;
             esac
             started=1
             ;;
@@ -217,6 +215,8 @@ shell_reader_read() {
                 current+=${s:index:1}
                 started=1
                 current_quoted=1
+            else
+                after_dollar=$previous_dollar
             fi
             ;;
         ' ' | $'\t')
@@ -234,6 +234,11 @@ shell_reader_read() {
                 fi
             fi
             _shell_reader_flush
+            # 引用符の外の `$(`(`$((` の算術展開を含む)は、区切りの番兵の位置で覚える。後ろの segment は
+            # 置換の中身か、置換の出力をコマンド語にした続き(`$(which git) push …`)でありうる。
+            if [[ "$character" == '(' && $previous_dollar -eq 1 && $_SHELL_READER_FIRST_SUBSTITUTION -lt 0 ]]; then
+                _SHELL_READER_FIRST_SUBSTITUTION=${#SHELL_READER_TOKENS[@]}
+            fi
             SHELL_READER_TOKENS+=("$SHELL_READER_SEP")
             ;;
         '&')
@@ -246,7 +251,7 @@ shell_reader_read() {
                     index=$((index + 1))
                     operator+=${s:index:1}
                 done
-                SHELL_READER_OPERATOR_INDEXES+="${#SHELL_READER_TOKENS[@]} "
+                _SHELL_READER_OPERATOR_MARKS[${#SHELL_READER_TOKENS[@]}]=1
                 SHELL_READER_TOKENS+=("$operator")
             else
                 _shell_reader_flush
@@ -268,9 +273,10 @@ shell_reader_read() {
             operator+=$character
             # 引用符の外の `<<` で、前にも後ろにも `<` が続かないものだけが heredoc(`<<<` は here-string)。
             # 2 つ目の `<` は前が `<` なので記録しない。`< <(…)` は間に空白があるので一致しない。
-            if [[ "$character" == '<' && "${s:index+1:1}" == '<' && "${s:index+2:1}" != '<' ]] &&
-                [[ $index -eq 0 || "${s:index-1:1}" != '<' ]]; then
-                SHELL_READER_HEREDOC_INDEXES+="${#SHELL_READER_TOKENS[@]} "
+            # `<<` も `<<<` も `< <(…)` も token 列では `<`, `<` になるので、走査の時点でしか区別できない。
+            if [[ $_SHELL_READER_FIRST_HEREDOC -lt 0 && "$character" == '<' && "${s:index+1:1}" == '<' &&
+                "${s:index+2:1}" != '<' ]] && [[ $index -eq 0 || "${s:index-1:1}" != '<' ]]; then
+                _SHELL_READER_FIRST_HEREDOC=${#SHELL_READER_TOKENS[@]}
             fi
             # `>|`(noclobber を無視する redirect)は 1 つの演算子。`|` を区切りに読むと、後ろの
             # ファイル名と引数(`git push origin main >| out --force` の `--force`)が別の segment になる。
@@ -282,7 +288,7 @@ shell_reader_read() {
                 index=$((index + 1))
                 operator+=${s:index:1}
             done
-            SHELL_READER_OPERATOR_INDEXES+="${#SHELL_READER_TOKENS[@]} "
+            _SHELL_READER_OPERATOR_MARKS[${#SHELL_READER_TOKENS[@]}]=1
             SHELL_READER_TOKENS+=("$operator")
             ;;
         *)
@@ -297,13 +303,12 @@ shell_reader_read() {
     return 0
 }
 
-# 空でない segment ごとに callback を呼ぶ。呼ぶ前に SHELL_READER_SEGMENT_START を
-# segment 先頭の SHELL_READER_TOKENS 上の index にする(GLOB_INDEXES との照合用)。
+# 空でない segment ごとに callback を呼ぶ。callback の引数は segment の token で、callback の中では
+# shell_reader_token_has_mark / shell_reader_segment_follows がその segment について答える。
 # callback が非 0 を返したらそこで止めて 1 を返す。
 # bash は動的スコープなので、callback が local 宣言なしに代入した名前はこの関数の local を
 # 書き換える。そのため local はすべて `_sr_` 接頭辞にしてある。契約: callback は `_sr_` で
 # 始まる名前以外なら global を自由に使ってよい。
-# shellcheck disable=SC2034 # SHELL_READER_SEGMENT_START は callback(呼び出し側)が読む
 shell_reader_each_segment() {
     local _sr_callback=$1 _sr_position=0 _sr_count=${#SHELL_READER_TOKENS[@]} _sr_start=0
     local -a _sr_segment
@@ -311,7 +316,7 @@ shell_reader_each_segment() {
     while [[ $_sr_position -lt $_sr_count ]]; do
         if [[ "${SHELL_READER_TOKENS[$_sr_position]}" == "$SHELL_READER_SEP" ]]; then
             if [[ ${#_sr_segment[@]} -gt 0 ]]; then
-                SHELL_READER_SEGMENT_START=$_sr_start
+                _SHELL_READER_SEGMENT_START=$_sr_start
                 "$_sr_callback" "${_sr_segment[@]}" || return 1
             fi
             _sr_segment=()
@@ -322,10 +327,58 @@ shell_reader_each_segment() {
         _sr_position=$((_sr_position + 1))
     done
     if [[ ${#_sr_segment[@]} -gt 0 ]]; then
-        SHELL_READER_SEGMENT_START=$_sr_start
+        _SHELL_READER_SEGMENT_START=$_sr_start
         "$_sr_callback" "${_sr_segment[@]}" || return 1
     fi
     return 0
+}
+
+# 今の segment(shell_reader_each_segment の callback の中で、callback が受け取った segment。callback の
+# 外では直前に読んだコマンドの先頭の segment)の $1 番目(segment の中の index。0 が先頭)の token に、
+# $2 以降の種類のどれかの印があれば 0、無ければ 1 を返す。fork しないので token ごとに呼んでよい。
+#   brace     ブレース展開を始めうる `{` の直後の token。後ろが空白か入力の終わりの `{` はグループなので付けない
+#   glob      引用符の外の * / ? / [ を含む token。`*` は WORD_MULTIPLIER も立てるが、どの token が展開されるかは
+#             ここでしか分からない(`/usr/bin/curl*` が curl を作る)
+#   operator  引用符の外の redirect 演算子の token。引用された `">"` や `\>` は引数なので付けない — token の字面
+#             だけでは演算子と区別できないので、redirect として読み飛ばす側はここを見る
+# 知らない種類を渡したら 2 を返す(呼び出し側の誤り。偽と同じく印が無い側に倒れるので stderr に出す)。
+shell_reader_token_has_mark() {
+    local position=$((_SHELL_READER_SEGMENT_START + $1)) kind
+    shift
+    for kind in "$@"; do
+        case "$kind" in
+        brace) [[ -n "${_SHELL_READER_BRACE_MARKS[$position]:-}" ]] && return 0 ;;
+        glob) [[ -n "${_SHELL_READER_GLOB_MARKS[$position]:-}" ]] && return 0 ;;
+        operator) [[ -n "${_SHELL_READER_OPERATOR_MARKS[$position]:-}" ]] && return 0 ;;
+        *)
+            printf 'shell_reader_token_has_mark: 知らない種類: %s\n' "$kind" >&2
+            return 2
+            ;;
+        esac
+    done
+    return 1
+}
+
+# 今の segment(shell_reader_token_has_mark と同じ)が、$1 以降のどれかより後ろにあれば 0、無ければ 1 を返す。
+#   heredoc       最初の heredoc 演算子(引用符の外の `<<` / `<<-`。here-string の `<<<` と `< <(…)` は含めない)。
+#                 reader は heredoc の本文を知らないので、後ろの segment は本文の行でありうる
+#   substitution  最初の引用符の外の `$(`(`$((` を含む)。後ろの segment は置換の中身か、置換の出力を
+#                 コマンド語にした続き(`$(which git) push …`)でありうる。`a$;` や引用符の中の `"$("` は含めない
+# 知らない種類を渡したら 2 を返す(shell_reader_token_has_mark と同じ)。
+shell_reader_segment_follows() {
+    local kind first
+    for kind in "$@"; do
+        case "$kind" in
+        heredoc) first=$_SHELL_READER_FIRST_HEREDOC ;;
+        substitution) first=$_SHELL_READER_FIRST_SUBSTITUTION ;;
+        *)
+            printf 'shell_reader_segment_follows: 知らない種類: %s\n' "$kind" >&2
+            return 2
+            ;;
+        esac
+        [[ $first -ge 0 && $_SHELL_READER_SEGMENT_START -gt $first ]] && return 0
+    done
+    return 1
 }
 
 # $1 を行ごとに見て、$2 以降の正規表現(POSIX ERE)すべてに一致する行が 1 つでもあれば 0、

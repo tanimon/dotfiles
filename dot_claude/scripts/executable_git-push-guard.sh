@@ -48,7 +48,7 @@ fi
 
 command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --on-unreadable ask \
     --lib shell-reader.bash \
-    --require 'shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches'
+    --require 'shell_reader_read shell_reader_each_segment shell_reader_token_has_mark shell_reader_segment_follows shell_reader_text_floor_matches'
 # command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 ASK_REASON='git-push-guard: この push は引数を読み切れないため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
@@ -71,10 +71,6 @@ shell_reader_read "$COMMAND"
 DANGER_TOKEN=""
 NEEDS_ASK=0
 
-# 引用符の外の `$(` は reader が `(` で segment を切るので、`$` で終わる token の直後に区切りが来る。
-# その位置より後ろの segment は、置換の出力をコマンド語にした続き(`$(which git) push …`)でありうる
-# (classify_segment が読む)。見つからなければ -1。空配列の展開は bash 3.2 の set -u で落ちるので数を先に見る。
-UNQUOTED_SUBSTITUTION_INDEX=-1
 # `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_<n>` / `GIT_CONFIG_PARAMETERS` などの環境変数は `-c` と同じ
 # 設定を運ぶ(`GIT_CONFIG_KEY_0=remote.origin.mirror` + `GIT_CONFIG_VALUE_0=true` で mirror push)。
 # 前置きの代入でも前の segment の `export` でも効くので、コマンド全体の token を語頭で見る。
@@ -82,26 +78,10 @@ UNQUOTED_SUBSTITUTION_INDEX=-1
 # `git push origin main --force;git push;…` が 5 秒を越えてフックの timeout(= 判定なし =
 # フェイルオープン)に届いた。そこでここで 1 回だけ数え、classify_from は結果だけを見る。
 GIT_CONFIG_IN_COMMAND=0
-# 最初の heredoc 演算子の index(reader の SHELL_READER_HEREDOC_INDEXES の先頭。印は昇順に並ぶ)。無ければ -1。
-# reader は heredoc の本文を知らないので、本文の行は普通の segment に見える。この位置より後ろの segment では
-# 危険な綴りを deny ではなく ask にする(本文の `git push --force を deny する` は承認しても通せない
-# deny にしない)。heredoc の後ろに実際に書かれた force push も ask に下がるのは受容した格下げ。
-# 本文を持たない here-string(`<<<`)と `< <(…)` は reader が heredoc として記録しないので、格下げしない。
-HEREDOC_INDEX=${SHELL_READER_HEREDOC_INDEXES:- }
-HEREDOC_INDEX=${HEREDOC_INDEX# }
-HEREDOC_INDEX=${HEREDOC_INDEX%% *}
-[[ -z "$HEREDOC_INDEX" ]] && HEREDOC_INDEX=-1
+# 空配列の展開は bash 3.2 の set -u で落ちるので数を先に見る。
 if [[ ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
-    for index in "${!SHELL_READER_TOKENS[@]}"; do
-        case "${SHELL_READER_TOKENS[$index]}" in GIT_CONFIG*) GIT_CONFIG_IN_COMMAND=1 ;; esac
-        case "${SHELL_READER_TOKENS[$index]}" in
-        *'$')
-            if [[ $UNQUOTED_SUBSTITUTION_INDEX -lt 0 &&
-                "${SHELL_READER_TOKENS[$((index + 1))]:-}" == "$SHELL_READER_SEP" ]]; then
-                UNQUOTED_SUBSTITUTION_INDEX=$index
-            fi
-            ;;
-        esac
+    for token in "${SHELL_READER_TOKENS[@]}"; do
+        case "$token" in GIT_CONFIG*) GIT_CONFIG_IN_COMMAND=1 ;; esac
     done
 fi
 
@@ -133,17 +113,13 @@ long_option_is_dangerous() {
     return 1
 }
 
-# 現在の segment(SHELL_READER_SEGMENT_START から token_count 個)にブレース展開かパス名展開
-# (引用符の外の * ? [)があるか。展開の結果は reader の token に現れない(`{main,--force}` の token は
-# `main,--force`、`-?` は cwd に `-f` があれば `-f` になる)ので、危険な綴りを探す代わりに、
-# 展開がある push を読み切れないとして扱う。
-# 印の全件ではなく segment の token ごとに引く。印は入力の長さに比例して増えうる(` *` を 2 byte ごと)ので、
-# push の segment ごとに全件を走査すると segment 数 × 印の数の二乗になり、8 KB でフックの timeout(5 秒)を
-# 越えた(= 判定なし = フェイルオープン)。
+# 現在の segment(token_count 個の token)にブレース展開かパス名展開(引用符の外の * ? [)があるか。
+# 展開の結果は reader の token に現れない(`{main,--force}` の token は `main,--force`、`-?` は cwd に
+# `-f` があれば `-f` になる)ので、危険な綴りを探す代わりに、展開がある push を読み切れないとして扱う。
 segment_has_expansion_mark() {
     local position=0
     while [[ $position -lt $token_count ]]; do
-        token_is_marked "$position" && return 0
+        shell_reader_token_has_mark "$position" brace glob && return 0
         position=$((position + 1))
     done
     return 1
@@ -157,14 +133,6 @@ config_is_dangerous() {
     [Rr][Ee][Mm][Oo][Tt][Ee].*.[Pp][Uu][Ss][Hh] | [Rr][Ee][Mm][Oo][Tt][Ee].*.[Pp][Uu][Ss][Hh]=*) return 0 ;;
     [Rr][Ee][Mm][Oo][Tt][Ee].*.[Mm][Ii][Rr][Rr][Oo][Rr] | [Rr][Ee][Mm][Oo][Tt][Ee].*.[Mm][Ii][Rr][Rr][Oo][Rr]=*) return 0 ;;
     [Ii][Nn][Cc][Ll][Uu][Dd][Ee]*) return 0 ;;
-    esac
-    return 1
-}
-
-# 現在の segment の $1 番目(segment 内の index)の token に、ブレース展開かパス名展開の印があるか。
-token_is_marked() {
-    case "$SHELL_READER_BRACE_INDEXES$SHELL_READER_GLOB_INDEXES" in
-    *" $((SHELL_READER_SEGMENT_START + $1)) "*) return 0 ;;
     esac
     return 1
 }
@@ -246,7 +214,7 @@ classify_from() {
     [[ $alias_ask -eq 1 ]] && NEEDS_ASK=1
     # サブコマンドそのものを展開で作る綴り(`git {push,origin,main,--force}`)は、token が
     # `push,origin,main,--force` なので push に見えない。印のある token が push を含めば ask。
-    if [[ "$subcommand" != "push" && $index -lt $token_count ]] && token_is_marked "$index"; then
+    if [[ "$subcommand" != "push" && $index -lt $token_count ]] && shell_reader_token_has_mark "$index" brace glob; then
         case "$subcommand" in *push*) NEEDS_ASK=1 ;; esac
     fi
     [[ "$subcommand" == "push" ]] || return 0
@@ -302,8 +270,11 @@ classify_from() {
         argument=$((argument + 1))
     done
     [[ $commented_danger -eq 1 ]] && NEEDS_ASK=1
-    # heredoc 演算子より後ろの segment(本文の行でありうる)は、危険な綴りでも ask 止まり。
-    if [[ -n "$danger" && $HEREDOC_INDEX -ge 0 && $SHELL_READER_SEGMENT_START -gt $HEREDOC_INDEX ]]; then
+    # heredoc 演算子より後ろの segment は、危険な綴りでも ask 止まり。reader は heredoc の本文を知らないので、
+    # 本文の行は普通の segment に見える(本文の `git push --force を deny する` は、承認しても通せない deny に
+    # しない)。heredoc の後ろに実際に書かれた force push も ask に下がるのは受容した格下げ。本文を持たない
+    # here-string(`<<<`)と `< <(…)` は reader が heredoc に数えないので、格下げしない。
+    if [[ -n "$danger" ]] && shell_reader_segment_follows heredoc; then
         danger=''
         NEEDS_ASK=1
     fi
@@ -385,17 +356,17 @@ classify_segment() {
     # 行頭の push と、`` x=`git push origin main` `` の代入の後ろの push を巻き込まないため)。
     command_word_unreadable=0
     if [[ $command_start -lt $token_count ]]; then
-        token_is_marked "$command_start" && command_word_unreadable=1
+        shell_reader_token_has_mark "$command_start" brace glob && command_word_unreadable=1
         case "${tokens[$command_start]}" in
         '$')
-            if [[ $((command_start + 1)) -lt $token_count ]] && token_is_marked $((command_start + 1)); then
+            if [[ $((command_start + 1)) -lt $token_count ]] &&
+                shell_reader_token_has_mark $((command_start + 1)) brace glob; then
                 command_word_unreadable=1
             fi
             ;;
         *'$'* | *'`'*) command_word_unreadable=1 ;;
         esac
-        if [[ $command_start -eq 0 && $UNQUOTED_SUBSTITUTION_INDEX -ge 0 &&
-            $SHELL_READER_SEGMENT_START -gt $UNQUOTED_SUBSTITUTION_INDEX ]]; then
+        if [[ $command_start -eq 0 ]] && shell_reader_segment_follows substitution; then
             case "${tokens[0]}" in
             push | -* | *[\<\>]*) command_word_unreadable=1 ;;
             esac

@@ -32,8 +32,8 @@ lib が読めない・壊れているときも `ask` を返す(起動部は `.cl
 `sort` は `--compress-program=sh` で一時データを sh に実行させられる(`curl … | sort --compress-program=sh`
 が `| sh` と同じになる。macOS の `/usr/bin/sort` で実測)ので外してある。
 「curl を実行しうる token」= basename(先頭のバッククォートと、zsh の EQUALS の語頭の `=` を
-除いたもの)が `curl` の token か、ブレース展開・パス名展開の印(reader の `BRACE_INDEXES` /
-`GLOB_INDEXES`)が付いていて、展開の結果として basename が `curl` の語になりうる token(ブレースは
+除いたもの)が `curl` の token か、ブレース展開・パス名展開の印(reader の
+`shell_reader_token_has_mark … brace glob`)が付いていて、展開の結果として basename が `curl` の語になりうる token(ブレースは
 `,` で区切った要素ごと、glob はそれ自体をパターンとして照合する。`test/curl-*.bats` は該当しない)。
 `echo curl` のような単なる言及は含めないが、
 `/usr/bin/curl`・`` `curl …` ``・zsh の `=curl`・展開の結果としてだけ curl になる bash の
@@ -155,7 +155,7 @@ token が無い」ように見えて無出力になっていた(`Bash(curl:*)` �
 (`curl -H * http://localhost:3000/` で実証済み)。引用された `{}`(JSON ボディ)や `'Accept: */*'` は
 影響を受けない。
 
-`?` と `[` も同じ理由で落とす(reader は `GLOB_INDEXES` で印を返す)。「`*` と違って周囲のリテラルが前置きされない語を生めない」という
+`?` と `[` も同じ理由で落とす(reader は token に `glob` の印を付ける)。「`*` と違って周囲のリテラルが前置きされない語を生めない」という
 読みは**誤り**で、ブラケット式や `?` は**複数のファイルに同時にマッチする**ため 1 トークンが
 複数語になる — `aevil.example` と `bevil.example` を置いた cwd で
 `curl -H [ab]evil.example http://localhost:3000/` は `-H aevil.example` と

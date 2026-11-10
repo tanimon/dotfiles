@@ -48,7 +48,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   コマンドで `SHELL_READER_SEP_IN_INPUT` か `PROCESS_SUBSTITUTION` が立てば `ask` にする。ただし
   segment の走査は続け、読み切れた別の segment に危険な綴りがあれば `deny` が勝つ
   (`git push origin main --force; cat <(true)` を `ask` に格下げしない)。segment にブレース展開
-  (reader の `SHELL_READER_BRACE_INDEXES`)かパス名展開(`GLOB_INDEXES`。引用符の外の `*` `?` `[`)が
+  (reader の `brace` の印)かパス名展開(`glob` の印。引用符の外の `*` `?` `[`)が
   あるときも `ask` — `{main,--force}` や `-{f..f}`、cwd に `-f` を置いた `-?` は展開の結果としてだけ
   危険な綴りを作り、token には現れない。binary やサブコマンドそのものを展開で作る綴り
   (`git {push,origin,main,--force}`、bash の `{git,push,…}`、`env {git,push,…}`、`/usr/bin/gi? push …`)は
@@ -62,9 +62,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   単独の `$` として読む)のときも、同じく segment に `push` を含む token があれば `ask`。引用符の外の
   `$(which git) push …` は reader が `)` で segment を切り、push の segment が `push` そのものか git の
   全体オプション・リダイレクト(`-C . push …`、`2>/dev/null push …`)から始まるので、その segment が
-  引用符の外の `$(`(`$` で終わる token の直後の区切り)より後ろにあり、先頭がそれらのときも `ask` に
-  する。コマンド全体の `$` では
-  なく `$(` の位置で絞るのは、heredoc 本文の行頭の `push` と別の行の `$HOME` を組み合わせないため。
+  引用符の外の `$(`(reader の `segment_follows substitution`)より後ろにあり、先頭がそれらのときも `ask` に
+  する。コマンド全体の `$` ではなく `$(` の位置で絞るのは、heredoc 本文の行頭の `push` と別の行の `$HOME` を組み合わせないため。
 - **zsh の綴りも読む。** Bash ツールは利用者のシェル(このマシンでは zsh)で動くので、`=git`(EQUALS。
   PATH 上の git に展開される)の語頭の `=` を外して binary を読み、`=(…)`(zsh のプロセス置換)を
   reader が `PROCESS_SUBSTITUTION` として返す。`=git push origin main --force` はこれが無いと無出力で、
@@ -135,7 +134,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 - **heredoc の本文とコメントの中の危険な綴りは `ask` 止まり。** reader は heredoc もコメントも知らないので、
   `git commit -F - <<'EOF'` の本文の行 `git push --force を deny する` や、`git push origin main # do not --force`
   の `--force` が `deny` になっていた。`deny` は承認しても通せないので、このフックについてのコミットメッセージを
-  heredoc で書けなかった。heredoc 演算子(reader の `SHELL_READER_HEREDOC_INDEXES`)より後ろの
+  heredoc で書けなかった。heredoc 演算子(reader の `shell_reader_segment_follows heredoc`)より後ろの
   segment と、push の引数の語頭の `#` より後ろでは、危険な綴りを `ask` にする。受容した格下げ: heredoc の後ろに
   実際に書かれた force push と、引用された `'#x'` の後ろの `--force` も `ask` になる(どちらも確認は出る)。
   heredoc かどうかを token 列から判定してはいけない: `<<`・here-string の `<<<`・`< <(…)` はどれも `<`, `<` の
@@ -145,9 +144,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   コマンド全体へ当てていたため segment 数 × token 数の二乗になり、8 KB 近い
   `git push origin main --force;git push;…` が 5 秒(フックの timeout)を越えて判定なし = フェイルオープンに
   なっていた。segment の走査の前に 1 回だけ数える(`test/git-push-guard.bats` に時間の上限つきのケースがある)。
-  展開の印(`BRACE_INDEXES` / `GLOB_INDEXES`)も同じ形で二乗になっていた: `{` は 1 byte ごとに同じ index の印を
-  足し、` *` は 2 byte ごとに印を足すので、push の segment ごとに印の全件を走査すると 8 KB で 8 秒かかった。
-  reader は同じ index の印を 1 回だけ残し、フックは印の全件ではなく segment の token ごとに引く。
+  展開の印も、push の segment ごとに印の全件を走査すると 8 KB で 8 秒かかった。フックは segment の token ごとに
+  `shell_reader_token_has_mark` で引き、1 回の費用が印の数に依存しないことは reader が受け持つ。
 - **残存(受容): 大文字小文字。** 大文字小文字を区別しない APFS では `GIT push --delete …` も git を
   実行するが、早期終了と basename の比較が大文字小文字を区別するので無出力になる(ADR 0009)。
 - **残存(受容): 早期終了は引用符除去より前。** コマンドに `push` の部分文字列が無ければ reader を

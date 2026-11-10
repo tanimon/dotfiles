@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load 'helpers/setup'
     # shellcheck source=../dot_claude/scripts/lib/shell-reader.bash
@@ -15,6 +17,16 @@ joined() {
         else
             out+="${token}|"
         fi
+    done
+    printf '%s' "$out"
+}
+
+# 今の segment の先頭から MARKED_COUNT 個(省略時は token 全体の数)の token のうち、$@ の種類のどれかの
+# 印が付いたものの index を空白区切りで出す。
+marked() {
+    local index out=''
+    for ((index = 0; index < ${MARKED_COUNT:-${#SHELL_READER_TOKENS[@]}}; index++)); do
+        shell_reader_token_has_mark "$index" "$@" && out+="$index "
     done
     printf '%s' "$out"
 }
@@ -45,7 +57,7 @@ joined() {
 @test "only unquoted redirect operators are recorded as operator indexes" {
     shell_reader_read 'd 2>&1 >out &>log ">" \> x'
     assert_equal "$(joined)" 'd|2>&1|>|out|>|log|>|>|x|'
-    assert_equal "$SHELL_READER_OPERATOR_INDEXES" ' 1 2 4 '
+    assert_equal "$(marked operator)" '1 2 4 '
 }
 
 @test "subshell parentheses are separators" {
@@ -70,37 +82,66 @@ joined() {
     assert_equal "$SHELL_READER_WORD_MULTIPLIER" 1
 }
 
-@test "a brace that can start an expansion records the index of the next token" {
+@test "a brace that can start an expansion marks the next token" {
     shell_reader_read 'git push origin {main,--force}'
-    assert_equal "$SHELL_READER_BRACE_INDEXES" ' 3 '
+    run shell_reader_token_has_mark 3 brace
+    assert_success
+    run -1 shell_reader_token_has_mark 2 brace
 }
 
-@test "a group brace followed by a space records no index" {
+@test "a group brace followed by a space marks no token" {
     shell_reader_read '{ git push origin main; }'
-    assert_equal "$SHELL_READER_BRACE_INDEXES" ' '
+    local index
+    for index in 0 1 2 3; do
+        run -1 shell_reader_token_has_mark "$index" brace
+    done
 }
 
 @test "an unquoted star is kept and flagged" {
     shell_reader_read 'curl -H * http://localhost:3000/'
     assert_equal "$(joined)" 'curl|-H|*|http://localhost:3000/|'
     assert_equal "$SHELL_READER_WORD_MULTIPLIER" 1
-    assert_equal "$SHELL_READER_GLOB_INDEXES" ' 2 '
+    assert_equal "$(marked glob)" '2 '
 }
 
 @test "a quoted star marks no token and sets no flag" {
     shell_reader_read "curl -H 'Accept: */*' http://localhost:3000/"
     assert_equal "$SHELL_READER_WORD_MULTIPLIER" 0
-    assert_equal "$SHELL_READER_GLOB_INDEXES" ' '
+    assert_equal "$(marked glob)" ''
 }
 
 @test "unquoted ? and [ mark the token index" {
-    shell_reader_read 'curl http://localhost/api?a=1 -H x'
-    assert_equal "$SHELL_READER_GLOB_INDEXES" ' 1 '
+    shell_reader_read 'curl http://localhost/api?a=1 -H [ab]x'
+    assert_equal "$(marked glob)" '1 3 '
 }
 
 @test "quoted ? does not mark the token" {
     shell_reader_read "curl 'http://localhost/api?a=1'"
-    assert_equal "$SHELL_READER_GLOB_INDEXES" ' '
+    assert_equal "$(marked glob)" ''
+}
+
+# 複数の種類を渡すと、どれか 1 つの印で真になる。種類ごとの印は混ざらない。
+@test "token_has_mark is true when any of the given kinds marks the token" {
+    shell_reader_read 'git push {a,b} -? >out'
+    assert_equal "$(marked brace)" '2 '
+    assert_equal "$(marked glob)" '3 '
+    assert_equal "$(marked operator)" '4 '
+    assert_equal "$(marked brace glob)" '2 3 '
+    assert_equal "$(marked brace glob operator)" '2 3 4 '
+}
+
+@test "token_has_mark answers within the current segment of each_segment" {
+    seen=''
+    record() { seen+="$(MARKED_COUNT=$# marked glob)|"; }
+    shell_reader_read 'echo a; ls b* c; echo d?'
+    shell_reader_each_segment record
+    assert_equal "$seen" '|1 |1 |'
+}
+
+@test "token_has_mark rejects an unknown kind" {
+    shell_reader_read 'ls *'
+    run --separate-stderr -2 shell_reader_token_has_mark 1 star
+    assert_equal "$stderr" 'shell_reader_token_has_mark: 知らない種類: star'
 }
 
 @test "a dollar anywhere sets the expansion flag and tokenizing continues" {
@@ -151,12 +192,12 @@ joined() {
     assert_equal "$(joined)" 'echo|日本語 テキスト|終わり|'
 }
 
-@test "each_segment skips empty segments and reports the start index" {
+@test "each_segment skips empty segments" {
     seen=''
-    record() { seen+="${SHELL_READER_SEGMENT_START}:$*|"; }
-    shell_reader_read 'a b && c'
+    record() { seen+="$*|"; }
+    shell_reader_read 'a b && c ; ;'
     shell_reader_each_segment record
-    assert_equal "$seen" '0:a b|4:c|'
+    assert_equal "$seen" 'a b|c|'
 }
 
 @test "each_segment sees every segment when the callback assigns globals named position and count" {
@@ -274,24 +315,53 @@ joined() {
     assert_failure
 }
 
-# heredoc 演算子(`<<` / `<<-`)だけを HEREDOC_INDEXES に記録する。here-string の `<<<` と
-# `< <(…)` は token 列では `<<` と同じ `<`, `<` に見えるので、reader が走査の時点で区別する。
-@test "heredoc operators are recorded at the index of their first <" {
-    shell_reader_read "cat <<'EOF'"
-    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' 1 '
-    shell_reader_read 'cat <<-EOF'
-    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' 1 '
-    shell_reader_read 'cat <<EOF; cat <<X'
-    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' 1 6 '
+# segment_follows の答えを segment ごとに「y」「n」で並べる。
+follows() {
+    seen=''
+    record_follows() {
+        if shell_reader_segment_follows "${kinds[@]}"; then seen+='y'; else seen+='n'; fi
+    }
+    kinds=("${@:2}")
+    shell_reader_read "$1"
+    shell_reader_each_segment record_follows
+    printf '%s' "$seen"
+}
+
+# heredoc 演算子(`<<` / `<<-`)だけを数える。here-string の `<<<` と `< <(…)` は token 列では `<<` と同じ
+# `<`, `<` に見えるので、reader が走査の時点で区別する。
+@test "segments after the first heredoc operator follow it" {
+    assert_equal "$(follows "cat <<'EOF'; git push" heredoc)" 'ny'
+    assert_equal "$(follows 'cat <<-EOF; git push' heredoc)" 'ny'
+    assert_equal "$(follows 'a; cat <<EOF; b; cat <<X; c' heredoc)" 'nnyyy'
 }
 
 @test "a here-string, a process substitution input and a quoted << are not heredocs" {
-    shell_reader_read 'cat <<< x'
-    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
-    shell_reader_read 'cat < <(echo x)'
-    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
-    shell_reader_read 'echo "<<" x \<<y'
-    assert_equal "$SHELL_READER_HEREDOC_INDEXES" ' '
+    assert_equal "$(follows 'cat <<< x; git push' heredoc)" 'nn'
+    assert_equal "$(follows 'cat < <(echo x); git push' heredoc)" 'nnn'
+    assert_equal "$(follows 'echo "<<" x \<<y; git push' heredoc)" 'nn'
+}
+
+# 引用符の外の `$(` は、reader が走査の時点で「引用符の外の単独の `$` の直後の `(`」として記録する。
+@test "segments after the first unquoted \$( follow the substitution" {
+    assert_equal "$(follows 'a $(which git) push; b' substitution)" 'nyyy'
+    assert_equal "$(follows 'x=$(git branch) ; git push' substitution)" 'nyy'
+    assert_equal "$(follows 'echo $((1 + 2)); git push' substitution)" 'nyy'
+    # bash も zsh も行継続を先に消すので、`$\⏎(` も置換になる。
+    assert_equal "$(follows $'echo $\\\n(which git) push' substitution)" 'nyy'
+}
+
+@test "a dollar before a separator, a quoted \$( and \$\$ do not open a substitution" {
+    assert_equal "$(follows 'echo a$; git push' substitution)" 'nn'
+    assert_equal "$(follows 'echo a$| git push' substitution)" 'nn'
+    assert_equal "$(follows 'echo "$(date)"; git push' substitution)" 'nn'
+    assert_equal "$(follows 'echo \$(x) ; git push' substitution)" 'nnn'
+    assert_equal "$(follows "echo \$'('; git push" substitution)" 'nn'
+}
+
+@test "segment_follows is true when either kind comes before the segment" {
+    assert_equal "$(follows 'a; cat <<EOF; b' heredoc substitution)" 'nny'
+    assert_equal "$(follows 'a $(b); c' heredoc substitution)" 'nyy'
+    assert_equal "$(follows 'a; b' heredoc substitution)" 'nn'
 }
 
 # --- Text Floor ---------------------------------------------------------------
@@ -358,6 +428,42 @@ joined() {
             _ "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/shell-reader.bash" "$command" >"$BATS_TEST_TMPDIR/status"
     } 2>"$BATS_TEST_TMPDIR/cpu-time"
     assert_equal "$(cat "$BATS_TEST_TMPDIR/status")" 'status=1'
+    run awk '
+        NF == 2 && $1 ~ /^[0-9]+\.[0-9]+$/ && $2 ~ /^[0-9]+\.[0-9]+$/ { read = 1; total = $1 + $2 }
+        END {
+            if (!read) { print "time の出力を読めない"; exit 2 }
+            printf "cpu=%.3fs\n", total
+            exit !(total < 1)
+        }' "$BATS_TEST_TMPDIR/cpu-time"
+    assert_success
+}
+
+# 印の問い合わせは 1 回の費用が印の数に依存しないので、segment の token ごとに引いても二乗にならない。
+# 印を「 3 7 」形式の文字列で返していたときは、`{{{{…` が 1 byte ごとに印を足し、印の全件を走査する呼び出し側が
+# 8 KB で 8 秒かかった(フックの timeout は 5 秒 = 判定なし = フェイルオープン)。`{{{{…` は token を作らないので、
+# 後半に印の付いた token を並べ(` {a *` は brace と glob の印が付いた token を 1 つずつ作る)、すべての token を
+# 3 種類で引く。CPU 時間で測る理由と別の bash で走らせる理由は、Text Floor の時間の test と同じ。
+@test "querying every token for marks stays fast on an 8 KB input" {
+    local command='echo ' TIMEFORMAT='%3U %3S'
+    while [[ ${#command} -lt 4096 ]]; do command+='{{{{{{{{{{'; done
+    while [[ ${#command} -lt 8187 ]]; do command+=' {a *'; done
+    {
+        time bash -c 'source "$1"; shell_reader_read "$2"
+                      count_marks() {
+                          local index
+                          for ((index = 0; index < $#; index++)); do
+                              shell_reader_token_has_mark "$index" brace glob operator && marks=$((marks + 1))
+                          done
+                          return 0
+                      }
+                      marks=0
+                      shell_reader_each_segment count_marks
+                      echo "status=$? marks=$marks"' \
+            _ "$BATS_TEST_DIRNAME/../dot_claude/scripts/lib/shell-reader.bash" "$command" >"$BATS_TEST_TMPDIR/status"
+    } 2>"$BATS_TEST_TMPDIR/cpu-time"
+    # 印の付いた token を実際に引いたこと(空振りでないこと)も確かめる。
+    run cat "$BATS_TEST_TMPDIR/status"
+    assert_output --regexp '^status=0 marks=[0-9]{4}$'
     run awk '
         NF == 2 && $1 ~ /^[0-9]+\.[0-9]+$/ && $2 ~ /^[0-9]+\.[0-9]+$/ { read = 1; total = $1 + $2 }
         END {
