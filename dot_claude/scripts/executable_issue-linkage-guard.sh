@@ -47,7 +47,7 @@ fi
 
 command_guard_start --name issue-linkage-guard --verb "$COMMAND_GUARD_VERB_CREATE" --verb "$COMMAND_GUARD_VERB_NEW" --on-unreadable pass \
     --lib shell-reader.bash --lib issue-linkage-scope.bash \
-    --require 'shell_reader_read shell_reader_each_segment issue_linkage_scope_in_scope issue_linkage_scope_repo_flag'
+    --require 'shell_reader_read shell_reader_each_segment shell_reader_segment_follows issue_linkage_scope_in_scope issue_linkage_scope_repo_flag'
 # command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 MARKER='<!-- issue-linkage -->'
@@ -58,12 +58,6 @@ if [[ $SHELL_READER_TOO_LONG -eq 1 || $SHELL_READER_SEP_IN_INPUT -eq 1 ||
     $SHELL_READER_UNCLOSED_QUOTE -eq 1 ]]; then
     exit 0
 fi
-
-# 最初の heredoc 演算子の token index。無ければ -1。
-HEREDOC_INDEX=${SHELL_READER_HEREDOC_INDEXES:- }
-HEREDOC_INDEX=${HEREDOC_INDEX# }
-HEREDOC_INDEX=${HEREDOC_INDEX%% *}
-[[ -z "$HEREDOC_INDEX" ]] && HEREDOC_INDEX=-1
 
 DENY_DETAIL=''
 
@@ -103,9 +97,7 @@ check_segment() {
     [[ "${tokens[$((i + 1))]:-}" == issue || "${tokens[$((i + 1))]:-}" == pr ]] || return 0
     # new は create の alias
     [[ "${tokens[$((i + 2))]:-}" == create || "${tokens[$((i + 2))]:-}" == new ]] || return 0
-    if [[ $HEREDOC_INDEX -ge 0 && $SHELL_READER_SEGMENT_START -gt $HEREDOC_INDEX ]]; then
-        return 0
-    fi
+    shell_reader_segment_follows heredoc && return 0
 
     local repo='' body_file='' has_body_file=0 body_value='' has_body=0 argument delimiter
     local heredoc_read=0 heredoc_status

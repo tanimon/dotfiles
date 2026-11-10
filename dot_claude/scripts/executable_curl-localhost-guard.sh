@@ -61,7 +61,7 @@ fi
 # 扱いは segment の走査(classify_segment)の前の判定で決める。
 command_guard_start --name curl-localhost-guard --verb "$COMMAND_GUARD_VERB" --on-unreadable ask \
     --lib shell-reader.bash \
-    --require 'shell_reader_read shell_reader_each_segment shell_reader_text_floor_matches'
+    --require 'shell_reader_read shell_reader_each_segment shell_reader_token_has_mark shell_reader_text_floor_matches'
 # command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 ASK_REASON='curl-localhost-guard: 宛先がループバック(localhost / 127.0.0.0/8 / [::1])だけだと確認できないため、承認が必要です。'
@@ -245,6 +245,8 @@ classify_short_bundle() {
 # Returns 0 when every target is loopback and every flag is recognized.
 classify_curl() {
     local tokens=("$@")
+    # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
+    set --
     local count=${#tokens[@]}
     local index=1 token value urls=0 rc
 
@@ -267,12 +269,11 @@ classify_curl() {
         # file-descriptor digit attached to the operator, so a bare operator
         # consumes the filename that follows and an operator with the filename
         # already glued on consumes only itself.
-        # 読み飛ばすのは reader が演算子として読んだ token だけ(SHELL_READER_OPERATOR_INDEXES)。
+        # 読み飛ばすのは reader が演算子として読んだ token だけ(印の operator)。
         # 引用された `">"` や `\>` は curl の引数で、字面で判定すると次の引数(2 つ目の URL)まで
         # 読み飛ばしてしまう(`curl http://localhost/ ">" https://evil.example/` が無出力になっていた)。
-        # classify_segment は segment の先頭から渡すので、segment 内の index に SEGMENT_START を足す。
-        case "$SHELL_READER_OPERATOR_INDEXES" in
-        *" $((SHELL_READER_SEGMENT_START + index)) "*)
+        # classify_segment は segment の先頭から渡すので、index は segment の中の位置のまま引ける。
+        if shell_reader_token_has_mark "$index" operator; then
             if [[ "$token" =~ ^[0-9]*\>[\>|]?$ ]]; then
                 index=$((index + 2))
                 continue
@@ -280,8 +281,7 @@ classify_curl() {
                 index=$((index + 1))
                 continue
             fi
-            ;;
-        esac
+        fi
 
         case "$token" in
         --url)
@@ -362,6 +362,8 @@ INERT_COMMANDS='jq head tail cat wc grep egrep fgrep uniq tr cut column echo pri
 classify_segment() {
     # 語頭の `=` は zsh の EQUALS(`=curl` は PATH 上の curl)。外して同じ判定に掛ける。
     local segment=("$@") binary=${1#=} index
+    # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
+    set --
 
     # 改行を含む token は、bash が実行する行を飲み込んでいることがある(なぜ飲み込むかは lib の
     # shell_reader_text_floor_matches)。飲み込まれた行は字面の床の「行頭の curl」に一致しなければ何も見ないので
@@ -389,11 +391,9 @@ classify_segment() {
         # Glob marks only matter here: an inert segment's arguments are never
         # read as destinations, so `jq .[0]` needs no prompt.
         for ((index = 1; index < ${#segment[@]}; index++)); do
-            case "$SHELL_READER_GLOB_INDEXES" in
-            *" $((SHELL_READER_SEGMENT_START + index)) "*)
+            if shell_reader_token_has_mark "$index" glob; then
                 glob_token_is_loopback_safe "${segment[$index]}" || return 1
-                ;;
-            esac
+            fi
         done
         classify_curl "${segment[@]}" || return 1
         return 0
@@ -462,28 +462,27 @@ marked_token_can_be_curl() {
 # basename が `curl` の語になりうれば実行しうるとみなし、下の WORD_MULTIPLIER か segment の走査で ask に
 # する。`test/curl-*.bats` のように curl を含んでも curl にはなりえない glob は巻き込まない。
 # 受容した誤 ask: `ls docs/*curl*` のように、basename が curl になりうる glob を引数に書いたもの。
-CURL_PRESENT=0
-for index in "${!SHELL_READER_TOKENS[@]}"; do
-    token=${SHELL_READER_TOKENS[$index]}
-    token=${token#\`}
-    token=${token#=}
-    if [[ "${token##*/}" == "curl" ]]; then
-        CURL_PRESENT=1
-        break
-    fi
-    case "$token" in
-    *curl*)
-        case "$SHELL_READER_BRACE_INDEXES$SHELL_READER_GLOB_INDEXES" in
-        *" $index "*)
-            if marked_token_can_be_curl "$token"; then
-                CURL_PRESENT=1
-                break
+# shell_reader_each_segment の callback。curl を実行しうる token を見つけたら 1 を返して走査を止める。
+segment_can_run_curl() {
+    local tokens=("$@") index token
+    # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
+    set --
+    for ((index = 0; index < ${#tokens[@]}; index++)); do
+        token=${tokens[$index]#\`}
+        token=${token#=}
+        [[ "${token##*/}" == "curl" ]] && return 1
+        case "$token" in
+        *curl*)
+            if shell_reader_token_has_mark "$index" brace glob && marked_token_can_be_curl "$token"; then
+                return 1
             fi
             ;;
         esac
-        ;;
-    esac
-done
+    done
+    return 0
+}
+CURL_PRESENT=0
+shell_reader_each_segment segment_can_run_curl || CURL_PRESENT=1
 
 # reader が読み切れない部分(引用符の中の置換に埋まった curl、heredoc やコメントに飲み込まれた行、閉じていない
 # 引用符、長さ超過のコマンド全体。対象は lib の shell_reader_text_floor_matches)で、curl がコマンドの位置に

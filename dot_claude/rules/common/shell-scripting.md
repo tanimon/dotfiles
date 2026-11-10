@@ -158,4 +158,4 @@ URL のクエリ文字列や `[::1]` を巻き添えにしたくない場合で�
 リダイレクト先を読み飛ばすような走査で `case "$token" in '>'|'2>')` と見た目で判定すると、
 引用された `">"` の次にある本物の引数(2 つ目の URL など)を読み飛ばしてしまい、判定が緩む側にズレる。
 「このトークンは引用されていない演算子だった」という事実は reader がトークン化の時点で記録し
-(`shell-reader.bash` の `SHELL_READER_OPERATOR_INDEXES`)、判定側はそれだけを見ること。
+(`shell-reader.bash` の `shell_reader_token_has_mark <index> operator`)、判定側はそれだけを見ること。
