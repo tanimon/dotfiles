@@ -147,7 +147,12 @@ def approval_trigger(cmd, pd, inp, cwd):
     if inp.get("dangerouslyDisableSandbox"):
         return "サンドボックス外での実行"
     if rc.startswith("hook"):
-        return "フック: " + replay_guards(cmd, cwd) + "(推定)"
+        hit = replay_guards(cmd, cwd)
+        if "git-push-guard" in hit and re.search(r"<<\s*'?\w+", cmd):
+            C["push_guard_heredoc"] += 1
+            C["push_guard_heredoc:本文に push を含む"] += "push" in cmd
+            C["push_guard_heredoc:本文に git push の並びを含む"] += bool(re.search(r"git\s+push", cmd))
+        return "フック: " + hit + "(推定)"
     if rc.startswith("safetyCheck"):
         return "組込みの安全確認(safetyCheck)"
     for a in ASK_RULES:
@@ -240,6 +245,7 @@ for f in sorted(glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))):
     seen_first = False
     label = None
     sess = collections.Counter()
+    pending_reject = False
     for d in recs:
         t = d.get("type")
         if not START <= ts(d) < END:
@@ -292,6 +298,8 @@ for f in sorted(glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))):
                         C["gh_pr_merge_ok"] += 1
                 if d.get("toolDenialKind") == "user-rejected":
                     C["user_rejected:" + name] += 1
+                    C["user_rejected_with_feedback"] += "the user said" in str(b.get("content"))
+                    pending_reject = True
                     ex("user_rejected", {"tool": name, "text": str(b.get("content"))[:240]})
                 src = pd.get("source")
                 if src == "user_temporary":
@@ -335,8 +343,11 @@ for f in sorted(glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))):
         txt = text_of(content).strip()
         if "[Request interrupted by user" in txt:
             C["interrupt:for_tool_use" if "for tool use" in txt else "interrupt:during_response"] += 1
+            C["interrupt_right_after_rejection"] += pending_reject
+            pending_reject = False
             sess["interrupt"] += 1
             continue
+        pending_reject = False
         if d.get("isMeta"):
             continue
         human = ((d.get("origin") or {}).get("kind") == "human" or d.get("promptSource") == "typed"
@@ -352,6 +363,7 @@ for f in sorted(glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))):
             C["launch"] += 1
             label = "/" + m.group(1) if m else "自由記述"
             launch_kind[label] += 1
+            week[week_of(ts(d))]["launch"] += 1
         else:
             if m:
                 slash_later["/" + m.group(1)] += 1
@@ -359,6 +371,9 @@ for f in sorted(glob.glob(os.path.join(PROJECTS, "*", "*.jsonl"))):
             prompt_kind[k] += 1
             if k == "テキストの質問への回答":
                 C["text_answer_pure_acceptance" if is_pure_acceptance(txt) else "text_answer_with_content"] += 1
+                C["text_answer_recommend_all_only"] += bool(re.fullmatch(r"(全部|すべて)推奨案で", txt))
+            if k == "PR 作成・push の指示":
+                C["pr_instruction_with_pr_body_review"] += "pr-body-review" in txt
             ex("prompt:" + k, re.sub(r"\s+", " ", txt)[:140])
         last_text = ""
     for k, v in sess.items():
