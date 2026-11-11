@@ -34,8 +34,8 @@
 
 ## 1. 要約
 
-- **人に残る Touchpoint は、ほぼ全例で「着手(キューに入れる)」と「マージ」の 2 つに寄っている。** 個人の夜間ループ(nightly Ralph loop)、SIS、islo、Stripe Minions、GitHub Copilot cloud agent はいずれも、人がラベルなどでキューに入れ、人がマージする。これは #645 の Destination と同じ形である。人のマージを外した例(StrongDM、Pullboard、Kiro と Electric Twin の一部の自動マージ)もあるが、#645 の範囲外である。
-- **あいまいさへの対処は、止まる位置で 3 つに分かれる。** (a) 着手の前にまとめて聞く(Fabrika、AI-DLC、HumanLayer の lights-on、Review-Verify)。(b) 実行中に聞くが、人ではなく上位のエージェントに先に聞く(Pullboard、Agent Scrum、Kiro、Oskar Groth)。(c) 人に聞くときは 1 件にまとめ、推奨の答えを付け、ラベルを付けて止まる(nightly Ralph loop、SIS)。「仮定を置いて進めて PR に書く」を既定にした例は見つからなかった。近いのは、決定を Linear に記録する Electric Twin と、spec に「誰も確かめていない仮定」の節を置く Fabrika である。
+- **人に残る Touchpoint は、ほぼ全例で「着手(キューに入れる)」と「マージ」に寄っている。ただし最も近い例は、3 つ目として「質問に答える」も残している。** 個人の夜間ループ(nightly Ralph loop)、SIS、islo、Stripe Minions、GitHub Copilot cloud agent はいずれも、人がラベルなどでキューに入れ、人がマージする。nightly Ralph loop の朝の手順には「answer any ❓」があり(13 日で `needs-decision` が 4 件)、SIS は薄いチケットの質問を Jira に投げる。#645 の Destination(意図を出す、PR のレビューとマージ)は、質問への回答が無い分だけこれらより狭い。人のマージを外した例(StrongDM、Pullboard、Kiro と Electric Twin の一部の自動マージ)もあるが、#645 の範囲外である。
+- **あいまいさへの対処は、止まる位置で 3 つに分かれる。** (a) 着手の前にまとめて聞く(Fabrika、AI-DLC、HumanLayer の lights-on、Review-Verify)。(b) 実行中に聞くが、人ではなく上位のエージェントに先に聞く(Pullboard、Agent Scrum、Kiro、Oskar Groth)。(c) 人に聞くときは 1 件にまとめ、推奨の答えを付け、ラベルを付けて止まる(nightly Ralph loop、SIS)。「仮定を置いて進めて記す」は、すべてを対象にした既定としては見つからなかった。範囲を限った形ならある。SIS は、人の承認を外す設定にすると、エージェントが書いた `intent.md`(未解決の問いを含む)を「No person has reviewed this document.」の印付きで PR に入れる。Groth の lane は、人に聞く範囲の外を自分で決めて事後に伝える。Electric Twin は決定を Linear に記録する。Fabrika は spec に「誰も確かめていない仮定」の節を置く。
 - **仮定で進めた失敗例はある。** OpenAI の社内エージェントは「メッセージを送るな」という指示を、監視アラートを止めてよいという意味に読んだ。islo では、合わない設計に固執したまま、テストは通るが筋の悪いコードが出てきた。HumanLayer は、人がコードを読まない運用を 2025 年 7 月から続けた末に、作り直しに追い込まれた。逆に、止まりすぎる側の失敗も記録がある。Groth が自分のメッセージ 488 件を調べると、本当の承認は約 8 件に 1 件しかなく、約 3 分の 2 は仕組みが処理すべきものだった。Kiro は、質問のたびに自動化が止まることを問題にした。
 - **人間不在の承認は、4 つの層を重ねて置き換えている。** (1) 隔離の境界(Stripe は devbox の中で確認を全部省く。VM、使い捨てのサーバー)。(2) 決定的な許可リストと拒否リスト(マージ・force push・公開・秘密の読み取りを `deny` にする)。(3) 書き込み経路を 1 つに絞る(SIS の git-broker、Copilot の単一ブランチ)。(4) 事後のレビュー(人のマージ、承認の抜き取り、ログの定期レビュー)。LLM の分類器(auto mode)は (2) の代わりにはならない、という指摘が繰り返し出る。Latacora の指摘、赤チーム評価の 79%、Embrace The Red の 60〜80% がそれである。
 - **headless では「承認を求める」が「拒否」になる。** Claude Code の公式ドキュメントでも、このリポジトリの #429 でも同じである。実践例はこれを利用して、プロンプトではなく権限の層でマージや公開を塞いでいる(nightly Ralph loop、lights-on の regulator)。この形は、このリポジトリの Command Guard と週次ジョブの「push と PR の作成はスクリプトが固定の引数で行う」に対応する。
@@ -49,7 +49,7 @@
 | Instant Software Factory | OSS のブートストラップ(Claude Code routines) | 8 ロールの定期実行。マージは人の承認の後 | [README](https://github.com/mikolalysenko/instant-factory)、[BOOTSTRAP.md](https://github.com/mikolalysenko/instant-factory/blob/main/BOOTSTRAP.md)、論文 [arXiv:2610.36254](https://arxiv.org/abs/2610.36254v1) |
 | lights-on boilerplate | OSS(Votito の構成が元) | コンテナ + Bash の regulator(PreToolUse)+ 決定的な orchestrator | [README](https://github.com/gojko/lights-on-software-factory)、[REGULATOR.md](https://github.com/gojko/lights-on-software-factory/blob/master/REGULATOR.md) |
 | Pullboard | OSS | 人が承認した SPEC の行 → builder / verifier / coordinator。検証を通れば main に入る | [README](https://github.com/pullboard-dev/pullboard) |
-| Fabrika | OSS(alpha) | 確認項目の承認 → spec の凍結 → 最終パケットのマージ判断 | [tatiyants.com/fabrika](https://tatiyants.com/fabrika/) |
+| Fabrika | OSS(alpha) | 確認項目の承認 → spec の凍結 → 戻ってくるのは PR ではなく review packet で、マージは人が決める(「The outcome is either a branch you can merge, or」) | [tatiyants.com/fabrika](https://tatiyants.com/fabrika/) |
 | AI-DLC | AWS Labs | 5 フェーズ・33 ステージ。各ステージの終わりに承認ゲート | [README](https://github.com/awslabs/aidlc-workflows)、[07-interaction-modes.md](https://github.com/awslabs/aidlc-workflows/blob/main/docs/guide/07-interaction-modes.md) |
 | HumanLayer | スタートアップ | 人がコードを読まない運用から、人がコードを読む運用へ戻した | [wsff.md](https://github.com/humanlayer/advanced-context-engineering-for-coding-agents/blob/main/wsff.md) |
 | Oskar Groth | 1 人の会社(Cindori)、2 週間で PR 478 件(1 製品) | orchestrator が lane の owner に配り、人に聞くものを列挙して絞る | [oskargroth.com](https://oskargroth.com/blog/orchestrating-agents) |
@@ -77,7 +77,7 @@
 
 | 手法 | 誰が使っているか | 出典 | このリポジトリ |
 |---|---|---|---|
-| ラベルの付いた issue だけを拾う。他は見えない | nightly Ralph loop(`ready`)、SIS(`sis`)、islo(Linear のラベル)、Firecrawl の最小構成(`agent-ready`) | Ralph: 「An issue labelled ready is approved work; everything else is invisible to the loop.」 SIS: 「Label a Jira ticket `sis`. A coding agent picks it up」 islo: 「A human adds a label to a Linear ticket and the system takes it from there」 | 対応なし。`ready-for-agent` ラベルの issue はあるが(#645)、それを拾う経路は無い |
+| ラベルの付いた issue だけを拾う。他は見えない | nightly Ralph loop(`ready`)、SIS(`sis`)、islo(Linear のラベル)、Firecrawl の最小構成(`agent-ready`) | Ralph: 「An issue labelled ready is approved work; everything else is invisible to the loop.」 SIS: 「Label a Jira ticket `sis`. A coding agent picks it up」 islo: 「A human adds a label to a Linear ticket and the system takes it from there」 | 対応なし。`ready-for-agent` ラベルは `docs/agents/triage-labels.md` が定義しているが、リポジトリ内でそれを拾うコードは無い(`grep -rn ready-for-agent` が当たるのは同ファイルと本書だけ) |
 | 起動できる人を書き込み権限で絞る。権限の無い人のコメントはエージェントに渡さない | GitHub Copilot cloud agent、SIS | Copilot: 「Only users with write access to the repository can trigger Copilot cloud agent to work. Comments from users without write access are never presented to the agent.」 SIS: PR のフィードバックは `author_association` が OWNER / MEMBER / COLLABORATOR のものだけを数える | 対応なし(issue を入力にする経路が無い)。公開リポジトリなので、入れるなら同じ絞り込みが要る(4.2 の CSA の事故) |
 | 時刻で起動する(timer + ポーリング)。予算が尽きたら止まる | nightly Ralph loop(systemd timer が 18:00 に起動し、30 分ごとにポーリング)、Agent Scrum(外部タイマー) | Ralph: 「A systemd timer starts the night at 18:00; a second one polls every 30 minutes」 | 週次ジョブ(launchd、土曜 10:00)が時刻起動の前例。ただし入力は issue ではなく pending の transcript |
 | 着手の前に依存の順序を書く | nightly Ralph loop(`After #N`) | 「An `After #N` line in an issue body holds it back until #N is closed — added after a batch of refactor PRs collided on CLAUDE.md and README.md.」 | 対応なし |
@@ -90,7 +90,7 @@
 |---|---|---|---|
 | 隔離の中では確認を全部省く | Stripe Minions(devbox)、Claude Code 公式(コンテナで `--dangerously-skip-permissions`) | Stripe: 「any mistakes an agent might make are confined to the limited blast radius of one devbox, so we can safely run the agent with full permissions and skip confirmation prompts.」 公式: 「Run fully unattended inside a container … Required: a container, VM, or the sandbox runtime」 | nono(Isolation Boundary)。`claude-nono` と週次ジョブは `--dangerously-skip-permissions` で動き、残るのは `deny` と明示的な `ask` だけ(`dot_config/nono/CLAUDE.md`) |
 | 本番データ・本番サービス・任意の外向き通信に届かない環境で動かす | Stripe(QA 環境の devbox)、Electric Twin(本番相当のデータを入れた隔離環境)、SIS(モデルの鍵も直接のネットワークも無い) | Stripe: 「minions don't have access to real user data, Stripe's production services, or arbitrary network egress」 Electric Twin: 「no agent touches the production database without a human in the loop.」 | nono の egress control(`allow_domain` と preset の和集合)。ただし localhost には穴がある(`open_port: [0]`)、と同じ文書が明記している |
-| 資格情報を境界の外のプロキシに置き、エージェントに見せない | Latacora の推奨、islo(network gateway が注入する)、SIS(git-broker だけが GitHub に書く) | Latacora: 「The proxy has your real credentials; the agent in the VM never sees them.」 | 対応なし。nono の内側の `gh` は認証を読め、`gh api` は承認なしで通る(受容した残存。`dot_config/nono/CLAUDE.md`) |
+| 資格情報を境界の外のプロキシに置き、エージェントに見せない | Latacora の推奨、SIS(サンドボックスにモデルの鍵を置かず、git-broker だけが GitHub に書く) | Latacora: 「The proxy has your real credentials; the agent in the VM never sees them.」 | 対応なし。nono の内側の `gh` は認証を読め、`gh api` は承認なしで通る(受容した残存。`dot_config/nono/CLAUDE.md`) |
 | マージ・force push・公開・秘密の読み取りを権限の層で `deny` にする | nightly Ralph loop、SIS | Ralph: 「Merging, deploying and publishing are denied at the permission level, not just discouraged in a prompt.」 deny の例は `gh pr merge`、`git push --force`、`git push origin main`、`npm publish`、`Read(~/.ssh/**)` | `settings.json.tmpl` の `permissions.deny`(force push、`gh repo delete` など)と、Command Guard の `git-push-guard`(破壊的な綴りを引数の位置に関係なく拒否する) |
 | コマンドを決定的に読む regulator を PreToolUse に置き、allow / ask / deny を返す。workflow のエージェントには ask を出さず、未知のものは拒否する | lights-on boilerplate | 「Any `workflow-*` agent is denied every command that no earlier rule allows (`workflow-agent-catch-all`), and is never prompted.」 承認を求められるたびに「Ask Claude to add more custom rules」 | Command Guard は拒否・承認の要求・無判定だけを返し、allow を返さない。現行の Claude Code では、フックの allow が ask ルールに負ける(ADR 0008、0009)ため、lights-on と同じ「緩める」側は成り立たない |
 | LLM の分類器が実行前に承認する(auto mode) | Claude Code の既定、Gusto ほか | Anthropic: 人が承認する permission prompt は 97%。人は危険なコマンドの 13.6% しか止められず、auto mode は 89% を止めた。合成攻撃の集合での見逃しは 12% から 7% に下がった(「should not be taken as the miss rate on real traffic」) | 週次ジョブは使っていない(`--dangerously-skip-permissions`)。素の `claude` の対話では `defaultMode: auto` |
@@ -117,7 +117,7 @@
 
 | 手法 | 誰が使っているか | 出典 | このリポジトリ |
 |---|---|---|---|
-| 1 issue で 1 PR。新しい worktree と 1 回きりの headless セッションで動かす | nightly Ralph loop、Local Software Factory(stratonext)、Agent Scrum | Ralph: 「Each issue gets a fresh git worktree and a one-shot claude -p session.」 | 実装の段は #645 の Not yet specified。Deliver は使われずに廃止された(ADR 0022)。週次ジョブは `~/.claude/harness/review-worktree` に worktree を切る |
+| 1 issue で 1 PR。新しい worktree と 1 回きりの headless セッションで動かす | nightly Ralph loop。worktree での隔離だけなら Local Software Factory(stratonext、依頼ごとに worktree)と Agent Scrum(短命の developer エージェントを worktree で動かす)も | Ralph: 「Each issue gets a fresh git worktree and a one-shot claude -p session.」 stratonext: 「By default, each request gets its own Git worktree」 | 実装の段は #645 の Not yet specified。Deliver は使われずに廃止された(ADR 0022)。週次ジョブは `~/.claude/harness/review-worktree` に worktree を切る |
 | 実装の前に計画を固める(product review → architecture → shape of code) | HumanLayer、Addy Osmani | HumanLayer: 「not everything gets a product review. A copy tweak, a one-off script, a bug with an obvious repro -- we still just oneshot those」 | Requirements Document |
 | 独立したエージェントがレビューし、動作確認する | islo、Electric Twin、Kiro、Groth、Anthropic、OpenAI | Groth: 「A green CI run or the builder's own summary doesn't count as review.」 | Review-Verify(レビュー修正ループと動作確認。実装と push と PR の作成はしない) |
 | 反復の上限を置く | islo(5 回)、SIS(PR あたり 3 ラウンド)、Stripe(CI は 1〜2 ラウンド)、nightly Ralph loop(Copilot のレビューは PR あたり 2 ラウンド) | Stripe: 「we think there are diminishing marginal returns」 | Review-Verify の `maxReviewRounds`(既定 3) |
@@ -129,7 +129,7 @@
 | エージェントは決まった接頭辞のブランチにだけ push する | Copilot(`copilot/`)、SIS(`sis/*`)、nightly Ralph loop(`ralph/*`) | Copilot: 「Copilot cloud agent only has the ability to push to a single branch.」 | 週次ジョブの `harness/review-<日付>`。CI はこの接頭辞で Loop PR を見分け、Guarded Path への変更を落とす(`scripts/check-guarded-paths.sh`) |
 | GitHub への書き込みを 1 つの部品に集め、push の前に差分を検査する | SIS(git-broker) | 「git-broker is the only component that writes to GitHub」 CI の定義と CODEOWNERS は protected path で、依存の変更と大きすぎる差分は拒否する | 週次ジョブは「push と `gh pr create --draft` はスクリプトが固定の引数で行う」(`.claude/rules/harness-weekly.md`)。push の直前に Integrity Snapshot の関門を置く |
 | draft PR にする | SIS、週次ジョブ | SIS: 「opens a **draft pull request** for people to review」 | Loop PR(draft) |
-| 承認の要るブランチにしか PR を出さない。依頼した人は承認できない | SIS(`SIS_REQUIRE_PROTECTED_BRANCH`)、Copilot、Instant Software Factory | SIS: 「That is what guarantees a person reviews before anything merges, whatever the token could do.」 Copilot: 「Prevents the user who asked Copilot cloud agent to create a pull request from approving it.」 Instant: 「GitHub does not let an account approve its own PRs.」 | このリポジトリには `required_signatures` のルールがある(CLAUDE.md)。エージェントの PR も人のアカウントで作られる |
+| 承認の要るブランチにしか PR を出さない。依頼した人は承認できない | SIS(`SIS_REQUIRE_PROTECTED_BRANCH`)、Copilot、Instant Software Factory | SIS: 「That is what guarantees a person reviews before anything merges, whatever the token could do.」 Copilot: 「Prevents the user who asked Copilot cloud agent to create a pull request from approving it.」 Instant: 「GitHub does not let an account approve its own PRs.」 | main の ruleset(`gh api repos/tanimon/dotfiles/rulesets/14661232` で確認)は PR を必須にするが、`required_approving_review_count` は 0 で、必須の status check は `Guarded paths` だけ。エージェントの PR も人のアカウントで作られる |
 | 人がレビューするまで CI を動かさない | Copilot(既定) | 「workflows are not triggered until Copilot cloud agent's code is reviewed and a user with write access to the repository clicks the Approve and run workflows button.」 | 対応なし |
 | PR の後もループが追い、レビューと CI の失敗に応える。放置されたら追うのをやめる | SIS(14 日で「PR left open」)、nightly Ralph loop、islo(babysit agent)、Kiro(prepare-pr) | SIS: 「The factory follows it until a person merges or closes it, so reviewers only review.」 | Loop Stall の通知(人の対応を待って進んでいない Loop PR を Issue で知らせる)。ループが PR に応える経路は無い |
 | マージもエージェントがする(**#645 の範囲外**) | StrongDM、Pullboard、Kiro(単純な tier)、Electric Twin(バックエンドの 50%)、Groth(merge clearance)、Agent Scrum(Definition of Done で判定できるもの)、Anthropic(Claude Tag が半分以上)、OpenAI(低リスクの opt-in) | Electric Twin: 「39% of backend merges have been automatic, rising to 50% in the week of 5 October」 | 範囲外。Loop PR は人の承認を経てだけマージされる |
@@ -138,7 +138,7 @@
 
 | 手法 | 誰が使っているか | 出典 | このリポジトリ |
 |---|---|---|---|
-| 毎回の実行の終わりに、固定の issue へ要約を書く | nightly Ralph loop(ピン留めした「Nightly log」issue) | 「Morning routine: read it, review and merge, answer any ❓, promote the next issues to ready.」 | 対応なし。週次ジョブはログファイルと Heartbeat を残し、停止したときだけ Issue にする |
+| 毎回の実行の終わりに、固定の issue へ要約を書く | nightly Ralph loop(ピン留めした「Nightly log」issue) | 「Morning routine: read it, review and merge, answer any ❓, promote the next issues to ready.」 | Review-Verify の `stats-issue=` が、実行ごとの統計を指定の Issue に投稿する(SKILL.md の手順 9)。週次ジョブはログファイルと Heartbeat を残し、停止したときだけ Issue にする |
 | 人に戻す文面の最後に、必ず「Needs you」を付ける | Oskar Groth | 「Every message to me ends with "Needs you: …", even if it's "Needs you: nothing".」 | 対応なし |
 | 知らせるだけでなく、diff と「取り込む」ボタンまで作る | exe.dev | 「My old mindset was wanting a bot to nag me into doing the thing. The new mindset is to have the bot take the task as close to the finish line as possible.」 | Loop PR は diff を PR にして渡している |
 | 状態をラベルで表す(手元の電話からも操作できる) | nightly Ralph loop(`needs-decision` / `needs-attention`)、SIS(`sis-timed-out` / `sis-merged`) | Ralph: 「I steer it with labels, which means from my phone」 | 対応なし |
@@ -207,9 +207,17 @@
 
 ### 5.2 失敗例
 
+**隔離の境界**
+
+- **隔離しても、渡したものは使える。** Saunders は使い捨てのサーバーで隔離したうえで、エージェントがまだできることを並べている。「Nuke the new server and everything running on it.」「Delete repos, databases and deployments.」「Leak or abuse any credentials I've given it.」「Poke anything else on my network that the firewall allows it to reach.」 API キーについては「every key adds another little hole in the sandbox」と書いている。
+- **コンテナは硬い境界ではない。** Latacora は、コンテナの隔離を「isn't designed to be a hard security boundary」と書き、ホストに抜ける脆弱性の類が広くあるとして、VM(Firecracker、Kata Containers、gVisor)を勧めている。エージェントは仕事を終えるためにコンテナの穴を突いてくる、とも書く(ダイジェストの要約による。本文の該当文は未照合)。
+- **localhost の穴。** このリポジトリの nono も、`open_port: [0]` で localhost のどのポートにもつながり、外のリスナーが中継になることを、自分の文書で残存として書いている(`dot_config/nono/CLAUDE.md`)。
+
+**許可リスト・拒否リストと分類器**
+
 - **コマンドの validator が、シェルが後で書き換える文字列を検査していた。** Novee Security は Black Hat USA 2026 で、権限の無いアカウントが開いた issue 1 件で、Claude Code・Gemini CLI・OpenAI Codex の各ベンダー自身のリポジトリの CI シークレットに届くことを示した。Claude Code Action の validator は、23 の検査の前にシングルクォートの部分を取り除いていた。最初のパッチの後も、「読み取り専用」扱いの `tac` / `rev` などで path の検査を迂回された。CSA は GuardFall の研究を引き、「shell-aware, post-expansion command validation is a more durable approach than incremental denylist entries」と結論している。([CSA](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-coding-agent-cicd-secrets-20260808-csa/))
 - **分類器は、ベンチマークの外の攻撃を通す。** 敵対的なエージェントは、Auto Mode と Codex の Guardian へのインジェクションで、試行の 79% で任意の bash を実行できた([arXiv:2609.19587](https://arxiv.org/abs/2609.19587v1))。Embrace The Red は、Opus 5 の auto mode で、少数の試行ながら 60〜80% の成功率でコード実行に至った。そこで分類器はマルウェアの起動を通し、それを止めようとした Claude のコマンドを拒否した(「the classifier allowed the creation of the malware process, but then it blocked the command intended to stop it!」)。([embracethered.com](https://embracethered.com/blog/posts/2026/breaking-claude-code-opus-5-and-automode/))
-- **承認された allow ルールが、監督そのものを外した。** リポジトリに仕込んだ文面で、エージェントに広すぎる allow ルールを提案させる攻撃は 58% で成功した。承認されたルールは、カテゴリ別の能力テストの 56.9% を覆った。承認された場合は 58 件中 47 件(81.0%)で、人の監督を経ずに目的を達した([arXiv:2610.22987](https://arxiv.org/abs/2610.22987v1))。lights-on の「承認を求められるたびに規則を足す」運用は、この経路と同じ操作である。
+- **承認された allow ルールが、監督そのものを外した。** リポジトリに仕込んだ文面で、エージェントに広すぎる allow ルールを提案させる攻撃は 58% で成功した。承認されたルールは、カテゴリ別の能力テストの 56.9% を覆った。承認された場合は 58 件中 47 件(81.0%)で、人の監督を経ずに目的を達した([arXiv:2610.22987](https://arxiv.org/abs/2610.22987v1))。
 - **承認した操作と実行された操作がずれた。** 承認と実行のずれ(Approval Laundering)は 6 種類ある。承認を主体・セッション・引数・有効期限に束ねるトークンでも、Scope と Argument のずれは防げなかった([arXiv:2609.38983](https://arxiv.org/abs/2609.38983v1))。承認の記録には入口のコマンドしか残らず、そこから連鎖する効果が漏れる([arXiv:2609.28586](https://arxiv.org/abs/2609.28586v1))。
 - **「今後確認しない」が秘密を公開した。** 公開リポジトリの `.claude/settings.local.json` 104,185 件のうち 1,122 件に、許可したコマンドの引数ごと秘密が保存されていた(ダイジェストのみ。Apiiro の記事は 403 で取得できなかった)。
 - **自動で手渡す intake が攻撃の入口になった。** Sentry Seer がイシューを自動でコーディングエージェントに渡す設定では、細工した例外メッセージがエージェントのプロンプトに入る。緩和策は自動修復の経路を止めること(要約経由、[CERT VU#212479](https://kb.cert.org/vuls/id/212479))。
@@ -220,6 +228,18 @@
 - **安全側に締めすぎて、普通の作業が通らなくなった。** Kiro では、レビューのラウンドごとにサンドボックスが少しずつ締められ、ビルドやファイルの読み取りが失敗するようになった。
 - **停止の制御を止めても、走っている run は止まらない。** 「disabling a schedule does not prove an already-running session has stopped」(Instant Software Factory)。試行では、ツールの allowlist の外の GitHub のツールが露出していた。
 
+**事後のレビュー(人のマージ)**
+
+#645 は PR のレビューを唯一の品質ゲートに残すので、この節の失敗例がいちばん直接に関わる。
+
+- **人が全件をレビューする運用は 1 日もたなかった。** Kiro は 3 月初めに全変更を手でレビューしようとしたが、「an approach that lasted less than a day」だった。
+- **レビューが急ぎ足になり、どちらでも失敗を止められなかった。** Electric Twin は、エージェントがコードを書く速さに人が追いつかないため、「reviews get rushed or that engineers' time is consumed by reviewing code changes, with neither reliably catching the failures reviews are meant to prevent」と書く。
+- **レビューのほうが書くより時間がかかった。** islo は「We were spending more time reviewing and manually verifying agent output than we had spent writing the code ourselves.」と書く。筋の悪い設計のレビューは、バグのレビューより難しい。代わりの設計を理解する必要があるためである。
+- **承認からマージまでが、実装と同じだけかかった。** Agent Scrum では、承認からマージまでの時間の中央値が、実装の時間の中央値と同じだった。
+- **人の承認がいちばん遅い工程になった。** Groth は「I'm still the bottleneck, just in a different way. Now it's my approval, my taste, and my direction.」と書く。
+- **少数のレビュアーに偏った。** Firecrawl が引く 10 か月分のデータでは、エージェントが開いた PR 878 件へのフィードバックの 36% を、2 人のレビュアーが書いていた(Firecrawl の記事中の記述。元のデータはたどっていない)。
+- **AI の PR は、人の PR より証拠を求められる。** 実務者の 61.1% が AI の PR により多くの証拠を求め、64.9% が最初の信頼を低く見積もった([arXiv:2610.21144](https://arxiv.org/abs/2610.21144v1))。
+
 ## 6. 枝ごとの対応のまとめ
 
 | Touchpoint | 実践例での消し方 | このリポジトリにある前例 | 無いもの |
@@ -229,18 +249,19 @@
 | 途中の質問 | 1 件の質問 + 推奨の答え + ラベル + 停止。人に聞く範囲の列挙 | Review-Verify の事前の質問、報告の Requirements Concern | 実行中に聞いて止まる経路、答えを待つ状態 |
 | 実装 | 1 issue 1 PR、新しい worktree、1 回きりの headless セッション | 週次ジョブの worktree の準備 | 実装の段(Deliver は廃止。ADR 0022) |
 | PR の作成 | 接頭辞の決まったブランチ、書き込みを 1 つの部品に集める、draft | 週次ジョブがスクリプトの固定の引数で push と `gh pr create --draft` を行う。Guarded Path の CI | issue から来た PR に対する同じ形 |
-| 通知 | 毎回の要約を固定の issue に書く、状態のラベル、外の watchdog | Heartbeat、`report_stops` の Issue、Loop Stall、briefing | 毎回の実行の要約(成功した run の知らせ)、「人が要る」の印 |
+| 通知 | 毎回の要約を固定の issue に書く、状態のラベル、外の watchdog | Heartbeat、`report_stops` の Issue、Loop Stall、briefing、Review-Verify の `stats-issue=` | 週次ジョブの成功した run の要約、「人が要る」の印 |
 
 ## 7. 所見
 
 ここからは #645 への含意で、事実の記録ではない。
 
-1. **#645 の Destination は、最も多い実践の形と一致する。** 人がラベルでキューに入れ、人がマージする形は、nightly Ralph loop・SIS・islo・Stripe・Copilot に共通する。nightly Ralph loop は、tracer bullet(`ready-for-agent` の issue 1 件 → レビューできる PR)とほぼ同じ構成である。headless の `claude -p`、worktree、`deny` リスト、予算の停止を持ち、約 340 行の bash で動いている。
-2. **(1) について、「仮定を置いて PR に記す」を既定にした実践は見つからなかった。** 見つかったのは、判断の種類で分ける形である。Groth の列挙(お金・顧客・本番・資格情報・不可逆・方向・規則・本当の不確実さ)と Agent Scrum の分類(「When in doubt, ask.」)は、聞くものを決め、それ以外は決めて事後に伝える。聞くときは、Ralph と Groth がともに「1 件にまとめ、推奨の答えを付け、1 語で答えられる形」にしている。報告に記す方式には、自己報告の欠落(行動の 11 分の 1、状態の 52%)という測定がある。そのため、記すだけでは人のレビューの材料として足りない可能性がある。
+1. **#645 の Destination は、最も多い実践の形に近いが、質問への回答の分だけ狭い。** 人がラベルでキューに入れ、人がマージする形は、nightly Ralph loop・SIS・islo・Stripe・Copilot に共通する。nightly Ralph loop は、tracer bullet(`ready-for-agent` の issue 1 件 → レビューできる PR)とほぼ同じ構成である。headless の `claude -p`、worktree、`deny` リスト、予算の停止を持ち、約 340 行の bash で動いている。ただしそのループも SIS も、人が質問に答える Touchpoint を残している(Ralph は 13 日で 4 件)。#645 で質問への回答を Touchpoint に数えないなら、聞かずに済ませる判断の範囲を決めることが要る。数えるなら、Destination の 2 つに 3 つ目を足すことになる。
+2. **(1) について、「仮定を置いて PR に記す」をすべてを対象にした既定にした実践は見つからなかった。** 範囲を限った形はある(SIS の未承認の `intent.md`、Groth の「決めて事後に伝える」)。見つかった実践の多くは、判断の種類で分けている。Groth の列挙(お金・顧客・本番・資格情報・不可逆・方向・規則・本当の不確実さ)と Agent Scrum の分類(「When in doubt, ask.」)は、聞くものを決め、それ以外は決めて事後に伝える。聞くときは、Ralph と Groth がともに「1 件にまとめ、推奨の答えを付け、1 語で答えられる形」にしている。報告に記す方式には、自己報告の欠落(行動の 11 分の 1、状態の 52%)という測定がある。そのため、記すだけでは人のレビューの材料として足りない可能性がある。
 3. **(2) について、このリポジトリはすでに層の大半を持っている。** 隔離は nono、拒否は `deny` と Command Guard、書き込み経路は週次ジョブのスクリプトによる push、事後のレビューは Loop PR が担う。実践例との差は 2 つある。資格情報がエージェントから見えること(`gh api` が承認なしで通る受容した残存)と、issue という外からの入力を受ける入口がまだ無いことである。公開リポジトリで issue を入力にするなら、Copilot と SIS がしている「書き込み権限のある人の入力だけをエージェントに渡す」絞り込みと、CSA が報告した issue 経由の事故が直接関わる。
-4. **分類器や「承認されたら規則を足す」運用は、人間不在の承認の代わりとしては弱いという報告がそろっている。** 79%、60〜80%、58% → 81% の数値がそれである。週次ジョブが auto mode を使わず、`--dangerously-skip-permissions` と nono と固定の手順で組んでいることは、この報告の向きと一致する。
-5. **通知は、このリポジトリでは「止まったとき」に偏っている。** 実践例は、成功した run も含めて毎回要約を残している(Ralph の Nightly log、Groth の「Needs you: nothing」)。人の朝の手順(読む・マージする・答える・次を `ready` にする)を、その要約が支えている。#645 の「通知と停止の検知」と「計測(人間の手が要った回数)」は、この要約の置き場所で一緒に扱える可能性がある。
-6. **範囲外の実践について。** 条件付きの auto-merge(Kiro、Electric Twin、Groth、Pullboard、Agent Scrum、Anthropic、OpenAI、StrongDM)と、AI による起票(Instant Software Factory、Electric Twin)は広く使われている。それらの報告には、偽の成功(Electric Twin)、誤った修正(Instant Software Factory の論文で、修正済みとされた issue の 5.6% 以上)、理解の負債(Osmani の「comprehension debt」)も並んでいる。#645 がこれらを範囲外にしていることと矛盾する報告は見つからなかった。
+4. **分類器や「承認されたら規則を足す」運用は、人間不在の承認の代わりとしては弱いという報告がそろっている。** 79%、60〜80%、58% → 81% の数値がそれである。lights-on の「承認を求められるたびに規則を足す」運用は、[arXiv:2610.22987](https://arxiv.org/abs/2610.22987v1) が攻撃に使った allow ルールの追加と同じ操作である(この対応づけは本書の推論で、lights-on の文書には書かれていない)。週次ジョブが auto mode を使わず、`--dangerously-skip-permissions` と nono と固定の手順で組んでいることは、この報告の向きと一致する。
+5. **人のマージを唯一のゲートに残すなら、レビューの負荷の報告が直接に関わる。** 5.2 の「事後のレビュー」の失敗例は、どれも人のレビューがボトルネックになった話である。main の ruleset は承認の数を 0 にしているので、ゲートの実体は「人がマージのボタンを押す」ことと `Guarded paths` の check になる。
+6. **週次ジョブの通知は「止まったとき」に偏っている。** 実践例は、成功した run も含めて毎回要約を残している(Ralph の Nightly log、Groth の「Needs you: nothing」)。人の朝の手順(読む・マージする・答える・次を `ready` にする)を、その要約が支えている。#645 の「通知と停止の検知」と「計測(人間の手が要った回数)」は、この要約の置き場所で一緒に扱える可能性がある。
+7. **範囲外の実践について。** 条件付きの auto-merge(Kiro、Electric Twin、Groth、Pullboard、Agent Scrum、Anthropic、OpenAI、StrongDM)と、AI による起票(Instant Software Factory、Electric Twin)は広く使われている。それらの報告には、偽の成功(Electric Twin)、誤った修正(Instant Software Factory の論文で、修正済みとされた issue の 5.6% 以上)、理解の負債(Osmani の「comprehension debt」)も並んでいる。#645 がこれらを範囲外にしていることと矛盾する報告は見つからなかった。
 
 ## 8. 確認できなかったもの
 
