@@ -137,6 +137,8 @@ class Root {
     this.limited = false;
     this.shown = false;
     this.watching = false;
+    // 表示から外れたときに開いていたプレビューの相対パス。このルートに戻ったら開き直す。
+    this.preview = null;
   }
 
   async loadFolder(path) {
@@ -254,7 +256,7 @@ class Root {
 
 export default class Files extends View {
   init(_props, cx) {
-    // selected: space id → 選んでいるタブの id。そのタブが無くなったら CWD に戻る。
+    // selected: space id → 選んでいるタブの id。そのタブが一覧に無ければ先頭のタブ(作業フォルダがあればそれ)を表示する。
     this.cache = new Map();
     this.selected = new Map();
     this.tabs = [];
@@ -295,13 +297,17 @@ export default class Files extends View {
       }
     }
     if (this.root !== root) {
-      if (this.root) this.root.shown = false;
+      if (this.root) {
+        this.root.shown = false;
+        this.root.preview = this.file?.root === this.root ? this.file.path : null;
+      }
       this.root = root;
       if (root) {
         root.shown = true;
         root.refresh(cx);
       }
-      if (this.file && this.file.root !== root) this.show(null);
+      if (this.file?.root !== root)
+        this.show(root?.preview ? { root, path: root.preview } : null, cx);
     }
   }
 
@@ -318,6 +324,8 @@ export default class Files extends View {
 
   unpin(path) {
     if (!this.space) return;
+    // 選択を残すと、同じフォルダを後でピン留めし直したときにそのタブが勝手に選ばれる。
+    if (this.selected.get(this.space) === path) this.selected.delete(this.space);
     setPins(
       this.space,
       pinsOf(this.space).filter((p) => p !== path),
@@ -457,7 +465,7 @@ export default class Files extends View {
         })
         .child(label);
     const tab = (item, i) => {
-      const on = item === active;
+      const isActive = item === active;
       return h_flex()
         .id(`tab-${i}`)
         .h(26)
@@ -468,9 +476,9 @@ export default class Files extends View {
         .items_center()
         .rounded(6)
         .cursor_pointer()
-        .bg(on ? t.selected : t.background)
-        .text_color(on ? t.foreground : t.muted)
-        .hover((s) => s.bg(on ? t.selected : t.hover))
+        .bg(isActive ? t.selected : t.background)
+        .text_color(isActive ? t.foreground : t.muted)
+        .hover((s) => s.bg(isActive ? t.selected : t.hover))
         .on_click((_e, cx) => {
           this.select(item.id, cx);
           cx.notify();
@@ -485,8 +493,9 @@ export default class Files extends View {
         .when(item.pinned, (el) =>
           el.child(action(`tab-${i}-unpin`, "×", () => this.unpin(item.path))),
         )
-        .when(on && !item.pinned && item.id === CWD && !item.on && Boolean(this.space), (el) =>
-          el.child(action(`tab-${i}-pin`, "Pin", () => this.pin(item.path))),
+        .when(
+          isActive && !item.pinned && item.id === CWD && !item.on && Boolean(this.space),
+          (el) => el.child(action(`tab-${i}-pin`, "Pin", () => this.pin(item.path))),
         );
     };
     return h_flex()
