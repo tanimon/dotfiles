@@ -239,7 +239,7 @@ _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正
 ### Autonomy
 
 **Human Touchpoint**:
-作業の流れのうち、人間の手が入らないと先へ進めない点。Approval Gate・エージェントからの質問・手での起動・PR のレビューとマージがこれに当たる。自律化は Human Touchpoint を消すか、意図して残すかで語る。
+作業の流れのうち、人間の手が入らないと先へ進めない点。意図を出すこと(issue を書く・`ready-for-agent` にする)・Approval Gate の発火・エージェントからの質問・次の段を手で起動すること・PR のレビューとマージがこれに当たり、エージェントを止めずに入るユーザーの割り込みと訂正は含まない。
 _Avoid_: 人間の介入(無限定)、確認(Approval Gate と紛らわしい)
 
 ### Goal definition
