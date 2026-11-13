@@ -149,11 +149,45 @@ jobs:
             echo "has_secret_alerts=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # prompt の `just lint` が完走するよう、lint.yml の各 job が要るものをすべて入れる。local-only の recipe は
+      # nono が無いと skip する
+      - name: Install lint tools
+        if: steps.alerts.outputs.has_sweep_alerts == 'true'
+        uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+          chezmoi: 'true'
+          shfmt: 'true'
+          actionlint: 'true'
+          zizmor: 'true'
+          zsh: 'true'
+
+      - name: Sweep security alerts
+        if: steps.alerts.outputs.has_sweep_alerts == 'true'
+        uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1.0.252
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
+          use_commit_signing: true
+          prompt: |
+            Run a sweep of all open security alerts in this repository. Process alert type: ${{ steps.scope.outputs.alert_type }}
+
+            The open alerts are pre-fetched in `/tmp/security-alerts.json` (`dependabot` and `code_scanning` arrays). Secret scanning alerts are filed as issues by a separate step and are not part of this sweep. Find the existing PRs and issues with `gh pr list --search "security" --json number,title --limit 50` and `gh issue list --label security --state open --json number,title --limit 50`.
+
+            For each alert that no existing PR or issue covers: for a Dependabot alert, check for a Renovate PR, then attempt a fix or create an issue; for a code scanning alert, fix it when low-risk and create an issue when high-risk. End with a summary of the actions taken.
+
+            ## Rules
+            - Maximum 5 alerts processed per sweep run
+            - Run `just lint` before any commits
+            - Do not log or display actual secret values: this repository and its Actions logs are public
+          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(just *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
+
       # 同じアラートの issue を二度作らないよう、open な security issue とタイトルの完全一致で除く。
       # タイトルの形を変えると既存の issue と一致しなくなり、同じアラートの issue が重複する。
-      # 値を issue にもログにも出さない(リポジトリも Actions のログも公開)。アラートの JSON に値は入っていない
+      # 値を issue にもログにも出さない(リポジトリも Actions のログも公開)。アラートの JSON に値は入っていない。
+      # Sweep の後ろに置き `!cancelled()` を付けるのは、この step と Sweep の失敗が互いの実行を止めないようにするため
+      # (暗黙の `success()` のままだと、前の step が落ちた時点で後ろの step が skip される)
       - name: File secret scanning issues
-        if: steps.alerts.outputs.has_secret_alerts == 'true'
+        if: ${{ !cancelled() && steps.alerts.outputs.has_secret_alerts == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -186,38 +220,6 @@ jobs:
               --body "$body" </dev/null
             echo "Created: ${title}"
           done <<<"$alerts"
-
-      # prompt の `just lint` が完走するよう、lint.yml の各 job が要るものをすべて入れる。local-only の recipe は
-      # nono が無いと skip する
-      - name: Install lint tools
-        if: steps.alerts.outputs.has_sweep_alerts == 'true'
-        uses: ./.github/actions/setup-lint
-        with:
-          pnpm: 'true'
-          chezmoi: 'true'
-          shfmt: 'true'
-          actionlint: 'true'
-          zizmor: 'true'
-          zsh: 'true'
-
-      - name: Sweep security alerts
-        if: steps.alerts.outputs.has_sweep_alerts == 'true'
-        uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1.0.252
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
-          use_commit_signing: true
-          prompt: |
-            Run a sweep of all open security alerts in this repository. Process alert type: ${{ steps.scope.outputs.alert_type }}
-
-            The open alerts are pre-fetched in `/tmp/security-alerts.json` (`dependabot` and `code_scanning` arrays). Secret scanning alerts are filed as issues by an earlier step and are not part of this sweep. Find the existing PRs and issues with `gh pr list --search "security" --json number,title --limit 50` and `gh issue list --label security --state open --json number,title --limit 50`.
-
-            For each alert that no existing PR or issue covers: for a Dependabot alert, check for a Renovate PR, then attempt a fix or create an issue; for a code scanning alert, fix it when low-risk and create an issue when high-risk. End with a summary of the actions taken.
-
-            ## Rules
-            - Maximum 5 alerts processed per sweep run
-            - Run `just lint` before any commits
-            - Do not log or display actual secret values: this repository and its Actions logs are public
-          claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(just *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
 
       - name: Generate summary
         if: always()
@@ -286,4 +288,6 @@ jobs:
             Check the failed run logs. A common cause is an expired
             `CLAUDE_CODE_OAUTH_TOKEN` secret (401 auth error) — regenerate with
             `claude setup-token` and update via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
+            If the "File secret scanning issues" step failed instead, the
+            `gh issue create` error is in that step's log.
           gh-token: ${{ github.token }}
