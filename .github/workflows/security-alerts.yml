@@ -167,7 +167,6 @@ jobs:
             For each alert that no existing PR or issue covers: for a Dependabot alert, check for a Renovate PR, then attempt a fix or create an issue; for a code scanning alert, fix it when low-risk and create an issue when high-risk; for a secret scanning alert, create a high-priority issue. End with a summary of the actions taken.
 
             ## Rules
-            - Skip alerts that already have associated PRs or issues
             - Maximum 5 alerts processed per sweep run
             - Run `just lint` before any commits
             - Do not log or display actual secret values: this repository and its Actions logs are public

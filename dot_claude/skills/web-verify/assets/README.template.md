@@ -17,8 +17,7 @@ skill がなくても以下の手順だけで再実行できる。
    npx playwright show-report report/<機能>   # 結果と録画を見る
    ```
 
-- `VERIFY_FEATURE` は `scenarios/` 配下の機能ディレクトリ名(ブランチ名の `/` と、英数字・`.`・`_`・`-` 以外の文字を
-  `-` に置き換えたもの)。
+- `VERIFY_FEATURE` は `scenarios/` 配下の機能ディレクトリ名をそのまま使う。どのブランチの機能かは「観点一覧」の「ブランチ」列で引く。
   省略すると全機能を実行し、レポートは `report/_all` に出る(マージ済み機能のデグレ確認)
 - `VERIFY_REPO_DIR` は、このスイートが対象リポジトリの中にあれば省略できる(`playwright.config.ts` の
   `REPO_DIR_FROM_SUITE`)。外にある場合は必須
