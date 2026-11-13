@@ -63,7 +63,7 @@ Explore に頼むときは返信そのものの長さを指定する(判定 1 �
 auto mode の分類器はこの種のプロンプトを拒否し(`[Create Unsafe Agents]` / `[Security Weaken]`)、
 委譲そのものが止まる。解除が要るコマンドは通常の権限フローで個別に通す。
 Docker のようにサンドボックス内では必ず失敗する作業を渡すときは、親が先に環境を用意するか、
-その前提をプロンプトに書く(`bash-tool.md` の Docker 節)。
+その前提をプロンプトに書く(`~/.claude/references/bash-tool-symptoms.md` の Docker 節)。
 
 ## subagent-driven development のワークスペースを消さない
 
