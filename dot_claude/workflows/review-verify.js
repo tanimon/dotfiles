@@ -79,7 +79,7 @@ const STOP_REASONS = {
 const STRINGS = { type: "array", items: { type: "string" } };
 
 // changes は必須にし、変えなかったことも空配列で明示させる(省略を「変更なし」と読まない)。
-// file を分けて持つのは、入口 skill が git の差分と照合するため(review-verify の手順8)。
+// file を分けて持つのは、入口 skill の起動後の確認(skills/review-verify/scripts/postcheck.sh)が git の差分と照合するため。
 const CHANGES = {
   type: "array",
   items: {
