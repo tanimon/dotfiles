@@ -137,7 +137,7 @@ zizmor:
 # Smoke test hook scripts(ネイティブサンドボックス smoke test の driver / probe も偽の claude で検査する)
 [group('slow')]
 @test-scripts:
-    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats test/issue-linkage-scope.bats test/issue-linkage-guard.bats test/issue-linkage-create-issue.bats test/sandbox-zsh.bats
+    LC_ALL=C pnpm exec bats {{ bats_jobs }} test/notify.bats test/worktree-include.bats test/git-push-guard.bats test/curl-localhost-guard.bats test/secretlint-guard.bats test/shell-reader.bats test/native-sandbox-smoke.bats test/issue-linkage-scope.bats test/issue-linkage-guard.bats test/issue-linkage-create-issue.bats test/review-verify-checks.bats test/sandbox-zsh.bats
 
 # Validate chezmoi templates
 check-templates:

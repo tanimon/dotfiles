@@ -12,27 +12,38 @@ Workflow は実装も push も PR の作成もしない。修正エージェン�
 
 ## 手順
 
-1. **ブランチを検査する。** `git rev-parse --abbrev-ref HEAD` が `main` / `master` / `development` / `HEAD`(detached)であれば、理由を伝えて**中止する**。worktree やブランチは作らない。`git status --porcelain` が空でなければ、未コミットの変更があることを伝えて中止する(修正エージェントのコミットに混ざるため)。検査を通ったら `git rev-parse HEAD` を起動前の SHA として控える(手順8で使う)。
-2. **要件文書を確認する。** 引数の文書パスを絶対パスにし、ファイルが存在することを確認する。plan でも spec でもよく、タスク分解は要らない。文書が渡されていなければ中止し、意図を書いた文書を渡すよう伝える(レビュー・修正の見送り・動作確認は、すべてこの文書を意図の正本として判断する)。この絶対パスを「元の要件文書」とし、「Workflow に渡す要件文書」も同じにする。引数 `pr=` があれば、開発者が PR 本文に書いた要件文書からの意図した逸脱をレビューが「直して」しまわないよう、`gh pr view <URL> --json headRefName,headRepository,headRepositoryOwner,body` で本文を取る。gh が失敗したとき、`headRefName` が `git rev-parse --abbrev-ref HEAD` と一致しないとき、`<headRepositoryOwner.login>/<headRepository.name>` が `gh repo view --json nameWithOwner -q .nameWithOwner` と一致しないとき(`headRepository` が null の場合も)は、理由を伝えて中止する(別の PR の本文や前回の実行の残りを正本にしないため。ブランチ名だけでは、共有ライブラリと利用側のリポジトリに同じ名前のブランチを作るフローで別のリポジトリの PR を通してしまう。フォークの clone で gh が上流を指すときも止まる)。本文を元の要件文書の末尾に「追補: PR 本文(要件文書からの意図した逸脱・既知の挙動と明示した記述に限り、要件文書より優先する)」の節として連結したファイルを `$(git rev-parse --absolute-git-dir)/review-verify/requirements.md` に書き(親ディレクトリが無ければ先に作る。元の要件文書がこのパスと同じなら、上書きで中身を失うので中止する)、これを Workflow に渡す要件文書にする。このファイルは git の外にあり、手順8の git による確認では書き換えが見えないので、`shasum -a 256` の値を控える(手順8で使う)。
-3. **差分の基点を決める。** 引数 `base=` があればそれを使う。無ければ `origin/HEAD` が指すブランチ(`git symbolic-ref --short refs/remotes/origin/HEAD`。`origin/main` の形で出る)を使う。`refs/remotes/origin/HEAD` は clone の仕方によってはローカルに無く、このコマンドが失敗する。その場合は推測せず `AskUserQuestion` で基点を聞く。プロジェクトの規約で別のブランチと比較するもの(例: hotfix 以外は `development` と比較する)があれば、その規約に従う。`git rev-list --count <基点>..HEAD` が 0 なら、レビューする差分が無いことを伝えて中止する。
-4. **テスト/lint のコマンドを決める。** プロジェクトの CLAUDE.md が示す検証コマンド(例: `just lint`、`bash scripts/lint/git-diff-lint.sh`、`npm test`)を列挙する。特定できない、または候補が複数あって選べない場合は、`AskUserQuestion` で選んでもらう。1件以上が必要。落ちているコマンドがあっても、Workflow がレビューの前に直そうとする(直らなければ止まる。要件文書のうちブランチが未着手の項目を検査するテストは、実装せずに止まる)ので、起動前に走らせて止める必要はない。
-5. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。`verify=` で渡された場合も含め、動作確認 skill が起動時に人間に確かめる事項があれば、ここで確かめて `verifyArgs` に1つの文字列で入れる(Workflow の動作確認エージェントは質問できない)。`web-verify` なら、確かめる事項・順序・`verifyArgs` の形は web-verify の SKILL.md の「起動前に人間が確かめる事項」に従う。その SKILL.md は Skill ツールで起動せずファイルとして読む(起動すると、ここで動作確認そのものが始まる)。場所はまずこの skill と同じ skills ディレクトリの `web-verify/SKILL.md` を見て、無ければ `~/.claude/skills`・プロジェクトの `.claude/skills`・`~/.claude/plugins` の配下から `web-verify/SKILL.md` を探す。見つからなければ保存場所だけを聞き、`検証資産の保存場所: <絶対パス>(質問)` の形で渡す。確かめる事項が無ければ省略する。
-6. **上限回数を決める。** 引数 `rounds=` があれば `maxReviewRounds` に使い、無ければ省略する(既定は 3)。引数 `stats-issue=` があれば、`https://github.com/<owner>/<repo>/issues/<番号>` の形の URL であることを確かめて控える(手順9で使う)。番号だけ(`426` や `#426`)なら中止し、URL で渡し直すよう伝える。番号だけでは、`gh` がカレントのリポジトリの同じ番号の Issue に投稿する。
-7. **起動する。** Workflow ツールを次の形で呼ぶ。`args` は JSON の値として渡し、文字列化しない。`~/.claude/workflows/review-verify.js` は名前付きワークフローとして `name` で起動する。`scriptPath` で渡すと、作業ディレクトリの外のファイルとして拒否される。
+1. **書き出し先を決め、起動前の確認をする。** 書き出し先 `<dir>` は、`git rev-parse --absolute-git-dir` を単独で実行した出力に `/review-verify` を足したディレクトリにする。`git rev-parse` が失敗したとき、または sandbox が `.git` の下への書き込みを拒んで `mkdir -p <dir>` が失敗したときは、セッションの scratchpad ディレクトリの下に `review-verify` を作って `<dir>` にする。要件文書(plan でも spec でもよく、タスク分解は要らない)が引数に無ければ中止し、意図を書いた文書を渡すよう伝える(レビュー・修正の見送り・動作確認は、すべてこの文書を意図の正本として判断する)。そのうえで次を実行する。`--pr` / `--stats-issue` は引数 `pr=` / `stats-issue=` があるときだけ付ける。
+
+   ```
+   bash ~/.claude/skills/review-verify/scripts/precheck.sh --dir <dir> --requirements <要件文書のパス> [--pr <pr= の URL>] [--stats-issue <stats-issue= の URL>]
+   ```
+
+   スクリプトは、ブランチ(保護ブランチと detached HEAD を拒む)・未コミットの変更・要件文書の存在・`pr=` の PR がこのブランチとこのリポジトリのものであること・`stats-issue=` が Issue の URL であることを検査し、`pr=` があれば PR 本文を要件文書に連結したファイルを `<dir>` に作る。起動後の確認に使う値は `<dir>/state.json` に残す。終了コード 2 なら標準エラー出力の理由を伝えて**中止する**(worktree やブランチは作らず、ブランチの切り替えや変更の退避もしない)。終了コード 0 なら、標準出力の JSON の `requirementsPath` を「Workflow に渡す要件文書」、`preSha` を起動前の SHA として控える。
+2. **差分の基点を決める。** 引数 `base=` があればそれを使う。無ければ `origin/HEAD` が指すブランチ(`git symbolic-ref --short refs/remotes/origin/HEAD`。`origin/main` の形で出る)を使う。`refs/remotes/origin/HEAD` は clone の仕方によってはローカルに無く、このコマンドが失敗する。その場合は推測せず `AskUserQuestion` で基点を聞く。プロジェクトの規約で別のブランチと比較するもの(例: hotfix 以外は `development` と比較する)があれば、その規約に従う。`git rev-list --count <基点>..HEAD` が 0 なら、レビューする差分が無いことを伝えて中止する。
+3. **テスト/lint のコマンドを決める。** プロジェクトの CLAUDE.md が示す検証コマンド(例: `just lint`、`bash scripts/lint/git-diff-lint.sh`、`npm test`)を列挙する。特定できない、または候補が複数あって選べない場合は、`AskUserQuestion` で選んでもらう。1件以上が必要。落ちているコマンドがあっても、Workflow がレビューの前に直そうとする(直らなければ止まる。要件文書のうちブランチが未着手の項目を検査するテストは、実装せずに止まる)ので、起動前に走らせて止める必要はない。
+4. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。`verify=` で渡された場合も含め、動作確認 skill が起動時に人間に確かめる事項があれば、ここで確かめて `verifyArgs` に1つの文字列で入れる(Workflow の動作確認エージェントは質問できない)。`web-verify` なら、確かめる事項・順序・`verifyArgs` の形は web-verify の SKILL.md の「起動前に人間が確かめる事項」に従う。その SKILL.md は Skill ツールで起動せずファイルとして読む(起動すると、ここで動作確認そのものが始まる)。場所はまずこの skill と同じ skills ディレクトリの `web-verify/SKILL.md` を見て、無ければ `~/.claude/skills`・プロジェクトの `.claude/skills`・`~/.claude/plugins` の配下から `web-verify/SKILL.md` を探す。見つからなければ保存場所だけを聞き、`検証資産の保存場所: <絶対パス>(質問)` の形で渡す。確かめる事項が無ければ省略する。
+5. **上限回数を決める。** 引数 `rounds=` があれば `maxReviewRounds` に使い、無ければ省略する(既定は 3)。
+6. **起動する。** Workflow ツールを次の形で呼ぶ。`args` は JSON の値として渡し、文字列化しない。`~/.claude/workflows/review-verify.js` は名前付きワークフローとして `name` で起動する。`scriptPath` で渡すと、作業ディレクトリの外のファイルとして拒否される。
 
    ```
    Workflow({
      name: "review-verify",
      args: {
-       requirementsPath: "<手順2の Workflow に渡す要件文書>",
-       baseRef: "<手順3>",
-       checkCommands: ["<手順4>", ...],
-       verifySkill: "<手順5>",
-       verifyArgs: "<手順5。確かめた事項があるときだけ>",
-       maxReviewRounds: <手順6。指定があるときだけ>
+       requirementsPath: "<手順1の Workflow に渡す要件文書>",
+       baseRef: "<手順2>",
+       checkCommands: ["<手順3>", ...],
+       verifySkill: "<手順4>",
+       verifyArgs: "<手順4。確かめた事項があるときだけ>",
+       maxReviewRounds: <手順5。指定があるときだけ>
      }
    })
    ```
 
-8. **結果を書き出して伝える。** Workflow の返り値の `report` と `ledger` を、それぞれ `$(git rev-parse --absolute-git-dir)/review-verify/report.md` / `ledger.json` に Write ツールでそのまま書き出す。完了通知の `<result>` は長いと切れる(ledger だけで切れる長さになるので、ほぼ毎回切れる)。切れていたら `<output-file>` から取り出す。出力ファイルは `{summary, result, logs, ...}` で包まれていて、返り値のどの値(`report` / `ledger` / `stats`)も `.result` の下にある。`.report` を直接読むと `null` になり、`jq -r` はそれをエラーにしないので、先に `jq -e '.result.ledger' <output-file> >/dev/null` で値があることを確かめる。取り出すときは Write ツールを通さず、シェルのリダイレクトは親ディレクトリを作らないので先に `mkdir -p "$(git rev-parse --absolute-git-dir)/review-verify"` してから、`jq -r '.result.report' <output-file> > <report.md の path>` / `jq -r '.result.ledger' <output-file> > <ledger.json の path>` とリダイレクトで書き出す(値をコンテキストに読み込むと、長い値がまた切れうる。`ledger` は JSON を文字列にした値なので、`-r` を落とすと文字列のまま書かれる)。そのうえで `report` をそのままユーザーに示し、書き出した2つの path を添える。`stopReason` があれば、何が原因で止まったかを1文で添える。Workflow が足したコミットは `<起動前の SHA>..HEAD` であることも、SHA を書いて添える(レビューや巻き戻しの範囲を人間が辿れるように)。ただし先に `git merge-base --is-ancestor <起動前の SHA> HEAD` で、起動前の SHA が今も HEAD の祖先であることを確かめる。祖先でなければ、エージェントが amend / rebase / reset で人間のコミットを書き換えたので、この範囲を Workflow が足したコミットとして示さず、履歴が書き換わったことを起動前の SHA とともに出力の先頭に書く(push 済みのブランチなら戻すのに force push が要る)。祖先であれば、まず `git diff --name-only <起動前の SHA>..HEAD -- <手順2の元の要件文書>` が空でないかを見る。空でなければ、エージェントが要件文書を書き換えたこと(Workflow はそれをプロンプトで禁じているだけで、コードでは止められない)と、それを変えたコミット(`git log --format='%h %s' <起動前の SHA>..HEAD -- <手順2の元の要件文書>`)を、出力の先頭に書く。ただし要件文書が git に追跡されていなければ(`git ls-files --error-unmatch <手順2の元の要件文書>` が失敗する。リポジトリの外にある場合と、gitignore 済みや未追跡のまま置かれた場合)、書き換えても差分に出ず、この確認は黙って通ってしまう。そのときは確かめられなかったことを書く。`pr=` のときは、祖先かどうかに関わらず Workflow に渡した要件文書の `shasum -a 256` を手順2で控えた値と照合し、違えば(ファイルが無い場合も)エージェントがそれを書き換えたことを出力の先頭に書く。控えた値が見当たらなければ照合を飛ばさず、確かめられなかったことを書く。次に、要件文書を除いた Workflow が変えたファイル(`git diff --name-only <起動前の SHA>..HEAD`)を、ledger.json に記録されたファイル(`jq -r '.checksChanges[].file, .fixChanges[].file, .verifyFixChanges[].file'`。テスト/lint を通すための変更、レビュー指摘を直すための変更、動作確認を通すための変更)と突き合わせる。要件文書を突き合わせから外すのは、記録に載っていても書き換えてよい理由にはならないため。差分にあって記録に無いファイルがあれば、「報告に記録の無い変更」として列挙し、`git log --format='%h %s' <起動前の SHA>..HEAD -- <ファイル>` で、どのコミットが変えたかを添える。報告の変更の節はどれもエージェントの申告で、Workflow は git を見られないので、申告漏れはここでしか見つからない。`git status --porcelain` が空でなければ、Workflow のエージェントが未コミットの変更を残したこと(テスト/lint や動作確認の修正を途中で諦めた場合に起きる)と変更のあるファイルを、出力の先頭に書く。この変更は `<起動前の SHA>..HEAD` の範囲に入らないため、黙っていると人間が見落とす。消したりコミットしたりはせず、扱いはユーザーに委ねる。Workflow が値を返さずに終わった場合(Workflow ツールがエラーを返した場合)は、書き出しを飛ばし、値が無いことと Workflow のエラーを出力の先頭に書いたうえで、この手順の git と shasum による確認(祖先、要件文書の書き換え、未コミットの変更)だけを行う。途中までのコミットや未コミットの変更が残りうるため。ledger との突き合わせは ledger が無いのでできず、そのことも書く。報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。push と PR の作成はユーザーに委ねる。
-9. **統計を投稿する。** 手順6で `stats-issue=` を控えたときだけ行う。返り値の `stats` を `$(git rev-parse --absolute-git-dir)/review-verify/stats.md` に Write ツールでそのまま書き出し(完了通知の `<result>` が切れていたら、手順8と同じく `jq -e '.result.stats' <output-file> >/dev/null` で値があることを確かめてから `jq -r '.result.stats' <output-file> > <stats.md の path>` で書き出す)、`gh issue comment <URL> --body-file <そのファイル>` で投稿する。`stats` に何も足さない(リポジトリ名・ブランチ名・SHA・報告の他の節)。仕事のリポジトリでの実行を public な Issue に投稿しうるためで、`stats` はそれらを含まないよう Workflow が組み立てている。Workflow が値を返さずに終わり `stats` が無い場合と、投稿に失敗した場合は、実行の失敗にはせず、投稿できなかったことと理由をユーザーに伝える(伝えないと、集めている統計の件数が黙って欠ける)。
+7. **結果を書き出して伝える。** Workflow が返ったら、値を返さずに終わった場合(Workflow ツールがエラーを返した場合)も含めて、次を実行する。`<output-file>` は完了通知の `<output-file>` で、Workflow ツールがエラーを返したときは `--output-file` ごと省く。
+
+   ```
+   bash ~/.claude/skills/review-verify/scripts/postcheck.sh --dir <手順1の dir> --output-file <output-file>
+   ```
+
+   完了通知の `<result>` から Write ツールで書き出さない(ledger が入るとほぼ毎回切れるので、値はスクリプトが出力ファイルから取り出す)。スクリプトは返り値を `<dir>/report.md` / `ledger.json` / `stats.md` に書き出し、起動前の値と git を照らして、履歴の書き換え・要件文書の書き換え・Unrecorded Change・未コミットの変更・確かめられなかった項目を標準出力に書く。終了コード 0 と 1 のときは、標準出力を出力の先頭にそのまま置き(Workflow ツールがエラーを返したときは、そのエラーをさらに上に書く)、続けて `<dir>/report.md` の中身をそのまま示し、`report.md` と `ledger.json` の path を添える。報告に停止の理由(`stopReason`)があれば、何が原因で止まったかを 1 文で添える。終了コード 2 のときは、確認ができなかったことと標準エラー出力をユーザーに伝え、出力ファイルの path を添える。どの場合も、報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。未コミットの変更を消したりコミットしたりせず、扱いはユーザーに委ねる。push と PR の作成もユーザーに委ねる。
+8. **統計を投稿する。** 引数 `stats-issue=` があるときだけ行う。`<dir>/stats.md` があれば `gh issue comment <URL> --body-file <dir>/stats.md` で投稿する。`stats.md` に何も足さない(リポジトリ名・ブランチ名・SHA・報告の他の節)。仕事のリポジトリでの実行を public な Issue に投稿しうるためで、`stats` はそれらを含まないよう Workflow が組み立てている。`stats.md` が無い場合(Workflow が値を返さずに終わった場合など)と、投稿に失敗した場合は、実行の失敗にはせず、投稿できなかったことと理由をユーザーに伝える(伝えないと、集めている統計の件数が黙って欠ける)。
