@@ -44,16 +44,21 @@ STUB
     DIR=$(cd "$BATS_TEST_TMPDIR/out" && pwd -P)
 }
 
+# 中止した precheck が起動前の値を残していないことを、それを読む postcheck の出力で確かめる。
+assert_no_state() {
+    run --separate-stderr bash "$POSTCHECK" --dir "$DIR"
+    assert_line --partial '起動前の値'
+}
+
 @test "precheck: 作業ブランチで通れば Workflow に渡す要件文書と起動前の SHA を返す" {
     run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md
     assert_success
     head=$(git rev-parse HEAD)
     assert_equal "$(jq -r .requirementsPath <<<"$output")" "$REPO/docs/spec.md"
     assert_equal "$(jq -r .preSha <<<"$output")" "$head"
-    assert_equal "$(jq -r .preSha "$DIR/state.json")" "$head"
 }
 
-@test "precheck: 保護ブランチと detached HEAD では中止し、state.json を書かない" {
+@test "precheck: 保護ブランチと detached HEAD では中止し、起動前の値を残さない" {
     for target in main master development; do
         git switch -qC "$target"
         run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md
@@ -65,7 +70,7 @@ STUB
     run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md
     assert_failure 2
     [[ "$stderr" == *detached* ]]
-    [[ ! -e "$DIR/state.json" ]]
+    assert_no_state
 }
 
 @test "precheck: 未コミットの変更があれば中止する" {
@@ -73,7 +78,8 @@ STUB
     run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md
     assert_failure 2
     [[ "$stderr" == *未コミット* ]]
-    [[ ! -e "$DIR/state.json" ]]
+    git checkout -q -- a.txt
+    assert_no_state
 }
 
 @test "precheck: 要件文書が無ければ中止する" {
@@ -90,7 +96,7 @@ pr_json() { # <headRefName> <owner> <repo|null>
     fi
 }
 
-@test "precheck: --pr があれば PR 本文を連結した要件文書を作り、その sha256 を控える" {
+@test "precheck: --pr があれば PR 本文を連結した要件文書を作り、それを Workflow に渡す要件文書にする" {
     export GH_PR_JSON
     GH_PR_JSON=$(pr_json feature tanimon sample)
     run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md --pr https://github.com/tanimon/sample/pull/7
@@ -98,9 +104,6 @@ pr_json() { # <headRefName> <owner> <repo|null>
     assert_equal "$(jq -r .requirementsPath <<<"$output")" "$DIR/requirements.md"
     run grep -c -e '^# 要件$' -e '^## 追補: PR 本文' -e '^PR の本文$' "$DIR/requirements.md"
     assert_output 3
-    assert_equal "$(jq -r .requirementsSha256 "$DIR/state.json")" "$(shasum -a 256 "$DIR/requirements.md" | cut -d' ' -f1)"
-    assert_equal "$(jq -r .requirementsPath "$DIR/state.json")" "$REPO/docs/spec.md"
-    assert_equal "$(jq -r .workflowRequirementsPath "$DIR/state.json")" "$DIR/requirements.md"
 }
 
 @test "precheck: PR がこのブランチ・このリポジトリのものでなければ中止する" {
@@ -110,12 +113,13 @@ pr_json() { # <headRefName> <owner> <repo|null>
         GH_PR_JSON=$(pr_json "$h" "$o" "$r")
         run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md --pr https://github.com/tanimon/sample/pull/7
         assert_failure 2
-        [[ ! -e "$DIR/state.json" && ! -e "$DIR/requirements.md" ]]
+        [[ ! -e "$DIR/requirements.md" ]]
     done
     unset GH_PR_JSON
     run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md --pr https://github.com/tanimon/sample/pull/7
     assert_failure 2
     [[ "$stderr" == *gh* ]]
+    assert_no_state
 }
 
 @test "precheck: 元の要件文書が連結先と同じパスなら上書きせずに中止する" {
@@ -294,6 +298,7 @@ output_file() { # <ledger の file の JSON 配列>
     run --separate-stderr bash "$POSTCHECK" --dir "$DIR" --output-file "$(output_file '[]')"
     assert_failure 1
     assert_line --partial '起動前の値'
+    assert_line --partial 'sha256'
     assert_line --partial '未コミットの変更'
     refute_line --partial 'Workflow が足したコミット'
 }
@@ -303,4 +308,26 @@ output_file() { # <ledger の file の JSON 配列>
     assert_failure 2
     run --separate-stderr bash "$POSTCHECK" --dir "$BATS_TEST_TMPDIR/missing"
     assert_failure 2
+}
+
+@test "precheck: 書き出し先に書けなければ、終了コード 2 で中止する" {
+    chmod 555 "$DIR"
+    run --separate-stderr bash "$PRECHECK" --dir "$DIR" --requirements docs/spec.md
+    chmod 755 "$DIR"
+    assert_failure 2
+    refute [ -z "$stderr" ]
+}
+
+@test "postcheck: 予期しない失敗は終了コード 2 にし、それまでに分かったことは標準出力に残す" {
+    export GH_PR_JSON
+    GH_PR_JSON=$(pr_json feature tanimon sample)
+    start_run --pr https://github.com/tanimon/sample/pull/7
+    agent_commit src/unrecorded.txt u
+    chmod 000 "$DIR/requirements.md"
+    run --separate-stderr bash "$POSTCHECK" --dir "$DIR" --output-file "$(output_file '[]')"
+    chmod 644 "$DIR/requirements.md"
+    assert_failure 2
+    assert_line --partial 'Unrecorded Change'
+    assert_line "- Workflow が足したコミット: \`${PRE_SHA}..HEAD\`"
+    refute [ -z "$stderr" ]
 }

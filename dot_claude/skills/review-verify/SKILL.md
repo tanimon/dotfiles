@@ -18,7 +18,7 @@ Workflow は実装も push も PR の作成もしない。修正エージェン�
    bash ~/.claude/skills/review-verify/scripts/precheck.sh --dir <dir> --requirements <要件文書のパス> [--pr <pr= の URL>] [--stats-issue <stats-issue= の URL>]
    ```
 
-   スクリプトは、ブランチ(保護ブランチと detached HEAD を拒む)・未コミットの変更・要件文書の存在・`pr=` の PR がこのブランチとこのリポジトリのものであること・`stats-issue=` が Issue の URL であることを検査し、`pr=` があれば PR 本文を要件文書に連結したファイルを `<dir>` に作る。起動後の確認に使う値は `<dir>/state.json` に残す。終了コード 2 なら標準エラー出力の理由を伝えて**中止する**(worktree やブランチは作らず、ブランチの切り替えや変更の退避もしない)。終了コード 0 なら、標準出力の JSON の `requirementsPath` を「Workflow に渡す要件文書」、`preSha` を起動前の SHA として控える。
+   終了コード 2 なら標準エラー出力の理由を伝えて**中止する**(worktree やブランチは作らず、ブランチの切り替えや変更の退避もしない)。終了コード 0 なら、標準出力の JSON の `requirementsPath` を `<Workflow に渡す要件文書>`、`preSha` を起動前の SHA として控える。
 2. **差分の基点を決める。** 引数 `base=` があればそれを使う。無ければ `origin/HEAD` が指すブランチ(`git symbolic-ref --short refs/remotes/origin/HEAD`。`origin/main` の形で出る)を使う。`refs/remotes/origin/HEAD` は clone の仕方によってはローカルに無く、このコマンドが失敗する。その場合は推測せず `AskUserQuestion` で基点を聞く。プロジェクトの規約で別のブランチと比較するもの(例: hotfix 以外は `development` と比較する)があれば、その規約に従う。`git rev-list --count <基点>..HEAD` が 0 なら、レビューする差分が無いことを伝えて中止する。
 3. **テスト/lint のコマンドを決める。** プロジェクトの CLAUDE.md が示す検証コマンド(例: `just lint`、`bash scripts/lint/git-diff-lint.sh`、`npm test`)を列挙する。特定できない、または候補が複数あって選べない場合は、`AskUserQuestion` で選んでもらう。1件以上が必要。落ちているコマンドがあっても、Workflow がレビューの前に直そうとする(直らなければ止まる。要件文書のうちブランチが未着手の項目を検査するテストは、実装せずに止まる)ので、起動前に走らせて止める必要はない。
 4. **動作確認 skill を決める。** 引数 `verify=` があればそれを使う。無ければ `AskUserQuestion` で聞く。選択肢は、そのリポジトリ専用の検証 skill(あれば先頭に置く)、`web-verify`、`run`、`none`(テスト/lint のみ)とする。`verify=` で渡された場合も含め、動作確認 skill が起動時に人間に確かめる事項があれば、ここで確かめて `verifyArgs` に1つの文字列で入れる(Workflow の動作確認エージェントは質問できない)。`web-verify` なら、確かめる事項・順序・`verifyArgs` の形は web-verify の SKILL.md の「起動前に人間が確かめる事項」に従う。その SKILL.md は Skill ツールで起動せずファイルとして読む(起動すると、ここで動作確認そのものが始まる)。場所はまずこの skill と同じ skills ディレクトリの `web-verify/SKILL.md` を見て、無ければ `~/.claude/skills`・プロジェクトの `.claude/skills`・`~/.claude/plugins` の配下から `web-verify/SKILL.md` を探す。見つからなければ保存場所だけを聞き、`検証資産の保存場所: <絶対パス>(質問)` の形で渡す。確かめる事項が無ければ省略する。
@@ -29,12 +29,12 @@ Workflow は実装も push も PR の作成もしない。修正エージェン�
    Workflow({
      name: "review-verify",
      args: {
-       requirementsPath: "<手順1の Workflow に渡す要件文書>",
-       baseRef: "<手順2>",
-       checkCommands: ["<手順3>", ...],
-       verifySkill: "<手順4>",
-       verifyArgs: "<手順4。確かめた事項があるときだけ>",
-       maxReviewRounds: <手順5。指定があるときだけ>
+       requirementsPath: "<Workflow に渡す要件文書>",
+       baseRef: "<差分の基点>",
+       checkCommands: ["<テスト/lint のコマンド>", ...],
+       verifySkill: "<動作確認 skill>",
+       verifyArgs: "<動作確認 skill について確かめた事項。あるときだけ>",
+       maxReviewRounds: <上限回数。指定があるときだけ>
      }
    })
    ```
@@ -42,8 +42,8 @@ Workflow は実装も push も PR の作成もしない。修正エージェン�
 7. **結果を書き出して伝える。** Workflow が返ったら、値を返さずに終わった場合(Workflow ツールがエラーを返した場合)も含めて、次を実行する。`<output-file>` は完了通知の `<output-file>` で、Workflow ツールがエラーを返したときは `--output-file` ごと省く。
 
    ```
-   bash ~/.claude/skills/review-verify/scripts/postcheck.sh --dir <手順1の dir> --output-file <output-file>
+   bash ~/.claude/skills/review-verify/scripts/postcheck.sh --dir <dir> --output-file <output-file>
    ```
 
-   完了通知の `<result>` から Write ツールで書き出さない(ledger が入るとほぼ毎回切れるので、値はスクリプトが出力ファイルから取り出す)。スクリプトは返り値を `<dir>/report.md` / `ledger.json` / `stats.md` に書き出し、起動前の値と git を照らして、履歴の書き換え・要件文書の書き換え・Unrecorded Change・未コミットの変更・確かめられなかった項目を標準出力に書く。終了コード 0 と 1 のときは、標準出力を出力の先頭にそのまま置き(Workflow ツールがエラーを返したときは、そのエラーをさらに上に書く)、続けて `<dir>/report.md` の中身をそのまま示し、`report.md` と `ledger.json` の path を添える。報告に停止の理由(`stopReason`)があれば、何が原因で止まったかを 1 文で添える。終了コード 2 のときは、確認ができなかったことと標準エラー出力をユーザーに伝え、出力ファイルの path を添える。どの場合も、報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。未コミットの変更を消したりコミットしたりせず、扱いはユーザーに委ねる。push と PR の作成もユーザーに委ねる。
+   完了通知の `<result>` から Write ツールで書き出さない(返り値はスクリプトが出力ファイルから `<dir>` に書き出す)。終了コードにかかわらず、標準出力を出力の先頭にそのまま置く(Workflow ツールがエラーを返したときは、そのエラーをさらに上に書く)。終了コード 2 のときは、確認を最後まで実行できなかったことと標準エラー出力も先頭に書く。続けて `<dir>/report.md` があればその中身をそのまま示し、`report.md` と `ledger.json` の path を添える。`report.md` が無く出力ファイルがあるときは、出力ファイルの path を添える。報告に停止の理由(`stopReason`)があれば、何が原因で止まったかを 1 文で添える。どの場合も、報告の中身を要約して丸めない(Unresolved Finding と Requirements Concern は人間の判断材料なので、省略しない)。未コミットの変更を消したりコミットしたりせず、扱いはユーザーに委ねる。push と PR の作成もユーザーに委ねる。
 8. **統計を投稿する。** 引数 `stats-issue=` があるときだけ行う。`<dir>/stats.md` があれば `gh issue comment <URL> --body-file <dir>/stats.md` で投稿する。`stats.md` に何も足さない(リポジトリ名・ブランチ名・SHA・報告の他の節)。仕事のリポジトリでの実行を public な Issue に投稿しうるためで、`stats` はそれらを含まないよう Workflow が組み立てている。`stats.md` が無い場合(Workflow が値を返さずに終わった場合など)と、投稿に失敗した場合は、実行の失敗にはせず、投稿できなかったことと理由をユーザーに伝える(伝えないと、集めている統計の件数が黙って欠ける)。
