@@ -236,6 +236,12 @@ _Avoid_: 仕様書(無限定)、入力
 実装ではなく Requirements Document そのものに向けられた Review Finding で、何を作るかを agent は決めないため修正せずに人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
 _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正
 
+### Autonomy
+
+**Human Touchpoint**:
+作業の流れのうち、人間の手が入らないと先へ進めない点。Approval Gate・エージェントからの質問・手での起動・PR のレビューとマージがこれに当たる。自律化は Human Touchpoint を消すか、意図して残すかで語る。
+_Avoid_: 人間の介入(無限定)、確認(Approval Gate と紛らわしい)
+
 ### Goal definition
 
 **Goal Condition**:
