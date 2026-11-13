@@ -236,6 +236,10 @@ _Avoid_: 仕様書(無限定)、入力
 実装ではなく Requirements Document そのものに向けられた Review Finding で、何を作るかを agent は決めないため修正せずに人間への最終報告に回す。Requirements Document どおりに作ると壊れるものに限り、その場で作業を止める理由になる。
 _Avoid_: Plan Concern(旧称)、仕様バグ、plan 修正
 
+**Unrecorded Change**:
+Review-Verify の実行中にブランチで変わったのに、最終報告のどの変更の節にも載っていないファイルの変更。変更の節はエージェントの申告から作られるため、実際の差分と突き合わせて初めて見つかる。
+_Avoid_: 申告漏れ(申告した側の落ち度に聞こえ、何が残ったかを指さない)
+
 ### Autonomy
 
 **Human Touchpoint**:
