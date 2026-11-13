@@ -156,6 +156,14 @@ assert_guard_wired() {
     run jq -r '[.hooks[][].hooks[] | select((.command // "") | test("orca/agent-hooks"))
         | "\(.type) \(.timeout | type)"] | unique | join(",")' "$SETTINGS"
     assert_output "command number"
+    # orca は PermissionRequest にだけ 130、他の event には 10 を書く。PermissionRequest の dispatcher は
+    # orca 側の承認を最大 126 秒待つので(~/.orca/agent-hooks/claude-hook.sh の max_time)、10 では
+    # 承認が届く前に Claude Code が hook を打ち切る。値が orca と違えばドリフトにもなる
+    run jq -r '[.hooks | to_entries[] | .key as $event | .value[].hooks[]
+        | select((.command // "") | test("orca/agent-hooks"))
+        | "\(if $event == "PermissionRequest" then "PermissionRequest" else "other" end)=\(.timeout)"]
+        | unique | join(" ")' "$SETTINGS"
+    assert_output "PermissionRequest=130 other=10"
     # matcher が絞られると orca はその event の大半を受け取れなくなる。全件一致(省略・"" ・"*")だけを許す
     run jq -r '[.hooks[][] | select(any(.hooks[]; (.command // "") | test("orca/agent-hooks")))
         | (.matcher // "") | if . == "" then "*" else . end] | unique | join(" ")' "$SETTINGS"
