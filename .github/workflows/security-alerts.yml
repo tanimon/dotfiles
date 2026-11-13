@@ -123,8 +123,11 @@ jobs:
             '{number, type: "secret-scanning", secret_type}' \
             "$APP_TOKEN")
 
-          jq -n --argjson dep "$dep" --argjson cs "$cs" --argjson ss "$ss" \
-            '{dependabot: $dep, code_scanning: $cs, secret_scanning: $ss}' > /tmp/security-alerts.json
+          # secret scanning は判断の要らない issue の起票だけなので、Claude の読むファイルに入れず
+          # 「File secret scanning issues」の step が扱う
+          jq -n --argjson dep "$dep" --argjson cs "$cs" \
+            '{dependabot: $dep, code_scanning: $cs}' > /tmp/security-alerts.json
+          echo "$ss" > /tmp/secret-scanning-alerts.json
 
           echo "Dependabot: $(echo "$dep" | jq length) open"
           echo "Code scanning: $(echo "$cs" | jq length) open"
@@ -133,17 +136,23 @@ jobs:
             echo "::warning::Some alert APIs returned errors (see above)"
           fi
 
-          total=$(jq '(.dependabot | length) + (.code_scanning | length) + (.secret_scanning | length)' /tmp/security-alerts.json 2>/dev/null || echo 0)
-          if [ "$total" -gt 0 ]; then
-            echo "has_alerts=true" >> "$GITHUB_OUTPUT"
+          sweep_total=$(jq '(.dependabot | length) + (.code_scanning | length)' /tmp/security-alerts.json 2>/dev/null || echo 0)
+          if [ "$sweep_total" -gt 0 ]; then
+            echo "has_sweep_alerts=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_alerts=false" >> "$GITHUB_OUTPUT"
+            echo "has_sweep_alerts=false" >> "$GITHUB_OUTPUT"
+          fi
+          secret_total=$(jq length /tmp/secret-scanning-alerts.json 2>/dev/null || echo 0)
+          if [ "$secret_total" -gt 0 ]; then
+            echo "has_secret_alerts=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_secret_alerts=false" >> "$GITHUB_OUTPUT"
           fi
 
       # prompt の `just lint` が完走するよう、lint.yml の各 job が要るものをすべて入れる。local-only の recipe は
       # nono が無いと skip する
       - name: Install lint tools
-        if: steps.alerts.outputs.has_alerts == 'true'
+        if: steps.alerts.outputs.has_sweep_alerts == 'true'
         uses: ./.github/actions/setup-lint
         with:
           pnpm: 'true'
@@ -154,7 +163,7 @@ jobs:
           zsh: 'true'
 
       - name: Sweep security alerts
-        if: steps.alerts.outputs.has_alerts == 'true'
+        if: steps.alerts.outputs.has_sweep_alerts == 'true'
         uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1.0.252
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
@@ -162,16 +171,55 @@ jobs:
           prompt: |
             Run a sweep of all open security alerts in this repository. Process alert type: ${{ steps.scope.outputs.alert_type }}
 
-            The open alerts are pre-fetched in `/tmp/security-alerts.json` (`dependabot`, `code_scanning`, and `secret_scanning` arrays). Find the existing PRs and issues with `gh pr list --search "security" --json number,title --limit 50` and `gh issue list --label security --state open --json number,title --limit 50`.
+            The open alerts are pre-fetched in `/tmp/security-alerts.json` (`dependabot` and `code_scanning` arrays). Secret scanning alerts are filed as issues by a separate step and are not part of this sweep. Find the existing PRs and issues with `gh pr list --search "security" --json number,title --limit 50` and `gh issue list --label security --state open --json number,title --limit 50`.
 
-            For each alert that no existing PR or issue covers: for a Dependabot alert, check for a Renovate PR, then attempt a fix or create an issue; for a code scanning alert, fix it when low-risk and create an issue when high-risk; for a secret scanning alert, create a high-priority issue. End with a summary of the actions taken.
+            For each alert that no existing PR or issue covers: for a Dependabot alert, check for a Renovate PR, then attempt a fix or create an issue; for a code scanning alert, fix it when low-risk and create an issue when high-risk. End with a summary of the actions taken.
 
             ## Rules
             - Maximum 5 alerts processed per sweep run
             - Run `just lint` before any commits
             - Do not log or display actual secret values: this repository and its Actions logs are public
-            - For secret scanning alerts, create an issue only. Rotating or removing a secret is a human decision, and a fix commit would put the value into public history
           claude_args: '--allowedTools "Bash(git *),Bash(gh *),Bash(just *),Bash(pnpm *),Bash(cat *),Read,Write,Edit,Glob,Grep"'
+
+      # 同じアラートの issue を二度作らないよう、open な security issue とタイトルの完全一致で除く。
+      # タイトルの形を変えると既存の issue と一致しなくなり、同じアラートの issue が重複する。
+      # 値を issue にもログにも出さない(リポジトリも Actions のログも公開)。アラートの JSON に値は入っていない。
+      # Sweep の後ろに置き `!cancelled()` を付けるのは、この step と Sweep の失敗が互いの実行を止めないようにするため
+      # (暗黙の `success()` のままだと、前の step が落ちた時点で後ろの step が skip される)
+      - name: File secret scanning issues
+        if: ${{ !cancelled() && steps.alerts.outputs.has_secret_alerts == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          open_issues=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label security --state open \
+            --json title --limit 200)
+          alerts=$(jq -r '.[] | [.number, .secret_type] | @tsv' /tmp/secret-scanning-alerts.json)
+
+          while IFS=$'\t' read -r number secret_type; do
+            [ -n "$number" ] || continue
+            title="Security: secret scanning alert #${number} (${secret_type})"
+            if jq -e --arg t "$title" 'any(.[]; .title == $t)' <<<"$open_issues" >/dev/null; then
+              echo "Already tracked: ${title}"
+              continue
+            fi
+            # 本文の改行をリテラルで書かない理由は .github/actions/harness-issue-alert/action.yml のコメント
+            body=$(printf '%s\n\n%s\n\n%s\n%s\n%s\n%s\n%s\n\n%s\n' \
+              "**High priority.** Secret scanning alert #${number} is open: type \`${secret_type}\`." \
+              "This repository is public, so the credential should be treated as exposed." \
+              "Suggested steps (human decision, no automated fix):" \
+              "1. Open the alert (Security > Secret scanning > #${number}) to find the location. The value is deliberately not reproduced here." \
+              "2. Rotate or revoke the credential at its provider." \
+              "3. Decide whether to purge it from git history." \
+              "4. Resolve the alert as revoked, or as a false positive/test value if that applies." \
+              "Created by the automated security alert sweep.")
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --label security \
+              --title "$title" \
+              --body "$body" </dev/null
+            echo "Created: ${title}"
+          done <<<"$alerts"
 
       - name: Generate summary
         if: always()
@@ -211,10 +259,13 @@ jobs:
             if [ -f /tmp/security-alerts.json ]; then
               dep_count=$(jq '.dependabot | length' /tmp/security-alerts.json)
               cs_count=$(jq '.code_scanning | length' /tmp/security-alerts.json)
-              ss_count=$(jq '.secret_scanning | length' /tmp/security-alerts.json)
             else
               dep_count="N/A"
               cs_count="N/A"
+            fi
+            if [ -f /tmp/secret-scanning-alerts.json ]; then
+              ss_count=$(jq length /tmp/secret-scanning-alerts.json)
+            else
               ss_count="N/A"
             fi
             echo "- Dependabot: ${dep_count} open"
@@ -237,4 +288,6 @@ jobs:
             Check the failed run logs. A common cause is an expired
             `CLAUDE_CODE_OAUTH_TOKEN` secret (401 auth error) — regenerate with
             `claude setup-token` and update via `gh secret set CLAUDE_CODE_OAUTH_TOKEN`.
+            If the "File secret scanning issues" step failed instead, the
+            `gh issue create` error is in that step's log.
           gh-token: ${{ github.token }}
