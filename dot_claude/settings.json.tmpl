@@ -544,7 +544,7 @@
       {
         "matcher": "*",
         "hooks": [
-          {{ template "orca-agent-hook" . }}
+          {{ template "orca-agent-hook" (dict "timeout" 130) }}
         ]
       }
     ]
