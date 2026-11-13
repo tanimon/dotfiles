@@ -45,14 +45,15 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
 **理由:** 無人 PR レビューの投稿が `if … fi` で包まれていたため 26 回拒否され、完成済みレビューが捨てられた。
 `gh api -X POST …` の形でも 1 か月おいて 2 回ブロックされた。
 
-## Docker はサンドボックス内では動かない
+## 症状から引く項目
 
-`~/.docker/buildx/activity` への書き込み拒否(`operation not permitted`)か、
-Docker ソケットへの接続拒否(`permission denied … docker.sock`)が出たらサンドボックスが原因。
-調査せず、通常の権限フローでサンドボックス外に出して再実行する。
+次の症状が出たら、調査や再実行の前に `~/.claude/references/bash-tool-symptoms.md` の該当節を読む
+(どれもサンドボックスが原因で、対処が決まっている):
 
-**理由:** 仕事用 worktree のセッションの 3〜5 割で、毎回 1 ターン使って同じ原因を再発見していた。
-Docker ソケットをサンドボックスで許可するとホスト全体への経路になるため、許可はしていない。
+- `~/.docker/buildx/activity` への `operation not permitted`、または `permission denied … docker.sock`(Docker)
+- `Operation not permitted …/.aws/cli/cache`(aws CLI)
+- `dangerouslyDisableSandbox: true` のコマンドが 60s/120s で「background に移した」と報告された。**再実行の前に必ず読む** —
+  完了済みの破壊的操作を二度走らせうる
 
 ## サンドボックス内の git 操作は途中で止まることがある
 
@@ -80,15 +81,11 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 - **エージェントが実行するスクリプトが書く永続ファイル(cookie・トークン・状態)は `~/.cache/<名前>/` に置く。**
   ネイティブサンドボックスで書けるホーム配下の場所は `~/.claude/settings.json` の `sandbox.filesystem.allowWrite`
   に列挙したものだけで、XDG の慣習どおりに `~/.local/state` などを選ぶと書き込みが拒否される。置き場所を設計で
-  決める前にこの一覧を確かめる。aws CLI は読み取りだけの呼び出しでも `~/.aws/cli/cache` に書くので、
-  `Operation not permitted …/.aws/cli/cache` は調査せずサンドボックス外で再実行する。
-  **理由:** `~/.local/state` に置く設計を実装段階でやり直し、同じセッションで読み取りの aws 呼び出しを 4 回再実行した。
+  決める前にこの一覧を確かめる。
+  **理由:** `~/.local/state` に置く設計を実装段階でやり直した。
 
 ## その他
 
-- **`dangerouslyDisableSandbox: true` のコマンドは、完了しているのにタイムアウトを誤報告することがある。** コマンド本体は
-  終わっているのにシェルが生き残り、60s/120s で「background に移した」と報告される。**再実行する前にタスク出力ファイルを
-  読むこと** — 中身が完了を示していれば、そのまま再実行すると同じ破壊的操作を二度走らせる。
 - **`gh auth token` の出力を表示しない。** `| head -c 20` のように一部だけ出しても分類器が拒否する。
   認証の確認は `gh auth status` か `gh auth token >/dev/null 2>&1 && echo ok` で行う。
 - **`git diff` は difftastic で表示される。** このマシンは `diff.external = difft` なので、出力に `+` / `-` の行頭記号が無い。
