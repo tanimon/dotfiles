@@ -17,7 +17,7 @@ Docker ソケットをサンドボックスで許可するとホスト全体へ�
 aws CLI は読み取りだけの呼び出しでも `~/.aws/cli/cache` に書くので、
 `Operation not permitted …/.aws/cli/cache` は調査せずサンドボックス外で再実行する。
 
-**理由:** 同じセッションで読み取りの aws 呼び出しを 4 回再実行した。
+**理由:** 1 つのセッションで、読み取りだけの aws 呼び出しを 4 回再実行した。
 
 ## `dangerouslyDisableSandbox: true` のタイムアウト誤報告
 

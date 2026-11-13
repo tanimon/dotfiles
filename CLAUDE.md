@@ -208,7 +208,7 @@ Web の取得は組込みの WebFetch / WebSearch を使う(専用のブラウ�
 
 ### Bash ツールの落とし穴
 
-どのリポジトリでも成立する落とし穴なので `dot_claude/rules/claude-code/bash-tool.md` に置いてある。`dangerouslyDisableSandbox: true` のコマンドでは `$TMPDIR` が別になること(「一時ファイルとファイルの置き場所」)と、完了しているのにタイムアウトを誤報告すること(「症状から引く項目」)の 2 つは、症状が「失敗」ではなく「別のものに成功した」ように見える。
+どのリポジトリでも成立する落とし穴なので `dot_claude/rules/claude-code/bash-tool.md` に置いてある。`dangerouslyDisableSandbox: true` のコマンドでは `$TMPDIR` が別になること(「一時ファイルとファイルの置き場所」)と、完了しているのにタイムアウトを誤報告すること(`dot_claude/references/bash-tool-symptoms.md`)は、症状が「失敗」ではなく「別のものに成功した」ように見える。
 
 ### Global configuration
 
