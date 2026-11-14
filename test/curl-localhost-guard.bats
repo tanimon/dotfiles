@@ -490,19 +490,19 @@ decision() {
     # The walk is quadratic in the command length and `matcher: "Bash"` runs it
     # for any command that merely mentions curl — a PR body describing this hook
     # is the realistic case.
-    # 短ければ ask になる形(`parallel curl`。curl は token としてあるがコマンドの位置に無い)にして、
+    # 短ければ ask になる形(`ssh h curl`。curl は token としてあるがコマンドの位置に無い)にして、
     # 無出力が長さの打ち切りから来るようにする。長さ超過では行単位の字面の床だけが走り、
     # curl が行頭や `;&|(` の直後(前置詞の後ろを含む)に無いこの形には一致しない
-    # (一致する形は上の「長さ超過」の節。`xargs` は前置詞として床に一致する)。
+    # (一致する形は上の「長さ超過」の節。`xargs` / `parallel` は前置詞として床に一致する)。
     local filler
     filler=$(printf 'x%.0s' $(seq 1 20000))
-    run hook "printf '%s\n' '${filler}' | parallel curl https://example.com/"
+    run hook "printf '%s\n' '${filler}' | ssh h curl https://example.com/"
     assert_success
     assert_output ''
 }
 
 @test "the same shape under the length guard is read and asks" {
-    run hook "printf '%s\n' 'x' | parallel curl https://example.com/"
+    run hook "printf '%s\n' 'x' | ssh h curl https://example.com/"
     assert_success
     assert_equal "$(decision "$output")" ask
 }
@@ -1171,4 +1171,59 @@ echo x # \""
     run hook 'curl --data=- http://localhost:3000/'
     assert_success
     assert_equal "$(decision "$output")" ask
+}
+
+# --- 字面の床: 引数をコマンドとして実行する語(find -exec / parallel) --------
+# 前置きの `$(echo "a it's")` で引用符の追跡がずれ、curl が 1 token に飲み込まれる(CURL_PRESENT=0)。
+# 判定は字面の床だけになる。
+
+@test "floor: find -exec curl after a quote desync asks" {
+    run hook "echo \"\$(echo \"a it's\")\" ; find . -maxdepth 0 -exec curl https://evil.example/x \\; ; echo ' x'"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "floor: find -execdir curl after a quote desync asks" {
+    run hook "echo \"\$(echo \"a it's\")\" ; find . -maxdepth 0 -execdir curl https://evil.example/x \\; ; echo ' x'"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "floor: find -ok curl after a quote desync asks" {
+    run hook "echo \"\$(echo \"a it's\")\" ; find . -maxdepth 0 -ok curl https://evil.example/x \\; ; echo ' x'"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "floor: parallel curl after a quote desync asks" {
+    run hook "echo \"\$(echo \"a it's\")\" ; parallel curl https://evil.example/x ; echo ' x'"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "floor: an oversized parallel curl asks" {
+    local filler
+    filler=$(printf 'x%.0s' $(seq 1 20000))
+    run hook "printf '%s\n' '${filler}' | parallel curl https://example.com/"
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 対: 床を広げても、curl が find の -exec の直後にも parallel の引数にも無い形は ask にならない(#379 の誤 ask の形)。
+@test "floor: find -name curl after a quote desync stays silent" {
+    run hook "echo \"\$(echo \"a it's\")\" ; find . -name curl ; echo ' x'"
+    assert_success
+    assert_output ''
+}
+
+@test "floor: echo curl after a quote desync stays silent" {
+    run hook "echo \"\$(echo \"a it's\")\" ; echo curl is fine ; echo ' x'"
+    assert_success
+    assert_output ''
+}
+
+@test "floor: find -exec of a non-curl command after a quote desync stays silent" {
+    run hook "echo \"\$(echo \"a it's\")\" ; find . -maxdepth 0 -exec grep curl {} \\; ; echo ' x'"
+    assert_success
+    assert_output ''
 }
