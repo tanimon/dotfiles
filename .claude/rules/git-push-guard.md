@@ -18,7 +18,9 @@ paths:
 
 判定は3値。`deny` は `--force` / `--force-with-lease[=…]` / `--force-if-includes` / `--delete` /
 `--mirror` / `--prune`、`f` か `d` を含む束ねた短オプション、`+` 始まりの refspec、`:` 始まり
-(src が空 = リモート ref 削除)の refspec。`ask` は**読み切れなかったとき**の fail-closed 値で、
+(src が空 = リモート ref 削除)の refspec。git-core の dashed `git-push` も basename で push として読む。
+`git send-pack` / `git-send-pack` は引数に関係なく `ask`(引数の文法が push と違い、日常では使わない。
+散文の `echo git send-pack` も `ask` になる誤 ask は受容)。`ask` は**読み切れなかったとき**の fail-closed 値で、
 push セグメント内の変数・コマンド置換、`push` または `mirror` に言及する `-c` 上書き
 (`-c remote.origin.push=+refs/…` は引数走査では見えず、`-c remote.origin.mirror=true` は
 フラグを 1 つも書かずに `--mirror` 相当にする。`mirror` は `push` を部分文字列に持たないので
@@ -109,6 +111,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `shell_reader_text_floor_matches` に、`git … push` と危険な綴りが同じ行にあるかを問い合わせ、あれば `ask` にする。
   どの token を対象にするか・照合前の正規化(引用符・backslash・行継続)は reader が受け持つ(`.claude/rules/shell-reader.md`)。
   危険な綴りは token の判定と同じく、長オプションの前方一致(`--forc`)と `-c` の push / mirror の設定も含む。
+  `git … push` の代わりに dashed の `git-push` や `send-pack` がある行も同じく見る。
   `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
   同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
   短フラグ(`-f` など)も対象で、token の判定と同じく数字を含む束(`-4f` は `--ipv4` + `--force`)も一致させる
@@ -162,9 +165,6 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `-f` が push の segment に入らず無出力になる(実 zsh で force push を確認)。修飾子の `e:'…':` / `+…` は
   中身をコードとして実行するので、`echo *(e:'git push origin main --force':)` のように force push を丸ごと
   修飾子に入れた形も無出力になる(引用符の中は 1 token。`bash -c "…"` と同じ種類で、ADR 0009)。
-- **残存(受容): git-core の dashed binary と `send-pack`。** `…/libexec/git-core/git-push origin main --force` と
-  `$(git --exec-path)/git-push …` は basename が `git` ではなく、`git send-pack --force …` はサブコマンドが `push`
-  ではないので無出力になる。
 - **残存(受容): 標準入力が運ぶ引数。** `echo --force | xargs git push origin main` の `--force` はパイプの左側にあり、
   push の segment に危険な綴りが無いので無出力になる。
 - **残存(受容): `env -S "<文字列>"`。** `bash -c` の内側と同じく、文字列は 1 token になって読まない。

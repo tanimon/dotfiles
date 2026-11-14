@@ -1124,6 +1124,118 @@ EOF"
     assert_equal "$(decision "$output")" ask
 }
 
+# --- git send-pack と git-core の dashed binary ---------------------------------
+# `git send-pack` は push の下位コマンドで `push` を含まないので、早期終了の動詞に別に足してある。
+# 日常では使わないので、segment に現れたら引数に関係なく ask にする。deny でないのは、判定器を
+# push と別に持たない(引数の文法が違う)ため。
+
+@test "git send-pack --force asks instead of passing silently" {
+    run hook 'git send-pack --force https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack with a deletion refspec asks" {
+    run hook 'git send-pack https://example.com/r.git :main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack without any dangerous spelling also asks" {
+    run hook 'git send-pack https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack behind a global option asks" {
+    run hook 'git -C /tmp/r send-pack --force https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack after a wrapper asks" {
+    run hook 'xargs -n1 git send-pack --force https://example.com/r.git'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 対: 動詞の照合を抜けて reader まで届くが、サブコマンドが send-pack でないものは無出力のまま。
+@test "a git commit message mentioning send-pack stays silent" {
+    run hook 'git commit -m "docs: explain send-pack"'
+    assert_success
+    assert_output ''
+}
+
+@test "git log grepping for send-pack stays silent" {
+    run hook 'git log --grep=send-pack'
+    assert_success
+    assert_output ''
+}
+
+@test "a dashed git-push in git-core with --force is denied" {
+    run hook '/usr/libexec/git-core/git-push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# reader は `$(` の `)` で segment を切り、後ろの segment は `/git-push origin main --force` になる。
+@test "a dashed git-push found through git --exec-path in a substitution is denied" {
+    run hook '$(git --exec-path)/git-push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a bare dashed git-push with --force is denied" {
+    run hook 'git-push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a dashed git-push with a deletion refspec is denied" {
+    run hook '/usr/libexec/git-core/git-push origin :main'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# 対: dashed git-push の日常の形は無出力のまま(常に deny するフックを通さない)。
+@test "a plain dashed git-push produces no decision" {
+    run hook '/usr/libexec/git-core/git-push origin main'
+    assert_success
+    assert_output ''
+}
+
+@test "a dashed git-send-pack asks" {
+    run hook '/usr/libexec/git-core/git-send-pack --force https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 引用符の中の置換は reader の token 1 つになるので、字面の床が dashed git-push と send-pack も見る。
+@test "a dashed git-push --force inside a quoted substitution asks" {
+    run hook 'echo "$(/usr/libexec/git-core/git-push origin main --force)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "a bare dashed git-push --force inside a quoted substitution asks" {
+    run hook 'echo "$(git-push origin main --force)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack --force inside a quoted substitution asks" {
+    run hook 'echo "$(git send-pack --force https://example.com/r.git main)"'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 対: 床は危険な綴りが同じ行に無ければ一致しない。
+@test "a plain dashed git-push inside a quoted substitution stays silent" {
+    run hook 'echo "$(git-push origin main)"'
+    assert_success
+    assert_output ''
+}
+
 # here-string と `< <(…)` は本文を持たないので、その後ろの force push は deny のまま。
 # 対照は上の "a commit message heredoc naming git push --force asks rather than denies"。
 @test "a force push after a here-string is still denied" {

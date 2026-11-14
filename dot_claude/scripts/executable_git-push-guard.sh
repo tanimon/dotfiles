@@ -11,7 +11,8 @@
 #
 # Decision contract (docs: PreToolUse hookSpecificOutput):
 #   deny  — force / delete / mirror / prune spellings, at any argument position
-#   ask   — the push segment contains something this scan cannot read through
+#   ask   — the push segment contains something this scan cannot read through,
+#           or a `git send-pack` / `git-send-pack` segment (push の plumbing。引数に関係なく ask)
 #   (no output) — plain push; falls through to defaultMode: auto's classifier
 #
 # Fail-closed: anything unreadable that may contain `push` becomes `ask`, never
@@ -19,8 +20,7 @@
 # carrying a push cannot slip past.
 #
 # このフックが見ない残存: alias / シェル関数と `gh api`(tier-model spec)、および
-# .claude/rules/git-push-guard.md の「残存(受容)」の各項(引用符除去より前の早期終了・永続した設定・
-# フラグの前の `$(…)`・zsh のグロブ修飾子・git-core の dashed binary・標準入力の引数・`env -S`)。
+# .claude/rules/git-push-guard.md の「残存(受容)」の各項。
 #
 # classify_segment とその呼び先は shell_reader_each_segment が名前で間接的に呼ぶ。
 # 新しい shellcheck は SC2329、CI の ubuntu に入っている古い版は同じ指摘を SC2317 で出すので両方を抑制する。
@@ -33,10 +33,12 @@ COMMAND_GUARD_STDIN_FAILED=0
 COMMAND_GUARD_STDIN=$(cat) || COMMAND_GUARD_STDIN_FAILED=1
 # 動詞は自前の部分の照合と command_guard_start の --verb で共有する(ずれると動詞を含む入力が module に届かない)。
 COMMAND_GUARD_VERB='*push*'
+# `git send-pack` は push の下位コマンドで `push` を含まないので、動詞をもう 1 つ持つ。
+COMMAND_GUARD_VERB_SEND_PACK='*send-pack*'
 # JSON は文字を \uXXXX でも書けるので、`\u` を含む入力も module に渡す(module が jq で取り出す COMMAND の照合より狭くしない)。
 # shellcheck disable=SC2053 # 動詞は glob として照合する
 [[ $COMMAND_GUARD_STDIN_FAILED -eq 1 || "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB ||
-    "$COMMAND_GUARD_STDIN" == *\\u* ]] || exit 0
+    "$COMMAND_GUARD_STDIN" == $COMMAND_GUARD_VERB_SEND_PACK || "$COMMAND_GUARD_STDIN" == *\\u* ]] || exit 0
 command_guard_dir=${BASH_SOURCE[0]%/*}
 [[ "$command_guard_dir" != "${BASH_SOURCE[0]}" ]] || command_guard_dir=.
 # shellcheck source-path=SCRIPTDIR source=lib/command-guard.bash
@@ -46,14 +48,15 @@ if [[ ! -r "$command_guard_dir/lib/command-guard.bash" ]] || ! "$BASH" -n "$comm
     exit 0
 fi
 
-command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --on-unreadable ask \
+command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --verb "$COMMAND_GUARD_VERB_SEND_PACK" --on-unreadable ask \
     --lib shell-reader.bash \
     --require 'shell_reader_read shell_reader_each_segment shell_reader_token_has_mark shell_reader_segment_follows shell_reader_text_floor_matches'
 # command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
-ASK_REASON='git-push-guard: この push は引数を読み切れないため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
+ASK_REASON='git-push-guard: この push は引数を読み切れないか、push の下位コマンド(git send-pack)を含むため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
 
-DANGER_TEXT_RE='(^|[^[:alnum:]_-])git[[:space:]].*push'
+# git-core の dashed binary(`…/git-core/git-push`)と `send-pack` も、token の判定と同じく床で見る。
+DANGER_TEXT_RE='(^|[^[:alnum:]_-])(git[[:space:]].*push|git-push|git[[:space:]-]+send-pack)'
 # 長オプションは token の判定(long_option_is_dangerous)と同じく前方一致も見る(`--forc` / `--dele`)。
 # `-c` / `--config-env` の push・mirror の設定も、token の判定と同じく床に一致させる。
 # 短オプションの束も token の判定(`-*` のうち f か d を含むもの)と同じく数字を含めて見る(`-4f` は
@@ -153,14 +156,25 @@ config_is_dangerous() {
 # heredoc PR body tokenizes identically and pushes nothing. `ask` covers the
 # first without making the second unwritable; `deny` there would re-create the
 # friction this hook exists to remove.
+#
+# $3 は dashed binary(`…/git-core/git-push`)の名前が決めるサブコマンド。渡されたら $1 の後ろの
+# token はすべてそのサブコマンドの引数なので、git の全体オプションの走査を飛ばす。
+#
+# サブコマンドが `send-pack` なら、$2 に関係なく ask(引数の文法が push と違い、判定器を別に持たない。
+# 日常では使わない)。そのため $2 が 0 の散文(`echo see git send-pack docs`)も ask になる。
 classify_from() {
     local start=$1 strict=$2
     local index=$((start + 1))
     local subcommand="" config_ask=0 config_danger=0 alias_ask=0 danger="" token value argument
 
+    if [[ -n "${3:-}" ]]; then
+        subcommand=$3
+        index=$start
+    fi
+
     # Walk git's own options to find the subcommand. `-c <cfg>` and friends take
     # a separate value token, so they advance by two.
-    while [[ $index -lt $token_count ]]; do
+    while [[ -z "$subcommand" && $index -lt $token_count ]]; do
         strip_backticks "${tokens[$index]}"
         token=$STRIPPED
         case "$token" in
@@ -217,6 +231,8 @@ classify_from() {
     done
     # 下の `push` でないときの早期 return より前に立てる(alias の展開先はここでは読めない)。
     [[ $alias_ask -eq 1 ]] && NEEDS_ASK=1
+    # 引数に関係なく ask にする理由は、この関数の前のコメントにある。
+    [[ "$subcommand" == "send-pack" ]] && NEEDS_ASK=1
     # サブコマンドそのものを展開で作る綴り(`git {push,origin,main,--force}`)は、token が
     # `push,origin,main,--force` なので push に見えない。印のある token が push を含めば ask。
     if [[ "$subcommand" != "push" && $index -lt $token_count ]] && token_has_expansion_mark "$index"; then
@@ -315,6 +331,18 @@ classify_from() {
     return 0
 }
 
+# token index $1 の語 $3 が git(パスつきも)か git-core の dashed binary なら、$2 の強さで判定して 0 を返す。
+# それ以外は 1。dashed binary はサブコマンドが名前で決まる。
+classify_git_word() {
+    case "${3##*/}" in
+    git) classify_from "$1" "$2" ;;
+    git-push) classify_from "$1" "$2" push ;;
+    git-send-pack) classify_from "$1" "$2" send-pack ;;
+    *) return 1 ;;
+    esac
+    return 0
+}
+
 # segment への分割と、グルーピング記号・リダイレクトの `&`・継続行の正規化は
 # reader が行う(test/shell-reader.bats)。`git commit -m wip && git push --force` が
 # 最初の動詞に隠れず、`(cd dir && git push … --force)` の `)` がフラグに接着しないのは
@@ -394,10 +422,7 @@ classify_segment() {
         # 動く環境では、そのまま force push になる)。
         binary=${STRIPPED#=}
         # Accept an absolute or relative path to git as well as the bare name.
-        if [[ "${binary##*/}" == "git" ]]; then
-            classify_from "$command_start" 1
-            return 0
-        fi
+        classify_git_word "$command_start" 1 "$binary" && return 0
     fi
 
     # The command position is something else. `git` may still be in here — as a
@@ -414,10 +439,7 @@ classify_segment() {
     while [[ $probe -lt $token_count ]]; do
         raw=${tokens[$probe]##*\`}
         raw=${raw#=}
-        if [[ "${raw##*/}" == "git" ]]; then
-            classify_from "$probe" 0
-            break
-        fi
+        classify_git_word "$probe" 0 "$raw" && break
         probe=$((probe + 1))
     done
     return 0
