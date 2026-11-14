@@ -34,9 +34,6 @@ Claude Code runs inside a deny-all macOS Seatbelt sandbox via safehouse (with cc
 - `dot_config/cco/allow-paths.tmpl` — Fallback sandbox config. Read-write paths have no `:ro` suffix. Example: `{{ .chezmoi.homeDir }}/.codex` (line 30)
 - Both configs use `{{ .chezmoi.homeDir }}` template variable for home directory
 
-### Institutional Learnings
-
-
 ## Key Technical Decisions
 
 - **Read-write access (not read-only)**: gstack writes browser state, caches, and session data to `~/.gstack/` at runtime. Read-only would break functionality. This matches the `.codex` and `.cache` entries.

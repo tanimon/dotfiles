@@ -72,4 +72,3 @@ When integrating a new CLI tool that uses macOS Seatbelt sandboxing internally, 
 ## Related
 
 - [Claude Code internal sandbox conflicts with external Seatbelt sandbox](claude-code-internal-sandbox-nested-seatbelt-conflict.md) — identical root cause, same class of fix
-- [cco --safe sandbox: codex MCP server fails with EPERM on config.toml](../runtime-errors/cco-sandbox-codex-mcp-eperm.md) — prior codex sandbox issue (path access, not nested sandbox)

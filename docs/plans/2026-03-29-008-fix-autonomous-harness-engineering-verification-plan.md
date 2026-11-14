@@ -39,9 +39,6 @@ origin: docs/plans/2026-03-28-002-feat-autonomous-harness-engineering-plan.md
 - `dot_claude/settings.json.tmpl` — statusLine は `node --experimental-strip-types` 直接実行に変更済み
 - `Makefile` の `test-scripts` — harness-activator.sh のみカバー（#79）
 
-### Institutional Learnings
-
-
 ### Open CI Issues
 
 | # | Title | Severity |

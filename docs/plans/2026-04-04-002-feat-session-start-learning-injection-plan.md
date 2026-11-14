@@ -50,7 +50,9 @@ The current harness-activator hook only shows instincts at >= 0.7 confidence and
 ### Institutional Learnings
 
 - Hook exit code contract: `exit 0` for skip, `exit 1` + stderr for error (see `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`)
-- One-shot flag: set AFTER context guards, not before- ECC project ID: SHA256 of git remote URL, first 12 chars; instincts at `~/.claude/homunculus/projects/<hash>/instincts/personal/`- Instinct frontmatter fields: `id`, `trigger`, `confidence`, `domain`, `source`, `scope`, `project_id`. No `action:` field — the action description is the file body after `---`
+- One-shot flag: set AFTER context guards, not before
+- ECC project ID: SHA256 of git remote URL, first 12 chars; instincts at `~/.claude/homunculus/projects/<hash>/instincts/personal/`
+- Instinct frontmatter fields: `id`, `trigger`, `confidence`, `domain`, `source`, `scope`, `project_id`. No `action:` field — the action description is the file body after `---`
 
 ## Key Technical Decisions
 

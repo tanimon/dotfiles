@@ -144,6 +144,5 @@ Key details:
 
 ## Related Issues
 
-- [Autonomous Harness Engineering via Claude Code Hooks](autonomous-harness-engineering-hooks-2026-03-28.md) — Complementary: hooks handle dynamic session feedback, rules handle static project guidance
 - [chezmoi .tmpl shellcheck/shfmt incompatibility](../integration-issues/chezmoi-tmpl-shellcheck-shfmt-incompatibility.md) — The foundational learning that informed CI exclusion patterns
 - [Verification through the wrong resolution path](../workflow-issues/verification-through-the-wrong-resolution-path.md) — Why `--source` matters beyond `include` resolution, and the general rule that a check resolving a different path than the artifact under test passes vacuously

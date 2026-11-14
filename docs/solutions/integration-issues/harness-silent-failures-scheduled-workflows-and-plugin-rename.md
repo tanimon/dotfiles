@@ -133,6 +133,5 @@ context-free banner.
 
 - PR #211 — the fix (also closes #99, #100, #157)
 - Issue #128 — verified stale during the same audit (already fixed by #142)
-- `docs/solutions/integration-issues/ecc-continuous-learning-harness-integration-2026-04-03.md` — original ECC integration
 - `docs/solutions/integration-issues/ecc-plugin-enablement-and-selective-rules-install-2026-04-03.md` — earlier plugin enablement work
 - `docs/solutions/integration-issues/github-actions-security-alert-workflow-pitfalls-2026-04-02.md` — related scheduled-workflow pitfalls

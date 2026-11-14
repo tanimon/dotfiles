@@ -77,7 +77,4 @@ Fixing the global settings ensures all projects work correctly under safehouse.
 
 ## Related
 
-- [cco-sandbox-args-file-backend-passthrough-only.md](cco-sandbox-args-file-backend-passthrough-only.md) — cco arg file limitations
-- [migrate-cco-to-agent-safehouse.md](migrate-cco-to-agent-safehouse.md) — safehouse migration
-- [safehouse-cli-flag-internals-and-config-patterns.md](safehouse-cli-flag-internals-and-config-patterns.md) — safehouse config patterns
 - (auto memory [claude]) Seatbelt Wildcard Precedence — specific allow > wildcard deny, relevant to understanding Seatbelt behavior
