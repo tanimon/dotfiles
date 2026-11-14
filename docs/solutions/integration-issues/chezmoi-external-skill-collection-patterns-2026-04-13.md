@@ -46,7 +46,7 @@ When `{{ if eq .chezmoi.os "darwin" }}` wraps the entire script including the sh
 
 **This is NOT the same as `modify_` scripts**, where empty stdout deletes the target file. The CLAUDE.md pitfall "modify_ scripts: empty stdout = target deletion" applies exclusively to `modify_` scripts.
 
-Reference pattern: `.chezmoiscripts/run_onchange_darwin-install-packages.sh.tmpl` uses this exact structure.
+Reference pattern: `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` uses this exact structure.
 
 ```bash
 {{ if eq .chezmoi.os "darwin" -}}
@@ -127,5 +127,5 @@ Complete pattern for adding a Claude Code skill repo that requires compilation:
 - PR [#162](https://github.com/tanimon/dotfiles/pull/162) — gstack introduction
 - `docs/solutions/integration-issues/chezmoi-v2701-strict-mode-chezmoiexternal-migration-2026-04-12.md` — archive type requirement
 - `docs/solutions/integration-issues/chezmoi-external-script-repo-with-renovate-sha-pinning.md` — Renovate adjacency contract
-- `.chezmoiscripts/run_onchange_darwin-install-packages.sh.tmpl` — reference pattern for OS-guarded scripts
+- `.chezmoiscripts/run_onchange_after_install-gh-extensions.sh.tmpl` — reference pattern for OS-guarded scripts
 - `.chezmoiscripts/run_onchange_after_link-cco.sh.tmpl` — reference pattern for post-extraction scripts

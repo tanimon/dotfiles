@@ -26,9 +26,17 @@ macOS の開発環境を chezmoi で管理する dotfiles。
 # chezmoi で dotfiles を適用
 brew install chezmoi
 chezmoi init --apply tanimon
+
+# Brewfile のパッケージを入れる
+brew bundle install --file="$(chezmoi source-path)/darwin/Brewfile"
+
+# brew で入った道具(mise・nono・apm・gh・sheldon など)を使う after スクリプトを走らせる
+chezmoi apply
 ```
 
 初回実行時に `profile` (work/personal) と `ghOrg` の入力を求められる。
+
+`chezmoi apply` は brew を呼ばない。apply の中で `brew bundle` を走らせると既定で入れ済みのパッケージまで upgrade され、その失敗で apply が途中で止まるため。Brewfile を変えた後は、dotfiles のリポジトリで `just brew-install` を実行する(未導入のパッケージだけを入れ、upgrade はしない)。upgrade は必要なときに `brew upgrade` で行う。
 
 ## License
 
