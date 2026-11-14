@@ -7,7 +7,7 @@ set -euo pipefail
 # apm が無くて skip すると run_onchange_ は実行済みと記録されるので、apm が PATH に現れたら内容を変えて次の apply で走らせる
 # apm on PATH: {{ if lookPath "apm" }}yes{{ else }}no{{ end }}
 #
-# apm.yml か installer のハッシュが変わったときだけ走れば足りる(run_after_ にしない)理由は
+# apm.yml・installer のハッシュか apm の有無が変わったときだけ走れば足りる(run_after_ にしない)理由は
 # dot_apm/CLAUDE.md の「`dot_apm/apm.yml` + APM」節。
 #
 # 実体は scripts/apm-install-global.sh にある。--target の二重宣言の根拠は

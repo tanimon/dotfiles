@@ -338,9 +338,8 @@ check-templates:
 @test-onchange-rerun:
     LC_ALL=C pnpm exec bats test/onchange-tool-on-path.bats
 
-# chezmoi apply は brew を呼ばない。apply の中で brew bundle を走らせると、既定で入れ済みのパッケージまで
-# upgrade され、その失敗で apply が途中で止まるため。パッケージの導入はこのレシピで明示的に行い、
-# upgrade は必要なときに `brew upgrade` を手で打つ。--no-upgrade でも、依存を満たすために brew install が上げることはある
+# chezmoi apply は brew を呼ばないので、Brewfile のパッケージはこのレシピで入れる(理由は README.md の Setup 節)。
+# --no-upgrade でも、依存を満たすために brew install が上げることはある
 # Install the Brewfile packages that are not installed yet (does not upgrade installed ones)
 brew-install:
     brew bundle install --no-upgrade --file=darwin/Brewfile
