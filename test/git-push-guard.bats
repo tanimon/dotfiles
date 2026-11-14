@@ -1124,6 +1124,92 @@ EOF"
     assert_equal "$(decision "$output")" ask
 }
 
+# --- git send-pack と git-core の dashed binary(#386) ---------------------------
+# `git send-pack` は push の下位コマンドで、サブコマンドに `push` を含まないので早期終了に届かなかった。
+# 日常では使わないので、segment に現れたら引数に関係なく ask にする。deny でないのは、判定器を
+# push と別に持たない(引数の文法が違う)ため。
+
+@test "git send-pack --force asks instead of passing silently" {
+    run hook 'git send-pack --force https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack with a deletion refspec asks" {
+    run hook 'git send-pack https://example.com/r.git :main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack without any dangerous spelling also asks" {
+    run hook 'git send-pack https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack behind a global option asks" {
+    run hook 'git -C /tmp/r send-pack --force https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+@test "git send-pack after a wrapper asks" {
+    run hook 'xargs -n1 git send-pack --force https://example.com/r.git'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
+# 対: send-pack を名前に含むだけの別物は巻き込まない。
+@test "git log mentioning send-pack in a quoted message stays silent" {
+    run hook 'git commit -m "docs: explain send-pack"'
+    assert_success
+    assert_output ''
+}
+
+@test "git status stays silent" {
+    run hook 'git status'
+    assert_success
+    assert_output ''
+}
+
+@test "a dashed git-push in git-core with --force is denied" {
+    run hook '/usr/libexec/git-core/git-push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# reader は `$(` の `)` で segment を切るので、後ろの segment の読み方(deny か ask)は実装に任せ、無出力でないことだけを固定する。
+@test "a dashed git-push found through git --exec-path in a substitution is not silent" {
+    run hook '$(git --exec-path)/git-push origin main --force'
+    assert_success
+    [[ "$(decision "$output")" == deny || "$(decision "$output")" == ask ]]
+}
+
+@test "a bare dashed git-push with --force is denied" {
+    run hook 'git-push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a dashed git-push with a deletion refspec is denied" {
+    run hook '/usr/libexec/git-core/git-push origin :main'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+# 対: dashed git-push の日常の形は無出力のまま(常に deny するフックを通さない)。
+@test "a plain dashed git-push produces no decision" {
+    run hook '/usr/libexec/git-core/git-push origin main'
+    assert_success
+    assert_output ''
+}
+
+@test "a dashed git-send-pack asks" {
+    run hook '/usr/libexec/git-core/git-send-pack --force https://example.com/r.git main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
 # here-string と `< <(…)` は本文を持たないので、その後ろの force push は deny のまま。
 # 対照は上の "a commit message heredoc naming git push --force asks rather than denies"。
 @test "a force push after a here-string is still denied" {
