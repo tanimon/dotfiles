@@ -43,3 +43,11 @@ EOF
 @test "apm が PATH に現れると apm の導入スクリプトの描画結果が変わる" {
     assert_rerenders_when_tool_appears apm run_onchange_after_apm-install.sh.tmpl
 }
+
+@test "pnpm が PATH に現れると pre-commit フックの導入スクリプトの描画結果が変わる" {
+    assert_rerenders_when_tool_appears pnpm run_onchange_install-pre-commit-hooks.sh.tmpl
+}
+
+@test "prek が PATH に現れると pre-commit フックの導入スクリプトの描画結果が変わる" {
+    assert_rerenders_when_tool_appears prek run_onchange_install-pre-commit-hooks.sh.tmpl
+}

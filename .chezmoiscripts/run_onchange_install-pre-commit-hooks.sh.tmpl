@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # package.json hash: {{ include "package.json" | sha256sum }}
 # .pre-commit-config.yaml hash: {{ include ".pre-commit-config.yaml" | sha256sum }}
+# pnpm か prek が無くて skip すると run_onchange_ は実行済みと記録されるので、PATH に現れたら内容を変えて次の apply で走らせる
+# pnpm on PATH: {{ if lookPath "pnpm" }}yes{{ else }}no{{ end }}
+# prek on PATH: {{ if lookPath "prek" }}yes{{ else }}no{{ end }}
 
 set -euo pipefail
 
