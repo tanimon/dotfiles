@@ -34,11 +34,6 @@ Claude Code runs inside a deny-all macOS Seatbelt sandbox via safehouse (with cc
 - `dot_config/cco/allow-paths.tmpl` — Fallback sandbox config. Read-write paths have no `:ro` suffix. Example: `{{ .chezmoi.homeDir }}/.codex` (line 30)
 - Both configs use `{{ .chezmoi.homeDir }}` template variable for home directory
 
-### Institutional Learnings
-
-- `docs/solutions/integration-issues/migrate-cco-to-agent-safehouse.md` — safehouse is primary, cco is fallback; both must be updated in lockstep
-- `docs/solutions/runtime-errors/cco-sandbox-codex-mcp-eperm.md` — Same class of bug: missing allow entry for a runtime state directory (`.codex`). Fix pattern: add to both configs with read-write access
-
 ## Key Technical Decisions
 
 - **Read-write access (not read-only)**: gstack writes browser state, caches, and session data to `~/.gstack/` at runtime. Read-only would break functionality. This matches the `.codex` and `.cache` entries.
@@ -121,4 +116,3 @@ Claude Code runs inside a deny-all macOS Seatbelt sandbox via safehouse (with cc
 
 - Related code: `dot_config/safehouse/config.tmpl`, `dot_config/cco/allow-paths.tmpl`
 - Related PR: #162 (gstack introduction), #163 (bun via mise)
-- Learnings: `docs/solutions/runtime-errors/cco-sandbox-codex-mcp-eperm.md`

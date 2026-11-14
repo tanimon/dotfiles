@@ -111,7 +111,6 @@ Each problem stems from implicit assumptions — Node.js assumes `package.json` 
 
 ## Related Documentation
 
-- [`cco-sandbox-hook-and-git-eperm.md`](../runtime-errors/cco-sandbox-hook-and-git-eperm.md) — Seatbelt EPERM with Node.js hooks (references old `notify.mjs` — needs update)
 - [`claude-code-hook-exit-code-and-stderr-semantics.md`](./claude-code-hook-exit-code-and-stderr-semantics.md) — Hook exit code contract (references old `executable_notify.mjs` — needs update)
 - [`chezmoi-tmpl-shellcheck-shfmt-incompatibility.md`](./chezmoi-tmpl-shellcheck-shfmt-incompatibility.md) — Pre-commit patterns for chezmoi files
 - [`chezmoi-full-template-drift.md`](./chezmoi-full-template-drift.md) — Template drift with `--experimental-strip-types`

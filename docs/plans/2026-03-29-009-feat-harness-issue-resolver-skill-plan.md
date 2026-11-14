@@ -109,5 +109,4 @@ CI の harness-analysis ワークフローが weekly で issue を自動起票�
 ## Sources & References
 
 - Related code: `dot_claude/commands/harness-health.md`, `dot_claude/commands/capture-harness-feedback.md`
-- Related solution: `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`
 - Related plan: `docs/plans/2026-03-29-008-fix-autonomous-harness-engineering-verification-plan.md`

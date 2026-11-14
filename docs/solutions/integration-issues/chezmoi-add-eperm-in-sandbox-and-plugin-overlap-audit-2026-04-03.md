@@ -66,11 +66,6 @@ Key points:
 - For `.tmpl` files, manual placement still works but template rendering must be verified with `chezmoi execute-template`
 - Consider adding `~/.config/chezmoi/:rw` to sandbox allow-paths if `chezmoi add` is frequently needed (security tradeoff)
 
-## Related
-
-- `docs/solutions/integration-issues/cco-sandbox-chezmoi-read-only-access.md` — Enabling chezmoi read-only commands in sandbox
-- `docs/solutions/integration-issues/safehouse-daily-dev-paths-and-chezmoi-diff-eperm.md` — Safehouse path configuration for chezmoi
-
 ## Appendix: Plugin Overlap Detection Methodology
 
 When auditing `chezmoi unmanaged` files for plugin overlap, use this approach:

@@ -87,6 +87,5 @@ git cherry origin/main "$squash"
 ## Related
 
 - [`chezmoi-external-script-repo-with-renovate-sha-pinning.md`](chezmoi-external-script-repo-with-renovate-sha-pinning.md) — alternative pattern for deploying scripts via `.chezmoiexternal.toml` + symlink
-- [`cco-safe-mode-claude-not-found-in-path.md`](../runtime-errors/cco-safe-mode-claude-not-found-in-path.md) — `~/.local/bin` PATH and sandbox considerations
 - `dot_config/zsh/path.zsh` — PATH setup that makes `~/.local/bin` discoverable by git
 - [Dan Fabulich's `git-delete-squashed`](https://github.com/not-an-aardvark/git-delete-squashed) — original algorithm reference

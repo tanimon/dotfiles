@@ -57,7 +57,7 @@ ECC instincts accumulate from session observations but require manual `/promote-
 - **claude-code-action v1 parameters** (`docs/solutions/integration-issues/claude-code-action-v1-parameter-migration-2026-03-29.md`): Use `prompt` (not `direct_prompt`), `claude_args` for `--allowedTools`.
 - **Workflow tool permissions** (`docs/solutions/integration-issues/claude-code-review-workflow-tool-permissions-2026-03-29.md`): Two-layer permission model — both GitHub Actions `permissions:` and Claude Code `allowedTools` must be configured.
 - **Invalid webhook triggers** (`docs/solutions/integration-issues/github-actions-invalid-webhook-event-triggers-2026-04-03.md`): Verify new workflow produces at least one job after first push.
-- **Makefile test pitfall** (`docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`): `; true` makes tests always pass. Use explicit exit code checks.
+- **Makefile test pitfall**: `; true` makes tests always pass. Use explicit exit code checks.
 
 ## Key Technical Decisions
 

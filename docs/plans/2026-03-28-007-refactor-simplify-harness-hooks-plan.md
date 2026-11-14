@@ -192,7 +192,6 @@ origin: docs/plans/2026-03-28-002-feat-autonomous-harness-engineering-plan.md
 
 **Files:**
 - Modify: `CLAUDE.md`（harness-feedback-collector への言及を更新）
-- Modify: `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`（アーキテクチャ説明を更新）
 
 **Approach:**
 - CLAUDE.md: `/tmp` フィードバックファイルや Stop フック解析の記述を削除し、新しい activator パターンの簡潔な説明に置き換え

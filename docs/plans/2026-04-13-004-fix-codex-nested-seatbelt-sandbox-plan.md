@@ -37,7 +37,6 @@ The user creates a temp file with `mktemp` inside Claude Code and passes it to `
 ### Institutional Learnings
 
 - `docs/solutions/integration-issues/claude-code-internal-sandbox-nested-seatbelt-conflict.md` — identical root cause class. macOS denies nested `sandbox_apply`. Fix pattern: disable the inner sandbox when an outer sandbox already provides isolation
-- `docs/solutions/runtime-errors/cco-sandbox-codex-mcp-eperm.md` — prior codex sandbox issue (`~/.codex` not in allow-paths). Already resolved but confirms codex runs as a child process inside the sandbox
 
 ## Key Technical Decisions
 
@@ -133,5 +132,4 @@ Test expectation: none -- documentation file with no behavioral change
 
 - Related code: `dot_config/zsh/sandbox.zsh` (existing sandbox wrapper)
 - Related solution: `docs/solutions/integration-issues/claude-code-internal-sandbox-nested-seatbelt-conflict.md`
-- Related solution: `docs/solutions/runtime-errors/cco-sandbox-codex-mcp-eperm.md`
 - Codex CLI help: `codex exec --help` documents `--dangerously-bypass-approvals-and-sandbox` as "intended solely for running in environments that are externally sandboxed"

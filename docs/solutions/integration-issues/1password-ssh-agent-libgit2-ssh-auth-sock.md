@@ -91,6 +91,4 @@ Verification was empirical: re-running `sheldon lock --update` with the correcte
 
 ## Related Issues
 
-- [migrate-cco-to-agent-safehouse.md](./migrate-cco-to-agent-safehouse.md) — safehouse's `--enable=ssh` / `--enable=1password` grants the *sandbox process boundary* access to the 1Password agent socket. That is a separate, non-redundant layer from this `SSH_AUTH_SOCK` shell-env fix: safehouse covers what the sandbox can reach, `SSH_AUTH_SOCK` covers which agent libgit2 talks to.
-- [../runtime-errors/cco-sandbox-hook-and-git-eperm.md](../runtime-errors/cco-sandbox-hook-and-git-eperm.md) — same 1Password agent socket path (`~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock`) in the sandbox-allowlist context.
 - [claude-code-action-unsigned-commits-2026-04-05.md](./claude-code-action-unsigned-commits-2026-04-05.md) — a different layer of 1Password SSH signing failure (CI lacks `op-ssh-sign`). When signing/auth is the symptom, distinguish the layer: missing CI signing config, wrong local `SSH_AUTH_SOCK`, or OpenSSH-vs-libgit2 agent routing.

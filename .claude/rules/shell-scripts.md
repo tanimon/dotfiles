@@ -211,7 +211,6 @@ unset すべき変数は `ORCA_PANE_KEY`/`ORCA_AGENT_HOOK_PORT`/`ORCA_AGENT_HOOK
 
 ### Reference
 
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`
 
 ## Avoiding Recursion

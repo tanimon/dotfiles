@@ -34,10 +34,6 @@ harness-activator.sh は各セッションの最初のプロンプトで「セ�
 - `dot_claude/scripts/executable_harness-activator.sh` — 対象ファイル。heredoc (line 48-68) 内のリマインダーテキストを編集
 - 既存のリマインダー項目は「条件 → アクション」のフォーマット（例: "Did X? → Run Y"）
 
-### Institutional Learnings
-
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md` — claudeception パターンの設計根拠。LLM に判断を委任する方針
-
 ## Key Technical Decisions
 
 - **既存の項目3を修正する**: 現在の項目3「Was significant debugging or investigation required? → docs/solutions/」は `/ce:compound` の実行条件とほぼ同じ。この項目を `/ce:compound` に誘導するよう書き換え、手動での `docs/solutions/` 記録から構造化スキルへの移行を促す
