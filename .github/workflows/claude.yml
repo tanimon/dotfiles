@@ -62,7 +62,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # zizmor: ignore[secrets-outside-env]
           use_commit_signing: true
-          plugin_marketplaces: 'https://github.com/mattpocock/skills'
+          plugin_marketplaces: 'https://github.com/mattpocock/skills.git'
           plugins: 'mattpocock-skills@mattpocock'
           additional_permissions: |
             actions: read
