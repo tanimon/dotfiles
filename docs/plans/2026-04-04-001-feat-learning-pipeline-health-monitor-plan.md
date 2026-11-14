@@ -210,5 +210,4 @@ Falls back to globbing `~/.claude/homunculus/projects/*/` if no git remote.
 
 - **Origin document:** [docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md](docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md)
 - ECC observer spec: `~/.claude/plugins/cache/everything-claude-code/.../skills/continuous-learning-v2/agents/observer.md`
-- ECC integration solution: `docs/solutions/integration-issues/ecc-continuous-learning-harness-integration-2026-04-03.md`
 - Hook exit code semantics: `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`

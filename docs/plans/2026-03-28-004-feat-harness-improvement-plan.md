@@ -39,7 +39,6 @@ date: 2026-03-28
 ### Institutional Learnings
 
 - `docs/solutions/integration-issues/chezmoi-tmpl-shellcheck-shfmt-incompatibility.md` — `.tmpl` ファイルは shellcheck/shfmt と非互換、pre-commit で除外済み
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md` — ハーネスエンジニアリングのフック設計に関する知見
 
 ## Key Technical Decisions
 

@@ -41,7 +41,7 @@ date: 2026-03-29
 
 ### Institutional Learnings
 
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`: session_id は `jq -r '.session_id // empty'` で取得。`$PPID`/`$$` は `bash -c` ラッパーで不安定
+- session_id は `jq -r '.session_id // empty'` で取得。`$PPID`/`$$` は `bash -c` ラッパーで不安定
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`: `exit(0)` = skip、`exit(1)` + stderr = error。stderr なし exit(1) は混乱を招く
 
 ## Key Technical Decisions
@@ -174,5 +174,5 @@ date: 2026-03-29
 
 ## Sources & References
 
-- Related solutions: `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`, `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`
+- Related solutions: `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`
 - Related code: `Makefile`, `dot_claude/scripts/executable_harness-activator.sh`, `.claude/rules/shell-scripts.md`, `CLAUDE.md`

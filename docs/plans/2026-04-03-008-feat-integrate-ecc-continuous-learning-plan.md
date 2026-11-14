@@ -64,8 +64,6 @@ ECC's Continuous Learning v2.1 addresses all five gaps with: hook-based 100% obs
 
 ### Institutional Learnings
 
-- `docs/solutions/developer-experience/self-learning-harness-engineering-system-2026-03-29.md` — system architecture doc; three-layer detection/proposal/application design
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md` — hook evolution; LLM-based analysis > bash grep; session identity via jq
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md` — hook exit code contract
 
 ### External References
@@ -425,5 +423,3 @@ The bridge command (`/promote-instincts`) connects the deterministic path to the
 - **ECC repository:** https://github.com/affaan-m/everything-claude-code
 - **ECC Continuous Learning v2.1 SKILL.md:** `~/.claude/plugins/marketplaces/everything-claude-code/skills/continuous-learning-v2/SKILL.md`
 - Related plans: `docs/plans/2026-04-03-006-feat-enable-everything-claude-code-plugin-plan.md` (completed), `docs/plans/2026-04-03-007-feat-ecc-rules-declarative-install-plan.md` (completed)
-- Related solution: `docs/solutions/developer-experience/self-learning-harness-engineering-system-2026-03-29.md`
-- Related solution: `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`

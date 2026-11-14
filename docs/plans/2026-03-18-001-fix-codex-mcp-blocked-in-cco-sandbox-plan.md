@@ -114,7 +114,6 @@ codex supports `CODEX_HOME` to override the default `~/.codex` location. We coul
 
 ## Sources
 
-- Existing pattern: `docs/solutions/runtime-errors/cco-sandbox-hook-and-git-eperm.md`
 - Memory: `cco_sandbox_args_file_limitation.md`, `cco_seatbelt_file_read_metadata.md`
 - Allow-paths config: `dot_config/cco/allow-paths.tmpl`
 - MCP server definitions: `dot_claude/mcp-servers.json`

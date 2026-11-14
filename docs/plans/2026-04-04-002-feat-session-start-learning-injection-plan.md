@@ -50,9 +50,7 @@ The current harness-activator hook only shows instincts at >= 0.7 confidence and
 ### Institutional Learnings
 
 - Hook exit code contract: `exit 0` for skip, `exit 1` + stderr for error (see `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`)
-- One-shot flag: set AFTER context guards, not before (see `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`)
-- ECC project ID: SHA256 of git remote URL, first 12 chars; instincts at `~/.claude/homunculus/projects/<hash>/instincts/personal/` (see `docs/solutions/integration-issues/ecc-continuous-learning-harness-integration-2026-04-03.md`)
-- Instinct frontmatter fields: `id`, `trigger`, `confidence`, `domain`, `source`, `scope`, `project_id`. No `action:` field — the action description is the file body after `---`
+- One-shot flag: set AFTER context guards, not before- ECC project ID: SHA256 of git remote URL, first 12 chars; instincts at `~/.claude/homunculus/projects/<hash>/instincts/personal/`- Instinct frontmatter fields: `id`, `trigger`, `confidence`, `domain`, `source`, `scope`, `project_id`. No `action:` field — the action description is the file body after `---`
 
 ## Key Technical Decisions
 
@@ -287,5 +285,3 @@ The current harness-activator hook only shows instincts at >= 0.7 confidence and
 - Predecessor script: `dot_claude/scripts/executable_harness-activator.sh`
 - Pipeline health monitor: `scripts/pipeline-health.sh` (PR #125)
 - Hook exit code semantics: `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`
-- Autonomous harness hooks: `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`
-- ECC integration: `docs/solutions/integration-issues/ecc-continuous-learning-harness-integration-2026-04-03.md`

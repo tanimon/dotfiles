@@ -124,7 +124,6 @@ Once upstream merges and Renovate bumps the ref in `.chezmoiexternal.toml`:
 ## Sources & References
 
 - Existing local patch: `.chezmoiscripts/run_onchange_after_patch-cco-sandbox.sh.tmpl`
-- Solution doc: `docs/solutions/runtime-errors/cco-sandbox-hook-and-git-eperm.md`
 - Memory: `cco_seatbelt_file_read_metadata.md`
 - cco upstream: `nikvdp/cco` @ `9e514ba` (master branch)
 - Seatbelt test: `tests/test_seatbelt_precedence.sh` confirms last-match-wins semantics

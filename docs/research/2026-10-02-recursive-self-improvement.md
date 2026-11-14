@@ -164,7 +164,7 @@
 - **staleness scan は参照の実在と矛盾を見る。** 参照しているファイルやコマンドの実在、新しい学びとの矛盾を確認する(同:L60-L77)。効果の有無は見ない。
 - **反映後の確認は lint だけ。** `just lint` を通して PR を開く(同:L85-L87)。
 - **テストはスクリプトの挙動だけを見る。** spec のテスト方針は「Skills (prompts) are not unit-tested; acceptance is one full manual cycle after landing」(rebuild-design.md:L214-L215)。実在するテストは `test/harness-{reflect-trigger,briefing,doctor}.bats` で、決定的スクリプトの挙動を検査している。
-- **旧システムでも同じ欠落が症状として挙がっていた。** 「Rule effectiveness is not tracked — stale rules accumulate silently」(docs/solutions/developer-experience/self-learning-harness-engineering-system-2026-03-29.md:L10)。当時の対策は「90 日より古いルールを stale とみなす」という経過時間の proxy(同:L48)で、効果の測定ではなかった。
+- **旧システムでも同じ欠落が症状として挙がっていた。** 「Rule effectiveness is not tracked — stale rules accumulate silently」。当時の対策は「90 日より古いルールを stale とみなす」という経過時間の proxy で、効果の測定ではなかった。
 
 **リポジトリの外にある未文書の実験。** `~/.claude/harness/` に `gold-set.jsonl`(40 件)、`triage.jsonl`(40 件)、`triage-report.md`、`digests/`(202 件)がある(更新日 2026-08-28)。git 管理外で、spec にも skill にも記述が無い。内容は次のとおり。
 
@@ -275,7 +275,6 @@
 - `dot_claude/rules/common/harness-engineering.md`
 - `docs/superpowers/specs/2026-07-06-harness-engineering-rebuild-design.md`
 - `docs/solutions/integration-issues/harness-silent-failures-scheduled-workflows-and-plugin-rename.md`
-- `docs/solutions/developer-experience/self-learning-harness-engineering-system-2026-03-29.md`
 - `harness/modules/project/35-key-patterns.md`(生成物 `CLAUDE.md` の「Harness self-improvement loop」節の Source)
 - PR #212(作り直し)、#373(初回 review)、#388(prompt-audit 3 回目)、#393(2 回目 review) — `gh pr view` で本文を確認
 - ランタイム状態(git 管理外): `~/.claude/harness/{state.json,queue-archive.md,gold-set.jsonl,triage.jsonl,triage-report.md}`、`~/.claude/logs/harness-errors.log`(件数と日付だけを参照)

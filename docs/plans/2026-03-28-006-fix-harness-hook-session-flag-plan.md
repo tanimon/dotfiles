@@ -44,7 +44,6 @@ date: 2026-03-28
 ### Institutional Learnings
 
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md` — exit 0 で skip、exit 1 + stderr でエラー
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md` — 現在のアーキテクチャの設計意図
 
 ### Key Finding: session_id は stdin JSON に含まれる
 
@@ -160,11 +159,9 @@ Claude Code の全 hook は stdin に JSON を渡す。`session_id` フィール
 **Dependencies:** Unit 1-3
 
 **Files:**
-- Modify: `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`
 - Modify: memory file `claude_code_hook_events.md`
 
 **Approach:**
-- solutions ドキュメントの Prevention セクションを更新: `$PPID` ではなく stdin JSON の `session_id` を使う
 - メモリの「$PPID for session flags」を「stdin JSON の session_id for session flags」に修正
 
 **Verification:**
@@ -188,6 +185,5 @@ Claude Code の全 hook は stdin に JSON を渡す。`session_id` フィール
 ## Sources & References
 
 - Claude Code hook documentation (claude-code-guide agent による確認)
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`
 - Memory: `claude_code_hook_events.md`

@@ -36,8 +36,6 @@ Claude Code runs inside a deny-all macOS Seatbelt sandbox via safehouse (with cc
 
 ### Institutional Learnings
 
-- `docs/solutions/integration-issues/migrate-cco-to-agent-safehouse.md` — safehouse is primary, cco is fallback; both must be updated in lockstep
-- `docs/solutions/runtime-errors/cco-sandbox-codex-mcp-eperm.md` — Same class of bug: missing allow entry for a runtime state directory (`.codex`). Fix pattern: add to both configs with read-write access
 
 ## Key Technical Decisions
 
@@ -121,4 +119,3 @@ Claude Code runs inside a deny-all macOS Seatbelt sandbox via safehouse (with cc
 
 - Related code: `dot_config/safehouse/config.tmpl`, `dot_config/cco/allow-paths.tmpl`
 - Related PR: #162 (gstack introduction), #163 (bun via mise)
-- Learnings: `docs/solutions/runtime-errors/cco-sandbox-codex-mcp-eperm.md`

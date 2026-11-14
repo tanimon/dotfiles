@@ -52,8 +52,7 @@ The goal is a system where harness improvements compound automatically: each age
 
 ### Institutional Learnings
 
-- **Simplified hook architecture wins** -- Four-hook system was over-engineered; single hook + LLM self-evaluation is proven (from `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`)
-- **Prompt injection is the activation mechanism** -- Both Claudeception and harness-activator work by printing instructions to context; effectiveness depends on LLM judgment
+- **Simplified hook architecture wins** -- Four-hook system was over-engineered; single hook + LLM self-evaluation is proven- **Prompt injection is the activation mechanism** -- Both Claudeception and harness-activator work by printing instructions to context; effectiveness depends on LLM judgment
 - **CI feedback loop validated** -- First `harness-analysis.yml` run found 8 actionable issues (#72-#79)
 - **One-shot flag after guards** -- Setting flags before context guards causes silent skips in project contexts
 - **Exit code contract** -- `exit 0` = skip, `exit 1` + stderr = error; never `exit 1` without stderr
@@ -460,7 +459,6 @@ Autonomous Harness Engineering Loop:
 ## Sources & References
 
 - Related code: `dot_claude/scripts/executable_harness-activator.sh`, `.github/workflows/harness-analysis.yml`
-- Related docs: `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md`
 - External: [Martin Fowler - Harness Engineering](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html)
 - External: [Anthropic - Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps)
 - External: [Anthropic - Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)

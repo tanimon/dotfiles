@@ -36,7 +36,6 @@ harness-activator.sh は各セッションの最初のプロンプトで「セ�
 
 ### Institutional Learnings
 
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md` — claudeception パターンの設計根拠。LLM に判断を委任する方針
 
 ## Key Technical Decisions
 

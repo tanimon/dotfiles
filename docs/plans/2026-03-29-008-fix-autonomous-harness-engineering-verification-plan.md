@@ -41,8 +41,6 @@ origin: docs/plans/2026-03-28-002-feat-autonomous-harness-engineering-plan.md
 
 ### Institutional Learnings
 
-- `docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md` — 簡素化の経緯（4 hook → 1 hook）
-- `docs/solutions/integration-issues/chezmoi-mjs-to-mts-migration.md` — statusline-wrapper.sh の経緯
 
 ### Open CI Issues
 
@@ -88,7 +86,6 @@ origin: docs/plans/2026-03-28-002-feat-autonomous-harness-engineering-plan.md
 
 **Files:**
 - Delete: `dot_claude/scripts/executable_statusline-wrapper.sh`
-- Modify: `docs/solutions/integration-issues/chezmoi-mjs-to-mts-migration.md`（statusline-wrapper.sh 参照の更新）
 
 **Approach:**
 - ファイル削除 + ドキュメント内の参照を「削除済み（statusLine は直接 node 実行に移行）」に更新
@@ -251,5 +248,4 @@ origin: docs/plans/2026-03-28-002-feat-autonomous-harness-engineering-plan.md
 ## Sources & References
 
 - **Origin document:** [docs/plans/2026-03-28-002-feat-autonomous-harness-engineering-plan.md](docs/plans/2026-03-28-002-feat-autonomous-harness-engineering-plan.md)
-- Related solution: [docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md](docs/solutions/developer-experience/autonomous-harness-engineering-hooks-2026-03-28.md)
 - Related solution: [docs/solutions/integration-issues/chezmoi-full-template-drift.md](docs/solutions/integration-issues/chezmoi-full-template-drift.md)

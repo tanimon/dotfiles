@@ -196,6 +196,4 @@ CCO_DEBUG=1 claude --version 2>&1 | head -20
 ## Solution Doc Reference
 
 Related solutions that informed this fix:
-- `docs/solutions/runtime-errors/cco-sandbox-hook-and-git-eperm.md` — Same `realpathSync`/`lstat($HOME)` root cause
-- `docs/solutions/runtime-errors/cco-safe-mode-claude-not-found-in-path.md` — Same pattern of adding allow-paths
 - `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md` — Exit code contract for statusline commands

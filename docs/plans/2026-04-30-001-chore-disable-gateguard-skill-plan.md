@@ -30,7 +30,6 @@ gateguard hook は本来「最初の Bash と各ファイルへの最初の Edit
 
 - R1. gateguard hook (`pre:bash:gateguard-fact-force`, `pre:edit-write:gateguard-fact-force`) が `chezmoi apply` 後の新規 claude セッションで発火しないこと
 - R2. `~/.gateguard/` を扱う対症療法(safehouse `--add-dirs`、cco `--add-dir`、chezmoi placeholder)が削除され、関連設定がリポジトリから整合した状態で除去されること
-- R3. 過去の解決ドキュメント(`docs/solutions/integration-issues/gateguard-fact-force-sandbox-state-dir-2026-04-19.md`、`safehouse-add-dirs-requires-existing-path-2026-04-30.md`)の状態が現実に合うよう、無効化された旨を明示する後追いを残すこと(完全削除はせず履歴は保持)
 - R4. `make lint` と `chezmoi apply --dry-run` がローカルで通ること(secretlint / shellcheck / actionlint / sensitive scan / template check 含む)
 - R5. `everything-claude-code` プラグイン全体や他の ECC hook は影響を受けないこと(`gateguard` のみを最小スコープで無効化)
 
@@ -64,8 +63,6 @@ gateguard hook は本来「最初の Bash と各ファイルへの最初の Edit
 
 ### Institutional Learnings
 
-- `docs/solutions/integration-issues/gateguard-fact-force-sandbox-state-dir-2026-04-19.md` — 当時の対症療法(hook を生かしたまま `~/.gateguard` を allowlist 追加)の経緯
-- `docs/solutions/integration-issues/safehouse-add-dirs-requires-existing-path-2026-04-30.md` — `--add-dirs` のパス先存在トラップを発見した経緯。同 doc の "Workarounds considered and rejected" セクションで `ECC_DISABLED_HOOKS=pre:bash:gateguard-fact-force` は「便利なゲートを失う」として却下されているが、issue #188 でユーザが明示的に無効化を選択したため、本計画ではこの選択を採用する旨を doc 側で追記する
 - `~/.claude/projects/-Users-<user>--local-share-chezmoi/memory/safehouse_add_dirs_startup_path_existence.md` — `--add-dirs` のランタイム追加が効かない、safehouse 起動時にパスが必要という挙動。今回は逆に "そもそも allowlist エントリが要らなくなる" 側に倒す
 - `.chezmoiignore` で repo-only な `docs/` 等を除外する慣習。`dot_gateguard/` 以下を消すだけで chezmoi の管理対象から外れるので追加の `.chezmoiignore` 編集は不要(検証で確認する)
 
@@ -80,7 +77,6 @@ gateguard hook は本来「最初の Bash と各ファイルへの最初の Edit
 - **無効化方法は `ECC_DISABLED_HOOKS` env var を採用する**: `ECC_HOOK_PROFILE=minimal` も候補だがプラグイン全体の hook を巻き込むため過大。`enabledPlugins` での全体無効化も他の便利な ECC スキル(observer, briefing)を失うため過大。hook ID 単位の disable が最小スコープで意図と一致する
 - **2 つの hook ID 両方を明示する**: `pre:bash:gateguard-fact-force` と `pre:edit-write:gateguard-fact-force` は別の dispatcher / hooks.json で登録されているため、片方だけ disable すると Edit/Write 側 (もしくは Bash 側) が残る。両方をカンマ区切りで指定する
 - **対症療法を併せて撤去する**: hook が動かなくなれば `~/.gateguard/` への書き込みは発生しないため、placeholder と sandbox allowlist は無意味になる。残しておくと「なぜこれがあるのか?」という考古学的な負債になるため一緒に消す。再有効化する場合は env var を抜くだけで以前の状態に戻せる(ただし sandbox 系と placeholder の再追加が必要になる旨は doc に明記する)
-- **過去 solution doc の扱いは追記方式**: 完全削除すると「なぜ allowlist にエントリがあったか」「`dot_gateguard/dot_keep` placeholder のかつての意図」を後から追えなくなる。代わりに先頭付近に「2026-04-30 時点で無効化済み(issue #188 / 本 plan へのリンク)」の注意書きを足す
 
 ---
 
@@ -213,35 +209,6 @@ gateguard hook は本来「最初の Bash と各ファイルへの最初の Edit
 
 ---
 
-- U5. **過去 solution doc に "現在は無効化済み" の注記を追加**
-
-**Goal:** `gateguard-fact-force-sandbox-state-dir-2026-04-19.md` と `safehouse-add-dirs-requires-existing-path-2026-04-30.md` の冒頭に、issue #188 と本計画/PR で gateguard が無効化された旨の Update を加え、ドキュメントの真偽を現実に揃える。
-
-**Requirements:** R3
-
-**Dependencies:** U1〜U4(本体作業の決定事項を doc に反映するため)
-
-**Files:**
-- Modify: `docs/solutions/integration-issues/gateguard-fact-force-sandbox-state-dir-2026-04-19.md`
-- Modify: `docs/solutions/integration-issues/safehouse-add-dirs-requires-existing-path-2026-04-30.md`
-
-**Approach:**
-- 既存の "Update (2026-04-30)" 注記スタイル(`safehouse-add-dirs-requires-existing-path-2026-04-30.md` 内に既存例あり)に合わせ、各 doc の上部 Summary/解決策セクション直前あたりに以下のような短い blockquote 注記を入れる:
-  - "**Update (2026-04-30, supersedes this fix):** issue #188 を受けて gateguard hook 自体を `ECC_DISABLED_HOOKS` で無効化した。本ドキュメントの allowlist 追加 / placeholder 配置は新規セッションでは不要。再有効化する場合のみ参考にする。詳細は [plan](../../plans/2026-04-30-001-chore-disable-gateguard-skill-plan.md)。"
-- 解決手順本体や考察は履歴として残すため削除しない
-- PR 番号は実装段階で確定するため、plan へのリンクのみ確実に張り、PR 番号はマージ後に追記してもよい形にする
-
-**Test scenarios:**
-- Happy path: 両 doc の上部に Update note があり、リンクが本 plan ファイルを正しく指していること
-- Edge case: 既存の "Update (2026-04-30)" note と重複しないこと(片方の doc は既に同日付の note があるため、新しい note には別の主題であることが分かる文を入れる)
-- Integration: `make scan-sensitive` が通ること
-
-**Verification:**
-- `make lint` (sensitive scan 含む) が通る
-- 両 doc を `cat` して目視で note が読みやすいこと
-
----
-
 ## System-Wide Impact
 
 - **Interaction graph:** `everything-claude-code` プラグインの hook dispatcher (`bash-hook-dispatcher.js`, `hooks.json`)、`scripts/lib/hook-flags.js` `isHookEnabled()`、`agent-safehouse` Seatbelt プロファイル、`cco` allowlist、chezmoi の `dot_gateguard/` 管理。すべて連動して停止/撤去する
@@ -279,5 +246,4 @@ gateguard hook は本来「最初の Bash と各ファイルへの最初の Edit
 
 - **Issue:** [tanimon/dotfiles#188](https://github.com/tanimon/dotfiles/issues/188)
 - 関連 PR: #186 (safehouse allowlist 追加), #187 (`dot_gateguard/dot_keep` placeholder 追加)
-- 関連 docs: `docs/solutions/integration-issues/gateguard-fact-force-sandbox-state-dir-2026-04-19.md`, `docs/solutions/integration-issues/safehouse-add-dirs-requires-existing-path-2026-04-30.md`
 - プラグインソース: `~/.claude/plugins/cache/everything-claude-code/everything-claude-code/2.0.0-rc.1/scripts/lib/hook-flags.js`, `scripts/hooks/bash-hook-dispatcher.js`, `hooks/hooks.json`
