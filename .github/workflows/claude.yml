@@ -64,6 +64,7 @@ jobs:
           use_commit_signing: true
           plugin_marketplaces: 'https://github.com/mattpocock/skills.git'
           plugins: 'mattpocock-skills@mattpocock'
+          claude_args: '--allowedTools "Bash(gh *),Bash(just *),Bash(bats *),Bash(git checkout *),Bash(git status *),Bash(git diff *)"'
           additional_permissions: |
             actions: read
 
