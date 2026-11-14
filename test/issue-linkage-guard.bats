@@ -11,6 +11,9 @@ setup() {
     BODY_DIR="$BATS_TEST_TMPDIR/body"
     mkdir -p "$BODY_DIR"
     MARKER='<!-- issue-linkage -->'
+    TAB=$'\t'
+    # shell-reader の上限(8192 byte)を超える本文
+    LONG_BODY=$(printf 'x%.0s' {1..9000})
 }
 
 # Claude Code と同じく、判定のすべてを stdin の PreToolUse payload から得る。
@@ -320,6 +323,211 @@ EOF
     run hook "git commit -F - <<'EOF'
 gh pr create --title t
 EOF"
+    assert_output ''
+}
+
+# --- heredoc で本文ファイルを書いた直後の gh pr create(対) ---
+
+@test "heredoc で書いた本文ファイルにマーカーがあれば、直後の pr create は通す" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+body
+
+$MARKER
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    assert_output ''
+}
+
+@test "heredoc で書いた本文ファイルにマーカーが無ければ、直後の pr create は deny" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+body
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+    [[ "$(reason "$output")" == issue-linkage-guard:* ]]
+}
+
+@test "heredoc の本文に引用符が閉じない apostrophe があっても、直後の pr create は判定する" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+don't forget
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc が書いたのとは別の本文ファイルを渡す pr create は、ファイルを読んで判定する" {
+    printf 'body\n' >"$BODY_DIR/other.md"
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+$MARKER
+EOF2
+gh pr create --title t --body-file $BODY_DIR/other.md"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc の後の gh pr create が --fill でも deny" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+$MARKER
+EOF2
+gh pr create --fill"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc の本文の行にある gh pr create は、後ろに別のコマンドがあっても対象外" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+gh pr create --title t
+EOF2
+echo done"
+    assert_success
+    assert_output ''
+}
+
+# --- heredoc の終端行の読み方(対) ---
+
+@test "<< の本文にあるタブ付きの区切り語は終端行ではないので、その後ろの本文の行は対象外" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+line
+${TAB}EOF2
+gh pr create --title t
+EOF2
+echo done"
+    assert_success
+    assert_output ''
+}
+
+@test "<<- ではタブ付きの区切り語が終端行なので、その後ろの pr create は判定する" {
+    run hook "cat > $BODY_DIR/pr.md <<-'EOF2'
+${TAB}line
+${TAB}EOF2
+gh pr create --fill"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "区切り語に - を含む heredoc の後ろの pr create も判定する" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF-2'
+body
+EOF-2
+gh pr create --fill"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "区切り語に - を含む heredoc の本文の行にある gh pr create は対象外" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF-2'
+gh pr create --fill
+EOF-2
+echo done"
+    assert_success
+    assert_output ''
+}
+
+@test "--body の heredoc の本文にあるタブ付きの区切り語は終端行とみなさず、その後ろのマーカーも読む" {
+    # 空白を含む二重引用符で、マーカーを --body の値の token から外し、生の COMMAND から本文を読ませる
+    run hook "gh pr create --title t --body \"\$(cat <<'EOF'
+See \"foo bar\" here
+${TAB}EOF
+$MARKER
+EOF
+)\""
+    assert_success
+    assert_output ''
+}
+
+# --- heredoc の本文を本文ファイルとみなす条件(対) ---
+
+@test "1 行に heredoc が 2 つあるとき、本文ファイルを書く方の heredoc の本文を読む" {
+    run hook "cat <<X >/dev/null; cat > $BODY_DIR/pr.md <<'EOF2'
+x
+X
+$MARKER
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    assert_output ''
+}
+
+@test "1 行に heredoc が 2 つあり、本文ファイルを書く方の本文にマーカーが無ければ deny" {
+    run hook "cat <<X >/dev/null; cat > $BODY_DIR/pr.md <<'EOF2'
+$MARKER
+X
+body
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc を tee で本文ファイルに書いたときも、その本文を読む" {
+    run hook "cat <<'EOF2' | tee $BODY_DIR/pr.md >/dev/null
+$MARKER
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    assert_output ''
+}
+
+@test "heredoc が本文ファイルを > で上書きするなら、ディスクにマーカーがあっても heredoc の本文で判定する" {
+    printf '%s\n' "$MARKER" >"$BODY_DIR/pr.md"
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+body
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc が本文ファイルに >> で追記するなら、ディスクのファイルを読む" {
+    printf '%s\n' "$MARKER" >"$BODY_DIR/pr.md"
+    run hook "cat >> $BODY_DIR/pr.md <<'EOF2'
+body
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    assert_output ''
+}
+
+@test "heredoc の行で本文ファイルを読むだけなら、ディスクのファイルを読む" {
+    printf '%s\n' "$MARKER" >"$BODY_DIR/pr.md"
+    run hook "cat $BODY_DIR/pr.md - <<'EOF2'
+body
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    assert_output ''
+}
+
+@test "pr create の後で heredoc が本文ファイルを書くなら、ディスクのファイルを読む" {
+    printf '%s\n' "$MARKER" >"$BODY_DIR/pr.md"
+    run hook "gh pr create --title t --body-file $BODY_DIR/pr.md && cat > $BODY_DIR/pr.md <<'EOF2'
+body
+EOF2"
+    assert_success
+    assert_output ''
+}
+
+# --- 全体を読み切れないとき(対) ---
+
+@test "全体が長すぎても、heredoc の終端行の後ろの pr create は判定する" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+$LONG_BODY
+EOF2
+gh pr create --fill"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "全体が長すぎても、heredoc で書いた本文ファイルにマーカーがあれば通す" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+$LONG_BODY
+$MARKER
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
     assert_output ''
 }
 

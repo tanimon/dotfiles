@@ -55,7 +55,8 @@ paths:
   CPU 時間で固定している)。内部の `_shell_reader_any_line_matches` は interface に含めない。
 - **「読み切れた」をまとめる述語は lib に置かない。** 定義が呼び出し側ごとに違う(curl-guard は flag を 1 つずつ
   見て glob は curl セグメントでだけ判定し、git-push-guard は読み切れるかを判定しない。issue-linkage-guard は
-  `TOO_LONG` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE` のどれかが立てば判定せずに通す)。
+  `TOO_LONG` / `SEP_IN_INPUT` / `UNCLOSED_QUOTE` のどれかが立てば、その読み取りの範囲を判定せずに通す。範囲はコマンド
+  全体と、最後の heredoc の終端行より後ろの 2 つ)。
 - **判定をしない。flag が立っても token は最後まで作る。** 緩める判定(curl のループバック確認)は flag を
   見て諦め、塞ぐ判定(git push の危険な綴り)は同じ token から読み続けられるようにするため。reader が
   判定まで持つと、どちらか一方の向きに合わせた作りになる(ADR 0009)。`TOO_LONG` だけは token を作らない。
