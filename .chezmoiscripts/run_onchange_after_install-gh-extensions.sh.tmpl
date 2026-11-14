@@ -3,6 +3,8 @@
 set -euo pipefail
 
 # gh extensions hash: {{ include "dot_config/gh/extensions.txt" | sha256sum }}
+# gh が無くて skip すると run_onchange_ は実行済みと記録されるので、gh が PATH に現れたら内容を変えて次の apply で走らせる
+# gh on PATH: {{ if lookPath "gh" }}yes{{ else }}no{{ end }}
 
 if ! command -v gh &>/dev/null; then
   echo "gh CLI not found, skipping extension installation"

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 # sheldon plugins hash: {{ include "dot_config/sheldon/plugins.toml" | sha256sum }}
+# sheldon が無くて skip すると run_onchange_ は実行済みと記録されるので、sheldon が PATH に現れたら内容を変えて次の apply で走らせる
+# sheldon on PATH: {{ if lookPath "sheldon" }}yes{{ else }}no{{ end }}
 
 if ! command -v sheldon &>/dev/null; then
   echo "sheldon not found, skipping lock"

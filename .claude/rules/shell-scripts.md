@@ -27,7 +27,7 @@ set -euo pipefail
 
 ## run_onchange_ Scripts
 
-- Track content hashes in comments: `# brewfile hash: {{ include "darwin/Brewfile" | sha256sum }}`
+- Track content hashes in comments: `# gh extensions hash: {{ include "dot_config/gh/extensions.txt" | sha256sum }}`。道具が無いと skip するなら `# gh on PATH: {{ if lookPath "gh" }}yes{{ else }}no{{ end }}` も足す(skip も実行済みと記録されるため)。テストは `test/onchange-tool-on-path.bats`
 - Place all `run_onchange_` scripts in `.chezmoiscripts/` (not the source tree root)
 - Guard for missing tools gracefully — new machines may not have all tools on first apply:
 
