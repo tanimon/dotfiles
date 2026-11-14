@@ -323,6 +323,63 @@ EOF"
     assert_output ''
 }
 
+# --- heredoc で本文ファイルを書いた直後の gh pr create(対) ---
+
+@test "heredoc で書いた本文ファイルにマーカーがあれば、直後の pr create は通す" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+body
+
+$MARKER
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    assert_output ''
+}
+
+@test "heredoc で書いた本文ファイルにマーカーが無ければ、直後の pr create は deny" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+body
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    assert_success
+    [ "$(decision "$output")" = deny ]
+    [[ "$(reason "$output")" == issue-linkage-guard:* ]]
+}
+
+@test "heredoc の本文に引用符が閉じない apostrophe があっても、直後の pr create は判定する" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+don't forget
+EOF2
+gh pr create --title t --body-file $BODY_DIR/pr.md"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc が書いたのとは別の本文ファイルを渡す pr create は、ファイルを読んで判定する" {
+    printf 'body\n' >"$BODY_DIR/other.md"
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+$MARKER
+EOF2
+gh pr create --title t --body-file $BODY_DIR/other.md"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc の後の gh pr create が --fill でも deny" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+$MARKER
+EOF2
+gh pr create --fill"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "heredoc の本文の行にある gh pr create は、後ろに別のコマンドがあっても対象外" {
+    run hook "cat > $BODY_DIR/pr.md <<'EOF2'
+gh pr create --title t
+EOF2
+echo done"
+    assert_success
+    assert_output ''
+}
+
 @test "gh を含まないコマンドは無出力" {
     run hook "ls -la"
     assert_output ''
