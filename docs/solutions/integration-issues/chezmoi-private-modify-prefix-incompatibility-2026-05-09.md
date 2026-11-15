@@ -98,4 +98,4 @@ The reference script `modify_dot_claude.json` does not expose this problem becau
 - `docs/solutions/integration-issues/chezmoi-full-template-drift.md` — motivates choosing `modify_` over full `.tmpl` for runtime-mutable files (no prefix discussion).
 - `docs/solutions/integration-issues/chezmoi-declarative-marketplace-sync-over-bidirectional.md` — historical context on files that previously used `modify_private_*` naming before being deleted.
 - `docs/solutions/developer-experience/chezmoi-oxlint-oxfmt-lint-pipeline-gotchas-2026-03-29.md` — separately documents that `modify_` scripts can have misleading file extensions; complementary to this doc.
-- PR https://github.com/tanimon/dotfiles/pull/195 — the Karabiner feature where this limitation surfaced; residual-review findings doc lives at `docs/residual-review-findings/feat-chezmoi-manage-karabiner-complex-mods.md`.
+- PR https://github.com/tanimon/dotfiles/pull/195 — the Karabiner feature where this limitation surfaced.

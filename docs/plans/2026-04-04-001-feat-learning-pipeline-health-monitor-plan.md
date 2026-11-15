@@ -3,7 +3,6 @@ title: "feat: Add learning pipeline health monitor"
 type: feat
 status: completed
 date: 2026-04-04
-origin: docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md
 ---
 
 # feat: Add learning pipeline health monitor
@@ -14,7 +13,7 @@ Add a shell script (`scripts/pipeline-health.sh`) that diagnoses the ECC continu
 
 ## Problem Frame
 
-The ECC observer pipeline currently fails silently. The observer has crashed on all analysis attempts (prompt file deleted before use in observer-loop.sh), producing zero instincts despite 178+ observations. Without a health check, downstream systems cannot distinguish "pipeline working, no patterns found" from "pipeline broken." (see origin: `docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md`)
+The ECC observer pipeline currently fails silently. The observer has crashed on all analysis attempts (prompt file deleted before use in observer-loop.sh), producing zero instincts despite 178+ observations. Without a health check, downstream systems cannot distinguish "pipeline working, no patterns found" from "pipeline broken."
 
 ## Requirements Trace
 
@@ -208,6 +207,5 @@ Falls back to globbing `~/.claude/homunculus/projects/*/` if no git remote.
 
 ## Sources & References
 
-- **Origin document:** [docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md](docs/brainstorms/2026-04-04-learning-pipeline-health-monitor-requirements.md)
 - ECC observer spec: `~/.claude/plugins/cache/everything-claude-code/.../skills/continuous-learning-v2/agents/observer.md`
 - Hook exit code semantics: `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`

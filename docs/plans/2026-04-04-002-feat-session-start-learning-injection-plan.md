@@ -3,7 +3,6 @@ title: "feat: Add session-start deterministic learning injection"
 type: feat
 status: completed
 date: 2026-04-04
-origin: docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md
 ---
 
 # feat: Add session-start deterministic learning injection
@@ -14,7 +13,7 @@ Replace `harness-activator.sh` with a new `learning-briefing.sh` hook that injec
 
 ## Problem Frame
 
-The current harness-activator hook only shows instincts at >= 0.7 confidence and has no pipeline health awareness. The agent starts each session blind to whether the ECC observer is functioning. Near-promotion instincts (0.6-0.69) — patterns trending upward — are invisible. The `pipeline-health.sh` script implemented in #5 (PR #125) cannot be called from hooks because it lives in `scripts/` which is excluded from chezmoi deployment. (see origin: `docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md`)
+The current harness-activator hook only shows instincts at >= 0.7 confidence and has no pipeline health awareness. The agent starts each session blind to whether the ECC observer is functioning. Near-promotion instincts (0.6-0.69) — patterns trending upward — are invisible. The `pipeline-health.sh` script implemented in #5 (PR #125) cannot be called from hooks because it lives in `scripts/` which is excluded from chezmoi deployment.
 
 ## Requirements Trace
 
@@ -283,7 +282,6 @@ The current harness-activator hook only shows instincts at >= 0.7 confidence and
 
 ## Sources & References
 
-- **Origin document:** [docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md](docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md)
 - Predecessor script: `dot_claude/scripts/executable_harness-activator.sh`
 - Pipeline health monitor: `scripts/pipeline-health.sh` (PR #125)
 - Hook exit code semantics: `docs/solutions/integration-issues/claude-code-hook-exit-code-and-stderr-semantics.md`

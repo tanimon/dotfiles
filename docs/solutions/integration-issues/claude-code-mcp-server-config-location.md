@@ -123,7 +123,5 @@ diff <(jq -r '.mcpServers | keys[]' ~/.claude.json | sort) \
 
 ## Related Documentation
 
-- Brainstorm: `docs/brainstorms/2026-03-06-chezmoi-mcp-servers-brainstorm.md`
-- Plan: `docs/plans/2026-03-06-feat-chezmoi-mcp-server-management-plan.md`
 - Related: `docs/solutions/security-issues/dotfiles-hardening-profile-management.md`
 - [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md) — the script this doc introduced was later renamed to `dot_claude/modify_claude.json` and retargeted at `~/.claude/claude.json` after Claude Code's native install turned `~/.claude.json` into a symlink

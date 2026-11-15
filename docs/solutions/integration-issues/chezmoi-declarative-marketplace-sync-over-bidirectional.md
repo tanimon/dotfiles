@@ -155,7 +155,5 @@ chezmoi apply                            # Other machines (run_onchange_ adds ma
 - [`../architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md`](../architecture-patterns/run-after-vs-run-onchange-for-shared-config-ownership.md) — a related but distinct lesson from that same migration, about when `run_onchange_` is *not* the right choice (contested full-file ownership)
 - PR #10: `refactor: replace bidirectional plugin sync with declarative marketplace list`
 - PR #8: `fix: prevent chezmoi apply from overwriting runtime plugin changes` (introduced the old pattern)
-- Brainstorm: `docs/brainstorms/2026-03-08-marketplace-sync-brainstorm.md`
-- Plan: `docs/plans/2026-03-08-refactor-declarative-marketplace-sync-plan.md`
 - chezmoi GitHub discussion #3550: `plugin_` attribute proposal (declined)
 - chezmoi GitHub issue #1625: DB lock when running chezmoi commands inside scripts
