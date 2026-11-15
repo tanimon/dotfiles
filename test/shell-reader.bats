@@ -562,6 +562,9 @@ command_words() {
     assert_equal "$(command_words)" '1:git'
     shell_reader_read '`nohup git push`'
     assert_equal "$(command_words)" '1:git'
+    # 末尾のバッククォートも外して照合する(読み飛ばす向きにだけ広げる)
+    shell_reader_read '`env` git push'
+    assert_equal "$(command_words)" '1:git'
 }
 
 @test "the command index is counted inside each segment" {

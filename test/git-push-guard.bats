@@ -367,8 +367,11 @@ assert_cpu_seconds_below() {
     assert_equal "$(decision "$output")" deny
 }
 
-@test "a prefix spelled with its path is not a hiding place" {
+@test "a prefix spelled with its path or wrapped in backticks is not a hiding place" {
     run hook '/usr/bin/env git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+    run hook '`env` git push origin main --force'
     assert_success
     assert_equal "$(decision "$output")" deny
 }

@@ -391,7 +391,8 @@ shell_reader_segment_follows() {
 #   SHELL_READER_COMMAND_NAME   コマンドの語から、先頭のバッククォートと zsh の EQUALS の語頭の `=` を外したもの。
 #                               パスは残す(パスを受け入れるかは呼び出し側の policy)。コマンドの語が無ければ空
 # 読み飛ばすのは、代入(`env` の後ろも含む)、シェルのキーワード、前置詞の表の語。前置詞の名前は、先頭のバッククォート・
-# 語頭の `=`・パスを外してから照合する。前置詞の直後の語が `-` で始まれば、そこで読み飛ばしを止める(`sudo -u x` の
+# 語頭の `=`・パス・末尾のバッククォートを外してから照合する。末尾まで外すのは読み飛ばす向き(Command Guard が塞ぐ向き)
+# にだけ広げるためで、`` `env` git push … `` は実際には env の出力をコマンドにするが、git をコマンドの語として読む。前置詞の直後の語が `-` で始まれば、そこで読み飛ばしを止める(`sudo -u x` の
 # コマンドの語は `-u`)。前置詞のオプションと引数の文法は前置詞ごとに、また GNU と BSD でも違うので読まない。
 # `timeout 5` の `5` も同じ理由でコマンドの語になる。
 # 読み飛ばした語の種類は返さない。手前の token(代入・前置詞)をどう扱うかは呼び出し側の policy が決める
@@ -418,6 +419,7 @@ shell_reader_command_word() {
             ;;
         esac
         name=${word#=}
+        name=${name%\`}
         case "${name##*/}" in
         time | nohup | command | builtin | eval | env | exec | sudo | doas | nice | timeout | xargs | parallel | stdbuf | ionice | caffeinate)
             after_prefix=1

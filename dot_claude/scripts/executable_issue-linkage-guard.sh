@@ -16,8 +16,7 @@
 #
 # 範囲は lib/issue-linkage-scope.bash が判定する(gh と同じ優先順で、-R / --repo、前置の GH_REPO=、フック自身の環境の GH_REPO、
 # 無ければフックの cwd の remote から gh が既定にする作成先)。
-# コマンドの語は shell-reader の shell_reader_command_word で読み(先頭の代入・制御語・前置詞を読み飛ばし、`=gh` と
-# `` `gh `` の印を外す)、読み飛ばした前置詞はすべて透過する。
+# コマンドの語は shell-reader の shell_reader_command_word で読み、読み飛ばした前置詞はすべて透過する。
 # 残存: 前置詞の直後にオプションか引数がある形(`sudo -u x gh pr create --fill`、`time -p gh …`、`timeout 5 gh …`)は、
 # reader がそこで読み飛ばしを止めるので判定せずに通る。`bash -c` の内側も見ない。
 # `cd <dir> && gh …` の cd 先は見ない。heredoc 演算子より後ろの segment は本文の行でありうるので、全体を読んだ
