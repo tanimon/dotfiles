@@ -212,7 +212,7 @@ source_with_siblings() {
 publish_fixture() {
     unset STUB_GH_OPEN_PRS STUB_GH_LIST_FAIL STUB_GH_HEAD_PRS STUB_GH_HEAD_LIST_FAIL STUB_GH_FAIL STUB_PNPM_FAIL \
         STUB_PNPM_INSTALL_FAIL STUB_LEDGER_EXPORT STUB_LEDGER_FAIL STUB_LEDGER_TAMPER_RATES STUB_RATES_TAMPER_LEDGER STUB_EVAL_FAIL \
-        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_RATES_EXPORT_UNWRITTEN STUB_RATES_EXPORT_FAIL STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
+        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_RATES_EXPORT_UNWRITTEN STUB_RATES_REPO_DIR STUB_RATES_EXPORT_FAIL STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
     export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
     export GIT_CONFIG_SYSTEM=/dev/null
     printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
@@ -313,7 +313,7 @@ EOF
     # export は記録を選ばない。STUB_RATES_EXPORT(日付を空白で区切った列。既定はローカルの置き場にある全部)の
     # Weekly Rate Record をローカルの置き場から worktree の置き場に写し(--dry-run なら写さない)、本物の CLI と同じく写した
     # (写すはずの)パスだけを stdout に出す(stdout の形と記録を選ぶ規則は test/harness-failure-rates.bats が本物の CLI で検査する)。
-    # repo-dir には置き場を答える。STUB_RATES_EXPORT で
+    # repo-dir には置き場(STUB_RATES_REPO_DIR。既定は本物と同じ)を答え、export はそこに写す。STUB_RATES_EXPORT で
     # ローカルの件数と違う答えを返させると、module が CLI の答えで決めていることを確かめられる。
     # STUB_RATES_EXPORT_OUTPUT なら、何も写さずにパスの代わりにその文字列を出して成功する(置き場の外のパスを出す CLI の再現)。
     # STUB_RATES_EXPORT_UNWRITTEN なら、--dry-run でない export が写さなかったパスも 1 行足す(実在しないパスを出す CLI の再現)。
@@ -325,7 +325,7 @@ EOF
     cat >"$HOME/.claude/scripts/harness-failure-rates.sh" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
-repo-dir) printf 'docs/harness/failure-pattern-rates\n' ;;
+repo-dir) printf '%s\n' "${STUB_RATES_REPO_DIR:-docs/harness/failure-pattern-rates}" ;;
 export)
     if [[ -n "${STUB_RATES_EXPORT_FAIL:-}" ]]; then
         printf 'harness-failure-rates: cannot list the local weekly rate records\n' >&2
@@ -351,11 +351,12 @@ export)
         files=("$rates"/*.json)
     fi
     for file in ${files[@]+"${files[@]}"}; do
+        repo_dir=${STUB_RATES_REPO_DIR:-docs/harness/failure-pattern-rates}
         if [[ -z "$dry_run" ]]; then
-            mkdir -p "$worktree/docs/harness/failure-pattern-rates"
-            cp "$file" "$worktree/docs/harness/failure-pattern-rates/"
+            mkdir -p "$worktree/$repo_dir"
+            cp "$file" "$worktree/$repo_dir/"
         fi
-        printf 'docs/harness/failure-pattern-rates/%s\n' "${file##*/}"
+        printf '%s/%s\n' "$repo_dir" "${file##*/}"
     done
     if [[ -z "$dry_run" ]]; then
         [[ -z "${STUB_RATES_EXPORT_UNWRITTEN:-}" ]] || printf '%s\n' "$STUB_RATES_EXPORT_UNWRITTEN"
@@ -899,7 +900,7 @@ EOF
 review_fixture() {
     publish_fixture
     export LEDGER_LOG="$BATS_TEST_TMPDIR/ledger.log"
-    unset STUB_LEDGER_RECORD STUB_LEDGER_RECORD_FAIL STUB_GH_TAMPER
+    unset STUB_LEDGER_RECORD STUB_LEDGER_RECORD_FAIL STUB_GH_TAMPER SENSITIVE_PATTERNS_LOCAL
     cp "$REPO_ROOT/dot_claude/scripts/executable_harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
     cat >"$HOME/.claude/scripts/harness-rule-ledger.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -908,6 +909,7 @@ if [[ "$1" == repo-dir ]]; then
     exit 0
 fi
 printf '%s\n' "$*" >>"$LEDGER_LOG"
+[[ "$1" != export ]] || printf 'SENSITIVE_PATTERNS_LOCAL=%s\n' "${SENSITIVE_PATTERNS_LOCAL-unset}" >>"$LEDGER_LOG"
 if [[ "$1" == record ]]; then
     [[ -z "${STUB_LEDGER_RECORD_FAIL:-}" ]] || exit 1
     mkdir -p "$HOME/.claude/harness/rule-ledger"
@@ -1358,6 +1360,29 @@ review_commits_lines() {
     assert_output ''
 }
 
+@test "選別の結果: 再発率の CLI の export が置き場の外のパスを出したら、記録を commit せずに WARN を出して PR を作る" {
+    review_fixture
+    local_record 2026-10-10
+    init_real
+    STUB_RATES_EXPORT_OUTPUT=docs/elsewhere/2026-10-10.json run review_with review_commits
+    assert_success
+    assert_line "harness-weekly: $HOME/.claude/scripts/harness-failure-rates.sh export listed a path that is not a record in docs/harness/failure-pattern-rates: docs/elsewhere/2026-10-10.json"
+    assert_line "harness-weekly: WARN failed to commit the weekly failure rate records; they stay in ${RATES} for the next PR"
+    run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
+    assert_output 'harness: add rule'
+}
+
+@test "Metrics-only PR: 記録は初期化で CLI の repo-dir から引いた置き場に commit する(module は置き場を持たない)" {
+    publish_fixture
+    four_local_records
+    export STUB_RATES_REPO_DIR=docs/elsewhere
+    init_real
+    run harness_loop_pr_publish_metrics_only_if_due
+    assert_success
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH"
+    assert_output "$(printf 'docs/elsewhere/%s.json\n' 2026-09-26 2026-10-03 2026-10-10 2026-10-17)"
+}
+
 @test "選別の結果: 週の記録の commit の後に実行物が書き換えられたら、push の直前の関門で止まる" {
     review_fixture
     local_record 2026-10-10
@@ -1522,6 +1547,8 @@ EOF
     run cat "$LEDGER_LOG"
     assert_line "record --pr-url https://github.com/example/dotfiles/pull/42 --date 2026-10-17 --via weekly --results ${EVAL_RESULTS}"
     assert_line --regexp '^export --base [0-9a-f]+ --worktree .* --pr 42$'
+    # identity leak guard のローカルのパターンは worktree に無いので、リポジトリ本体のものが export に届く
+    assert_line "SENSITIVE_PATTERNS_LOCAL=$REPO/scripts/sensitive-patterns.local.txt"
     run git -C "$ORIGIN" log --format=%s "main..$BRANCH"
     assert_output "$(printf '%s\n' 'harness: Rule Ledger の記録を足す' 'harness: add rule')"
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH" -- docs/harness/rule-ledger
