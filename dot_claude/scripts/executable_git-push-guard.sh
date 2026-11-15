@@ -55,14 +55,89 @@ command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --verb "$
 
 ASK_REASON='git-push-guard: この push は引数を読み切れないか、push の下位コマンド(git send-pack)を含むため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
 
-# git-core の dashed binary(`…/git-core/git-push`)と `send-pack` も、token の判定と同じく床で見る。
+# --- 危険な綴りの語彙 -----------------------------------------------------------------------
+# push を壊す綴りの正本。token の判定(classify_from と、そこから呼ぶ述語)と字面の床(DANGER_FLAG_RE)は
+# どちらもここから引く。綴りを足すときはここだけを変える。床の正規表現は手で書かずに下で組み立てる。
+# 英字は小文字だけで書く(大文字小文字を区別しない照合は ci_pattern が作る)。
+#
+# 長オプション(`--` の後ろ)。git は長オプションの一意な前方一致を受け付ける(`--dele` は `--delete`)ので、
+# token の判定も床も前方一致で見る。
+DANGER_LONG_OPTIONS=(force force-with-lease force-if-includes delete mirror prune)
+# 短オプションの束に含まれると危険な文字(`-f` は --force、`-d` は --delete)。束は数字も含みうる
+# (`-4f` は `--ipv4` + `--force`)。
+DANGER_SHORT_LETTERS=fd
+# refspec の先頭の文字。`+` は強制更新、src が空の `:` はリモート ref の削除。
+DANGER_REFSPEC_LEADS='+:'
+# `-c` / `--config-env` の値のうち push を壊すもの。git の設定キーは大文字小文字を区別しない。
+# `remote.<name>.push` は force の refspec を、`remote.<name>.mirror` は mirror push を運ぶ。
+DANGER_REMOTE_KEYS=(push mirror)
+# `include.path` / `includeIf.*.path` は読めないファイルの設定(`remote.origin.mirror=true` を含みうる)を取り込む。
+DANGER_INCLUDE_KEY=include
+# `-c` と同じ設定を環境変数で運ぶ token の接頭辞(`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_<n>` /
+# `GIT_CONFIG_PARAMETERS`)。環境変数の名前は大文字小文字を区別する。
+DANGER_ENV_PREFIX=GIT_CONFIG
+
+# $1(小文字の英字と英字以外)の英字を `[Xx]` にした、大文字小文字を区別しないパターンを CI_PATTERN に返す。
+# 同じ文字列が glob(case と [[ == ]])にも POSIX ERE にもなる。fork しないよう、変換は表を引いて行う。
+CI_PATTERN=''
+ci_pattern() {
+    local word=$1 lower=abcdefghijklmnopqrstuvwxyz upper=ABCDEFGHIJKLMNOPQRSTUVWXYZ character before index=0
+    CI_PATTERN=''
+    while [[ $index -lt ${#word} ]]; do
+        character=${word:index:1}
+        case "$character" in
+        [a-z])
+            before=${lower%%"$character"*}
+            CI_PATTERN+="[${upper:${#before}:1}${character}]"
+            ;;
+        *) CI_PATTERN+=$character ;;
+        esac
+        index=$((index + 1))
+    done
+}
+
+# 設定の語彙を大文字小文字を区別しないパターンにしたもの。token の判定と床の両方が使う。
+DANGER_REMOTE_KEY_PATTERNS=()
+for word in "${DANGER_REMOTE_KEYS[@]}"; do
+    ci_pattern "$word"
+    DANGER_REMOTE_KEY_PATTERNS+=("$CI_PATTERN")
+done
+ci_pattern "$DANGER_INCLUDE_KEY"
+DANGER_INCLUDE_PATTERN=$CI_PATTERN
+ci_pattern remote
+DANGER_REMOTE_SECTION_PATTERN=$CI_PATTERN
+
+# 字面の床の危険な綴り。語彙から組み立てる。
+# - 長オプション: 各オプションのすべての前方一致を選択肢にする(`--f` から `--force-with-lease` まで)。
+# - `-c` / `--config-env` の値: 広い段階(classify_from の config_ask。値のどこかに push / mirror があるか、
+#   include で始まる)を使う。床は ask にしかならないので、狭い段階(config_is_dangerous)にはしない。
+# - `GIT_CONFIG*`: 語頭にあるもの(前置きの代入でも `export` でも)。
+danger_long_prefixes=''
+for word in "${DANGER_LONG_OPTIONS[@]}"; do
+    length=1
+    while [[ $length -le ${#word} ]]; do
+        case "|$danger_long_prefixes|" in
+        *"|${word:0:length}|"*) ;;
+        *) danger_long_prefixes+=${danger_long_prefixes:+|}${word:0:length} ;;
+        esac
+        length=$((length + 1))
+    done
+done
+danger_remote_keys_re=''
+for word in "${DANGER_REMOTE_KEY_PATTERNS[@]}"; do
+    danger_remote_keys_re+=${danger_remote_keys_re:+|}$word
+done
+DANGER_FLAG_RE="(--(${danger_long_prefixes})([^[:alnum:]_-]|\$)"
+DANGER_FLAG_RE+="|[[:space:]](-c|--config-env)[[:space:]=]*([^[:space:]]*(${danger_remote_keys_re})|${DANGER_INCLUDE_PATTERN})"
+DANGER_FLAG_RE+="|[[:space:]]-[[:alnum:]]*[${DANGER_SHORT_LETTERS}][[:alnum:]]*([^[:alnum:]_-]|\$)"
+DANGER_FLAG_RE+="|[[:space:]][${DANGER_REFSPEC_LEADS}][^[:space:]]"
+DANGER_FLAG_RE+="|(^|[^[:alnum:]_])${DANGER_ENV_PREFIX})"
+unset word length danger_long_prefixes danger_remote_keys_re
+
+# 字面の床の「push の呼び出し」。git-core の dashed binary(`…/git-core/git-push`)と `send-pack` も、
+# token の判定と同じく床で見る。
 DANGER_TEXT_RE='(^|[^[:alnum:]_-])(git[[:space:]].*push|git-push|git[[:space:]-]+send-pack)'
-# 長オプションは token の判定(long_option_is_dangerous)と同じく前方一致も見る(`--forc` / `--dele`)。
-# `-c` / `--config-env` の push・mirror の設定も、token の判定と同じく床に一致させる。
-# 短オプションの束も token の判定(`-*` のうち f か d を含むもの)と同じく数字を含めて見る(`-4f` は
-# `--ipv4` + `--force`)。英字だけにすると、token の判定が deny する綴りが床では一致しない。
-DANGER_FLAG_RE='(--(f|fo|for|forc|force(-[[:alnum:]-]*)?|d|de|del|dele|delet|delete|m|mi|mir|mirr|mirro|mirror|p|pr|pru|prun|prune)([^[:alnum:]_-]|$)|[[:space:]](-c|--config-env)[[:space:]=]*[^[:space:]]*([Pp][Uu][Ss][Hh]|[Mm][Ii][Rr][Rr][Oo][Rr])|[[:space:]]-[[:alnum:]]*[fd][[:alnum:]]*([^[:alnum:]_-]|$)|[[:space:]][+:][^[:space:]])'
-# 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
+# 床は 1 行ごとに見る。heredoc の PR 本文では、別々の行にある「git push の手順」と「+12 行」を
 # 組み合わせて ask にしないようにする。
 # 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_text_floor_matches が行う
 # (`'git' push …` や `git push … \⏎--force` も同じ行の `git push … --force` として見る)。
@@ -84,7 +159,7 @@ GIT_CONFIG_IN_COMMAND=0
 # 空配列の展開は bash 3.2 の set -u で落ちるので数を先に見る。
 if [[ ${#SHELL_READER_TOKENS[@]} -gt 0 ]]; then
     for token in "${SHELL_READER_TOKENS[@]}"; do
-        case "$token" in GIT_CONFIG*) GIT_CONFIG_IN_COMMAND=1 ;; esac
+        case "$token" in "$DANGER_ENV_PREFIX"*) GIT_CONFIG_IN_COMMAND=1 ;; esac
     done
 fi
 
@@ -107,11 +182,11 @@ strip_backticks() {
     STRIPPED=${STRIPPED%\`}
 }
 
-# $1(`--` 付き、`=` より前)が、破壊的な push の長オプションのどれかの前方一致か。
+# $1(`--` 付き、`=` より前)が、語彙の長オプションのどれかの前方一致か。
 long_option_is_dangerous() {
     local option
-    for option in --force --force-with-lease --force-if-includes --delete --mirror --prune; do
-        [[ "$option" == "$1"* ]] && return 0
+    for option in "${DANGER_LONG_OPTIONS[@]}"; do
+        [[ "--$option" == "$1"* ]] && return 0
     done
     return 1
 }
@@ -133,16 +208,29 @@ segment_has_expansion_mark() {
     return 1
 }
 
-# $1(`-c` の値、`key=value` か `key`)が push を壊しうる設定か。キーは大文字小文字を区別しない。
-# `remote.<name>.push` は force の refspec を、`remote.<name>.mirror` は mirror push を運び、
-# `include.path` / `includeIf.*.path` は読めないファイルの設定を取り込む。
+# $1(`-c` の値、`key=value` か `key`)が、語彙の設定のどれかに言及するか(広い段階)。値のどこかに
+# DANGER_REMOTE_KEYS の語があるか、DANGER_INCLUDE_KEY で始まれば真。コマンドの位置が確定した segment で使う。
+config_value_mentions_danger() {
+    local key
+    for key in "${DANGER_REMOTE_KEY_PATTERNS[@]}"; do
+        # shellcheck disable=SC2053 # 語彙のパターンは glob として照合する
+        [[ "$1" == *$key* ]] && return 0
+    done
+    # shellcheck disable=SC2053
+    [[ "$1" == $DANGER_INCLUDE_PATTERN* ]]
+}
+
+# $1(`-c` の値、`key=value` か `key`)が push を壊す設定そのものか(狭い段階)。`remote.<name>.<語彙のキー>` か、
+# DANGER_INCLUDE_KEY で始まるキーなら真。コマンドの位置を確定できない segment で使う(`-c push.autoSetupRemote=true`
+# のような無害な設定を巻き込まない)。
 config_is_dangerous() {
-    case "$1" in
-    [Rr][Ee][Mm][Oo][Tt][Ee].*.[Pp][Uu][Ss][Hh] | [Rr][Ee][Mm][Oo][Tt][Ee].*.[Pp][Uu][Ss][Hh]=*) return 0 ;;
-    [Rr][Ee][Mm][Oo][Tt][Ee].*.[Mm][Ii][Rr][Rr][Oo][Rr] | [Rr][Ee][Mm][Oo][Tt][Ee].*.[Mm][Ii][Rr][Rr][Oo][Rr]=*) return 0 ;;
-    [Ii][Nn][Cc][Ll][Uu][Dd][Ee]*) return 0 ;;
-    esac
-    return 1
+    local key
+    for key in "${DANGER_REMOTE_KEY_PATTERNS[@]}"; do
+        # shellcheck disable=SC2053
+        [[ "$1" == $DANGER_REMOTE_SECTION_PATTERN.*.$key || "$1" == $DANGER_REMOTE_SECTION_PATTERN.*.$key=* ]] && return 0
+    done
+    # shellcheck disable=SC2053
+    [[ "$1" == $DANGER_INCLUDE_PATTERN* ]]
 }
 
 # Classify one segment as a git invocation whose binary sits at token index $1.
@@ -181,16 +269,9 @@ classify_from() {
         -c | --config-env)
             strip_backticks "${tokens[$((index + 1))]:-}"
             value=$STRIPPED
-            # Config can make a plain push destructive without any flag the
-            # argument scan below would see: `remote.<name>.push=+refs/…`
-            # carries a force refspec, and `remote.<name>.mirror=true` makes
-            # every push behave as `--mirror`. `mirror` does not contain `push`,
-            # so it needs its own pattern. Unreadable rather than safe.
-            # 設定キーは大文字小文字を区別しない(`remote.origin.MIRROR=true` も mirror になる)ので、
-            # 下の alias と同じく両方の綴りに一致させる。
-            # `include.path` / `includeIf.*.path` は読めないファイルの設定(`remote.origin.mirror=true`
-            # を含みうる)を取り込むので、同じく読み切れないとして扱う。
-            case "$value" in *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]* | [Ii][Nn][Cc][Ll][Uu][Dd][Ee]*) config_ask=1 ;; esac
+            # 設定は、下の引数の走査が見るフラグを 1 つも書かずに素の push を破壊的にできる
+            # (語彙の DANGER_REMOTE_KEYS / DANGER_INCLUDE_KEY)。安全ではなく読み切れないとして扱う。
+            config_value_mentions_danger "$value" && config_ask=1
             config_is_dangerous "$value" && config_danger=1
             # `-c alias.p='push --force' p` は、サブコマンドが `push` でなくても push になる。
             # git の設定キーは大文字小文字を区別しないので、`ALIAS.p=…` も同じに扱う。
@@ -209,15 +290,14 @@ classify_from() {
             ;;
         -c* | --config-env=*)
             case "$token" in
-            *[Pp][Uu][Ss][Hh]* | *[Mm][Ii][Rr][Rr][Oo][Rr]* | -c[Ii][Nn][Cc][Ll][Uu][Dd][Ee]* | --config-env=[Ii][Nn][Cc][Ll][Uu][Dd][Ee]*)
-                config_ask=1
-                ;;
+            --config-env=*) value=${token#--config-env=} ;;
+            *) value=${token#-c} ;;
             esac
+            config_value_mentions_danger "$value" && config_ask=1
+            config_is_dangerous "$value" && config_danger=1
             case "$token" in
             -c[Aa][Ll][Ii][Aa][Ss].*=*push* | --config-env=[Aa][Ll][Ii][Aa][Ss].*) alias_ask=1 ;;
             esac
-            config_is_dangerous "${token#-c}" && config_danger=1
-            config_is_dangerous "${token#--config-env=}" && config_danger=1
             index=$((index + 1))
             ;;
         -*)
@@ -270,17 +350,13 @@ classify_from() {
             fi
             ;;
         -*)
-            # Bundled short options: -f is --force, -d is --delete.
+            # 短オプションの束(語彙の DANGER_SHORT_LETTERS)。
             case "$token" in
-            *f* | *d*) [[ -z "$danger" ]] && danger=$token ;;
+            *[$DANGER_SHORT_LETTERS]*) [[ -z "$danger" ]] && danger=$token ;;
             esac
             ;;
-        +*)
-            # A leading + on a refspec forces the update.
-            [[ -z "$danger" ]] && danger=$token
-            ;;
-        :*)
-            # An empty source in `<src>:<dst>` deletes the remote ref.
+        [$DANGER_REFSPEC_LEADS]*)
+            # refspec の先頭(語彙の DANGER_REFSPEC_LEADS)。
             [[ -z "$danger" ]] && danger=$token
             ;;
         esac
