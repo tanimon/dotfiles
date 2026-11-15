@@ -110,12 +110,12 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `$(…)` / バッククォートの内側、heredoc やコメントに飲み込まれた行)は取りこぼす。そこで共有 reader の
   `shell_reader_text_floor_matches` に、`git … push` と危険な綴りが同じ行にあるかを問い合わせ、あれば `ask` にする。
   どの token を対象にするか・照合前の正規化(引用符・backslash・行継続)は reader が受け持つ(`.claude/rules/shell-reader.md`)。
-  危険な綴りは token の判定と同じく、長オプションの前方一致(`--forc`)と `-c` の push / mirror の設定も含む。
-  `git … push` の代わりに dashed の `git-push` や `send-pack` がある行も同じく見る。
+  危険な綴りは token の判定と同じ語彙(スクリプトの「危険な綴りの語彙」の表)から起動時に組み立てる
+  (`-c` の値は広い段階)。綴りを足すときは表だけを変える。dashed の `git-push` や `send-pack` の行も見る。
   `deny` が既に決まっていれば走らせない。散文が同じ形になりうる(PR 本文など)ので `deny` にはせず、
-  同じ行に「git … push」と `-f` や `:x` を含む散文が `ask` になる誤 ask は受容している。
-  短フラグ(`-f` など)も対象で、token の判定と同じく数字を含む束(`-4f` は `--ipv4` + `--force`)も一致させる
-  (`test/git-push-guard.bats` が「token の判定で deny する束は床でも ask」を対で固定している)。長さ超過の入力では、reader が同じ床を生のコマンド全体に当てる(下の上限)。
+  同じ行に「git … push」と `-f` や `:x` や `GIT_CONFIG` を含む散文が `ask` になる誤 ask は受容している。
+  bats は語彙の表を読まず、項目ごとの例を自前の表に持って「素の形」と「`x="$(…)"` の中」を対で固定する。
+  長さ超過の入力では、reader が同じ床を生のコマンド全体に当てる(下の上限)。
 - **起動時の約束(lib・起動 module・jq・stdin・`HOME`)は Command Guard の起動 module が持つ**
   (`.claude/rules/command-guard.md`。正本は `test/guard-contract.bats`)。起動 module が読めない・jq が無い・
   stdin が JSON でなければ生の入力に、lib が読めなければ command に `push` があれば `ask`。stdin を読めなければ `ask`。

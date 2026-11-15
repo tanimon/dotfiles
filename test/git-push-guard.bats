@@ -1069,18 +1069,73 @@ EOF"
     assert_cpu_seconds_below 3
 }
 
-# 床の短オプションは、token の判定(`-*` のうち f か d を含むもの)と同じ綴りに一致させる。
-# 数字を含む束(`-4f` は --ipv4 + --force)は parse-options が受け付ける。
-@test "every short option bundle the token check denies also asks through the floor" {
-    local bundle
-    for bundle in -f -d -uf -4f -f4 -6d -fd; do
-        run hook "git push $bundle origin main"
-        assert_success
-        assert_equal "$(decision "$output")" deny
-        run hook "echo \"\$(git push $bundle origin main)\""
-        assert_success
-        assert_equal "$(decision "$output")" ask
-    done
+# 危険な綴りの語彙の項目ごとに、素の形の判定と、引用符の中の置換に入れた形(字面の床)の ask を対で確かめる。
+# 期待値は .claude/rules/git-push-guard.md の判定の一覧から書く。スクリプトの語彙の表は読まない(表から
+# 項目が落ちてもテストが一緒に追従しないように)。数字を含む束(`-4f` は --ipv4 + --force)は parse-options が
+# 受け付ける。`-c` の値は大文字小文字を区別しない。
+@test "every dangerous spelling decides bare and asks inside a quoted substitution" {
+    local row expected command failures=''
+    while IFS='|' read -r expected command; do
+        [[ -n "$expected" ]] || continue
+        run hook "$command"
+        [[ "$status" -eq 0 && "$(decision "$output")" == "$expected" ]] ||
+            failures+="bare want=$expected got=$(decision "$output"): $command"$'\n'
+        run hook "x=\"\$($command)\""
+        [[ "$status" -eq 0 && "$(decision "$output")" == ask ]] ||
+            failures+="substitution want=ask got=$(decision "$output"): $command"$'\n'
+    done <<'EOF'
+deny|git push --force origin main
+deny|git push --forc origin main
+deny|git push --force-with-lease origin main
+deny|git push --force-with-lease=main origin main
+deny|git push --force-if-includes origin main
+deny|git push --delete origin old
+deny|git push --dele origin old
+deny|git push --mirror origin
+deny|git push --prune origin
+deny|git push -f origin main
+deny|git push -d origin old
+deny|git push -uf origin main
+deny|git push -4f origin main
+deny|git push -f4 origin main
+deny|git push -6d origin old
+deny|git push -fd origin main
+deny|git push origin +main
+deny|git push origin :old
+ask|git -c remote.origin.push=+refs/heads/main push origin
+ask|git -c remote.origin.mirror=true push origin
+ask|git -c REMOTE.origin.MIRROR=true push origin
+ask|git -c push.autoSetupRemote=true push origin main
+ask|git -c alias.p=push p
+ask|git -c include.path=/tmp/x push origin main
+ask|git -c Include.Path=/tmp/x push origin main
+ask|git -cinclude.path=/tmp/x push origin main
+ask|git -c includeIf.onbranch:main.path=/tmp/x push origin main
+ask|git --config-env=include.path=VAR push origin main
+ask|git --config-env=remote.origin.push=VAR push origin
+ask|git --config-env remote.origin.mirror=VAR push origin
+ask|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.mirror GIT_CONFIG_VALUE_0=true git push origin
+ask|GIT_CONFIG_PARAMETERS=x git push origin
+EOF
+    [[ -z "$failures" ]] || fail "$failures"
+}
+
+# "every dangerous spelling decides bare and asks inside a quoted substitution" の対照: 語彙に無い綴りは、素の形でも置換の中でも無出力のまま(常に ask を返す床では落ちる)。
+@test "spellings outside the dangerous vocabulary produce no decision bare or inside a substitution" {
+    local command failures=''
+    while IFS= read -r command; do
+        [[ -n "$command" ]] || continue
+        run hook "$command"
+        [[ "$status" -eq 0 && -z "$output" ]] || failures+="bare got=$output: $command"$'\n'
+        run hook "x=\"\$($command)\""
+        [[ "$status" -eq 0 && -z "$output" ]] || failures+="substitution got=$output: $command"$'\n'
+    done <<'EOF'
+git push -u origin main
+git push --no-verify origin main
+git push origin main:main
+git -c user.name=x push origin main
+EOF
+    [[ -z "$failures" ]] || fail "$failures"
 }
 
 @test "a numeric short option without f or d inside a quoted substitution produces no decision" {
