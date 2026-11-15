@@ -34,11 +34,13 @@
 #   export <日付> --base <revision> --worktree <リポジトリの作業ツリー> [--dry-run]
 #                                      ローカルの Weekly Rate Record のうち、<revision> の
 #                                      docs/harness/failure-pattern-rates/ に無いものを、<作業ツリー> の同じ置き場に
-#                                      そのまま写し、写した件数を「harness-failure-rates: exported <N> record(s)」
-#                                      の 1 行で出す。--dry-run は
-#                                      何も写さず(置き場も作らず)、写す件数を「harness-failure-rates: would export
-#                                      <N> record(s)」の 1 行で出す。整形(oxfmt)・git add・commit と、写す直前の
-#                                      データの照合は呼び出し側(週次ジョブの Loop PR の module)が行う
+#                                      そのまま写し、写したファイルのリポジトリ内のパスを stdout に 1 行に 1 つ出す。
+#                                      --dry-run は何も写さず(置き場も作らず)、写すはずのパスを同じ形で出す。
+#                                      件数などの人に向けた行は stderr に出す(stdout だけが読み手の契約)。
+#                                      整形(oxfmt)・git add・commit と、写す直前のデータの照合は呼び出し側
+#                                      (週次ジョブの Loop PR の module)が行う
+#   repo-dir                           Weekly Rate Record のリポジトリ内の置き場(リポジトリのルートからの相対パス、
+#                                      末尾の / なし)を 1 行で出す。置き場の正本はこのスクリプトの RATES_REPO_DIR
 #
 # export の選び方: <revision> に同じ名前の Weekly Rate Record が無ければ写す。閉じた PR や未マージの PR に
 # 入っていた週も、<revision> に無ければ写す(ローカルの印では判定しない)。<日付>(その run の日付)の
@@ -78,7 +80,7 @@ RECORDS="$HARNESS_DIR/classifications.jsonl"
 PATTERNS="$HOME/.claude/scripts/harness-failure-patterns.json"
 
 usage() {
-    printf 'usage: harness-failure-rates.sh since <date> | record <date> --since <epoch> --classification ok|failed | trend <date> [--weeks <n>] | detections <date> | export <date> --base <revision> --worktree <dir> [--dry-run]\n' >&2
+    printf 'usage: harness-failure-rates.sh since <date> | record <date> --since <epoch> --classification ok|failed | trend <date> [--weeks <n>] | detections <date> | export <date> --base <revision> --worktree <dir> [--dry-run] | repo-dir\n' >&2
     exit 2
 }
 
@@ -312,18 +314,20 @@ cmd_export() {
     base_paths=$(git -C "$worktree" ls-tree --name-only "$base" -- "$RATES_REPO_DIR/") ||
         fail "cannot list the weekly rate records in $base"
     files=$(records_to_export "$date" "$base" "$worktree" "$local_files" "$base_paths") || exit 1
-    if [[ "$dry_run" -eq 1 ]]; then
-        count=$(grep -c . <<<"$files" || true)
-        printf 'harness-failure-rates: would export %s record(s)\n' "$count"
-        return 0
-    fi
     while IFS= read -r file; do
         [[ -n "$file" ]] || continue
-        mkdir -p "$worktree/$RATES_REPO_DIR" || fail "cannot create $worktree/$RATES_REPO_DIR"
-        cp "$file" "$worktree/$RATES_REPO_DIR/" || fail "cannot copy $file to $worktree/$RATES_REPO_DIR"
+        if [[ "$dry_run" -eq 0 ]]; then
+            mkdir -p "$worktree/$RATES_REPO_DIR" || fail "cannot create $worktree/$RATES_REPO_DIR"
+            cp "$file" "$worktree/$RATES_REPO_DIR/" || fail "cannot copy $file to $worktree/$RATES_REPO_DIR"
+        fi
+        printf '%s\n' "$RATES_REPO_DIR/${file##*/}"
         count=$((count + 1))
     done <<<"$files"
-    printf 'harness-failure-rates: exported %s record(s)\n' "$count"
+    if [[ "$dry_run" -eq 1 ]]; then
+        printf 'harness-failure-rates: would export %s record(s)\n' "$count" >&2
+    else
+        printf 'harness-failure-rates: exported %s record(s)\n' "$count" >&2
+    fi
 }
 
 case "${1:-}" in
@@ -332,5 +336,6 @@ record) [[ $# -ge 2 ]] || usage && shift && cmd_record "$@" ;;
 trend) [[ $# -ge 2 ]] || usage && shift && cmd_trend "$@" ;;
 detections) [[ $# -eq 2 ]] || usage && cmd_detections "$2" ;;
 export) [[ $# -ge 2 ]] || usage && shift && cmd_export "$@" ;;
+repo-dir) [[ $# -eq 1 ]] || usage && printf '%s\n' "$RATES_REPO_DIR" ;;
 *) usage ;;
 esac

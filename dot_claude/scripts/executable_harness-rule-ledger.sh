@@ -5,6 +5,11 @@
 #   migrate
 #   export  --base <revision> --worktree <リポジトリの作業ツリー> [--pr <この書き出しを載せる PR の番号>]
 #   check   <ディレクトリ>
+#   repo-dir                リポジトリ内の置き場(リポジトリのルートからの相対パス、末尾の / なし)を 1 行で出す。
+#                           置き場の正本はこのスクリプトの LEDGER_REPO_DIR
+#
+# export の stdout は、写したファイルのリポジトリ内のパスを 1 行に 1 つだけ出す(週次ジョブの Loop PR の module が読む)。
+# 件数・写さなかった理由・警告などの人に向けた行は stderr に出し、文言は読み手の契約に含めない。
 #
 # 記録は 1 採用 1 ファイルで、ローカルの ~/.claude/harness/rule-ledger/<id>.json に作る。リポジトリの置き場は
 # docs/harness/rule-ledger/。commit するのは週次ジョブ(harness-weekly.sh)だけで、base に無いローカルの記録を
@@ -67,7 +72,7 @@ MIGRATED_REASON='Eval Case の仕組みを入れる前に採用した(移行し�
 REDACTED='(仕事の文脈を含むため伏せた)'
 
 usage() {
-    printf 'usage: harness-rule-ledger.sh record --pr-url <url> --date <YYYY-MM-DD> --via weekly|manual [--results <file>]\n       harness-rule-ledger.sh migrate\n       harness-rule-ledger.sh export --base <revision> --worktree <dir> [--pr <number>]\n       harness-rule-ledger.sh check <dir>\n' >&2
+    printf 'usage: harness-rule-ledger.sh record --pr-url <url> --date <YYYY-MM-DD> --via weekly|manual [--results <file>]\n       harness-rule-ledger.sh migrate\n       harness-rule-ledger.sh export --base <revision> --worktree <dir> [--pr <number>]\n       harness-rule-ledger.sh check <dir>\n       harness-rule-ledger.sh repo-dir\n' >&2
     exit 2
 }
 
@@ -399,7 +404,7 @@ export_mode() {
         fail "cannot run the identity leak guard scripts/scan-sensitive-info.sh of ${BASE}; nothing exported"
     fi
     [[ -d "$LOCAL_LEDGER_DIR" ]] || {
-        printf 'harness-rule-ledger: exported 0 record(s)\n'
+        printf 'harness-rule-ledger: exported 0 record(s)\n' >&2
         return 0
     }
     for file in "$LOCAL_LEDGER_DIR"/*.json; do
@@ -412,7 +417,7 @@ export_mode() {
         git -C "$WORKTREE" cat-file -e "${BASE}:${LEDGER_REPO_DIR}/${name}" 2>/dev/null && continue
         pr=$(jq -r '.pr' "$file")
         if ! pr_exportable "$pr"; then
-            printf 'harness-rule-ledger: not exported %s: %s\n' "${name%.json}" "$STATE_REASON"
+            printf 'harness-rule-ledger: not exported %s: %s\n' "${name%.json}" "$STATE_REASON" >&2
             continue
         fi
         source=$file
@@ -436,13 +441,14 @@ export_mode() {
                 printf 'harness-rule-ledger: WARN %s still matches the work context after redaction; not exported\n' "${name%.json}" >&2
                 continue
             fi
-            printf 'harness-rule-ledger: redacted the free text of %s (it matched the work context)\n' "${name%.json}"
+            printf 'harness-rule-ledger: redacted the free text of %s (it matched the work context)\n' "${name%.json}" >&2
         fi
         keep_exported "$dest" "$name" ||
             printf 'harness-rule-ledger: WARN could not keep the exported form of %s in %s\n' "${name%.json}" "$EXPORTED_DIR" >&2
+        printf '%s\n' "$LEDGER_REPO_DIR/$name"
         exported=$((exported + 1))
     done
-    printf 'harness-rule-ledger: exported %s record(s)\n' "$exported"
+    printf 'harness-rule-ledger: exported %s record(s)\n' "$exported" >&2
 }
 
 check_mode() {
@@ -469,6 +475,11 @@ PR_URL="" DATE="" VIA="" RESULTS="" BASE="" WORKTREE="" EXPORT_PR=""
 if [[ "$MODE" == check ]]; then
     [[ $# -eq 1 ]] || usage
     check_mode "$1"
+    exit 0
+fi
+if [[ "$MODE" == repo-dir ]]; then
+    [[ $# -eq 0 ]] || usage
+    printf '%s\n' "$LEDGER_REPO_DIR"
     exit 0
 fi
 while [[ $# -gt 0 ]]; do

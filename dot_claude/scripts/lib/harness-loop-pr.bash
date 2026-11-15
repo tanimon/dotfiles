@@ -30,8 +30,9 @@
 #   worktree を作る前に開いている Loop PR だけを見る。gh の失敗は WARN を出して「要らない」に倒し、CLI の失敗と CLI を呼ぶ
 #   入口の照合の失敗は PR を作らない失敗にする。
 # - 記録の commit。base に無い Weekly Rate Record と Rule Ledger の記録を選んで worktree に書き出すのは、それぞれの CLI の
-#   export(harness-failure-rates.sh と harness-rule-ledger.sh)で、この lib は書き出す直前のデータの照合、件数の行の
-#   読み取り、整形(oxfmt)・git add・commit を行う。
+#   export(harness-failure-rates.sh と harness-rule-ledger.sh)で、この lib は書き出す直前のデータの照合、CLI が列挙した
+#   パスの検証、整形(oxfmt)・git add・commit を 2 種類で同じ手順(_harness_loop_pr_commit_records)で行う。置き場は
+#   初期化が各 CLI の repo-dir で引く。
 # - 前の run の未公開の採用の確認(_harness_loop_pr_check_unpublished)。2 つの入口が、成功で終わる経路の最後に行う。この run の
 #   印を PR の URL に置き換えた後でないと正しく判定できないので、入口の中に置く。
 # - 本文・選別の結果ファイル・Eval Case の依頼と結果を消すこと。消すのは次の場面だけで、失敗した run(選別の失敗・照合の
@@ -90,14 +91,9 @@ if ! declare -F harness_pr_body_init harness_pr_body_review_instructions harness
     return 1
 fi
 
-# Weekly Rate Record(1 週 1 ファイル)のリポジトリ内の置き場。週次ジョブの commit だけが書く。
-# harness-failure-rates.sh の export が書き出す先と同じでなければならない
-_HARNESS_LOOP_PR_RATES_REPO_DIR="docs/harness/failure-pattern-rates"
 # ローカルの Weekly Rate Record の置き場。人が見る場所を案内するログの文言にだけ使う(module はここを読み書きしない)。
 # 置き場の正本は harness-failure-rates.sh の RATES_DIR
 _HARNESS_LOOP_PR_LOCAL_RATES_DIR="$HOME/.claude/harness/failure-pattern-rates"
-# Rule Ledger の記録のリポジトリ内の置き場。harness-rule-ledger.sh の export が書き出す先と同じでなければならない
-_HARNESS_LOOP_PR_LEDGER_REPO_DIR="docs/harness/rule-ledger"
 # origin/main に無い週の記録がこの件数たまったら、採用が無くても Metrics-only PR を作る
 _HARNESS_LOOP_PR_METRICS_ONLY_WEEKS=4
 # 週次ジョブ自身の commit が使う git の設定。launchd の環境には GIT_CONFIG_GLOBAL が無く(Claude Code の子プロセスには
@@ -118,6 +114,10 @@ _HARNESS_LOOP_PR_EVAL_BUDGET_USD=""
 _HARNESS_LOOP_PR_DATE=""
 _HARNESS_LOOP_PR_REVIEW_SESSION_ID=""
 _HARNESS_LOOP_PR_RUN=""
+# Weekly Rate Record と Rule Ledger の記録のリポジトリ内の置き場。週次ジョブの commit だけが書く。正本は各 CLI で、
+# 初期化が repo-dir で引く
+_HARNESS_LOOP_PR_RATES_REPO_DIR=""
+_HARNESS_LOOP_PR_LEDGER_REPO_DIR=""
 
 # run ごとの値を作り、Review Outcome の lib と本文の lib を初期化する。引数は --repo <パス> --date <YYYY-MM-DD>
 # --review-session-id <選別の session id> --loop-branch-prefix <prefix> で、すべて必須。空の値と知らない引数は受け付けない。
@@ -132,8 +132,12 @@ _HARNESS_LOOP_PR_RUN=""
 # - 採用の印。Verdict の CLI の mark で作る(書式は CLI だけが持つ。ADR 0017)。run ごとの印(選別の session id)を入れるのは、
 #   同じ日の前の run が失敗して残した採用を、今回の PR の URL で上書きしないため。初期化は Integrity Snapshot より前
 #   (claude の起動前)に走るので、CLI は Integrity Snapshot の入口を通さずに呼ぶ。作れなければ理由を出して失敗する
+# - Weekly Rate Record と Rule Ledger の記録のリポジトリ内の置き場。正本は各 CLI なので repo-dir で引く(採用の印と同じく
+#   Integrity Snapshot の入口を通さない。値はシェル変数に持つので、後で claude が CLI を書き換えてもこの run には効かない)。
+#   引けないか、末尾の / の無い相対パスとして読めなければ理由を出して失敗する
 harness_loop_pr_init() {
-    local repo="" date="" session_id="" prefix="" missing="" harness_dir="$HOME/.claude/harness" branch verdict_cli run
+    local repo="" date="" session_id="" prefix="" missing="" harness_dir="$HOME/.claude/harness" branch verdict_cli run \
+        rates_repo_dir ledger_repo_dir
     while [[ $# -gt 0 ]]; do
         if [[ $# -lt 2 ]]; then
             printf 'harness-loop-pr: %s needs a value\n' "$1" >&2
@@ -161,8 +165,7 @@ harness_loop_pr_init() {
     fi
     # 公開に使う値は interface に出さないので、週次ジョブではなくここで確かめる。空の週数は数の比較で 0 と読まれ、
     # 記録の無い週にも Metrics-only PR を作ってしまう
-    if [[ -z "${_HARNESS_LOOP_PR_RATES_REPO_DIR:-}" || -z "${_HARNESS_LOOP_PR_LEDGER_REPO_DIR:-}" ||
-        -z "${_HARNESS_LOOP_PR_AGENT_GIT_CONFIG:-}" || ! "${_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS:-}" =~ ^[1-9][0-9]*$ ]]; then
+    if [[ -z "${_HARNESS_LOOP_PR_AGENT_GIT_CONFIG:-}" || ! "${_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS:-}" =~ ^[1-9][0-9]*$ ]]; then
         printf 'harness-loop-pr: the publish values of this lib are empty or broken; run chezmoi apply\n' >&2
         return 1
     fi
@@ -174,6 +177,10 @@ harness_loop_pr_init() {
         printf 'harness-loop-pr: could not make the adoption mark with %s; run chezmoi apply\n' "$verdict_cli" >&2
         return 1
     fi
+    rates_repo_dir=$(_harness_loop_pr_repo_dir failure-rates) || return 1
+    ledger_repo_dir=$(_harness_loop_pr_repo_dir rule-ledger) || return 1
+    _HARNESS_LOOP_PR_RATES_REPO_DIR=$rates_repo_dir
+    _HARNESS_LOOP_PR_LEDGER_REPO_DIR=$ledger_repo_dir
     _HARNESS_LOOP_PR_REPO=$repo
     _HARNESS_LOOP_PR_WORKTREE="$harness_dir/review-worktree"
     _HARNESS_LOOP_PR_BRANCH=$branch
@@ -193,6 +200,18 @@ harness_loop_pr_init() {
     harness_pr_body_init --pr-body "$_HARNESS_LOOP_PR_PR_BODY" --worktree "$_HARNESS_LOOP_PR_WORKTREE" \
         --review-result "$_HARNESS_LOOP_PR_REVIEW_RESULT" --date "$date" --run "$run" \
         --ledger-repo-dir "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" || return 1
+}
+
+# 記録の CLI(<実行物の名前> は Integrity Snapshot の実行物の名前)の repo-dir を直接実行し、リポジトリ内の置き場を出す。
+# 末尾の / の無い相対パス(.. を含まない)でなければ理由を出して 1 を返す
+_harness_loop_pr_repo_dir() { # <実行物の名前>
+    local cli dir
+    cli=$(harness_integrity_executable "$1") || return 1
+    if ! dir=$(bash "$cli" repo-dir) || [[ ! "$dir" =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ || "/$dir/" == */../* ]]; then
+        printf 'harness-loop-pr: could not read the repository directory of the records from %s repo-dir; run chezmoi apply\n' "$cli" >&2
+        return 1
+    fi
+    printf '%s\n' "$dir"
 }
 
 # ブランチを origin に push するコマンドを、末尾の改行なしで出す。<リポジトリ> を渡せば -C で指す。
@@ -219,7 +238,7 @@ harness_loop_pr_record_command() { # <run>
     printf "bash ~%s publish --run '%s' --pr-url <PR URL>" "${verdict_cli#"$HOME"}" "${1//\'/$quote}"
 }
 
-# 公開の手順が数えた件数。_harness_loop_pr_commit_rate_records と _harness_loop_pr_commit_ledger_records が入れる
+# 公開の手順が数えた件数。_harness_loop_pr_commit_records が種類ごとに入れる
 _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED=0
 _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED=0
 # _harness_loop_pr_push_and_create が作った PR の URL
@@ -367,83 +386,98 @@ _harness_loop_pr_remove_worktree() {
         rm -rf "$_HARNESS_LOOP_PR_WORKTREE"
 }
 
-# 再発率の CLI の export を Integrity Snapshot の入口を通して呼び、base(<base>)に無い Weekly Rate Record を worktree に
-# 書き出して(--dry-run を渡せば書き出さずに)、件数の行から読んだ件数を出す。選び方は CLI のヘッダ。
-# 照合に落ちたら HARNESS_INTEGRITY_FAILED を、CLI の失敗と件数の行が無いときは 1 を返す
-_harness_loop_pr_export_rate_records() { # <base> [--dry-run]
-    local base=$1 failure_rates output count verb=exported
-    shift
-    [[ "${1:-}" != --dry-run ]] || verb='would export'
-    failure_rates=$(harness_integrity_executable failure-rates) || return
-    output=$(harness_integrity_run failure-rates export "$_HARNESS_LOOP_PR_DATE" --base "$base" \
-        --worktree "$_HARNESS_LOOP_PR_WORKTREE" "$@") || return $?
-    count=$(sed -n "s/^harness-failure-rates: $verb \\([0-9][0-9]*\\) record(s)\$/\\1/p" <<<"$output")
-    # 件数は呼び出し側の行がログに出すので、CLI の出力をそのまま出すのは件数の行を読めなかったときだけにする
-    if [[ ! "$count" =~ ^[0-9]+$ ]]; then
-        printf 'harness-weekly: unexpected output from %s export: %s\n' "$failure_rates" "$output" >&2
-        return 1
-    fi
-    printf '%s\n' "$count"
+# 記録の CLI(<実行物の名前> は Integrity Snapshot の実行物の名前)の export を Integrity Snapshot の入口を通して呼び、
+# 書き出した(<方法> が dry-run なら、CLI に --dry-run を足して書き出すはずの)ファイルのリポジトリ内のパスを 1 行に 1 つ出す。
+# CLI の stdout はそのパスの列挙だけで、人に向けた行は stderr に出る(契約は各 CLI のヘッダ)。各パスが <置き場> の直下の
+# ファイルの名前で、write なら worktree に実在することを確かめる(commit するのは列挙されたパスだけなので、置き場の外を
+# commit しない)。照合に落ちたら HARNESS_INTEGRITY_FAILED を、CLI が失敗したかパスが外れたら理由を出して 1 を返す
+_harness_loop_pr_export_records() { # <実行物の名前> <置き場> <方法: write|dry-run> <export の引数>…
+    local name=$1 repo_dir=$2 mode=$3 executable output path file
+    shift 3
+    [[ "$mode" != dry-run ]] || set -- "$@" --dry-run
+    executable=$(harness_integrity_executable "$name") || return
+    output=$(harness_integrity_run "$name" export "$@") || return $?
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        file=${path#"$repo_dir"/}
+        if [[ "$file" == "$path" || -z "$file" || "$file" == */* || "$file" == .* ]]; then
+            printf 'harness-weekly: %s export listed a path that is not a record in %s: %s\n' "$executable" "$repo_dir" "$path" >&2
+            return 1
+        fi
+        if [[ "$mode" != dry-run && ! -f "$_HARNESS_LOOP_PR_WORKTREE/$path" ]]; then
+            printf 'harness-weekly: %s export listed %s, which is not in %s\n' "$executable" "$path" "$_HARNESS_LOOP_PR_WORKTREE" >&2
+            return 1
+        fi
+        printf '%s\n' "$path"
+    done <<<"$output"
 }
 
-# base(origin/main)に無い Weekly Rate Record を再発率の CLI の export で worktree に書き出し、週次ジョブの commit 1 つにする。
-# 抽出と選別の claude には書かせない(改善する側が指標を書き換えられないように)。リポジトリ側の書き換えは週次ジョブが
-# 選別の commit の検査で、ローカルの記録の書き換えは書き出す直前のデータの照合(Integrity Snapshot)が見つける。書き換えか
-# 照合できない記録を見つけたら、commit せずに HARNESS_INTEGRITY_FAILED を返す。前の週から持ち越した記録を
-# その週の claude が書き換えていた場合は見つけられない(Integrity Snapshot の lib のヘッダの残存リスク)。
-# export の入口が実行物の照合に落ちたときも HARNESS_INTEGRITY_FAILED を返す。どちらの照合に落ちたかはここでしか
-# 分からないので、人が見る場所(ローカルの記録か実行物か)を案内する行はここで出す。呼び出し元は HARNESS_INTEGRITY_FAILED
-# なら PR を作らない。
-# oxfmt を通すのは、commit フックが JSON の書式を検査するため。書き出した件数を _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED に入れる
-_harness_loop_pr_commit_rate_records() { # <base>
-    local base=$1 count status=0
-    _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED=0
+# base(origin/main)に無い記録を、種類(rates = Weekly Rate Record、ledger = Rule Ledger)の CLI の export で worktree に
+# 書き出し、列挙されたパスだけを週次ジョブの commit 1 つにする。commit した件数は種類ごとの
+# _HARNESS_LOOP_PR_*_RECORDS_COMMITTED に入れる。書き出す記録の選び方は各 CLI のヘッダ(Rule Ledger は <PR の番号> を
+# 渡せばこの run の PR の記録も写す)。
+# 抽出と選別の claude には書かせない(改善する側が指標と記録を書き換えられないように)。リポジトリ側の書き換えは
+# 週次ジョブが選別の commit の検査で、ローカルの記録の書き換えは export の直前のデータの照合(Integrity Snapshot)が
+# 見つける。前の週から持ち越した記録をその週の claude が書き換えていた場合は見つけられない(Integrity Snapshot の
+# lib のヘッダの残存リスク)。
+# 失敗の扱い: データの照合か export の入口の実行物の照合に落ちたら、commit せずに HARNESS_INTEGRITY_FAILED を返す。
+# どちらの照合に落ちたかはここでしか分からないので、人が見る場所(ローカルの記録か実行物か)の案内はここで出す。
+# PR を作るかどうかの帰結は呼び出し側が出す(Rule Ledger の commit は PR を作った後にも走る)。CLI の失敗・列挙の
+# 検証・整形・commit の失敗は 1 を返し、写しかけは呼び出し側が戻す。
+# oxfmt を通すのは、commit フックが JSON の書式を検査するため
+_harness_loop_pr_commit_records() { # <種類: rates|ledger> <base> [<PR の番号>]
+    local kind=$1 base=$2 name local_dir repo_dir subject count_var paths path count=0 status=0 args=() files=()
+    case "$kind" in
+    rates)
+        count_var=_HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED
+        name=failure-rates local_dir=$_HARNESS_LOOP_PR_LOCAL_RATES_DIR repo_dir=$_HARNESS_LOOP_PR_RATES_REPO_DIR
+        subject="harness: Failure Pattern の再発率の週の記録を足す"
+        args=("$_HARNESS_LOOP_PR_DATE" --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE")
+        ;;
+    ledger)
+        count_var=_HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED
+        name=rule-ledger repo_dir=$_HARNESS_LOOP_PR_LEDGER_REPO_DIR
+        local_dir=$(_harness_loop_pr_local_ledger_dir)
+        subject="harness: Rule Ledger の記録を足す"
+        args=(--base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE")
+        [[ -z "${3:-}" ]] || args+=(--pr "$3")
+        ;;
+    *)
+        printf 'harness-loop-pr: unknown kind of records: %s\n' "$kind" >&2
+        return 1
+        ;;
+    esac
+    printf -v "$count_var" '%s' 0
     if ! harness_integrity_check_data; then
-        printf 'harness-weekly: no PR created; check %s by hand\n' "$_HARNESS_LOOP_PR_LOCAL_RATES_DIR" >&2
+        printf 'harness-weekly: the local records in %s could not be trusted; check them by hand\n' "$local_dir" >&2
         return "$HARNESS_INTEGRITY_FAILED"
     fi
-    count=$(_harness_loop_pr_export_rate_records "$base") || status=$?
+    # Rule Ledger の export は書き出した形を rule-ledger/exported/ に残す(封印しない)ので、この後にデータを照合しないこと。
+    # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを export にだけ渡す
+    # (再発率の CLI は読まない)
+    paths=$(SENSITIVE_PATTERNS_LOCAL="${SENSITIVE_PATTERNS_LOCAL-$_HARNESS_LOOP_PR_REPO/scripts/sensitive-patterns.local.txt}" \
+        _harness_loop_pr_export_records "$name" "$repo_dir" write "${args[@]}") || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
-        printf 'harness-weekly: no PR created; the scripts the job runs could not be trusted when exporting the weekly failure rate records\n' >&2
+        printf 'harness-weekly: the scripts the job runs could not be trusted when exporting the records in %s\n' "$local_dir" >&2
         return "$status"
     elif [[ "$status" -ne 0 ]]; then
         return "$status"
     fi
+    while IFS= read -r path; do
+        [[ -z "$path" ]] || files+=("$path")
+    done <<<"$paths"
+    count=${#files[@]}
     [[ "$count" -gt 0 ]] || return 0
-    (cd "$_HARNESS_LOOP_PR_WORKTREE" && pnpm exec oxfmt "$_HARNESS_LOOP_PR_RATES_REPO_DIR") || return 1
-    git -C "$_HARNESS_LOOP_PR_WORKTREE" add -- "$_HARNESS_LOOP_PR_RATES_REPO_DIR" || return 1
-    _harness_loop_pr_git -C "$_HARNESS_LOOP_PR_WORKTREE" commit --quiet -m "harness: Failure Pattern の再発率の週の記録を足す" || return 1
-    _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED=$count
+    (cd "$_HARNESS_LOOP_PR_WORKTREE" && pnpm exec oxfmt "${files[@]}") || return 1
+    git -C "$_HARNESS_LOOP_PR_WORKTREE" add -- "${files[@]}" || return 1
+    _harness_loop_pr_git -C "$_HARNESS_LOOP_PR_WORKTREE" commit --quiet -m "$subject" || return 1
+    printf -v "$count_var" '%s' "$count"
 }
 
 # Rule Ledger の commit に失敗したときに、worktree を <revision> に戻して写しかけの記録を消す。記録はローカルに残る
 _harness_loop_pr_drop_ledger_commit() { # <revision>
     printf 'harness-weekly: WARN failed to commit the Rule Ledger records; they stay in %s for a later PR\n' "$(_harness_loop_pr_local_ledger_dir)" >&2
     _harness_loop_pr_reset_worktree "$1" "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR"
-}
-
-# base(origin/main)に無いローカルの Rule Ledger の記録を worktree に写し、週次ジョブの commit 1 つにする。
-# 写す記録の選び方(マージされた PR と、この run の PR の記録だけ)と仕事の識別子の検査・伏せ字は
-# harness-rule-ledger.sh export が行う。選別の claude には書かせない(週次ジョブが選別の commit を、写す直前の
-# データの照合がローカルの記録を確かめる)。写した件数を _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED に入れる。
-# 失敗しても記録はローカルに残り、後の PR が足す。照合に落ちたら HARNESS_INTEGRITY_FAILED を返す
-_harness_loop_pr_commit_ledger_records() { # <base> [この run の PR の番号]
-    local base=$1 output count pr_args=()
-    _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED=0
-    [[ -z "${2:-}" ]] || pr_args=(--pr "$2")
-    harness_integrity_check_data || return "$HARNESS_INTEGRITY_FAILED"
-    # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを渡す。
-    # export は書き出した形を rule-ledger/exported/ に残す(封印しない)ので、この後にデータを照合しないこと
-    output=$(SENSITIVE_PATTERNS_LOCAL="${SENSITIVE_PATTERNS_LOCAL-$_HARNESS_LOOP_PR_REPO/scripts/sensitive-patterns.local.txt}" \
-        harness_integrity_run rule-ledger export --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE" ${pr_args[@]+"${pr_args[@]}"}) || return $?
-    printf '%s\n' "$output"
-    count=$(sed -n 's/^harness-rule-ledger: exported \([0-9][0-9]*\) record(s)$/\1/p' <<<"$output")
-    [[ "$count" =~ ^[0-9]+$ ]] || return 1
-    [[ "$count" -gt 0 ]] || return 0
-    (cd "$_HARNESS_LOOP_PR_WORKTREE" && pnpm exec oxfmt "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR") || return 1
-    git -C "$_HARNESS_LOOP_PR_WORKTREE" add -- "$_HARNESS_LOOP_PR_LEDGER_REPO_DIR" || return 1
-    _harness_loop_pr_git -C "$_HARNESS_LOOP_PR_WORKTREE" commit --quiet -m "harness: Rule Ledger の記録を足す" || return 1
-    _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED=$count
 }
 
 # 公開(push と gh pr create)の直前の関門。照合の失敗を取りこぼした呼び出し元があっても、書き換えられた run の PR を作らない
@@ -515,19 +549,21 @@ _harness_loop_pr_no_open_loop_pr() { # <書式> [<引数>...]
 # Metrics-only PR が要るか。origin/main に無い Weekly Rate Record(<base> は worktree の origin/main。件数は再発率の CLI の
 # export --dry-run が数える)が _HARNESS_LOOP_PR_METRICS_ONLY_WEEKS 件以上あり、開いている Loop PR が無ければ 0。
 # 要らなければ理由を出して 1 を返す(gh の失敗は WARN を出して 1)。CLI の照合に落ちたら HARNESS_INTEGRITY_FAILED を、
-# CLI が失敗したか件数の行を読めなければ 2 を返す。
+# CLI が失敗したか、列挙したパスが置き場の記録でなければ 2 を返す。
 # CLI の失敗を「要らない」に倒さないのは、置き場を列挙できない・git の失敗など毎週再発する失敗だと、記録がローカルに
 # 溜まり続けたまま run が成功して heartbeat が進み、誰も気づかないため(要ると決まった後の書き出しの失敗も run を失敗させる)。
 # gh の失敗だけを WARN にとどめるのは、ネットワークや GitHub の一過性の失敗で、次の週に照会し直せるため。
 # 開いている Loop PR があれば作らない(その PR に記録が入っているか、次に採用のある PR がまとめて足す。作ると毎週 1 本ずつ増える)
 _harness_loop_pr_metrics_only_due() { # <base>
-    local base=$1 count status=0
-    count=$(_harness_loop_pr_export_rate_records "$base" --dry-run) || status=$?
+    local base=$1 paths count status=0
+    paths=$(_harness_loop_pr_export_records failure-rates "$_HARNESS_LOOP_PR_RATES_REPO_DIR" dry-run "$_HARNESS_LOOP_PR_DATE" \
+        --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE") || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         return "$status"
     elif [[ "$status" -ne 0 ]]; then
         return 2
     fi
+    count=$(grep -c . <<<"$paths" || true)
     if [[ "$count" -lt "$_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS" ]]; then
         printf 'harness-weekly: %s weekly failure rate record(s) not on origin/main; carried over in %s (a metrics-only PR needs %s)\n' \
             "$count" "$_HARNESS_LOOP_PR_LOCAL_RATES_DIR" "$_HARNESS_LOOP_PR_METRICS_ONLY_WEEKS"
@@ -592,7 +628,7 @@ _harness_loop_pr_record_ledger() { # <base> <PR の URL>
         harness_integrity_seal "$ledger_dir/$id.json" || return "$HARNESS_INTEGRITY_FAILED"
     done <<<"$(sed -n 's/^harness-rule-ledger: recorded \([^ ][^ ]*\)$/\1/p' <<<"$output")"
     status=0
-    _harness_loop_pr_commit_ledger_records "$base" "${url##*/}" || status=$?
+    _harness_loop_pr_commit_records ledger "$base" "${url##*/}" || status=$?
     if [[ "$status" -ne 0 ]]; then
         # PR は作成済みなので、戻せなくても失敗にしない(worktree は後片付けが消す)
         _harness_loop_pr_drop_ledger_commit "$pushed_revision" || true
@@ -619,7 +655,7 @@ _harness_loop_pr_remove_review_files() { # [<パス>…]
 # 手順: 再発率の記録の commit → 関門 → push → 関門 → PR の作成 → 本文と結果ファイルを消す → 判定の記録への URL の
 # 置き換え → Rule Ledger の記録・封印・commit・関門・再 push → 後片付け。失敗の扱い:
 # - 再発率の記録か、それを書き出す export の入口の実行物が照合に落ちた: PR を作らずに失敗する(書き換えられた記録を正として
-#   持ち越さないよう、人に見せる。どちらを見るかの案内は _harness_loop_pr_commit_rate_records が出す)
+#   持ち越さないよう、人に見せる。どちらを見るかの案内は _harness_loop_pr_commit_records が出す)
 # - 再発率の記録をほかの理由で commit できなかった: WARN を出し、写しかけを戻して公開を続ける(記録はローカルに残り、
 #   次の PR がまとめて足す)
 # - 関門・push・PR の作成の失敗: 案内を出して失敗し、worktree・ローカルブランチ・本文を残す
@@ -628,8 +664,9 @@ _harness_loop_pr_remove_review_files() { # [<パス>…]
 _harness_loop_pr_publish_review() { # <base>
     local base=$1 commits commit_status=0 post_status=0
     commits=$(git -C "$_HARNESS_LOOP_PR_WORKTREE" rev-list --count "$base..HEAD") || return 1
-    _harness_loop_pr_commit_rate_records "$base" || commit_status=$?
+    _harness_loop_pr_commit_records rates "$base" || commit_status=$?
     if [[ "$commit_status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        printf 'harness-weekly: no PR created\n' >&2
         return 1
     elif [[ "$commit_status" -eq 0 ]]; then
         [[ "$_HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED" -eq 0 ]] ||
@@ -654,24 +691,25 @@ _harness_loop_pr_publish_review() { # <base>
 }
 
 # 採用の無い週に、週の記録だけの draft PR(Metrics-only PR)を作る。worktree と依存は用意済みの前提。
-# 手順: 再発率の記録の commit(できなければ PR を作らずに失敗。照合に落ちたときの案内は _harness_loop_pr_commit_rate_records が出す) → 持ち越した Rule Ledger の記録の commit(照合に
+# 手順: 再発率の記録の commit(できなければ PR を作らずに失敗。照合に落ちたときの案内は _harness_loop_pr_commit_records が出す) → 持ち越した Rule Ledger の記録の commit(照合に
 # 落ちたら PR を作らずに失敗し、ほかの失敗は戻して続ける) → 本文(本文の lib の harness_pr_body_metrics_only に
 # commit した件数を渡す) → 関門 → push → 関門 → PR の作成 → 後片付け。本文を記録の commit の後に書く理由は、本文の lib の
 # その入口のコメント。本文の lib が非 0 を返したら PR を作らずに失敗する(PR を作らない理由は本文の lib が出す)。
 # 関門・push・PR の作成の失敗は _harness_loop_pr_publish_review と同じく、案内を出して失敗し、worktree・ローカルブランチ・本文を残す
 _harness_loop_pr_publish_metrics_only() { # <base>
     local base=$1 rate_records_revision status=0
-    _harness_loop_pr_commit_rate_records "$base" || status=$?
+    _harness_loop_pr_commit_records rates "$base" || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
+        printf 'harness-weekly: no PR created\n' >&2
         return 1
     elif [[ "$status" -ne 0 ]]; then
         printf 'harness-weekly: failed to commit the weekly failure rate records in %s; no PR created\n' "$_HARNESS_LOOP_PR_WORKTREE" >&2
         return 1
     fi
     rate_records_revision=$(git -C "$_HARNESS_LOOP_PR_WORKTREE" rev-parse HEAD) || return 1
-    _harness_loop_pr_commit_ledger_records "$base" || status=$?
+    _harness_loop_pr_commit_records ledger "$base" || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
-        printf 'harness-weekly: the Rule Ledger records could not be trusted; no PR created\n' >&2
+        printf 'harness-weekly: no PR created\n' >&2
         return 1
     fi
     [[ "$status" -eq 0 ]] || _harness_loop_pr_drop_ledger_commit "$rate_records_revision" || return 1

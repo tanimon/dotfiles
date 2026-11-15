@@ -762,7 +762,7 @@ PRE
     run weekly
     assert_failure
     assert_output --partial 'never became a PR'
-    # Loop PR の module が本物の再発率の CLI の件数の行を読めている(test/harness-loop-pr.bats は CLI を stub にする)
+    # Loop PR の module が本物の再発率の CLI が列挙したパスを commit できている(test/harness-loop-pr.bats は CLI を stub にする)
     assert_output --partial 'committed 1 weekly failure rate record(s)'
     refute_heartbeat_written
     run cat "$GH_BODY"

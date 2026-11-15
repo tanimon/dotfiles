@@ -234,9 +234,9 @@ check-templates:
 @test-guarded-paths:
     LC_ALL=C pnpm exec bats test/check-guarded-paths.bats
 
-# Rule Ledger(docs/harness/rule-ledger/)の記録の形を検査する(形の正本は harness-rule-ledger.sh)
+# リポジトリの Rule Ledger の記録の形を検査する(形と置き場の正本は harness-rule-ledger.sh。置き場は repo-dir で引く)
 @check-rule-ledger:
-    bash dot_claude/scripts/executable_harness-rule-ledger.sh check docs/harness/rule-ledger
+    dir=$(bash dot_claude/scripts/executable_harness-rule-ledger.sh repo-dir) && bash dot_claude/scripts/executable_harness-rule-ledger.sh check "$dir"
 
 # ルールと指示のファイルと skill の本文(SKILL.md)のファイルごとのサイズ上限(上限と根拠は scripts/instruction-size-limits.txt)
 @check-instruction-size:
