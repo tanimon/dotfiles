@@ -22,19 +22,22 @@ brainstorm・plan・spec などの Working Document は、ブランチ上では 
 - **Working Document**: 実装したブランチのマージ前に判定する。plan はコードが正本になるので、抽出するものは残らない。
 - **`docs/solutions/`**: 対象の仕組みやツールがリポジトリから消えた時点で削除する。rules や CLAUDE.md の Known Pitfalls に要約済みでも、要約から辿れる「なぜ」の記録として残す。
 - **`docs/research/`**: 正本として main に置き、新しい調査で置き換えられた時点で削除する。
+- **`docs/designs/`**: EGM(`/egm:egm-draft`)の設計書は Working Document に当たらず、正本として main に置き、`docs/designs/SITEMAP.md` に登録する。マージした後も設計書とコードのずれを点検し続けるためである。オーナーが週に 1 回 `/egm:egm-drift-report docs/designs` を手で回し、コードとずれた設計書を直すか消すかをその場で決める。ADR には決定と理由の要約だけを書き、詳細は設計書へのリンクで済ませる。設計書を消す PR では、`SITEMAP.md` からその行を消し、ADR からそのリンクを外し、残す価値のある却下理由を ADR に移す。
 
 ## Considered Options
 
 - **main に入れてから、harness-review などの定期的な剪定で消す** — 却下。main の git 履歴に本文が残るが、消し忘れが溜まる。今回の整理はその結果。
 - **経緯にも価値を認め、整理は重複と陳腐化の除去に留める** — 却下。経緯は PR に残り、main に置くと読み手が今も正しいかを判断できない文書が増える。
 - **仕事リポジトリと同じく、どこでも gitignore して commit しない** — 却下。`includeIf` の切り替えと CI の検査が要らなくなる。しかし spec がローカルの worktree にしか残らず、worktree を消すと PR のコミットからも辿れなくなる。
+- **EGM の設計書も Working Document として扱い、マージ前に消す** — 却下。マージした後は、EGM の drift report で設計書とコードのずれを点検し続けられない。1 つの設計を複数の PR で実装するあいだ、各ブランチに設計書のコミットを載せ直して持ち回る手間もかかる。詳細は [独立検証ゲートの設計書](../designs/independent-verification-gate.md) の Alternative K。
 - **消した文書へのリンクを PR 番号やコミット SHA に固定したリンクに置き換える** — 却下。価値なしと判定したものを指すことになり、`dot_claude/rules/common/code-comments.md` もコメントに SHA や経緯を書かないことを求めている。
 
 ## Consequences
 
 - squash merge なので、PR の中で消した Working Document は main の履歴に一度も入らず、PR のコミット(`refs/pull/N/head`)にだけ残る。PR の差分(Files changed)にも出ないので、レビュー中に spec を読めるように、PR 本文に削除前のコミット SHA に固定した spec へのリンクを書く。PR 本文は経緯を書く場所なので、上の却下理由には当たらない。
 - ブランチ上の作業順は「実装 → Review-Verify → 抽出と削除 → マージ」になる。
-- PR の差分(`origin/main...HEAD`)が Working Document の置き場所(現時点で `docs/superpowers/`)にファイルを追加していたら、CI と just のレシピで落とす。削除は通す。置き場所の一覧は 1 ファイルに持ち、gitignore の切り替え設定と同じ一覧を指す。この検査はまだ実装していない。
+- PR の差分(`origin/main...HEAD`)が Working Document の置き場所(現時点で `docs/superpowers/`)にファイルを追加していたら、CI と just のレシピで落とす。削除は通す。置き場所の一覧は 1 ファイルに持ち、gitignore の切り替え設定と同じ一覧を指す。この検査はまだ実装していない。`docs/designs/` はこの一覧に含めない。
+- `docs/designs/` の drift report を手で回す運用は、上で却下した「main に入れてから定期的な剪定で消す」と同じ形で、回さなければ溜まる。これを受け入れる残存とし、`docs/designs/` の設計書(`SITEMAP.md` を除く)が 3 本になった PR で、drift report を回す仕組みを作るかを決め直す。候補は、週次ジョブ、SessionStart の briefing の催促、`/harness-review` の手順。`egm-drift-report` は `disable-model-invocation: true` で、モデルからは起動できない。
 - 書き込み元の無い `docs/{brainstorms,ideation,plans,residual-review-findings}/` は、空にした後に gitignore の切り替え設定と `.gitignore` から記載を消す。ただし仕事リポジトリにこれらのディレクトリが残っていて、除外を外すと untracked として現れるなら、デフォルト側(`dot_gitignore.tmpl`)の除外は残す。
 - 消した文書を指していたリンクは抽出先へ張り替え、抽出先が無ければリンクごと削除する。
 - 個人リポジトリで Working Document を commit する `includeIf` の切り替え(`.claude/rules/gitignore-includeif.md`)はそのまま残る。目的が「開発経緯として残す」から「ブランチ上で Requirements Document として持ち回る」に変わる。

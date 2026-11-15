@@ -277,5 +277,5 @@ _Avoid_: 古い本文、陳腐化した description
 ### Documentation
 
 **Working Document**:
-作業の途中で書かれ、作業が終わると価値のある部分を正本へ移して役目を終える文書。brainstorm・ideation・plan・spec がこれに当たり、開いているブランチの spec と plan は同時に Requirements Document でもある。
+作業の途中で書かれ、作業が終わると価値のある部分を正本へ移して役目を終える文書。brainstorm・ideation・plan・spec がこれに当たり、開いているブランチの spec と plan は同時に Requirements Document でもある。EGM の設計書(`docs/designs/`)は当たらない(ADR 0025)。
 _Avoid_: 経緯ドキュメント、開発経緯
