@@ -57,7 +57,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `git` と `push` が別の token として現れないので、コマンドの位置の token に印があり segment に `push` を
   含む token があるとき、またはサブコマンドの token に印があり `push` を含むときも `ask` にする。
   コマンドの位置とサブコマンドに限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため
-  (`xargs /usr/bin/gi? push …` のように前置詞の後ろで git を展開で作る綴りは残存)。
+  (前置詞を読み飛ばしたコマンドの語で見るので、`xargs /usr/bin/gi? push …` も `ask`)。
   後ろが空白の `{` はグループ(`{ git push origin main; }`)なので reader が記録せず、無出力のまま。
   コマンドの位置の token が置換か変数(`$G push …`、`` `which git` push … ``、`"$(command -v git)" push …`、
   引用符の外の `${G} push …`。最後のものは reader が `{` で切るので、後ろの token にブレースの印がある
@@ -76,14 +76,15 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   ので `+` 始まり判定が効く(この処理自体は上の共有 reader の性質)。
 - **`git` がトークン0に無いセグメントを素通りさせない。** 正規化で潰した3経路
   (グルーピング記号・リダイレクト・継続行)に加えて、**普通のトークンとして binary の前に立つもの**
-  が4つ目の経路だった。先頭の変数代入(`VAR=v git push …`)と、シェルキーワード・コマンド前置詞
-  (`if` / `then` / `elif` / `else` / `fi` / `while` / `until` / `do` / `done` / `!` / `time` /
-  `nohup` / `command` / `env` / `sudo` / `nice` / `exec`)を読み飛ばしてから binary を読む。
+  が4つ目の経路だった。先頭の変数代入(`VAR=v git push …`)・シェルキーワード・前置詞を読み飛ばした
+  コマンドの語(GLOSSARY の Command Word)が git かを見る。読み飛ばしは共有 reader の
+  `shell_reader_command_word` が行い、前置詞の表もそこにだけある(`.claude/rules/shell-reader.md`)。
+  前置詞はすべて透過するので、`xargs git push --force` や `/usr/bin/env git push --force` も `deny`。
   1行の `for r in …; do git push $r --force; done` や `if true; then git push --force; fi` は
-  エージェントが普通に書く綴りで、修正前はいずれも**無出力**だった。読み飛ばしは配列を
-  スライスせずインデックスを進める形で書く — bash 3.2 は `set -u` 下で空配列の展開を拒否する。
-- **認識に失敗したセグメントにも床を張る(コマンド位置の床)。** 上のリストに無い前置詞(`xargs -n1 git push …`)では
-  コマンド位置を確定できない。そこで、セグメント内に reader の token として `git`(basename が
+  エージェントが普通に書く綴り。
+- **認識に失敗したセグメントにも床を張る(コマンド位置の床)。** 表に無いコマンドの引数(`ssh h git push …`)や、
+  オプションか引数を付けた前置詞の後ろ(`sudo -u x git push …`、`timeout 60 git push …`。reader がそこで
+  読み飛ばしを止める)ではコマンド位置を確定できない。そこで、セグメント内に reader の token として `git`(basename が
   `git`)と読めるものがあれば、そこから同じ走査をやり直し、危険な綴りが見つかったら `deny` ではなく
   **`ask`** にする。deny にしない理由は、`gh pr create --body "$(cat <<EOF … )"` の中の
   `- git push --force を deny する` のような**散文が同じ形にトークナイズされる**ため。

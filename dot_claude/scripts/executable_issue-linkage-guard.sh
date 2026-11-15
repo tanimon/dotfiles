@@ -16,8 +16,9 @@
 #
 # 範囲は lib/issue-linkage-scope.bash が判定する(gh と同じ優先順で、-R / --repo、前置の GH_REPO=、フック自身の環境の GH_REPO、
 # 無ければフックの cwd の remote から gh が既定にする作成先)。
-# 残存: 先頭の `VAR=` と制御語・`command` / `time` は読み飛ばすが、`sudo` / `env` / `nice` などの前置詞、
-# オプション付きの `time`(`time -p`)、`bash -c` の内側は見ない(`sudo gh pr create --fill` は判定せずに通る)。
+# コマンドの語は shell-reader の shell_reader_command_word で読み、読み飛ばした前置詞はすべて透過する。
+# 残存: 前置詞の直後にオプションか引数がある形(`sudo -u x gh pr create --fill`、`time -p gh …`、`timeout 5 gh …`)は、
+# reader がそこで読み飛ばしを止めるので判定せずに通る。`bash -c` の内側も見ない。
 # `cd <dir> && gh …` の cd 先は見ない。heredoc 演算子より後ろの segment は本文の行でありうるので、全体を読んだ
 # 判定では見ない。代わりに生の COMMAND から最後の heredoc の終端行を求め、その後ろだけを読み直して判定する
 # (heredoc_tail)。本文の行は判定しない。本文を heredoc で上書きした直後の `gh pr create --body-file <絶対パス>` は、
@@ -55,7 +56,7 @@ fi
 
 command_guard_start --name issue-linkage-guard --verb "$COMMAND_GUARD_VERB_CREATE" --verb "$COMMAND_GUARD_VERB_NEW" --on-unreadable pass \
     --lib shell-reader.bash --lib issue-linkage-scope.bash \
-    --require 'shell_reader_read shell_reader_each_segment shell_reader_segment_follows issue_linkage_scope_in_scope issue_linkage_scope_repo_flag'
+    --require 'shell_reader_read shell_reader_each_segment shell_reader_segment_follows shell_reader_command_word issue_linkage_scope_in_scope issue_linkage_scope_repo_flag'
 # command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 MARKER='<!-- issue-linkage -->'
@@ -191,19 +192,28 @@ heredoc_body_has_marker() {
 # segment が範囲内の作成コマンドで、本文にマーカーを確認できなければ DENY_DETAIL を設定して 1 を返す。
 check_segment() {
     local -a tokens=("$@")
-    local i=0 count=$# env_repo=''
-    while [[ $i -lt $count ]]; do
-        case "${tokens[$i]}" in
-        if | then | elif | else | while | until | do | '!' | '{' | command | time) ;;
-        GH_REPO=*) env_repo=${tokens[$i]#GH_REPO=} ;;
-        *)
-            [[ "${tokens[$i]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || break
-            ;;
-        esac
-        i=$((i + 1))
-    done
+    local i count=$# env_repo='' k word
+    # 前置きの代入・キーワード・前置詞の読み飛ばしは reader が行う。読み飛ばした前置詞はすべて透過する。
+    shell_reader_command_word
+    i=$SHELL_READER_COMMAND_INDEX
     [[ $i -lt $count ]] || return 0
-    [[ "${tokens[$i]}" == gh || "${tokens[$i]}" == */gh ]] || return 0
+    [[ "$SHELL_READER_COMMAND_NAME" == gh || "$SHELL_READER_COMMAND_NAME" == */gh ]] || return 0
+    # 手前の token は代入と前置詞だけ。`env` の後ろの代入も gh の環境に入るので、最後の GH_REPO= を作成先に使う。
+    # バッククォートの中の作成コマンド(`` `gh pr create …` ``、`` `nohup gh pr create …` ``)は、閉じるバッククォートが
+    # 後ろの token に付く。開くバッククォートはコマンドの語か手前の token に付くので、そこで見つけたら引数として読む前に
+    # 外す(本文ファイルのパスに含めない)。
+    local in_backticks=0
+    for ((k = 0; k <= i; k++)); do
+        [[ "${tokens[$k]}" == \`* ]] && in_backticks=1
+        [[ $k -lt $i ]] || break
+        word=${tokens[$k]#\`}
+        case "$word" in GH_REPO=*) env_repo=${word#GH_REPO=} ;; esac
+    done
+    if [[ $in_backticks -eq 1 ]]; then
+        for ((k = i + 1; k < count; k++)); do
+            tokens[k]=${tokens[$k]%\`}
+        done
+    fi
     [[ "${tokens[$((i + 1))]:-}" == issue || "${tokens[$((i + 1))]:-}" == pr ]] || return 0
     # new は create の alias
     [[ "${tokens[$((i + 2))]:-}" == create || "${tokens[$((i + 2))]:-}" == new ]] || return 0

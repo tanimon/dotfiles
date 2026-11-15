@@ -8,7 +8,7 @@
 # ようにするため(ADR 0009)。
 #
 # Interface: shell_reader_read / shell_reader_each_segment / shell_reader_token_has_mark /
-# shell_reader_segment_follows / shell_reader_text_floor_matches。
+# shell_reader_segment_follows / shell_reader_command_word / shell_reader_text_floor_matches。
 # global の意味は各関数の直前のコメントを参照。`_` で始まる関数と global は lib の内部用で、呼び出し側は読まない。
 
 # segment 区切りの番兵。入力に同じ byte があると偽の境界を注入できるので、
@@ -383,6 +383,58 @@ shell_reader_segment_follows() {
         [[ $first -ge 0 && $_SHELL_READER_SEGMENT_START -gt $first ]] && return 0
     done
     return 1
+}
+
+# shell_reader_each_segment の callback の中で呼ぶ。callback が受け取った segment のコマンドの語(GLOSSARY の
+# Command Word)を探し、次の global を設定して 0 を返す。fork しない。
+#   SHELL_READER_COMMAND_INDEX  コマンドの語の segment の中の index。コマンドの語が無ければ segment の token 数
+#   SHELL_READER_COMMAND_NAME   コマンドの語から、先頭のバッククォートと zsh の EQUALS の語頭の `=` を外したもの。
+#                               パスは残す(パスを受け入れるかは呼び出し側の policy)。コマンドの語が無ければ空
+# 読み飛ばすのは、代入(`env` の後ろも含む)、シェルのキーワード、前置詞の表の語。前置詞の名前は、先頭のバッククォート・
+# 語頭の `=`・パス・末尾のバッククォートを外してから照合する。末尾まで外すのは読み飛ばす向き(Command Guard が塞ぐ向き)
+# にだけ広げるためで、`` `env` git push … `` は実際には env の出力をコマンドにするが、git をコマンドの語として読む。前置詞の直後の語が `-` で始まれば、そこで読み飛ばしを止める(`sudo -u x` の
+# コマンドの語は `-u`)。前置詞のオプションと引数の文法は前置詞ごとに、また GNU と BSD でも違うので読まない。
+# `timeout 5` の `5` も同じ理由でコマンドの語になる。
+# 読み飛ばした語の種類は返さない。手前の token(代入・前置詞)をどう扱うかは呼び出し側の policy が決める
+# (curl-localhost-guard は `env http_proxy=… curl` を透過させないので、この関数を使わない)。
+# 引用されたキーワード(`"if"`)も reader は引用符を外すのでキーワードとして読み飛ばす。
+# 結果の global は呼び出し側(各フック)だけが読むので、lib 単体の shellcheck には未使用に見える。
+# shellcheck disable=SC2034
+shell_reader_command_word() {
+    local position=$_SHELL_READER_SEGMENT_START count=${#SHELL_READER_TOKENS[@]} word name after_prefix=0
+    # bash の代入は `name=`・`name+=`・`name[subscript]=`。`foo.bar=1` は代入ではなくコマンドの名前になる。
+    local assignment='^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?='
+    while [[ $position -lt $count && "${SHELL_READER_TOKENS[$position]}" != "$SHELL_READER_SEP" ]]; do
+        word=${SHELL_READER_TOKENS[$position]#\`}
+        [[ $after_prefix -eq 1 && "$word" == -* ]] && break
+        after_prefix=0
+        if [[ "$word" =~ $assignment ]]; then
+            position=$((position + 1))
+            continue
+        fi
+        case "$word" in
+        if | then | elif | else | fi | while | until | do | done | '!')
+            position=$((position + 1))
+            continue
+            ;;
+        esac
+        name=${word#=}
+        name=${name%\`}
+        case "${name##*/}" in
+        time | nohup | command | builtin | eval | env | exec | sudo | doas | nice | timeout | xargs | parallel | stdbuf | ionice | caffeinate)
+            after_prefix=1
+            position=$((position + 1))
+            ;;
+        *) break ;;
+        esac
+    done
+    SHELL_READER_COMMAND_INDEX=$((position - _SHELL_READER_SEGMENT_START))
+    SHELL_READER_COMMAND_NAME=''
+    if [[ $position -lt $count && "${SHELL_READER_TOKENS[$position]}" != "$SHELL_READER_SEP" ]]; then
+        name=${SHELL_READER_TOKENS[$position]#\`}
+        SHELL_READER_COMMAND_NAME=${name#=}
+    fi
+    return 0
 }
 
 # $1 を行ごとに見て、$2 以降の正規表現(POSIX ERE)すべてに一致する行が 1 つでもあれば 0、
