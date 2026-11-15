@@ -1,0 +1,15 @@
+{
+  "id": "pr638-ae04e8fa",
+  "adopted": "2026-11-07",
+  "title": "[2026-11-07] マッチ前後の文脈の切り出しは grep ではなく rg -o で行う",
+  "failure_patterns": ["tool-contract", "unclassified"],
+  "eval": {
+    "status": "evaluated",
+    "case_id": "2026-11-07-ae04e8fa",
+    "with": 1,
+    "without": 0,
+    "delta": 1
+  },
+  "pr": 638,
+  "via": "weekly"
+}
