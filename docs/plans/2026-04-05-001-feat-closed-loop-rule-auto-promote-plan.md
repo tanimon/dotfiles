@@ -3,7 +3,6 @@ title: "feat: Auto-promote ECC instincts to harness rules (Closed-Loop v1)"
 type: feat
 status: completed
 date: 2026-04-05
-origin: docs/brainstorms/2026-04-04-closed-loop-rule-lifecycle-requirements.md
 ---
 
 # feat: Auto-promote ECC instincts to harness rules (Closed-Loop v1)
@@ -14,7 +13,7 @@ Implement Phase 1 of the Closed-Loop Rule Lifecycle: automated promotion of high
 
 ## Problem Frame
 
-ECC instincts accumulate from session observations but require manual `/promote-instincts` to become permanent rules. This bridge is invoked infrequently, meaning valuable learned patterns remain as low-persistence instincts that decay over time instead of becoming durable rules. Phase 1 automates the instinct-to-rule promotion path; Phase 2 (effectiveness measurement and auto-demotion) is deferred until 10+ auto-promoted rules exist. (see origin: `docs/brainstorms/2026-04-04-closed-loop-rule-lifecycle-requirements.md`)
+ECC instincts accumulate from session observations but require manual `/promote-instincts` to become permanent rules. This bridge is invoked infrequently, meaning valuable learned patterns remain as low-persistence instincts that decay over time instead of becoming durable rules. Phase 1 automates the instinct-to-rule promotion path; Phase 2 (effectiveness measurement and auto-demotion) is deferred until 10+ auto-promoted rules exist.
 
 ## Requirements Trace
 
@@ -294,7 +293,6 @@ ECC instincts accumulate from session observations but require manual `/promote-
 **Dependencies:** Units 1-5
 
 **Files:**
-- Modify: `docs/ideation/2026-04-04-autonomous-harness-evolution-ideation.md`
 - Modify: `CLAUDE.md` (if needed — snapshot script usage, new workflow reference)
 
 **Approach:**
@@ -331,7 +329,6 @@ ECC instincts accumulate from session observations but require manual `/promote-
 
 ## Sources & References
 
-- **Origin document:** [docs/brainstorms/2026-04-04-closed-loop-rule-lifecycle-requirements.md](docs/brainstorms/2026-04-04-closed-loop-rule-lifecycle-requirements.md)
 - Related: `scripts/update-marketplaces.sh` (sync pattern)
 - Related: `.github/workflows/harness-auto-remediate.yml` (CI claude-code-action pattern)
 - Related: `.claude/commands/promote-instincts.md` (manual promotion reference)

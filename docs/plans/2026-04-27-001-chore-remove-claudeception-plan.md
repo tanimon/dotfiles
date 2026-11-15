@@ -48,7 +48,6 @@ date: 2026-04-27
 - `.chezmoiexternal.toml` — `type = "archive"` + `# renovate: branch=...` adjacency contract に従ったブロック構造。残存エントリ (`gstack`, `cco`) と同形式。
 - `dot_claude/settings.json.tmpl:203-220` — `UserPromptSubmit` フック。同セクション内に `learning-briefing.sh` を呼ぶ別エントリがあり、こちらは保持する。
 - `dot_claude/skills/compound-harness-knowledge/SKILL.md` — `description`, `Step 3`, `Output` の3カ所が claudeception に関連。
-- `docs/brainstorms/2026-04-04-session-start-learning-injection-requirements.md:67` — 過去文書での参照。**変更しない**（履歴の整合性を優先）。
 - `docs/solutions/...` — 過去の解決ドキュメント。**変更しない**。
 
 ### Institutional Learnings

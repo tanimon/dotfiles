@@ -55,8 +55,8 @@ Audit `chezmoi unmanaged ~/.claude` output, delete files that overlap with insta
 
 - **`simplify.md` deletion**: The local command (`"Would a senior engineer say this is overcomplicated? If yes, simplify."`) is a subset of `compound-engineering:simplify` which does the same plus reuse/efficiency review. No value retained by keeping both.
 - **`swarm` deletion**: 48k skill for TeammateTool orchestration. `superpowers` plugin provides equivalent multi-agent coordination (`dispatching-parallel-agents` for independent parallel work, `subagent-driven-development` for plan execution). Removing 48k of context load is a net positive.
-- **`harness-feedback-collector.sh` deletion**: Planned in `docs/plans/2026-03-28-002` but never wired into `settings.json` hooks. The Stop hook only calls `notify-wrapper.sh`. Dead code.
-- **`statusline-wrapper.sh` deletion**: Created per `docs/plans/2026-03-17-004` but `settings.json` `statusLine.command` was later changed to call `node --experimental-strip-types $HOME/.claude/statusline-command.ts` directly. Wrapper is unused.
+- **`harness-feedback-collector.sh` deletion**: Never wired into `settings.json` hooks. The Stop hook only calls `notify-wrapper.sh`. Dead code.
+- **`statusline-wrapper.sh` deletion**: `settings.json` `statusLine.command` was later changed to call `node --experimental-strip-types $HOME/.claude/statusline-command.ts` directly. Wrapper is unused.
 
 ## Implementation Units
 
