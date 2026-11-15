@@ -1,7 +1,8 @@
 # Rule Ledger(harness-rule-ledger.sh)の振る舞い検査。
 #
 # 偽の $HOME に判定の記録(queue-archive.md)・分類の記録(classifications.jsonl)・評価の結果を置き、
-# ローカルの記録(~/.claude/harness/rule-ledger/<id>.json)、移行、リポジトリへの書き出し、形式の検査を確かめる。
+# ローカルの記録(~/.claude/harness/rule-ledger/<id>.json)、移行、リポジトリへの書き出し(stdout は書き出したパスの列挙)、
+# 形式の検査を確かめる。
 # gh は PR の作成日を返すスタブにする。
 bats_require_minimum_version 1.5.0
 
@@ -290,9 +291,10 @@ make_worktree() {
     mkdir -p "$WT/docs/harness/rule-ledger"
     cp "$LEDGER/$a.json" "$WT/docs/harness/rule-ledger/"
     git -C "$WT" add -A && git -C "$WT" commit -qm a
-    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    run --separate-stderr bash "$SCRIPT" export --base HEAD --worktree "$WT"
     assert_success
-    assert_output --partial 'exported 1 record(s)'
+    assert_output "docs/harness/rule-ledger/$b.json"
+    [[ "$stderr" == *'exported 1 record(s)'* ]] || false
     run git -C "$WT" status --porcelain
     assert_output "?? docs/harness/rule-ledger/$b.json"
     cmp "$LEDGER/$b.json" "$WT/docs/harness/rule-ledger/$b.json"
@@ -305,10 +307,11 @@ make_worktree() {
         >"$BATS_TEST_TMPDIR/results.json"
     bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly --results "$BATS_TEST_TMPDIR/results.json" >/dev/null
     id=$(ledger_id 42 '[2026-10-03] acmework の worktree で起きた')
-    run bash "$SCRIPT" export --base HEAD --worktree "$WT"
+    run --separate-stderr bash "$SCRIPT" export --base HEAD --worktree "$WT"
     assert_success
-    assert_output --partial "redacted the free text of $id"
-    refute_output --partial acmework
+    assert_output "docs/harness/rule-ledger/$id.json"
+    [[ "$stderr" == *"redacted the free text of $id"* ]] || false
+    [[ "$stderr" != *acmework* ]] || false
     run grep -ci acmework "$WT/docs/harness/rule-ledger/$id.json"
     assert_output 0
     run jq -c '{title, eval}' "$WT/docs/harness/rule-ledger/$id.json"
@@ -366,12 +369,13 @@ make_worktree() {
         bash "$SCRIPT" record --pr-url "https://github.com/example/dotfiles/pull/$n" --date 2026-10-04 --via weekly >/dev/null
     done
     export STUB_GH_STATE_43=CLOSED STUB_GH_STATE_44=OPEN STUB_GH_STATE_45=OPEN STUB_GH_FAIL_PR=46
-    run bash "$SCRIPT" export --base HEAD --worktree "$WT" --pr 45
+    run --separate-stderr bash "$SCRIPT" export --base HEAD --worktree "$WT" --pr 45
     assert_success
-    assert_output --partial 'exported 2 record(s)'
-    assert_output --partial "not exported $(ledger_id 43 '[2026-10-03] pr 43'): its PR #43 was closed without a merge"
-    assert_output --partial "not exported $(ledger_id 44 '[2026-10-03] pr 44'): its PR #44 is still open"
-    assert_output --partial "not exported $(ledger_id 46 '[2026-10-03] pr 46'): cannot read the state of its PR #46"
+    assert_output "$(printf 'docs/harness/rule-ledger/%s.json\n' "$(ledger_id 42 '[2026-10-03] pr 42')" "$(ledger_id 45 '[2026-10-03] pr 45')" | sort)"
+    [[ "$stderr" == *'exported 2 record(s)'* ]] || false
+    [[ "$stderr" == *"not exported $(ledger_id 43 '[2026-10-03] pr 43'): its PR #43 was closed without a merge"* ]] || false
+    [[ "$stderr" == *"not exported $(ledger_id 44 '[2026-10-03] pr 44'): its PR #44 is still open"* ]] || false
+    [[ "$stderr" == *"not exported $(ledger_id 46 '[2026-10-03] pr 46'): cannot read the state of its PR #46"* ]] || false
     run ls "$WT/docs/harness/rule-ledger"
     assert_output "$(printf '%s.json\n' "$(ledger_id 42 '[2026-10-03] pr 42')" "$(ledger_id 45 '[2026-10-03] pr 45')" | sort)"
     # 写さなかった記録もローカルには残す
@@ -469,4 +473,40 @@ EOF
     assert_success
     assert_line "$(printf 'skipped\tEval Case を入れた後の採用(record で記録する)\t[2026-10-09] new')"
     assert [ ! -d "$LEDGER" ] || [ -z "$(ls -A "$LEDGER")" ]
+}
+
+@test "repo-dir は Rule Ledger のリポジトリ内の置き場を 1 行で出し、余分な引数は使い方の誤りにする" {
+    run --separate-stderr bash "$SCRIPT" repo-dir
+    assert_success
+    assert_output 'docs/harness/rule-ledger'
+    run bash "$SCRIPT" repo-dir extra
+    assert_failure 2
+}
+
+# CI のガードがループの PR に追加だけを許す置き場(scripts/guarded-paths.txt の + の行)は、CLI が書き出す置き場と同じ
+@test "Guarded Path の Rule Ledger の行は repo-dir の置き場と一致する" {
+    run grep -Fxc "+$(bash "$SCRIPT" repo-dir)/" "$BATS_TEST_DIRNAME/../scripts/guarded-paths.txt"
+    assert_output 1
+}
+
+# Loop PR の module が export の stdout に頼る契約(module の bats は CLI を stub にするので、本物の CLI の側をここで固定する)
+@test "契約: export の stdout の各パスは repo-dir の配下で worktree に実在し、base に無い" {
+    make_worktree
+    entry '[2026-10-03] a' "adopted (PR $URL)"
+    entry '[2026-10-03] b' "adopted (PR $URL)"
+    bash "$SCRIPT" record --pr-url "$URL" --date 2026-10-04 --via weekly >/dev/null
+    a=$(ledger_id 42 '[2026-10-03] a')
+    mkdir -p "$WT/docs/harness/rule-ledger"
+    cp "$LEDGER/$a.json" "$WT/docs/harness/rule-ledger/"
+    git -C "$WT" add -A && git -C "$WT" commit -qm a
+    local dir path paths
+    dir=$(bash "$SCRIPT" repo-dir)
+    paths=$(bash "$SCRIPT" export --base HEAD --worktree "$WT" 2>/dev/null)
+    assert_equal "$(grep -c . <<<"$paths")" 1
+    while IFS= read -r path; do
+        [[ "$path" == "$dir"/* ]] || false
+        assert [ -f "$WT/$path" ]
+        run git -C "$WT" cat-file -e "HEAD:$path"
+        assert_failure
+    done <<<"$paths"
 }

@@ -2,7 +2,7 @@
 #
 # 偽の $HOME に検出の記録(detections.jsonl)と分類の記録(classifications.jsonl)を書き、
 # Weekly Rate Record(failure-pattern-rates/<日付>.json)と PR 本文の推移の節を確かめる。export は base にする git の作業ツリーを
-# 作り、書き出した記録・件数の行を確かめる(記録を選ぶ規則の検査はここだけ。Loop PR の module の bats は CLI を記録を選ばない stub に置き換えて配線だけを見る)。
+# 作り、書き出した記録と stdout のパスの列挙を確かめる(記録を選ぶ規則の検査はここだけ。Loop PR の module の bats は CLI を記録を選ばない stub に置き換えて配線だけを見る)。
 bats_require_minimum_version 1.5.0
 
 setup() {
@@ -271,13 +271,14 @@ local_week() { # <日付> <JSON>
     printf '%s\n' "$2" >"$RATES/$1.json"
 }
 
-@test "書き出しは、base に無い Weekly Rate Record だけを worktree の置き場にそのまま写し、件数を 1 行で出す" {
+@test "書き出しは、base に無い Weekly Rate Record だけを worktree の置き場にそのまま写し、書き出したパスを 1 行に 1 つ出す" {
     local_week 2026-10-03 '{"date":"2026-10-03"}'
     local_week 2026-10-10 '{ "date": "2026-10-10" }'
     export_worktree 2026-10-03
-    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    run --separate-stderr bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
     assert_success
-    assert_output 'harness-failure-rates: exported 1 record(s)'
+    assert_output 'docs/harness/failure-pattern-rates/2026-10-10.json'
+    [[ "$stderr" == *'exported 1 record(s)'* ]] || false
     run git -C "$WT" status --porcelain --untracked-files=all
     assert_output '?? docs/harness/failure-pattern-rates/2026-10-10.json'
     cmp "$RATES/2026-10-10.json" "$WT/docs/harness/failure-pattern-rates/2026-10-10.json"
@@ -290,9 +291,10 @@ local_week() { # <日付> <JSON>
     # base の記録を人が直した後の前の日付と、同じ日の再実行が書き直したその日の記録
     local_week 2026-10-10 '{"date":"2026-10-10","fixed":true}'
     local_week 2026-10-17 '{"date":"2026-10-17","rerun":true}'
-    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    run --separate-stderr bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
     assert_success
-    assert_output 'harness-failure-rates: exported 1 record(s)'
+    assert_output 'docs/harness/failure-pattern-rates/2026-10-17.json'
+    [[ "$stderr" == *'exported 1 record(s)'* ]] || false
     run git -C "$WT" status --porcelain --untracked-files=all
     assert_output ' M docs/harness/failure-pattern-rates/2026-10-17.json'
     cmp "$RATES/2026-10-17.json" "$WT/docs/harness/failure-pattern-rates/2026-10-17.json"
@@ -302,9 +304,10 @@ local_week() { # <日付> <JSON>
     local_week 2026-10-17 '{"date":"2026-10-17","sessions":1}'
     export_worktree 2026-10-17
     local_week 2026-10-17 '{ "sessions": 1, "date": "2026-10-17" }'
-    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    run --separate-stderr bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
     assert_success
-    assert_output 'harness-failure-rates: exported 0 record(s)'
+    assert_output ''
+    [[ "$stderr" == *'exported 0 record(s)'* ]] || false
     run git -C "$WT" status --porcelain --untracked-files=all
     assert_output ''
 }
@@ -313,9 +316,10 @@ local_week() { # <日付> <JSON>
     local_week 2026-10-17 '{"date":"2026-10-17"}'
     export_worktree 2026-10-17
     local_week 2026-10-17 'not json'
-    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    run --separate-stderr bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
     assert_success
-    assert_output 'harness-failure-rates: exported 1 record(s)'
+    assert_output 'docs/harness/failure-pattern-rates/2026-10-17.json'
+    [[ "$stderr" == *'exported 1 record(s)'* ]] || false
 }
 
 @test "書き出しは、base にあるその日の記録を git で読めなければ、--dry-run でも件数を出さずに何も写さずに失敗する" {
@@ -339,7 +343,7 @@ local_week() { # <日付> <JSON>
     assert_output ''
 }
 
-@test "書き出しの --dry-run は、写す件数を 1 行で出し、worktree にもローカルの置き場にも何も書かない" {
+@test "書き出しの --dry-run は、写すはずのパスを 1 行に 1 つ出し、worktree にもローカルの置き場にも何も書かない" {
     local_week 2026-10-03 '{"date":"2026-10-03"}'
     local_week 2026-10-10 '{"date":"2026-10-10"}'
     local_week 2026-10-17 '{"date":"2026-10-17"}'
@@ -348,9 +352,10 @@ local_week() { # <日付> <JSON>
     rm -r "$WT/docs"
     local before
     before=$(ls -A "$RATES")
-    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" --dry-run
+    run --separate-stderr bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" --dry-run
     assert_success
-    assert_output 'harness-failure-rates: would export 3 record(s)'
+    assert_output "$(printf '%s\n' 'docs/harness/failure-pattern-rates/2026-10-03.json' 'docs/harness/failure-pattern-rates/2026-10-10.json' 'docs/harness/failure-pattern-rates/2026-10-17.json')"
+    [[ "$stderr" == *'would export 3 record(s)'* ]] || false
     run git -C "$WT" status --porcelain --untracked-files=all --ignored
     assert_output ''
     assert [ ! -e "$WT/docs" ]
@@ -359,9 +364,10 @@ local_week() { # <日付> <JSON>
 
 @test "書き出しは、ローカルに Weekly Rate Record が無ければ置き場を作らずに 0 件と出す" {
     export_worktree
-    run bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
+    run --separate-stderr bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT"
     assert_success
-    assert_output 'harness-failure-rates: exported 0 record(s)'
+    assert_output ''
+    [[ "$stderr" == *'exported 0 record(s)'* ]] || false
     run git -C "$WT" status --porcelain --untracked-files=all
     assert_output ''
 }
@@ -396,4 +402,32 @@ local_week() { # <日付> <JSON>
     assert_failure 2
     run bash "$SCRIPT" export 2026-10-17 --base HEAD
     assert_failure 2
+}
+
+@test "repo-dir は Weekly Rate Record のリポジトリ内の置き場を 1 行で出し、余分な引数は使い方の誤りにする" {
+    run --separate-stderr bash "$SCRIPT" repo-dir
+    assert_success
+    assert_output 'docs/harness/failure-pattern-rates'
+    run bash "$SCRIPT" repo-dir extra
+    assert_failure 2
+}
+
+# Loop PR の module が export の stdout に頼る契約(module の bats は CLI を stub にするので、本物の CLI の側をここで固定する)
+@test "契約: export の stdout の各パスは repo-dir の配下で worktree に実在し、base に無い。--dry-run のパスも repo-dir の配下" {
+    local_week 2026-10-03 '{"date":"2026-10-03"}'
+    local_week 2026-10-10 '{"date":"2026-10-10"}'
+    local_week 2026-10-17 '{"date":"2026-10-17"}'
+    export_worktree 2026-10-03
+    local dir path paths dry_paths
+    dir=$(bash "$SCRIPT" repo-dir)
+    dry_paths=$(bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" --dry-run 2>/dev/null)
+    paths=$(bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" 2>/dev/null)
+    assert_equal "$(grep -c . <<<"$paths")" 2
+    assert_equal "$dry_paths" "$paths"
+    while IFS= read -r path; do
+        [[ "$path" == "$dir"/* ]] || false
+        assert [ -f "$WT/$path" ]
+        run git -C "$WT" cat-file -e "HEAD:$path"
+        assert_failure
+    done <<<"$paths"
 }

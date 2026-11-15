@@ -17,6 +17,9 @@ setup() {
     unset HARNESS_WEEKLY_EVAL_BUDGET_USD
     # 初期化は採用の印を Verdict の CLI で作るので、本物を置く
     cp "$REPO_ROOT/dot_claude/scripts/executable_harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
+    # 初期化は記録の置き場を 2 つの CLI の repo-dir で引くので、本物を置く(公開の検査の fixture は偽物に置き換える)
+    cp "$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh" "$HOME/.claude/scripts/harness-failure-rates.sh"
+    cp "$REPO_ROOT/dot_claude/scripts/executable_harness-rule-ledger.sh" "$HOME/.claude/scripts/harness-rule-ledger.sh"
     # 選別の代わりの関数は相対パスで commit するので、worktree の外で走ったときにリポジトリの中にいないようにする
     cd "$BATS_TEST_TMPDIR" || return 1
     # 週次ジョブと同じく、Integrity Snapshot の lib の後でこの lib だけを読む(Review Outcome と本文の lib はこの lib が読む)
@@ -119,8 +122,7 @@ init_loop_pr() { # [<上書きする引数>…]
 
 @test "初期化は公開に使う値が空か壊れていれば失敗する" {
     local name
-    for name in _HARNESS_LOOP_PR_RATES_REPO_DIR _HARNESS_LOOP_PR_LEDGER_REPO_DIR _HARNESS_LOOP_PR_AGENT_GIT_CONFIG \
-        _HARNESS_LOOP_PR_METRICS_ONLY_WEEKS; do
+    for name in _HARNESS_LOOP_PR_AGENT_GIT_CONFIG _HARNESS_LOOP_PR_METRICS_ONLY_WEEKS; do
         run bash -c 'set -euo pipefail
             for lib in integrity review-outcome pr-body loop-pr; do source "$1/harness-$lib.bash"; done
             printf -v "$2" "%s" ""
@@ -133,6 +135,20 @@ init_loop_pr() { # [<上書きする引数>…]
     run init_loop_pr
     assert_failure
     assert_output --partial 'the publish values of this lib are empty or broken'
+}
+
+@test "初期化は記録の置き場を 2 つの CLI の repo-dir で引けないか、置き場として読めない値なら、理由を出して失敗する" {
+    rm "$HOME/.claude/scripts/harness-rule-ledger.sh"
+    run init_loop_pr
+    assert_failure
+    assert_line "harness-loop-pr: could not read the repository directory of the records from $HOME/.claude/scripts/harness-rule-ledger.sh repo-dir; run chezmoi apply"
+    local value
+    for value in '' /abs/dir 'docs/../x' "$(printf 'docs/a\ndocs/b')" 'docs/a/'; do
+        printf '#!/usr/bin/env bash\nprintf "%%s\\n" %q\n' "$value" >"$HOME/.claude/scripts/harness-failure-rates.sh"
+        run init_loop_pr
+        assert_failure
+        assert_line "harness-loop-pr: could not read the repository directory of the records from $HOME/.claude/scripts/harness-failure-rates.sh repo-dir; run chezmoi apply"
+    done
 }
 
 # <Review Outcome の lib の中身> <本文の lib の中身>(missing なら置かない)を置いたディレクトリに、この lib の写しを置いて読む
@@ -196,7 +212,7 @@ source_with_siblings() {
 publish_fixture() {
     unset STUB_GH_OPEN_PRS STUB_GH_LIST_FAIL STUB_GH_HEAD_PRS STUB_GH_HEAD_LIST_FAIL STUB_GH_FAIL STUB_PNPM_FAIL \
         STUB_PNPM_INSTALL_FAIL STUB_LEDGER_EXPORT STUB_LEDGER_FAIL STUB_LEDGER_TAMPER_RATES STUB_RATES_TAMPER_LEDGER STUB_EVAL_FAIL \
-        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_RATES_EXPORT_FAIL STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
+        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_RATES_EXPORT_UNWRITTEN STUB_RATES_EXPORT_FAIL STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
     export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
     export GIT_CONFIG_SYSTEM=/dev/null
     printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
@@ -263,11 +279,16 @@ fi
 EOF
     chmod +x "$STUBS/gh" "$STUBS/pnpm"
     export PATH="$STUBS:$PATH"
-    # 偽の Rule Ledger の export。worktree の置き場に STUB_LEDGER_EXPORT 件の記録を書いて件数を出す。STUB_LEDGER_FAIL なら
+    # 偽の Rule Ledger。repo-dir には置き場を答え、export は worktree の置き場に STUB_LEDGER_EXPORT 件の記録を書いて、
+    # 本物の CLI と同じく書いたパスだけを stdout に出す(stdout の形は test/harness-rule-ledger.bats が本物で固定する)。STUB_LEDGER_FAIL なら
     # 1 件だけ書いてから失敗する(写しかけの記録を残して失敗する export の再現)。STUB_LEDGER_TAMPER_RATES なら再発率の
     # スクリプトを書き換える(記録の commit の後、本文の推移の節の前に実行物が書き換えられた run の再現)
     cat >"$HOME/.claude/scripts/harness-rule-ledger.sh" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1" == repo-dir ]]; then
+    printf 'docs/harness/rule-ledger\n'
+    exit 0
+fi
 [[ -z "${STUB_LEDGER_TAMPER_RATES:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-failure-rates.sh"
 worktree=""
 while [[ $# -gt 0 ]]; do
@@ -280,17 +301,22 @@ if [[ -n "${STUB_LEDGER_FAIL:-}" ]]; then
     printf '{"id":"partial"}\n' >"$dir/partial.json"
     exit 1
 fi
-for i in $(seq 1 "${STUB_LEDGER_EXPORT:-0}"); do
+# seq 1 0 は BSD では 1 と 0 を出すので、数で回す
+i=1
+while [[ "$i" -le "${STUB_LEDGER_EXPORT:-0}" ]]; do
     printf '{"id":"pr30-%s"}\n' "$i" >"$dir/pr30-$i.json"
+    printf 'docs/harness/rule-ledger/pr30-%s.json\n' "$i"
+    i=$((i + 1))
 done
-printf 'harness-rule-ledger: exported %s record(s)\n' "${STUB_LEDGER_EXPORT:-0}"
 EOF
     # 偽の再発率のスクリプト。trend は推移の節を、detections は渡された日付を書いた失敗の検出の節を出す。
     # export は記録を選ばない。STUB_RATES_EXPORT(日付を空白で区切った列。既定はローカルの置き場にある全部)の
-    # Weekly Rate Record をローカルの置き場から worktree の置き場に写し(--dry-run なら写さない)、件数の行を本物の CLI と
-    # 同じ文言で出す(記録を選ぶ規則は test/harness-failure-rates.bats が本物の CLI で検査する)。STUB_RATES_EXPORT で
+    # Weekly Rate Record をローカルの置き場から worktree の置き場に写し(--dry-run なら写さない)、本物の CLI と同じく写した
+    # (写すはずの)パスだけを stdout に出す(stdout の形と記録を選ぶ規則は test/harness-failure-rates.bats が本物の CLI で検査する)。
+    # repo-dir には置き場を答える。STUB_RATES_EXPORT で
     # ローカルの件数と違う答えを返させると、module が CLI の答えで決めていることを確かめられる。
-    # STUB_RATES_EXPORT_OUTPUT なら、何も写さずに件数の行の代わりにその文字列を出して成功する(CLI の文言が変わった run の再現)。
+    # STUB_RATES_EXPORT_OUTPUT なら、何も写さずにパスの代わりにその文字列を出して成功する(置き場の外のパスを出す CLI の再現)。
+    # STUB_RATES_EXPORT_UNWRITTEN なら、--dry-run でない export が写さなかったパスも 1 行足す(実在しないパスを出す CLI の再現)。
     # STUB_RATES_EXPORT_FAIL なら、本物の CLI がローカルの置き場を列挙できないときと同じ行を出して 1 で終わる。
     # STUB_EXPORT_TAMPER_LEDGER なら、--dry-run でない export の後に Rule Ledger のスクリプトを
     # 書き換える(再発率の記録の commit の後、Rule Ledger の記録の commit の前に実行物が書き換えられた run の再現)。
@@ -299,6 +325,7 @@ EOF
     cat >"$HOME/.claude/scripts/harness-failure-rates.sh" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
+repo-dir) printf 'docs/harness/failure-pattern-rates\n' ;;
 export)
     if [[ -n "${STUB_RATES_EXPORT_FAIL:-}" ]]; then
         printf 'harness-failure-rates: cannot list the local weekly rate records\n' >&2
@@ -328,12 +355,10 @@ export)
             mkdir -p "$worktree/docs/harness/failure-pattern-rates"
             cp "$file" "$worktree/docs/harness/failure-pattern-rates/"
         fi
-        count=$((count + 1))
+        printf 'docs/harness/failure-pattern-rates/%s\n' "${file##*/}"
     done
-    if [[ -n "$dry_run" ]]; then
-        printf 'harness-failure-rates: would export %s record(s)\n' "$count"
-    else
-        printf 'harness-failure-rates: exported %s record(s)\n' "$count"
+    if [[ -z "$dry_run" ]]; then
+        [[ -z "${STUB_RATES_EXPORT_UNWRITTEN:-}" ]] || printf '%s\n' "$STUB_RATES_EXPORT_UNWRITTEN"
         [[ -z "${STUB_EXPORT_TAMPER_LEDGER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
     fi
     ;;
@@ -568,13 +593,13 @@ unpushed_branch() {
     assert_discarded
 }
 
-@test "選別を省いた週: 再発率の CLI の出力から件数の行を読めなければ、受け取った出力を出し、PR を作らずに失敗する" {
+@test "選別を省いた週: 再発率の CLI の export が置き場の外のパスを出したら、そのパスを出し、PR を作らずに失敗する" {
     publish_fixture
     four_local_records
     init_real
-    STUB_RATES_EXPORT_OUTPUT='harness-failure-rates: counted 4 record(s)' run harness_loop_pr_publish_metrics_only_if_due
+    STUB_RATES_EXPORT_OUTPUT='harness-failure-rates: exported 4 record(s)' run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
-    assert_line "harness-weekly: unexpected output from $HOME/.claude/scripts/harness-failure-rates.sh export: harness-failure-rates: counted 4 record(s)"
+    assert_line "harness-weekly: $HOME/.claude/scripts/harness-failure-rates.sh export listed a path that is not a record in docs/harness/failure-pattern-rates: harness-failure-rates: exported 4 record(s)"
     assert_line "harness-weekly: no metrics-only PR; counting the weekly failure rate records not on origin/main failed (records stay in $RATES)"
     assert [ ! -e "$PNPM_LOG" ]
     refute_published
@@ -604,7 +629,9 @@ unpushed_branch() {
     assert_success
     assert_line 'harness-weekly: opened metrics-only draft PR https://github.com/example/dotfiles/pull/42 (4 weekly record(s))'
     run cat "$PNPM_LOG"
-    assert_output "$(printf '%s\n' "$WT install --frozen-lockfile --prefer-offline" "$WT exec oxfmt docs/harness/failure-pattern-rates")"
+    # oxfmt には置き場ではなく、CLI が列挙した記録のパスだけを渡す
+    assert_output "$(printf '%s\n' "$WT install --frozen-lockfile --prefer-offline" \
+        "$WT exec oxfmt $(printf 'docs/harness/failure-pattern-rates/%s.json ' 2026-09-26 2026-10-03 2026-10-10 2026-10-17 | sed 's/ $//')")"
     run cat "$GH_BODY"
     refute_output --partial 'body of the previous run'
     assert [ ! -e "$RESULT" ]
@@ -688,6 +715,19 @@ unpushed_branch() {
     refute_published
 }
 
+@test "Metrics-only PR: 再発率の CLI の export が worktree に無いパスを出したら、記録を commit せず PR も作らずに失敗する" {
+    publish_fixture
+    four_local_records
+    init_real
+    STUB_RATES_EXPORT_UNWRITTEN=docs/harness/failure-pattern-rates/2026-01-01.json run harness_loop_pr_publish_metrics_only_if_due
+    assert_failure 1
+    assert_line "harness-weekly: $HOME/.claude/scripts/harness-failure-rates.sh export listed docs/harness/failure-pattern-rates/2026-01-01.json, which is not in ${WT}"
+    assert_line "harness-weekly: failed to commit the weekly failure rate records in ${WT}; no PR created"
+    run git -C "$WT" log --format=%s "main..HEAD"
+    assert_output ''
+    refute_published
+}
+
 @test "Metrics-only PR: スナップショットの後に週の記録が書き換えられていたら、commit も PR もせずに失敗し、予約コードを外に出さない" {
     publish_fixture
     four_local_records
@@ -696,7 +736,8 @@ unpushed_branch() {
     run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
     assert_output --partial "changed: $RATES/2026-10-10.json"
-    assert_line "harness-weekly: no PR created; check ${RATES} by hand"
+    assert_line "harness-weekly: the local records in ${RATES} could not be trusted; check them by hand"
+    assert_line 'harness-weekly: no PR created'
     refute_output --partial 'failed to commit the weekly failure rate records'
     run git -C "$WT" rev-list --count "origin/main..HEAD"
     assert_output 0
@@ -709,7 +750,8 @@ unpushed_branch() {
     init_real
     STUB_EXPORT_TAMPER_LEDGER=1 run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
-    assert_line 'harness-weekly: the Rule Ledger records could not be trusted; no PR created'
+    assert_line "harness-weekly: the scripts the job runs could not be trusted when exporting the records in $HDIR/rule-ledger"
+    assert_line 'harness-weekly: no PR created'
     refute_published
 }
 
@@ -740,8 +782,9 @@ EOF
     run harness_loop_pr_publish_metrics_only_if_due
     assert_failure 1
     assert_output --partial "changed: $HOME/.claude/scripts/harness-rule-ledger.sh"
-    assert_line 'harness-weekly: no PR created; the scripts the job runs could not be trusted when exporting the weekly failure rate records'
-    refute_output --partial "check ${RATES} by hand"
+    assert_line "harness-weekly: the scripts the job runs could not be trusted when exporting the records in ${RATES}"
+    assert_line 'harness-weekly: no PR created'
+    refute_output --partial 'the local records in'
     refute_output --partial 'failed to commit the weekly failure rate records'
     refute_published
     run git -C "$WT" log --format=%s "main..HEAD"
@@ -860,6 +903,10 @@ review_fixture() {
     cp "$REPO_ROOT/dot_claude/scripts/executable_harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
     cat >"$HOME/.claude/scripts/harness-rule-ledger.sh" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1" == repo-dir ]]; then
+    printf 'docs/harness/rule-ledger\n'
+    exit 0
+fi
 printf '%s\n' "$*" >>"$LEDGER_LOG"
 if [[ "$1" == record ]]; then
     [[ -z "${STUB_LEDGER_RECORD_FAIL:-}" ]] || exit 1
@@ -881,10 +928,13 @@ if [[ -n "${STUB_LEDGER_FAIL:-}" ]]; then
     printf '{"id":"partial"}\n' >"$dir/partial.json"
     exit 1
 fi
-for i in $(seq 1 "${STUB_LEDGER_EXPORT:-0}"); do
+# seq 1 0 は BSD では 1 と 0 を出すので、数で回す
+i=1
+while [[ "$i" -le "${STUB_LEDGER_EXPORT:-0}" ]]; do
     printf '{"id":"pr42-%s"}\n' "$i" >"$dir/pr42-$i.json"
+    printf 'docs/harness/rule-ledger/pr42-%s.json\n' "$i"
+    i=$((i + 1))
 done
-printf 'harness-rule-ledger: exported %s record(s)\n' "${STUB_LEDGER_EXPORT:-0}"
 EOF
     # PR を作った直後に、STUB_GH_TAMPER のファイルに 1 行足す(PR を作った後に書き換えられた run の再現)
     cat >"$STUBS/gh-tamper" <<'EOF'
@@ -1282,7 +1332,8 @@ review_commits_lines() {
     STUB_EVAL_TAMPER="$RATES/2026-10-10.json" run review_with review_commits
     assert_failure 1
     assert_output --partial "changed: $RATES/2026-10-10.json"
-    assert_line "harness-weekly: no PR created; check ${RATES} by hand"
+    assert_line "harness-weekly: the local records in ${RATES} could not be trusted; check them by hand"
+    assert_line 'harness-weekly: no PR created'
     refute_output --partial 'WARN'
     refute_published
     run grep -c "adopted (${BRANCH} run 0f0e)" "$HDIR/queue-archive.md"
@@ -1314,7 +1365,7 @@ review_commits_lines() {
     # 週の記録の oxfmt(記録の commit の途中。データの照合の後)の最中に実行物を書き換える
     cat >"$STUBS/pnpm" <<'EOF'
 #!/usr/bin/env bash
-[[ "$*" != 'exec oxfmt docs/harness/failure-pattern-rates' ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+[[ "$*" != 'exec oxfmt docs/harness/failure-pattern-rates/'* ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
 EOF
     run review_with review_commits
     assert_failure 1
@@ -1519,7 +1570,7 @@ HOOK
     # Rule Ledger の oxfmt(export の後、再 push の前)の最中に実行物を書き換える。依存のインストールなどほかの呼び出しは成功させる
     cat >"$STUBS/pnpm" <<'EOF'
 #!/usr/bin/env bash
-[[ "$*" != 'exec oxfmt docs/harness/rule-ledger' ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
+[[ "$*" != 'exec oxfmt docs/harness/rule-ledger/'* ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-verdict.sh"
 EOF
     STUB_LEDGER_EXPORT=1 run review_with review_commits
     assert_failure 1
@@ -1682,7 +1733,9 @@ review_hiding_record() {
     assert_line --index 0 "$(metrics_only_counts 4)"
     refute_output --partial 'reason'
     run cat "$PNPM_LOG"
-    assert_output "$(printf '%s\n' "$WT install --frozen-lockfile --prefer-offline" "$WT exec oxfmt docs/harness/failure-pattern-rates")"
+    # oxfmt には置き場ではなく、CLI が列挙した記録のパスだけを渡す
+    assert_output "$(printf '%s\n' "$WT install --frozen-lockfile --prefer-offline" \
+        "$WT exec oxfmt $(printf 'docs/harness/failure-pattern-rates/%s.json ' 2026-09-26 2026-10-03 2026-10-10 2026-10-17 | sed 's/ $//')")"
     refute_evaluated
 }
 
@@ -1968,8 +2021,8 @@ leave_uncommitted() {
 
 @test "選別の prompt: 記録させない置き場は、Rule Ledger と再発率の CLI が書き出す置き場と同じ" {
     local ledger_repo_dir rates_repo_dir
-    ledger_repo_dir=$(sed -n 's/^LEDGER_REPO_DIR="\(.*\)"$/\1/p' "$REPO_ROOT/dot_claude/scripts/executable_harness-rule-ledger.sh")
-    rates_repo_dir=$(sed -n 's/^RATES_REPO_DIR="\(.*\)"$/\1/p' "$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh")
+    ledger_repo_dir=$(bash "$REPO_ROOT/dot_claude/scripts/executable_harness-rule-ledger.sh" repo-dir)
+    rates_repo_dir=$(bash "$REPO_ROOT/dot_claude/scripts/executable_harness-failure-rates.sh" repo-dir)
     assert_equal "$ledger_repo_dir" docs/harness/rule-ledger
     assert_equal "$rates_repo_dir" docs/harness/failure-pattern-rates
     review_prompt
