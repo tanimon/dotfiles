@@ -142,13 +142,20 @@ init_loop_pr() { # [<上書きする引数>…]
     run init_loop_pr
     assert_failure
     assert_line "harness-loop-pr: could not read the repository directory of the records from $HOME/.claude/scripts/harness-rule-ledger.sh repo-dir; run chezmoi apply"
+    cat >"$HOME/.claude/scripts/harness-failure-rates.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$STUB_REPO_DIR_ANSWER"
+EOF
     local value
     for value in '' /abs/dir 'docs/../x' "$(printf 'docs/a\ndocs/b')" 'docs/a/'; do
-        printf '#!/usr/bin/env bash\nprintf "%%s\\n" %q\n' "$value" >"$HOME/.claude/scripts/harness-failure-rates.sh"
-        run init_loop_pr
+        STUB_REPO_DIR_ANSWER=$value run init_loop_pr
         assert_failure
         assert_line "harness-loop-pr: could not read the repository directory of the records from $HOME/.claude/scripts/harness-failure-rates.sh repo-dir; run chezmoi apply"
     done
+    # 対: 同じ偽物が置き場として読める値を答えれば成功する(答えが偽物に届かずに落ちているのではない)
+    cp "$REPO_ROOT/dot_claude/scripts/executable_harness-rule-ledger.sh" "$HOME/.claude/scripts/harness-rule-ledger.sh"
+    STUB_REPO_DIR_ANSWER=docs/ok run init_loop_pr
+    assert_success
 }
 
 # <Review Outcome の lib の中身> <本文の lib の中身>(missing なら置かない)を置いたディレクトリに、この lib の写しを置いて読む
@@ -212,7 +219,7 @@ source_with_siblings() {
 publish_fixture() {
     unset STUB_GH_OPEN_PRS STUB_GH_LIST_FAIL STUB_GH_HEAD_PRS STUB_GH_HEAD_LIST_FAIL STUB_GH_FAIL STUB_PNPM_FAIL \
         STUB_PNPM_INSTALL_FAIL STUB_LEDGER_EXPORT STUB_LEDGER_FAIL STUB_LEDGER_TAMPER_RATES STUB_RATES_TAMPER_LEDGER STUB_EVAL_FAIL \
-        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_RATES_EXPORT_UNWRITTEN STUB_RATES_REPO_DIR STUB_RATES_EXPORT_FAIL STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
+        STUB_EVAL_FAIL_AFTER_WRITE STUB_EVAL_NO_OUT STUB_EVAL_TAMPER STUB_RATES_EXPORT STUB_RATES_EXPORT_OUTPUT STUB_RATES_EXPORT_UNWRITTEN STUB_RATES_EXPORT_STRAY STUB_RATES_REPO_DIR STUB_LEDGER_REPO_DIR STUB_RATES_EXPORT_FAIL STUB_EXPORT_TAMPER_LEDGER HARNESS_REVIEW_RUN
     export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig"
     export GIT_CONFIG_SYSTEM=/dev/null
     printf '[user]\n\tname = test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n' \
@@ -279,14 +286,16 @@ fi
 EOF
     chmod +x "$STUBS/gh" "$STUBS/pnpm"
     export PATH="$STUBS:$PATH"
-    # 偽の Rule Ledger。repo-dir には置き場を答え、export は worktree の置き場に STUB_LEDGER_EXPORT 件の記録を書いて、
+    # 偽の Rule Ledger。repo-dir には置き場(STUB_LEDGER_REPO_DIR。既定は本物と同じ)を答え、export は worktree のその置き場に
+    # STUB_LEDGER_EXPORT 件の記録を書いて、
     # 本物の CLI と同じく書いたパスだけを stdout に出す(stdout の形は test/harness-rule-ledger.bats が本物で固定する)。STUB_LEDGER_FAIL なら
     # 1 件だけ書いてから失敗する(写しかけの記録を残して失敗する export の再現)。STUB_LEDGER_TAMPER_RATES なら再発率の
     # スクリプトを書き換える(記録の commit の後、本文の推移の節の前に実行物が書き換えられた run の再現)
     cat >"$HOME/.claude/scripts/harness-rule-ledger.sh" <<'EOF'
 #!/usr/bin/env bash
+repo_dir=${STUB_LEDGER_REPO_DIR:-docs/harness/rule-ledger}
 if [[ "$1" == repo-dir ]]; then
-    printf 'docs/harness/rule-ledger\n'
+    printf '%s\n' "$repo_dir"
     exit 0
 fi
 [[ -z "${STUB_LEDGER_TAMPER_RATES:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-failure-rates.sh"
@@ -295,7 +304,7 @@ while [[ $# -gt 0 ]]; do
     [[ "$1" == --worktree ]] && worktree=$2
     shift
 done
-dir="$worktree/docs/harness/rule-ledger"
+dir="$worktree/$repo_dir"
 mkdir -p "$dir"
 if [[ -n "${STUB_LEDGER_FAIL:-}" ]]; then
     printf '{"id":"partial"}\n' >"$dir/partial.json"
@@ -305,7 +314,7 @@ fi
 i=1
 while [[ "$i" -le "${STUB_LEDGER_EXPORT:-0}" ]]; do
     printf '{"id":"pr30-%s"}\n' "$i" >"$dir/pr30-$i.json"
-    printf 'docs/harness/rule-ledger/pr30-%s.json\n' "$i"
+    printf '%s/pr30-%s.json\n' "$repo_dir" "$i"
     i=$((i + 1))
 done
 EOF
@@ -317,6 +326,7 @@ EOF
     # ローカルの件数と違う答えを返させると、module が CLI の答えで決めていることを確かめられる。
     # STUB_RATES_EXPORT_OUTPUT なら、何も写さずにパスの代わりにその文字列を出して成功する(置き場の外のパスを出す CLI の再現)。
     # STUB_RATES_EXPORT_UNWRITTEN なら、--dry-run でない export が写さなかったパスも 1 行足す(実在しないパスを出す CLI の再現)。
+    # STUB_RATES_EXPORT_STRAY なら、--dry-run でない export が置き場に列挙しないファイルも 1 つ書く(置き場に迷いファイルがある run の再現)。
     # STUB_RATES_EXPORT_FAIL なら、本物の CLI がローカルの置き場を列挙できないときと同じ行を出して 1 で終わる。
     # STUB_EXPORT_TAMPER_LEDGER なら、--dry-run でない export の後に Rule Ledger のスクリプトを
     # 書き換える(再発率の記録の commit の後、Rule Ledger の記録の commit の前に実行物が書き換えられた run の再現)。
@@ -360,6 +370,7 @@ export)
     done
     if [[ -z "$dry_run" ]]; then
         [[ -z "${STUB_RATES_EXPORT_UNWRITTEN:-}" ]] || printf '%s\n' "$STUB_RATES_EXPORT_UNWRITTEN"
+        [[ -z "${STUB_RATES_EXPORT_STRAY:-}" ]] || printf '{}\n' >"$worktree/${STUB_RATES_REPO_DIR:-docs/harness/failure-pattern-rates}/stray.json"
         [[ -z "${STUB_EXPORT_TAMPER_LEDGER:-}" ]] || printf '# tampered\n' >>"$HOME/.claude/scripts/harness-rule-ledger.sh"
     fi
     ;;
@@ -904,8 +915,9 @@ review_fixture() {
     cp "$REPO_ROOT/dot_claude/scripts/executable_harness-verdict.sh" "$HOME/.claude/scripts/harness-verdict.sh"
     cat >"$HOME/.claude/scripts/harness-rule-ledger.sh" <<'EOF'
 #!/usr/bin/env bash
+repo_dir=${STUB_LEDGER_REPO_DIR:-docs/harness/rule-ledger}
 if [[ "$1" == repo-dir ]]; then
-    printf 'docs/harness/rule-ledger\n'
+    printf '%s\n' "$repo_dir"
     exit 0
 fi
 printf '%s\n' "$*" >>"$LEDGER_LOG"
@@ -924,7 +936,7 @@ while [[ $# -gt 0 ]]; do
     [[ "$1" == --worktree ]] && worktree=$2
     shift
 done
-dir="$worktree/docs/harness/rule-ledger"
+dir="$worktree/$repo_dir"
 mkdir -p "$dir"
 if [[ -n "${STUB_LEDGER_FAIL:-}" ]]; then
     printf '{"id":"partial"}\n' >"$dir/partial.json"
@@ -934,7 +946,7 @@ fi
 i=1
 while [[ "$i" -le "${STUB_LEDGER_EXPORT:-0}" ]]; do
     printf '{"id":"pr42-%s"}\n' "$i" >"$dir/pr42-$i.json"
-    printf 'docs/harness/rule-ledger/pr42-%s.json\n' "$i"
+    printf '%s/pr42-%s.json\n' "$repo_dir" "$i"
     i=$((i + 1))
 done
 EOF
@@ -1372,15 +1384,26 @@ review_commits_lines() {
     assert_output 'harness: add rule'
 }
 
-@test "Metrics-only PR: 記録は初期化で CLI の repo-dir から引いた置き場に commit する(module は置き場を持たない)" {
+@test "Metrics-only PR: 2 種類の記録は初期化で各 CLI の repo-dir から引いた置き場に commit する(module は置き場を持たない)" {
     publish_fixture
     four_local_records
-    export STUB_RATES_REPO_DIR=docs/elsewhere
+    export STUB_RATES_REPO_DIR=docs/elsewhere STUB_LEDGER_REPO_DIR=docs/ledger-elsewhere
     init_real
-    run harness_loop_pr_publish_metrics_only_if_due
+    STUB_LEDGER_EXPORT=2 run harness_loop_pr_publish_metrics_only_if_due
     assert_success
     run git -C "$ORIGIN" diff --name-only "main..$BRANCH"
-    assert_output "$(printf 'docs/elsewhere/%s.json\n' 2026-09-26 2026-10-03 2026-10-10 2026-10-17)"
+    assert_output "$(printf 'docs/elsewhere/%s.json\n' 2026-09-26 2026-10-03 2026-10-10 2026-10-17
+        printf 'docs/ledger-elsewhere/%s.json\n' pr30-1 pr30-2)"
+}
+
+@test "Metrics-only PR: 置き場に export が列挙しなかったファイルがあっても、整形も commit もしない" {
+    publish_fixture
+    four_local_records
+    init_real
+    STUB_RATES_EXPORT_STRAY=1 run harness_loop_pr_publish_metrics_only_if_due
+    assert_success
+    run git -C "$ORIGIN" diff --name-only "main..$BRANCH"
+    assert_output "$(printf 'docs/harness/failure-pattern-rates/%s.json\n' 2026-09-26 2026-10-03 2026-10-10 2026-10-17)"
 }
 
 @test "選別の結果: 週の記録の commit の後に実行物が書き換えられたら、push の直前の関門で止まる" {

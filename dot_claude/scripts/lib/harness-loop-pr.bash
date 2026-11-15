@@ -387,14 +387,14 @@ _harness_loop_pr_remove_worktree() {
 }
 
 # 記録の CLI(<実行物の名前> は Integrity Snapshot の実行物の名前)の export を Integrity Snapshot の入口を通して呼び、
-# 書き出した(--dry-run なら書き出すはずの)ファイルのリポジトリ内のパスを 1 行に 1 つ出す。CLI の stdout はそのパスの
-# 列挙だけで、人に向けた行は stderr に出る(契約は各 CLI のヘッダ)。各パスが <置き場> の直下のファイルの名前で、
-# --dry-run でなければ worktree に実在することを確かめる(commit するのは列挙されたパスだけなので、置き場の外を
+# 書き出した(<方法> が dry-run なら、CLI に --dry-run を足して書き出すはずの)ファイルのリポジトリ内のパスを 1 行に 1 つ出す。
+# CLI の stdout はそのパスの列挙だけで、人に向けた行は stderr に出る(契約は各 CLI のヘッダ)。各パスが <置き場> の直下の
+# ファイルの名前で、write なら worktree に実在することを確かめる(commit するのは列挙されたパスだけなので、置き場の外を
 # commit しない)。照合に落ちたら HARNESS_INTEGRITY_FAILED を、CLI が失敗したかパスが外れたら理由を出して 1 を返す
-_harness_loop_pr_export_records() { # <実行物の名前> <置き場> <export の引数>…
-    local name=$1 repo_dir=$2 executable output path file dry_run=""
-    shift 2
-    [[ " $* " != *' --dry-run '* ]] || dry_run=1
+_harness_loop_pr_export_records() { # <実行物の名前> <置き場> <方法: write|dry-run> <export の引数>…
+    local name=$1 repo_dir=$2 mode=$3 executable output path file
+    shift 3
+    [[ "$mode" != dry-run ]] || set -- "$@" --dry-run
     executable=$(harness_integrity_executable "$name") || return
     output=$(harness_integrity_run "$name" export "$@") || return $?
     while IFS= read -r path; do
@@ -404,7 +404,7 @@ _harness_loop_pr_export_records() { # <実行物の名前> <置き場> <export �
             printf 'harness-weekly: %s export listed a path that is not a record in %s: %s\n' "$executable" "$repo_dir" "$path" >&2
             return 1
         fi
-        if [[ -z "$dry_run" && ! -f "$_HARNESS_LOOP_PR_WORKTREE/$path" ]]; then
+        if [[ "$mode" != dry-run && ! -f "$_HARNESS_LOOP_PR_WORKTREE/$path" ]]; then
             printf 'harness-weekly: %s export listed %s, which is not in %s\n' "$executable" "$path" "$_HARNESS_LOOP_PR_WORKTREE" >&2
             return 1
         fi
@@ -426,24 +426,28 @@ _harness_loop_pr_export_records() { # <実行物の名前> <置き場> <export �
 # 検証・整形・commit の失敗は 1 を返し、写しかけは呼び出し側が戻す。
 # oxfmt を通すのは、commit フックが JSON の書式を検査するため
 _harness_loop_pr_commit_records() { # <種類: rates|ledger> <base> [<PR の番号>]
-    local kind=$1 base=$2 name local_dir repo_dir subject paths path count=0 status=0 args=() files=()
+    local kind=$1 base=$2 name local_dir repo_dir subject count_var paths path count=0 status=0 args=() files=()
     case "$kind" in
     rates)
-        _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED=0
+        count_var=_HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED
         name=failure-rates local_dir=$_HARNESS_LOOP_PR_LOCAL_RATES_DIR repo_dir=$_HARNESS_LOOP_PR_RATES_REPO_DIR
         subject="harness: Failure Pattern の再発率の週の記録を足す"
         args=("$_HARNESS_LOOP_PR_DATE" --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE")
         ;;
     ledger)
-        _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED=0
+        count_var=_HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED
         name=rule-ledger repo_dir=$_HARNESS_LOOP_PR_LEDGER_REPO_DIR
         local_dir=$(_harness_loop_pr_local_ledger_dir)
         subject="harness: Rule Ledger の記録を足す"
         args=(--base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE")
         [[ -z "${3:-}" ]] || args+=(--pr "$3")
         ;;
-    *) return 1 ;;
+    *)
+        printf 'harness-loop-pr: unknown kind of records: %s\n' "$kind" >&2
+        return 1
+        ;;
     esac
+    printf -v "$count_var" '%s' 0
     if ! harness_integrity_check_data; then
         printf 'harness-weekly: the local records in %s could not be trusted; check them by hand\n' "$local_dir" >&2
         return "$HARNESS_INTEGRITY_FAILED"
@@ -452,7 +456,7 @@ _harness_loop_pr_commit_records() { # <種類: rates|ledger> <base> [<PR の番�
     # identity leak guard のローカルのパターン(gitignore 済み)は worktree に無いので、リポジトリ本体のものを export にだけ渡す
     # (再発率の CLI は読まない)
     paths=$(SENSITIVE_PATTERNS_LOCAL="${SENSITIVE_PATTERNS_LOCAL-$_HARNESS_LOOP_PR_REPO/scripts/sensitive-patterns.local.txt}" \
-        _harness_loop_pr_export_records "$name" "$repo_dir" "${args[@]}") || status=$?
+        _harness_loop_pr_export_records "$name" "$repo_dir" write "${args[@]}") || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         printf 'harness-weekly: the scripts the job runs could not be trusted when exporting the records in %s\n' "$local_dir" >&2
         return "$status"
@@ -467,10 +471,7 @@ _harness_loop_pr_commit_records() { # <種類: rates|ledger> <base> [<PR の番�
     (cd "$_HARNESS_LOOP_PR_WORKTREE" && pnpm exec oxfmt "${files[@]}") || return 1
     git -C "$_HARNESS_LOOP_PR_WORKTREE" add -- "${files[@]}" || return 1
     _harness_loop_pr_git -C "$_HARNESS_LOOP_PR_WORKTREE" commit --quiet -m "$subject" || return 1
-    case "$kind" in
-    rates) _HARNESS_LOOP_PR_RATE_RECORDS_COMMITTED=$count ;;
-    ledger) _HARNESS_LOOP_PR_LEDGER_RECORDS_COMMITTED=$count ;;
-    esac
+    printf -v "$count_var" '%s' "$count"
 }
 
 # Rule Ledger の commit に失敗したときに、worktree を <revision> に戻して写しかけの記録を消す。記録はローカルに残る
@@ -555,8 +556,8 @@ _harness_loop_pr_no_open_loop_pr() { # <書式> [<引数>...]
 # 開いている Loop PR があれば作らない(その PR に記録が入っているか、次に採用のある PR がまとめて足す。作ると毎週 1 本ずつ増える)
 _harness_loop_pr_metrics_only_due() { # <base>
     local base=$1 paths count status=0
-    paths=$(_harness_loop_pr_export_records failure-rates "$_HARNESS_LOOP_PR_RATES_REPO_DIR" "$_HARNESS_LOOP_PR_DATE" \
-        --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE" --dry-run) || status=$?
+    paths=$(_harness_loop_pr_export_records failure-rates "$_HARNESS_LOOP_PR_RATES_REPO_DIR" dry-run "$_HARNESS_LOOP_PR_DATE" \
+        --base "$base" --worktree "$_HARNESS_LOOP_PR_WORKTREE") || status=$?
     if [[ "$status" -eq "$HARNESS_INTEGRITY_FAILED" ]]; then
         return "$status"
     elif [[ "$status" -ne 0 ]]; then

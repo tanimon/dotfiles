@@ -413,21 +413,24 @@ local_week() { # <日付> <JSON>
 }
 
 # Loop PR の module が export の stdout に頼る契約(module の bats は CLI を stub にするので、本物の CLI の側をここで固定する)
-@test "契約: export の stdout の各パスは repo-dir の配下で worktree に実在し、base に無い。--dry-run のパスも repo-dir の配下" {
+@test "契約: export の stdout の各パスは repo-dir の配下で worktree に実在し、base に無いか base と中身が違う。--dry-run のパスも同じ" {
     local_week 2026-10-03 '{"date":"2026-10-03"}'
     local_week 2026-10-10 '{"date":"2026-10-10"}'
     local_week 2026-10-17 '{"date":"2026-10-17"}'
-    export_worktree 2026-10-03
+    export_worktree 2026-10-03 2026-10-17
+    # base にあるその日の記録を、同じ日の再実行が書き直した(写す例外。ヘッダの「export の選び方」)
+    local_week 2026-10-17 '{"date":"2026-10-17","rerun":true}'
     local dir path paths dry_paths
     dir=$(bash "$SCRIPT" repo-dir)
     dry_paths=$(bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" --dry-run 2>/dev/null)
     paths=$(bash "$SCRIPT" export 2026-10-17 --base HEAD --worktree "$WT" 2>/dev/null)
-    assert_equal "$(grep -c . <<<"$paths")" 2
+    assert_equal "$paths" "$(printf '%s\n' "$dir/2026-10-10.json" "$dir/2026-10-17.json")"
     assert_equal "$dry_paths" "$paths"
     while IFS= read -r path; do
         [[ "$path" == "$dir"/* ]] || false
         assert [ -f "$WT/$path" ]
-        run git -C "$WT" cat-file -e "HEAD:$path"
-        assert_failure
+        # base に無いか base と中身が違うので、commit に差分として載る
+        run git -C "$WT" status --porcelain --untracked-files=all -- "$path"
+        refute_output ''
     done <<<"$paths"
 }
