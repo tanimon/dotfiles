@@ -200,13 +200,17 @@ check_segment() {
     [[ $i -lt $count ]] || return 0
     [[ "$SHELL_READER_COMMAND_NAME" == gh || "$SHELL_READER_COMMAND_NAME" == */gh ]] || return 0
     # 手前の token は代入と前置詞だけ。`env` の後ろの代入も gh の環境に入るので、最後の GH_REPO= を作成先に使う。
-    for ((k = 0; k < i; k++)); do
+    # バッククォートの中の作成コマンド(`` `gh pr create …` ``、`` `nohup gh pr create …` ``)は、閉じるバッククォートが
+    # 後ろの token に付く。開くバッククォートはコマンドの語か手前の token に付くので、そこで見つけたら引数として読む前に
+    # 外す(本文ファイルのパスに含めない)。
+    local in_backticks=0
+    for ((k = 0; k <= i; k++)); do
+        [[ "${tokens[$k]}" == \`* ]] && in_backticks=1
+        [[ $k -lt $i ]] || break
         word=${tokens[$k]#\`}
         case "$word" in GH_REPO=*) env_repo=${word#GH_REPO=} ;; esac
     done
-    # バッククォートの中の作成コマンド(`` `gh pr create …` ``)は、閉じるバッククォートが後ろの token に付く。
-    # 引数として読む前に外す(本文ファイルのパスに含めない)。
-    if [[ "${tokens[$i]}" == \`* ]]; then
+    if [[ $in_backticks -eq 1 ]]; then
         for ((k = i + 1; k < count; k++)); do
             tokens[k]=${tokens[$k]%\`}
         done

@@ -324,6 +324,12 @@ EOF
     run hook "\`gh pr create --title t --body-file $BODY_DIR/pr.md\`"
     assert_success
     assert_output ''
+    # 開くバッククォートが前置詞に付いていても同じ
+    run hook "\`nohup gh pr create --title t --body-file $BODY_DIR/none.md\`"
+    [ "$(decision "$output")" = deny ]
+    run hook "\`nohup gh pr create --title t --body-file $BODY_DIR/pr.md\`"
+    assert_success
+    assert_output ''
 }
 
 @test "env の後ろの GH_REPO= で範囲内を指せば cwd が範囲外でも判定する" {

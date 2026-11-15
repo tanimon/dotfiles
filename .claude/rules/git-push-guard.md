@@ -57,7 +57,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `git` と `push` が別の token として現れないので、コマンドの位置の token に印があり segment に `push` を
   含む token があるとき、またはサブコマンドの token に印があり `push` を含むときも `ask` にする。
   コマンドの位置とサブコマンドに限るのは、`grep -n push *.sh` のような引数の glob を巻き込まないため
-  (コマンドの位置は前置詞を読み飛ばした後の語なので、`xargs /usr/bin/gi? push …` も `ask`)。
+  (前置詞を読み飛ばしたコマンドの語で見るので、`xargs /usr/bin/gi? push …` も `ask`)。
   後ろが空白の `{` はグループ(`{ git push origin main; }`)なので reader が記録せず、無出力のまま。
   コマンドの位置の token が置換か変数(`$G push …`、`` `which git` push … ``、`"$(command -v git)" push …`、
   引用符の外の `${G} push …`。最後のものは reader が `{` で切るので、後ろの token にブレースの印がある
@@ -77,7 +77,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 - **`git` がトークン0に無いセグメントを素通りさせない。** 正規化で潰した3経路
   (グルーピング記号・リダイレクト・継続行)に加えて、**普通のトークンとして binary の前に立つもの**
   が4つ目の経路だった。先頭の変数代入(`VAR=v git push …`)・シェルキーワード・前置詞を読み飛ばした
-  コマンドの語(GLOSSARY の Command Word)を binary として読む。読み飛ばしは共有 reader の
+  コマンドの語(GLOSSARY の Command Word)が git かを見る。読み飛ばしは共有 reader の
   `shell_reader_command_word` が行い、前置詞の表もそこにだけある(`.claude/rules/shell-reader.md`)。
   前置詞はすべて透過するので、`xargs git push --force` や `/usr/bin/env git push --force` も `deny`。
   1行の `for r in …; do git push $r --force; done` や `if true; then git push --force; fi` は

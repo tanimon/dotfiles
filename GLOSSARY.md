@@ -41,7 +41,7 @@ _Avoid_: 失敗時の挙動（日本語の文中では「失敗の向き」と�
 _Avoid_: テキスト床、字面チェック（日本語の文中では「字面の床」と書く）
 
 **Command Word**:
-segment の中で、実行されるコマンドの名前になる語。前置きの代入・制御語・前置詞の後ろにある。どの前置詞を読み飛ばしてよいかは Command Guard ごとの policy で決まる。
+segment の中で、実行されるコマンドの名前になる語。前置きの代入・制御語・前置詞の後ろにある。読み飛ばす前置詞の表は shell-reader が持ち、前置詞を透過してよいかは Command Guard ごとの policy で決まる。
 _Avoid_: binary、コマンドの位置（位置は語の手前の境目を指す）
 
 ### Isolation boundary

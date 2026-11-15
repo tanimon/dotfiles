@@ -428,7 +428,7 @@ classify_segment() {
     # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
     set --
 
-    # binary の前に正当に立つもの(代入・シェルのキーワード・前置詞)の読み飛ばしは reader が行う。
+    # コマンドの語の前に正当に立つもの(代入・シェルのキーワード・前置詞)の読み飛ばしは reader が行う。
     # 1 行の `for … do git push … ; done` や `if true; then …; fi` はエージェントが普通に書く綴り。
     # 読み飛ばした前置詞はすべて透過する(git の引数は前置詞を通しても変わらない)。
     shell_reader_command_word

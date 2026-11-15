@@ -46,12 +46,13 @@ paths:
   - `shell_reader_command_word` — segment のコマンドの語(GLOSSARY の Command Word)を、`SHELL_READER_COMMAND_INDEX`
     (segment の中の index。無ければ token 数)と `SHELL_READER_COMMAND_NAME`(先頭のバッククォートと zsh の語頭の `=` を
     外した語。パスは残す。無ければ空)で返す。読み飛ばすのは代入(`name=` / `name+=` / `name[…]=`。`env` の後ろも)、
-    シェルのキーワード、前置詞の表の語。**前置詞の表はここ 1 か所にだけ置く**(git-push-guard と issue-linkage-guard が
+    シェルのキーワード、前置詞の表の語。**token の判定に使う前置詞の表はここ 1 か所にだけ置く**(git-push-guard と issue-linkage-guard が
     使い、どちらも読み飛ばした前置詞をすべて透過する。表が広がると両 guard とも塞ぐ向きにしか動かない)。前置詞の名前は
     バッククォート・`=`・パスを外して照合する。前置詞の直後が `-…` なら、そこで読み飛ばしを止める(`sudo -u x` の語は
     `-u`、`timeout 5` の語は `5`) — オプションの文法は前置詞ごとにも GNU / BSD でも違い、読むと表が膨らみ続けるため。
     読み飛ばした語の種類は返さない(手前の token をどう使うかは guard の policy)。curl-localhost-guard はこの関数を
-    使わない: `env http_proxy=… curl` や `sudo curl` は宛先を振り替えうるので、前置詞を透過しないのが curl の policy。
+    使わない: `env http_proxy=… curl` や `sudo curl` は宛先を振り替えうるので、前置詞を透過しないのが curl の policy。curl の字面の床の
+    ERE(`CURL_PREFIX_WORD_RE`)は token ではなく行を読むので、別に前置詞の並びを持つ。
   - lib が答えるのは token 1 つ・segment 1 つについての事実だけで、segment 全体をまとめる判定(git-push-guard の
     `segment_has_expansion_mark`、curl-guard が curl の segment でだけ glob を見る policy)は guard に置く。
 - **`shell_reader_text_floor_matches <ERE>…`** は、直前に読んだコマンドの字面の床(GLOSSARY の Text Floor)を返す。

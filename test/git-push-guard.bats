@@ -373,8 +373,14 @@ assert_cpu_seconds_below() {
     assert_equal "$(decision "$output")" deny
 }
 
-@test "a safe push behind xargs produces no decision" {
+@test "a safe push behind xargs, eval or a prefix with its path produces no decision" {
     run hook 'xargs git push origin feature'
+    assert_success
+    assert_output ''
+    run hook 'eval git push origin feature'
+    assert_success
+    assert_output ''
+    run hook '/usr/bin/env git push origin feature'
     assert_success
     assert_output ''
 }
@@ -396,6 +402,9 @@ assert_cpu_seconds_below() {
     run hook 'sudo -u x git push origin main --force'
     assert_success
     assert_equal "$(decision "$output")" ask
+    run hook 'sudo -u x git push origin feature'
+    assert_success
+    assert_output ''
 }
 
 @test "prose naming git push without a dangerous flag produces no decision" {
@@ -1040,7 +1049,7 @@ EOF"
 
 # オプションか引数を付けた前置詞(`nice -n 0` / `timeout 60` / `sudo -n`)の後ろの git は strict=0 で
 # 読むが、push を壊す -c と GIT_CONFIG_* は見る。床は ask 止まりなので deny は増えない。
-@test "a push or mirror config after an unrecognized prefix asks" {
+@test "a push or mirror config after a prefix with an option or argument asks" {
     run hook 'nice -n 0 git -c remote.origin.mirror=true push origin'
     assert_success
     assert_equal "$(decision "$output")" ask
@@ -1052,7 +1061,7 @@ EOF"
     assert_equal "$(decision "$output")" ask
 }
 
-@test "an include config or GIT_CONFIG environment after an unrecognized prefix asks" {
+@test "an include config or GIT_CONFIG environment after a prefix with an option or argument asks" {
     run hook 'timeout 60 git -c include.path=/tmp/x push origin'
     assert_success
     assert_equal "$(decision "$output")" ask
@@ -1062,7 +1071,7 @@ EOF"
 }
 
 # 絞り込みの対照: push / mirror / include 以外の -c は、前置きの後ろでも無出力のまま。
-@test "an unrelated config after an unrecognized prefix produces no decision" {
+@test "an unrelated config after a prefix with an option or argument produces no decision" {
     run hook 'timeout 60 git -c user.name=x push origin feature'
     assert_success
     assert_output ''
