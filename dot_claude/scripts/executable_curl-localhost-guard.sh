@@ -429,9 +429,18 @@ classify_segment() {
 # redirect は対象の語 1 つだけを読み飛ばす(前置詞のように任意の語を許すと散文まで一致する)。
 # fd の数字の無い `<` / `>` は対象が続けて書かれた形だけを読む: 空白を挟む形を許すと Markdown の引用
 # `> 今回は curl を…` が「今回は への redirect + curl」に一致する。`"$(< in curl …)"` は受容した残存。
-CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|([^[:space:]]*/)?(command|builtin|eval|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|stdbuf|ionice|caffeinate)|if|then|elif|else|while|until|do|[!]|[{])'
+CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|([^[:space:]]*/)?(command|builtin|eval|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|parallel|stdbuf|ionice|caffeinate)|if|then|elif|else|while|until|do|[!]|[{])'
 CURL_REDIRECT_WORD_RE='([0-9]+[<>][<>&|]*[[:space:]]*|[<>][<>&|]*)[^[:space:]]+'
-CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_REDIRECT_WORD_RE}[[:space:]]+)*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
+# コマンドの位置の始まり(行頭か `;&|(` / バッククォートの直後)と、curl の語(`\curl` とパスの前置を許す)。
+# どちらの床の正規表現もこの 2 つで挟むので、片方だけ直して床どうしが食い違わないよう共有する。
+CURL_COMMAND_START_RE="(^|[;&|(\`])[[:space:]]*"
+CURL_WORD_RE="\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
+CURL_LINE_RE="${CURL_COMMAND_START_RE}(${CURL_REDIRECT_WORD_RE}[[:space:]]+)*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?${CURL_WORD_RE}"
+# `find … -exec curl …`(`-execdir` / `-ok` も)の curl は find の引数だが、find が実行する。前置詞の後ろの
+# 任意の語に `find` を入れると `find . -name curl` まで一致するので、`-exec` の直後が curl の形だけを別の正規表現で読む。
+# 受容した残存: `ssh <host> curl …` は読まない(`ssh` を前置詞にすると、後ろの任意の語を許すので `ssh` で始まる
+# 散文の行まで一致する)。`-okdir` も読まない。どちらも引用符の追跡がずれたときと長さ超過のときは classifier だけになる。
+CURL_FIND_EXEC_RE="${CURL_COMMAND_START_RE}([^[:space:]]*/)?find[[:space:]]+([^[:space:]]+[[:space:]]+)*-(exec|execdir|ok)[[:space:]]+${CURL_WORD_RE}"
 # 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_text_floor_matches が行う
 # (`"$(curl'' https://…)"` も `curl https://…` として見る)。
 
@@ -488,7 +497,7 @@ shell_reader_each_segment segment_can_run_curl || CURL_PRESENT=1
 # 引用符、長さ超過のコマンド全体。対象は lib の shell_reader_text_floor_matches)で、curl がコマンドの位置に
 # あれば ask にする。
 # 受容した誤 ask: 置換より後ろの引用符付きの引数が `curl ` で始まるもの(`-m "$(date)" -m "curl …"`)。
-if shell_reader_text_floor_matches "$CURL_LINE_RE"; then
+if shell_reader_text_floor_matches "(${CURL_LINE_RE})|(${CURL_FIND_EXEC_RE})"; then
     command_guard_emit ask "$ASK_REASON"
     exit 0
 fi
