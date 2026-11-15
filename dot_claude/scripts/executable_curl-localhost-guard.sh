@@ -494,7 +494,7 @@ shell_reader_each_segment segment_can_run_curl || CURL_PRESENT=1
 # 引用符、長さ超過のコマンド全体。対象は lib の shell_reader_text_floor_matches)で、curl がコマンドの位置に
 # あれば ask にする。
 # 受容した誤 ask: 置換より後ろの引用符付きの引数が `curl ` で始まるもの(`-m "$(date)" -m "curl …"`)。
-if shell_reader_text_floor_matches "$CURL_LINE_RE" "$CURL_FIND_EXEC_RE"; then
+if shell_reader_text_floor_matches "(${CURL_LINE_RE})|(${CURL_FIND_EXEC_RE})"; then
     command_guard_emit ask "$ASK_REASON"
     exit 0
 fi
