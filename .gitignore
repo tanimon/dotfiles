@@ -2,6 +2,9 @@ node_modules/
 .pnpm-store/
 .context/
 
+# EGM の作業中の成果物(ブリーフ・草稿・レビューのレポート)。main に入れない(ADR 0025)。
+.dev/
+
 # Extra scan-sensitive-info.sh patterns that are themselves secrets and so must
 # never be committed (the work org name is resolved automatically from
 # `chezmoi data`, so this file is only for anything beyond that).
