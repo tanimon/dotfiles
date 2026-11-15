@@ -431,13 +431,16 @@ classify_segment() {
 # `> 今回は curl を…` が「今回は への redirect + curl」に一致する。`"$(< in curl …)"` は受容した残存。
 CURL_PREFIX_WORD_RE='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|([^[:space:]]*/)?(command|builtin|eval|env|exec|sudo|doas|nice|nohup|time|timeout|xargs|parallel|stdbuf|ionice|caffeinate)|if|then|elif|else|while|until|do|[!]|[{])'
 CURL_REDIRECT_WORD_RE='([0-9]+[<>][<>&|]*[[:space:]]*|[<>][<>&|]*)[^[:space:]]+'
-CURL_LINE_RE="(^|[;&|(\`])[[:space:]]*(${CURL_REDIRECT_WORD_RE}[[:space:]]+)*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
+# コマンドの位置の始まり(行頭か `;&|(` / バッククォートの直後)と、curl の語(`\curl` とパスの前置を許す)。
+# どちらの床の正規表現もこの 2 つで挟むので、片方だけ直して床どうしが食い違わないよう共有する。
+CURL_COMMAND_START_RE="(^|[;&|(\`])[[:space:]]*"
+CURL_WORD_RE="\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
+CURL_LINE_RE="${CURL_COMMAND_START_RE}(${CURL_REDIRECT_WORD_RE}[[:space:]]+)*(${CURL_PREFIX_WORD_RE}[[:space:]]+([^[:space:]]+[[:space:]]+)*)?${CURL_WORD_RE}"
 # `find … -exec curl …`(`-execdir` / `-ok` も)の curl は find の引数だが、find が実行する。前置詞の後ろの
 # 任意の語に `find` を入れると `find . -name curl` まで一致するので、`-exec` の直後が curl の形だけを別の正規表現で読む。
-# `parallel` は `xargs` と同じく前置詞の一覧に入れた(`parallel curl …`、`parallel -j4 curl …`)。
-# 残存(受容): `ssh <host> curl …` は host の語が 1 つ挟まるが、前置詞の後ろの任意の語を許すと `ssh` を含む散文まで
-# 一致するので入れていない。`-okdir` も同様に読まない。
-CURL_FIND_EXEC_RE="(^|[;&|(\`])[[:space:]]*([^[:space:]]*/)?find[[:space:]]+([^[:space:]]+[[:space:]]+)*-(exec|execdir|ok)[[:space:]]+\\\\?([^[:space:]]*/)?curl([[:space:]]|\$)"
+# 受容した残存: `ssh <host> curl …` は読まない(`ssh` を前置詞にすると、後ろの任意の語を許すので `ssh` で始まる
+# 散文の行まで一致する)。`-okdir` も読まない。どちらも引用符の追跡がずれたときと長さ超過のときは classifier だけになる。
+CURL_FIND_EXEC_RE="${CURL_COMMAND_START_RE}([^[:space:]]*/)?find[[:space:]]+([^[:space:]]+[[:space:]]+)*-(exec|execdir|ok)[[:space:]]+${CURL_WORD_RE}"
 # 行の分割と、引用符・backslash・行継続の正規化は lib の shell_reader_text_floor_matches が行う
 # (`"$(curl'' https://…)"` も `curl https://…` として見る)。
 

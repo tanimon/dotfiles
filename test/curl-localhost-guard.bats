@@ -493,7 +493,7 @@ decision() {
     # 短ければ ask になる形(`ssh h curl`。curl は token としてあるがコマンドの位置に無い)にして、
     # 無出力が長さの打ち切りから来るようにする。長さ超過では行単位の字面の床だけが走り、
     # curl が行頭や `;&|(` の直後(前置詞の後ろを含む)に無いこの形には一致しない
-    # (一致する形は上の「長さ超過」の節。`xargs` / `parallel` は前置詞として床に一致する)。
+    # (一致する形は「長さ超過(8192 byte 超)」の節。`xargs` / `parallel` は前置詞として床に一致する)。
     local filler
     filler=$(printf 'x%.0s' $(seq 1 20000))
     run hook "printf '%s\n' '${filler}' | ssh h curl https://example.com/"
@@ -1209,7 +1209,8 @@ echo x # \""
     assert_equal "$(decision "$output")" ask
 }
 
-# 対: 床を広げても、curl が find の -exec の直後にも parallel の引数にも無い形は ask にならない(#379 の誤 ask の形)。
+# 対: curl が find の -exec の直後にも前置詞の後ろにも無い形(`find . -name curl`、`echo curl`、`-exec grep curl`)は、
+# 床を広げても ask にならない。
 @test "floor: find -name curl after a quote desync stays silent" {
     run hook "echo \"\$(echo \"a it's\")\" ; find . -name curl ; echo ' x'"
     assert_success
@@ -1226,4 +1227,15 @@ echo x # \""
     run hook "echo \"\$(echo \"a it's\")\" ; find . -maxdepth 0 -exec grep curl {} \\; ; echo ' x'"
     assert_success
     assert_output ''
+}
+
+# 受容した誤 ask: heredoc の散文の行が前置詞(`xargs` / `parallel` など)で始まり、後ろに curl の語があるもの。
+# 前置詞の後ろの任意の語を許す床の形から来る(`xargs` で始まる行も同じく ask)。
+@test "floor: a PR body heredoc line starting with parallel and mentioning curl asks (accepted false ask)" {
+    run hook "gh pr create --body \"\$(cat <<'EOF'
+parallel 経由の curl も床で拾う
+EOF
+)\""
+    assert_success
+    assert_equal "$(decision "$output")" ask
 }
