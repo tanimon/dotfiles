@@ -298,6 +298,53 @@ EOF
     [ "$(decision "$output")" = deny ]
 }
 
+# 前置詞の表は shell-reader が持つ(test/shell-reader.bats)。表の前置詞の後ろの作成コマンドも素の形と同じに判定する。
+@test "nohup 前置の作成コマンドも判定する" {
+    run hook "nohup gh pr create --title t --body x"
+    [ "$(decision "$output")" = deny ]
+    run hook "nohup gh pr create --title t --body 'x $MARKER'"
+    assert_success
+    assert_output ''
+}
+
+@test "zsh の =gh の作成コマンドも判定する" {
+    run hook "=gh pr create --title t --body x"
+    [ "$(decision "$output")" = deny ]
+    run hook "=gh pr create --title t --body 'x $MARKER'"
+    assert_success
+    assert_output ''
+}
+
+@test "バッククォートの中の作成コマンドも判定する" {
+    printf 'body\n' >"$BODY_DIR/none.md"
+    printf '%s\n' "$MARKER" >"$BODY_DIR/pr.md"
+    run hook "\`gh pr create --title t --body-file $BODY_DIR/none.md\`"
+    [ "$(decision "$output")" = deny ]
+    # 閉じるバッククォートは本文ファイルのパスに含めない
+    run hook "\`gh pr create --title t --body-file $BODY_DIR/pr.md\`"
+    assert_success
+    assert_output ''
+}
+
+@test "env の後ろの GH_REPO= で範囲内を指せば cwd が範囲外でも判定する" {
+    git -C "$REPO_DIR" remote set-url origin https://github.com/someone-else/sample.git
+    run hook "env GH_REPO=tanimon/sample gh pr create --title t --body x"
+    [ "$(decision "$output")" = deny ]
+}
+
+@test "env の後ろの GH_REPO= で範囲外を指せば何もしない" {
+    run hook "env GH_REPO=someone-else/sample gh pr create --title t --body x"
+    assert_success
+    assert_output ''
+}
+
+# 受容した残存: オプションを付けた前置詞の後ろは読まない(reader がオプションで読み飛ばしを止める)。
+@test "オプション付きの前置詞の後ろの作成コマンドは判定しない" {
+    run hook "sudo -u x gh pr create --title t --body x"
+    assert_success
+    assert_output ''
+}
+
 @test "! と then の後ろでもマーカーがあれば通す" {
     run hook "if ! gh pr view; then gh pr create --title t --body 'x $MARKER'; fi"
     assert_success

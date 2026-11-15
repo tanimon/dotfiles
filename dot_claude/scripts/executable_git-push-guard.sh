@@ -50,7 +50,7 @@ fi
 
 command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --verb "$COMMAND_GUARD_VERB_SEND_PACK" --on-unreadable ask \
     --lib shell-reader.bash \
-    --require 'shell_reader_read shell_reader_each_segment shell_reader_token_has_mark shell_reader_segment_follows shell_reader_text_floor_matches'
+    --require 'shell_reader_read shell_reader_each_segment shell_reader_token_has_mark shell_reader_segment_follows shell_reader_command_word shell_reader_text_floor_matches'
 # command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
 ASK_REASON='git-push-guard: この push は引数を読み切れないか、push の下位コマンド(git send-pack)を含むため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
@@ -377,7 +377,7 @@ classify_from() {
         # バッククォートで包むだけで無出力になる。push の引数に限るので、git より前の token や
         # 引用符の中の散文(`echo "git push origin $r"` は token 1 つで、git と読める token が無い)は巻き込まない。
         # ただし push を壊す設定(remote.*.push / remote.*.mirror / include)と GIT_CONFIG_* は見る。
-        # `nice -n 0` / `timeout 60` / `sudo -n` の後ろの git はこの分岐に来るので、見ないと
+        # オプションか引数を付けた前置詞(`nice -n 0` / `timeout 60` / `sudo -n`)の後ろの git はこの分岐に来るので、見ないと
         # `timeout 60 git -c remote.origin.mirror=true push origin` が無出力になる。ask 止まりなので
         # deny は増えない。`-c push.autoSetupRemote=true` のような無害な設定は巻き込まない。
         [[ -n "$danger" || $expansion -eq 1 || $config_danger -eq 1 || $GIT_CONFIG_IN_COMMAND -eq 1 ]] && NEEDS_ASK=1
@@ -428,23 +428,11 @@ classify_segment() {
     # 関数を token ごとに呼ぶので、位置引数を空にする(shell_reader_each_segment のコメントを参照)。
     set --
 
-    # binary の前に正当に立つもの(代入・シェルのキーワード・コマンド前置詞)を読み飛ばす。
+    # binary の前に正当に立つもの(代入・シェルのキーワード・前置詞)の読み飛ばしは reader が行う。
     # 1 行の `for … do git push … ; done` や `if true; then …; fi` はエージェントが普通に書く綴り。
-    # 配列をスライスせずインデックスを進める: bash 3.2 は `set -u` の下で空配列の展開を拒否する。
-    command_start=0
-    while [[ $command_start -lt $token_count ]]; do
-        strip_backticks "${tokens[$command_start]}"
-        probe=$STRIPPED
-        case "$probe" in
-        # `VAR=value git push …`. Anchored so a token that merely contains `=`
-        # is not mistaken for an assignment.
-        [A-Za-z_]*=*) command_start=$((command_start + 1)) ;;
-        if | then | elif | else | fi | while | until | do | done | '!' | time | nohup | command | env | sudo | nice | exec)
-            command_start=$((command_start + 1))
-            ;;
-        *) break ;;
-        esac
-    done
+    # 読み飛ばした前置詞はすべて透過する(git の引数は前置詞を通しても変わらない)。
+    shell_reader_command_word
+    command_start=$SHELL_READER_COMMAND_INDEX
 
     # コマンドの位置の語そのものを展開で作る綴り(bash の `{git,push,origin,main,--force}`、
     # `/usr/bin/gi? push …`)は、`git` と読める token が無いので下の走査が何も見つけない。コマンドの
@@ -487,10 +475,10 @@ classify_segment() {
     fi
 
     if [[ $command_start -lt $token_count ]]; then
-        strip_backticks "${tokens[$command_start]}"
-        # 語頭の `=` は zsh の EQUALS(`=git` は PATH 上の git に展開される。Bash ツールが zsh で
-        # 動く環境では、そのまま force push になる)。
-        binary=${STRIPPED#=}
+        # 名前は reader が先頭のバッククォートと zsh の EQUALS の `=` を外している(`=git` は PATH 上の git に
+        # 展開される。Bash ツールが zsh で動く環境では、そのまま force push になる)。末尾のバッククォートは
+        # ここで外す(`` `git` push … `` の語は `` git` `` になる)。
+        binary=${SHELL_READER_COMMAND_NAME%\`}
         # Accept an absolute or relative path to git as well as the bare name.
         classify_git_word "$command_start" 1 "$binary" && return 0
     fi

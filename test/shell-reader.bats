@@ -480,3 +480,98 @@ follows() {
         }' "$BATS_TEST_TMPDIR/cpu-time"
     assert_success
 }
+
+# 直前に読んだコマンドの segment ごとに、shell_reader_command_word の答えを「index:name」で並べ、segment の間を
+# 「|」で区切って出す。
+command_words() {
+    local out=''
+    command_word_segment() {
+        shell_reader_command_word
+        out+="${SHELL_READER_COMMAND_INDEX}:${SHELL_READER_COMMAND_NAME}|"
+        return 0
+    }
+    shell_reader_each_segment command_word_segment
+    printf '%s' "${out%|}"
+}
+
+@test "the command word of a bare command is its first token" {
+    shell_reader_read 'git push origin main'
+    assert_equal "$(command_words)" '0:git'
+}
+
+@test "the command word skips assignments, including += and subscripted ones" {
+    shell_reader_read 'FOO=1 X+=2 a[0]=3 git push'
+    assert_equal "$(command_words)" '3:git'
+}
+
+@test "a word with = that is not an assignment is the command word" {
+    shell_reader_read 'foo.bar=1 git push'
+    assert_equal "$(command_words)" '0:foo.bar=1'
+}
+
+@test "the command word skips every shell keyword" {
+    local keyword
+    for keyword in if then elif else fi while until do done '!'; do
+        shell_reader_read "$keyword git push"
+        assert_equal "$keyword:$(command_words)" "$keyword:1:git"
+    done
+}
+
+@test "the command word skips every prefix in the table" {
+    local prefix
+    for prefix in time nohup command builtin eval env exec sudo doas nice timeout xargs parallel stdbuf ionice caffeinate; do
+        shell_reader_read "$prefix git push"
+        assert_equal "$prefix:$(command_words)" "$prefix:1:git"
+    done
+}
+
+@test "a word that is not in the table stops the skipping" {
+    shell_reader_read 'ssh host git push'
+    assert_equal "$(command_words)" '0:ssh'
+}
+
+@test "the skipping stops at an option or an argument right after a prefix" {
+    shell_reader_read 'sudo -u x git push'
+    assert_equal "$(command_words)" '1:-u'
+    shell_reader_read 'env -i git push'
+    assert_equal "$(command_words)" '1:-i'
+    shell_reader_read 'nice -n 10 git push'
+    assert_equal "$(command_words)" '1:-n'
+    shell_reader_read 'timeout 5 git push'
+    assert_equal "$(command_words)" '1:5'
+}
+
+@test "the command word skips assignments after env" {
+    shell_reader_read 'env GH_REPO=a/b gh pr create'
+    assert_equal "$(command_words)" '2:gh'
+}
+
+@test "the command name drops a leading backtick and a zsh equals but keeps the path" {
+    shell_reader_read '`git push origin main`'
+    assert_equal "$(command_words)" '0:git'
+    shell_reader_read '=git push origin main'
+    assert_equal "$(command_words)" '0:git'
+    shell_reader_read '/usr/bin/git push origin main'
+    assert_equal "$(command_words)" '0:/usr/bin/git'
+}
+
+@test "a prefix is matched after dropping its path, zsh equals and leading backtick" {
+    shell_reader_read '/usr/bin/env git push'
+    assert_equal "$(command_words)" '1:git'
+    shell_reader_read '=sudo git push'
+    assert_equal "$(command_words)" '1:git'
+    shell_reader_read '`nohup git push`'
+    assert_equal "$(command_words)" '1:git'
+}
+
+@test "the command index is counted inside each segment" {
+    shell_reader_read 'cd x && FOO=1 git push; for r in a; do git push; done'
+    assert_equal "$(command_words)" '0:cd|1:git|0:for|1:git|1:'
+}
+
+@test "a segment without a command word answers its token count and an empty name" {
+    shell_reader_read 'FOO=1 BAR=2'
+    assert_equal "$(command_words)" '2:'
+    shell_reader_read 'env'
+    assert_equal "$(command_words)" '1:'
+}

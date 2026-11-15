@@ -356,6 +356,29 @@ assert_cpu_seconds_below() {
     assert_equal "$(decision "$output")" deny
 }
 
+# 前置詞の表は shell-reader が持つ(test/shell-reader.bats)。ここでは表の語の後ろの git が素の形と同じ判定になることと、
+# 前置詞の名前をパスつきでも読むことを確かめる。
+@test "the xargs and eval prefixes are not hiding places" {
+    run hook 'xargs git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+    run hook 'eval git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a prefix spelled with its path is not a hiding place" {
+    run hook '/usr/bin/env git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" deny
+}
+
+@test "a safe push behind xargs produces no decision" {
+    run hook 'xargs git push origin feature'
+    assert_success
+    assert_output ''
+}
+
 @test "a safe push inside a one-line loop produces no decision" {
     run hook 'for r in a b; do git push origin feature; done'
     assert_success
@@ -363,13 +386,14 @@ assert_cpu_seconds_below() {
 }
 
 # --- the fail-closed floor for an unrecognized command position ---------------
-# When `git` is neither in command position nor behind a known prefix, this scan
-# cannot tell whether it will execute. A dangerous spelling there becomes `ask`
-# rather than silence — and, deliberately, not `deny`: prose in a PR body parses
-# the same way.
+# git がコマンドの語に無いとき(表に無いコマンドの引数、オプションを付けた前置詞の後ろ)は、実行されるかを
+# 確かめられない。危険な綴りはそこで ask にする — deny にはしない。PR 本文の散文も同じ形に読まれるため。
 
-@test "an unrecognized wrapper carrying a force flag falls back to ask" {
+@test "a prefix with an option carrying a force flag falls back to ask" {
     run hook 'xargs -n1 git push origin main --force'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+    run hook 'sudo -u x git push origin main --force'
     assert_success
     assert_equal "$(decision "$output")" ask
 }
@@ -778,6 +802,12 @@ EOF"
     assert_equal "$(decision "$output")" ask
 }
 
+@test "a glob that builds the git binary behind a prefix asks" {
+    run hook 'xargs /usr/bin/gi? push origin main'
+    assert_success
+    assert_equal "$(decision "$output")" ask
+}
+
 @test "a glob in the push arguments asks" {
     run hook 'git push origin main -?'
     assert_success
@@ -1008,7 +1038,7 @@ EOF"
     assert_output ''
 }
 
-# 前置詞の一覧に無いコマンド(`nice -n 0` / `timeout` / `sudo -n` / `xargs`)の後ろの git は strict=0 で
+# オプションか引数を付けた前置詞(`nice -n 0` / `timeout 60` / `sudo -n`)の後ろの git は strict=0 で
 # 読むが、push を壊す -c と GIT_CONFIG_* は見る。床は ask 止まりなので deny は増えない。
 @test "a push or mirror config after an unrecognized prefix asks" {
     run hook 'nice -n 0 git -c remote.origin.mirror=true push origin'
