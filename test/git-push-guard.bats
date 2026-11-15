@@ -1112,13 +1112,15 @@ ask|git -c Include.Path=/tmp/x push origin main
 ask|git -cinclude.path=/tmp/x push origin main
 ask|git -c includeIf.onbranch:main.path=/tmp/x push origin main
 ask|git --config-env=include.path=VAR push origin main
+ask|git --config-env=remote.origin.push=VAR push origin
+ask|git --config-env remote.origin.mirror=VAR push origin
 ask|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.mirror GIT_CONFIG_VALUE_0=true git push origin
 ask|GIT_CONFIG_PARAMETERS=x git push origin
 EOF
     [[ -z "$failures" ]] || fail "$failures"
 }
 
-# 上の表の対照: 語彙に無い綴りは、素の形でも置換の中でも無出力のまま(常に ask を返す床では落ちる)。
+# "every dangerous spelling decides bare and asks inside a quoted substitution" の対照: 語彙に無い綴りは、素の形でも置換の中でも無出力のまま(常に ask を返す床では落ちる)。
 @test "spellings outside the dangerous vocabulary produce no decision bare or inside a substitution" {
     local command failures=''
     while IFS= read -r command; do

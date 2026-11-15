@@ -57,8 +57,9 @@ ASK_REASON='git-push-guard: この push は引数を読み切れないか、push
 
 # --- 危険な綴りの語彙 -----------------------------------------------------------------------
 # push を壊す綴りの正本。token の判定(classify_from と、そこから呼ぶ述語)と字面の床(DANGER_FLAG_RE)は
-# どちらもここから引く。綴りを足すときはここだけを変える。床の正規表現は手で書かずに下で組み立てる。
-# 英字は小文字だけで書く(大文字小文字を区別しない照合は ci_pattern が作る)。
+# どちらもここから引く。綴りを足すときはここだけを変える。DANGER_FLAG_RE と `-c` の値の 2 つの段階
+# (DANGER_CONFIG_BROAD_*_RE / DANGER_CONFIG_NARROW_RE)は手で書かず、起動時にこの表から組み立てる。
+# 英字は小文字だけで書く(大文字小文字を区別しない照合は case_insensitive_pattern が作る)。
 #
 # 長オプション(`--` の後ろ)。git は長オプションの一意な前方一致を受け付ける(`--dele` は `--delete`)ので、
 # token の判定も床も前方一致で見る。
@@ -70,6 +71,7 @@ DANGER_SHORT_LETTERS=fd
 DANGER_REFSPEC_LEADS='+:'
 # `-c` / `--config-env` の値のうち push を壊すもの。git の設定キーは大文字小文字を区別しない。
 # `remote.<name>.push` は force の refspec を、`remote.<name>.mirror` は mirror push を運ぶ。
+DANGER_REMOTE_SECTION=remote
 DANGER_REMOTE_KEYS=(push mirror)
 # `include.path` / `includeIf.*.path` は読めないファイルの設定(`remote.origin.mirror=true` を含みうる)を取り込む。
 DANGER_INCLUDE_KEY=include
@@ -77,40 +79,51 @@ DANGER_INCLUDE_KEY=include
 # `GIT_CONFIG_PARAMETERS`)。環境変数の名前は大文字小文字を区別する。
 DANGER_ENV_PREFIX=GIT_CONFIG
 
-# $1(小文字の英字と英字以外)の英字を `[Xx]` にした、大文字小文字を区別しないパターンを CI_PATTERN に返す。
-# 同じ文字列が glob(case と [[ == ]])にも POSIX ERE にもなる。fork しないよう、変換は表を引いて行う。
-CI_PATTERN=''
-ci_pattern() {
+# $1(小文字の英字と英字以外)の英字を `[Xx]` にした、大文字小文字を区別しない POSIX ERE を
+# CASE_INSENSITIVE_PATTERN に返す。英字以外は ERE の特殊文字を含まない前提でそのまま写す。fork しないよう、
+# 変換は表を引いて行う。
+CASE_INSENSITIVE_PATTERN=''
+case_insensitive_pattern() {
     local word=$1 lower=abcdefghijklmnopqrstuvwxyz upper=ABCDEFGHIJKLMNOPQRSTUVWXYZ character before index=0
-    CI_PATTERN=''
+    CASE_INSENSITIVE_PATTERN=''
     while [[ $index -lt ${#word} ]]; do
         character=${word:index:1}
         case "$character" in
         [a-z])
             before=${lower%%"$character"*}
-            CI_PATTERN+="[${upper:${#before}:1}${character}]"
+            CASE_INSENSITIVE_PATTERN+="[${upper:${#before}:1}${character}]"
             ;;
-        *) CI_PATTERN+=$character ;;
+        *) CASE_INSENSITIVE_PATTERN+=$character ;;
         esac
         index=$((index + 1))
     done
 }
 
-# 設定の語彙を大文字小文字を区別しないパターンにしたもの。token の判定と床の両方が使う。
-DANGER_REMOTE_KEY_PATTERNS=()
+# `-c` / `--config-env` の値(`key=value` か `key`)が push を壊しうるかの 2 つの段階。どちらも ERE で、
+# token の判定は config_value_mentions_danger / config_is_dangerous から、字面の床は広い段階だけを使う。
+# - 広い段階: 値のどこかに DANGER_REMOTE_KEYS の語があるか、DANGER_INCLUDE_KEY で始まる。コマンドの位置が
+#   確定した segment で使う。値の先頭からの一致として 1 つの形(danger_config_broad_shape)に書き、値の 1 文字に
+#   当たる `@` だけを置き換えて 2 つ作る(token の判定は値 1 つが対象なので `.`、床は行の中の値なので空白以外)。
+# - 狭い段階: `<DANGER_REMOTE_SECTION>.<name>.<DANGER_REMOTE_KEYS の語>`(`=` 以降は任意)か、DANGER_INCLUDE_KEY で
+#   始まる。コマンドの位置を確定できない segment で使う(`-c push.autoSetupRemote=true` を巻き込まない)。
+danger_remote_keys_re=''
 for word in "${DANGER_REMOTE_KEYS[@]}"; do
-    ci_pattern "$word"
-    DANGER_REMOTE_KEY_PATTERNS+=("$CI_PATTERN")
+    case_insensitive_pattern "$word"
+    danger_remote_keys_re+=${danger_remote_keys_re:+|}$CASE_INSENSITIVE_PATTERN
 done
-ci_pattern "$DANGER_INCLUDE_KEY"
-DANGER_INCLUDE_PATTERN=$CI_PATTERN
-ci_pattern remote
-DANGER_REMOTE_SECTION_PATTERN=$CI_PATTERN
+case_insensitive_pattern "$DANGER_INCLUDE_KEY"
+danger_include_re=$CASE_INSENSITIVE_PATTERN
+case_insensitive_pattern "$DANGER_REMOTE_SECTION"
+danger_remote_section_re=$CASE_INSENSITIVE_PATTERN
+danger_config_broad_shape="(@*(${danger_remote_keys_re})|${danger_include_re})"
+DANGER_CONFIG_BROAD_TOKEN_RE="^${danger_config_broad_shape//@/.}"
+DANGER_CONFIG_BROAD_FLOOR_RE=${danger_config_broad_shape//@/[^[:space:]]}
+DANGER_CONFIG_NARROW_RE="^(${danger_remote_section_re}\\..*\\.(${danger_remote_keys_re})(=|\$)|${danger_include_re})"
 
 # 字面の床の危険な綴り。語彙から組み立てる。
 # - 長オプション: 各オプションのすべての前方一致を選択肢にする(`--f` から `--force-with-lease` まで)。
-# - `-c` / `--config-env` の値: 広い段階(classify_from の config_ask。値のどこかに push / mirror があるか、
-#   include で始まる)を使う。床は ask にしかならないので、狭い段階(config_is_dangerous)にはしない。
+# - `-c` / `--config-env` の値: 広い段階(DANGER_CONFIG_BROAD_FLOOR_RE)。床は ask にしかならないので、
+#   狭い段階にはしない。
 # - `GIT_CONFIG*`: 語頭にあるもの(前置きの代入でも `export` でも)。
 danger_long_prefixes=''
 for word in "${DANGER_LONG_OPTIONS[@]}"; do
@@ -123,16 +136,12 @@ for word in "${DANGER_LONG_OPTIONS[@]}"; do
         length=$((length + 1))
     done
 done
-danger_remote_keys_re=''
-for word in "${DANGER_REMOTE_KEY_PATTERNS[@]}"; do
-    danger_remote_keys_re+=${danger_remote_keys_re:+|}$word
-done
 DANGER_FLAG_RE="(--(${danger_long_prefixes})([^[:alnum:]_-]|\$)"
-DANGER_FLAG_RE+="|[[:space:]](-c|--config-env)[[:space:]=]*([^[:space:]]*(${danger_remote_keys_re})|${DANGER_INCLUDE_PATTERN})"
+DANGER_FLAG_RE+="|[[:space:]](-c|--config-env)[[:space:]=]*${DANGER_CONFIG_BROAD_FLOOR_RE}"
 DANGER_FLAG_RE+="|[[:space:]]-[[:alnum:]]*[${DANGER_SHORT_LETTERS}][[:alnum:]]*([^[:alnum:]_-]|\$)"
 DANGER_FLAG_RE+="|[[:space:]][${DANGER_REFSPEC_LEADS}][^[:space:]]"
 DANGER_FLAG_RE+="|(^|[^[:alnum:]_])${DANGER_ENV_PREFIX})"
-unset word length danger_long_prefixes danger_remote_keys_re
+unset word length danger_long_prefixes danger_remote_keys_re danger_include_re danger_remote_section_re danger_config_broad_shape
 
 # 字面の床の「push の呼び出し」。git-core の dashed binary(`…/git-core/git-push`)と `send-pack` も、
 # token の判定と同じく床で見る。
@@ -208,29 +217,14 @@ segment_has_expansion_mark() {
     return 1
 }
 
-# $1(`-c` の値、`key=value` か `key`)が、語彙の設定のどれかに言及するか(広い段階)。値のどこかに
-# DANGER_REMOTE_KEYS の語があるか、DANGER_INCLUDE_KEY で始まれば真。コマンドの位置が確定した segment で使う。
+# $1(`-c` の値)が、語彙の設定のどれかに言及するか(広い段階。定義は DANGER_CONFIG_BROAD_TOKEN_RE)。
 config_value_mentions_danger() {
-    local key
-    for key in "${DANGER_REMOTE_KEY_PATTERNS[@]}"; do
-        # shellcheck disable=SC2053 # 語彙のパターンは glob として照合する
-        [[ "$1" == *$key* ]] && return 0
-    done
-    # shellcheck disable=SC2053
-    [[ "$1" == $DANGER_INCLUDE_PATTERN* ]]
+    [[ "$1" =~ $DANGER_CONFIG_BROAD_TOKEN_RE ]]
 }
 
-# $1(`-c` の値、`key=value` か `key`)が push を壊す設定そのものか(狭い段階)。`remote.<name>.<語彙のキー>` か、
-# DANGER_INCLUDE_KEY で始まるキーなら真。コマンドの位置を確定できない segment で使う(`-c push.autoSetupRemote=true`
-# のような無害な設定を巻き込まない)。
+# $1(`-c` の値)が push を壊す設定そのものか(狭い段階。定義は DANGER_CONFIG_NARROW_RE)。
 config_is_dangerous() {
-    local key
-    for key in "${DANGER_REMOTE_KEY_PATTERNS[@]}"; do
-        # shellcheck disable=SC2053
-        [[ "$1" == $DANGER_REMOTE_SECTION_PATTERN.*.$key || "$1" == $DANGER_REMOTE_SECTION_PATTERN.*.$key=* ]] && return 0
-    done
-    # shellcheck disable=SC2053
-    [[ "$1" == $DANGER_INCLUDE_PATTERN* ]]
+    [[ "$1" =~ $DANGER_CONFIG_NARROW_RE ]]
 }
 
 # Classify one segment as a git invocation whose binary sits at token index $1.
@@ -269,7 +263,7 @@ classify_from() {
         -c | --config-env)
             strip_backticks "${tokens[$((index + 1))]:-}"
             value=$STRIPPED
-            # 設定は、下の引数の走査が見るフラグを 1 つも書かずに素の push を破壊的にできる
+            # 設定は、push の引数の走査が見るフラグを 1 つも書かずに素の push を破壊的にできる
             # (語彙の DANGER_REMOTE_KEYS / DANGER_INCLUDE_KEY)。安全ではなく読み切れないとして扱う。
             config_value_mentions_danger "$value" && config_ask=1
             config_is_dangerous "$value" && config_danger=1
