@@ -587,12 +587,17 @@
         "~/.cargo",
         {{/* harness 自己改善ループの runtime state(queue.md / pending.jsonl / state.json / digests/)。/harness-reflect と /harness-review が Bash で書き戻すが、既定の write 境界の外なので EPERM になり、harness-doctor.sh の「harness dir writable」も偽 FAIL していた(2026-09-28 の harness-review で実測)。中身は非機密のメモだが、/harness-reflect と /harness-review のセッション(push や gh pr create ができる)が LLM 入力として読む。人間のゲートは PR のマージだけで、そのセッション中の副作用には掛からない。つまりこの許可で、どのプロジェクトのサンドボックス内プロセス(npm script、テスト)からでも、後の reflect/review セッションへ指示を注入する経路が増え、プロジェクトを跨いで持続する。「cwd には元から書ける」は比較にならない: cwd を読むのはそのプロジェクトのセッションだが、queue.md を読むのは dotfiles リポジトリで push できるセッションである。それでも受容する。多層防御は pending.jsonl 経由の任意ファイル読み取り(harness-reflect が transcript パスを ~/.claude/projects/ 配下に限って読む)だけを塞ぐ。queue.md や digests/ への直接の注入は PR レビューでしか止まらない。sandbox 設定はセッション開始時に読まれるので、効果は新しいセッションでしか確認できない。 */ -}}
         "~/.claude/harness",
-        {{/* PR レビュー自動化ループの state ルート。ループは work/<repo> に作業コピーを作り、locks/ logs/ reviews/ failures/ へも書き込む。これらは cwd 外への書き込みになるため、既定の write 境界（cwd + セッション $TMPDIR）では silent deny になる。上の temp/scratch 群とは許可の根拠が別（OS 管理の一時領域ではなくツール固有の state ディレクトリ）で、$PATH 上の実行ファイル・システム設定・シェル rc は含まないため付与して安全。 */ -}}
-        "~/.local/state/pr-review-automation-loop",
+        {{/* XDG state のルート。エージェントが実行するツール(PR レビュー自動化ループ、whose-turn など)が状態・ログ・ロックを <名前>/ の下に置く場所で、既定の write 境界(cwd + セッション $TMPDIR)では silent deny になる。上の temp/scratch 群とは許可の根拠が別(OS 管理の一時領域ではなくツール固有の state)で、$PATH 上の実行ファイル・システム設定・シェル rc は含まない。ただしサンドボックス外のプロセスが信頼の根拠として読むものが混ざるので、それは denyWrite で外す(denyWrite のコメント参照)。 */ -}}
+        "~/.local/state",
         "~/.npm",
         "~/.rustup",
         "~/Library/pnpm/store",
         "~/go"
+      ],
+      {{/* allowWrite の ~/.local/state から、サンドボックス外のプロセスが信頼の根拠として読む state を外す。mise: trusted-configs に symlink を置くと任意のディレクトリの mise.toml が信頼済みになり、対話シェルで cd したときに mise activate がその env や hook をサンドボックスの外で実行する。nono: audit/ と sessions/ は nono 自身の監査記録で、command-hash-cache.json は nono が読むキャッシュ。どちらもエージェントが書く理由が無い。 */ -}}
+      "denyWrite": [
+        "~/.local/state/mise",
+        "~/.local/state/nono"
       ],
       "denyRead": [
         "~/.aws/credentials",
