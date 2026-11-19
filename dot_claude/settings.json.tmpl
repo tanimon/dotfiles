@@ -587,15 +587,16 @@
         "~/.cargo",
         {{/* harness 自己改善ループの runtime state(queue.md / pending.jsonl / state.json / digests/)。/harness-reflect と /harness-review が Bash で書き戻すが、既定の write 境界の外なので EPERM になり、harness-doctor.sh の「harness dir writable」も偽 FAIL していた(2026-09-28 の harness-review で実測)。中身は非機密のメモだが、/harness-reflect と /harness-review のセッション(push や gh pr create ができる)が LLM 入力として読む。人間のゲートは PR のマージだけで、そのセッション中の副作用には掛からない。つまりこの許可で、どのプロジェクトのサンドボックス内プロセス(npm script、テスト)からでも、後の reflect/review セッションへ指示を注入する経路が増え、プロジェクトを跨いで持続する。「cwd には元から書ける」は比較にならない: cwd を読むのはそのプロジェクトのセッションだが、queue.md を読むのは dotfiles リポジトリで push できるセッションである。それでも受容する。多層防御は pending.jsonl 経由の任意ファイル読み取り(harness-reflect が transcript パスを ~/.claude/projects/ 配下に限って読む)だけを塞ぐ。queue.md や digests/ への直接の注入は PR レビューでしか止まらない。sandbox 設定はセッション開始時に読まれるので、効果は新しいセッションでしか確認できない。 */ -}}
         "~/.claude/harness",
-        {{/* XDG state のルート。エージェントが実行するツール(PR レビュー自動化ループ、whose-turn など)が状態・ログ・ロックを <名前>/ の下に置く場所で、既定の write 境界(cwd + セッション $TMPDIR)では silent deny になる。上の temp/scratch 群とは許可の根拠が別(OS 管理の一時領域ではなくツール固有の state)で、$PATH 上の実行ファイル・システム設定・シェル rc は含まない。ただしサンドボックス外のプロセスが信頼の根拠として読むものが混ざるので、それは denyWrite で外す(denyWrite のコメント参照)。 */ -}}
+        {{/* XDG state のルート。エージェントが実行するツール(PR レビュー自動化ループ、whose-turn など)が状態・ログ・ロックを <名前>/ の下に置く場所で、既定の write 境界(cwd + セッション $TMPDIR)では silent deny になる。/tmp や /var/folders などの OS 管理の一時領域とは許可の根拠が別(ツール固有の state)。中身に $PATH 上の実行ファイル・システム設定・シェル rc は無いが、親ディレクトリごとの許可なので、後から入るツールの state も書けるようになる。サンドボックス外のプロセスが実行や信頼の根拠として読むものは denyWrite で個別に外す(denyWrite のコメント参照)。denyWrite は列挙なので、そうしたツールが増えても追従しない。 */ -}}
         "~/.local/state",
         "~/.npm",
         "~/.rustup",
         "~/Library/pnpm/store",
         "~/go"
       ],
-      {{/* allowWrite の ~/.local/state から、サンドボックス外のプロセスが信頼の根拠として読む state を外す。mise: trusted-configs に symlink を置くと任意のディレクトリの mise.toml が信頼済みになり、対話シェルで cd したときに mise activate がその env や hook をサンドボックスの外で実行する。nono: audit/ と sessions/ は nono 自身の監査記録で、command-hash-cache.json は nono が読むキャッシュ。どちらもエージェントが書く理由が無い。 */ -}}
+      {{/* allowWrite の ~/.local/state から、書き換えがサンドボックス外での実行か監査の改ざんにつながる state を外す。改ざんされても妨害で止まるもの(claude/locks の更新ロックなど)は外さない。herdr-core: サンドボックス外で常駐するターミナル管理プロセスの state で、default/terminals.json が端末ごとの argv・cwd・環境変数を持ち、制御ソケット default.sock も同じディレクトリにある。書き換えると、そのプロセスが端末を起動するときに任意のコマンドがサンドボックス外で走りうる。mise: trusted-configs に symlink を置くと任意のディレクトリの mise.toml が信頼済みになり、対話シェルで cd したときに mise activate がその env や hook をサンドボックスの外で実行する。nono: audit/ と sessions/ は nono 自身の監査記録で、command-hash-cache.json は nono が読むキャッシュ。どれもエージェントが書く理由が無い。親の ~/.local/state ごと mv して外す迂回は効かない: Claude Code 2.1.328 の SBPL 生成処理は、書き込み許可の内側で拒否したパスとその祖先すべてに file-write-unlink の deny を付ける(実行ファイル内の生成コードで確認)。 */ -}}
       "denyWrite": [
+        "~/.local/state/herdr-core",
         "~/.local/state/mise",
         "~/.local/state/nono"
       ],
