@@ -4,8 +4,9 @@ description: |
   Fix MODULE_TYPELESS_PACKAGE_JSON warning when running TypeScript files with
   node --experimental-strip-types. Use when: (1) Node.js warns "Module type of
   file is not specified and it doesn't parse as CommonJS", (2) running .ts files
-  with ESM imports (import/export) without a package.json "type": "module",
-  (3) writing TypeScript scripts for chezmoi executable_ files that use ESM.
+  with ESM imports (import/export) whose nearest package.json has no "type" field,
+  (3) writing ESM TypeScript scripts for chezmoi executable_ files that deploy
+  under such a package.json.
   Solution: use .mts extension instead of .ts to signal ESM without needing
   package.json changes.
 author: Claude Code
@@ -71,7 +72,7 @@ Converting a chezmoi-managed hook script:
 
 ```
 # chezmoi source → target mapping
-executable_hook.ts  → ~/.claude/scripts/hook.ts   # triggers warning
+executable_hook.ts  → ~/.claude/scripts/hook.ts   # 上位に type 欄の無い package.json があれば警告が出る
 executable_hook.mts → ~/.claude/scripts/hook.mts  # clean execution
 ```
 

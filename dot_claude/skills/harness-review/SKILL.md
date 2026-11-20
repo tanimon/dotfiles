@@ -48,9 +48,11 @@ All rule/doc changes are made in the worktree, never on deployed files under `~/
 ## Step 1: Liveness check
 
 Run `bash ~/.claude/scripts/harness-doctor.sh`. If any FAIL line appears,
-fixing the loop itself is this review's first-priority deliverable — include
-the fix in the PR (or apply `chezmoi apply` if the fix is deploy-only) before
-touching the queue.
+fixing the loop itself is this review's first-priority deliverable, before
+touching the queue: apply `chezmoi apply` if the fix is deploy-only, include
+the fix in the PR if it touches no path in `scripts/guarded-paths.txt`, and
+otherwise report it for a human to fix in a separate PR (see "Implement and
+open ONE PR").
 
 ## Step 2: Reflect over pending sessions
 
