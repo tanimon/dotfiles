@@ -21,8 +21,8 @@ All scripts must start with:
 set -euo pipefail
 ```
 
-例外: `source` 専用のライブラリ(`harness/lib/*.bash`)は shebang だけを持ち、`set` は呼び出し側
-(`harness/bin/harness.sh`)に従う。ライブラリ側で `set` すると呼び出し側のシェルオプションを書き換える
+例外: `source` 専用のライブラリ(`harness/lib/*.bash`・`dot_claude/scripts/lib/*.bash`)は shebang だけを持ち、`set` は呼び出し側
+(source するスクリプト)に従う。ライブラリ側で `set` すると呼び出し側のシェルオプションを書き換える
 副作用になるため。ヘッダコメントに「set は呼び出し側に従う」と明記すること。
 
 ## run_onchange_ Scripts
@@ -88,7 +88,7 @@ printf '%s\n' "$content"
 
 ## CI Enforcement
 
-These rules are enforced automatically — not just advisory:
+These checks run automatically:
 
 - **CI** (`.github/workflows/lint.yml`): Each CI job calls `justfile` recipes directly — local and CI run the exact same commands
 - **Pre-commit** (`.pre-commit-config.yaml`): Runs shellcheck, shfmt, and secretlint automatically before each commit via prek

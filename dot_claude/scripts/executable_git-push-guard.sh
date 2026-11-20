@@ -53,7 +53,7 @@ command_guard_start --name git-push-guard --verb "$COMMAND_GUARD_VERB" --verb "$
     --require 'shell_reader_read shell_reader_each_segment shell_reader_token_has_mark shell_reader_segment_follows shell_reader_command_word shell_reader_text_floor_matches'
 # command_guard_start から戻った時点で、COMMAND(.tool_input.command。動詞に一致する)と jq が使える。
 
-ASK_REASON='git-push-guard: この push は引数を読み切れないか、push の下位コマンド(git send-pack)を含むため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push なら無確認で通ります。'
+ASK_REASON='git-push-guard: この push は引数を読み切れないか、push の下位コマンド(git send-pack)を含むため確認が必要です(変数・コマンド置換・push 関連の -c 上書きなど)。素の push はこのフックでは止めません(承認の要否は auto mode のクラシファイアか権限設定が決めます)。'
 
 # --- 危険な綴りの語彙 -----------------------------------------------------------------------
 # push を壊す綴りの正本。token の判定(classify_from と、そこから呼ぶ述語)と字面の床(DANGER_FLAG_RE)は

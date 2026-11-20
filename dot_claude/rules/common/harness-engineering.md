@@ -7,7 +7,7 @@ trigger: "Agent made a repeatable mistake without creating a preventive rule"
 
 ## Core Principle
 
-CLAUDE.md とルールは**エージェントの振る舞いのバグトラッカー**として扱う。繰り返してはいけない失敗を見つけたら記録する。今作業中のリポに閉じた学びなら理由を添えてその修正と同じ PR に載せる。セッション横断の学びや別リポ向けの学びは `/harness-reflect` で queue に入れ、`/harness-review` の PR で反映する(下の「Feedback Loop Hierarchy」)。どちらの経路でも人間の PR レビューを通す。
+CLAUDE.md とルールは**エージェントの振る舞いのバグトラッカー**として扱う。繰り返してはいけない失敗を見つけたら記録する。今作業中のリポに閉じた学びなら理由を添えてその修正と同じ PR に載せる。セッション横断の学びや別リポ向けの学びは `/harness-reflect` で queue に入れ、`/harness-review` が選別する。このリポジトリへの反映は review の PR で行い、別リポ向けは handoff としてそのリポに引き渡す(下の「Feedback Loop Hierarchy」)。どちらの経路でも人間の PR レビューを通す。
 
 ## Failure-to-Rule Pipeline
 

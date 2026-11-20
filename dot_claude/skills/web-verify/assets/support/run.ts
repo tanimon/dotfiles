@@ -2,12 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 // 実行ごとに変わる値を 1 か所で決める。config・auth.setup・seed はここから読む。
-// VERIFY_FEATURE(機能の slug。規則は README.md の「実行方法」)が未設定なら全機能を対象にする。
+// VERIFY_FEATURE(機能の slug = scenarios/ 配下の機能ディレクトリ名)が未設定なら全機能を対象にする。
 const feature = process.env.VERIFY_FEATURE ?? "";
 // パスの一部に使うので、ディレクトリを抜け出せる値は拒否する
 if (feature !== "" && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(feature)) {
   throw new Error(
-    `VERIFY_FEATURE には英数字で始まり英数字・"."・"_"・"-" だけからなる slug を使ってください(README.md の「実行方法」): ${feature}`,
+    `VERIFY_FEATURE には英数字で始まり英数字・"."・"_"・"-" だけからなる slug を使ってください: ${feature}`,
   );
 }
 const allFeatures = feature === "";
@@ -27,7 +27,7 @@ if (!allFeatures) {
       .some((file) => specPattern.test(file));
   if (!hasSpec) {
     throw new Error(
-      `VERIFY_FEATURE=${feature} のシナリオ(scenarios/${feature}/ の *.spec.ts)がありません。slug がブランチ名から作ったもの(README.md の「実行方法」)と合っているか確かめてください`,
+      `VERIFY_FEATURE=${feature} のシナリオ(scenarios/${feature}/ の *.spec.ts)がありません。slug が scenarios/ 配下の機能ディレクトリ名(README.md の観点一覧の「ブランチ」列で引ける)と合っているか確かめてください`,
     );
   }
 }

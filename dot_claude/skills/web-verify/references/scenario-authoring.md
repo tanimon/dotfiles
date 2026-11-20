@@ -54,12 +54,12 @@ fail しても誤った情報になる。
   固定の識別子を付けて用意し、他シナリオ・他機能が作ったデータに依存しない
 - 新しい観点を追加したら README.md の観点一覧表にも 1 行追加する。「ブランチ」列には検証対象のブランチ名を
   そのまま書く(slug は別のブランチと同じになりうるので、衝突の判定にこの列を使う。SKILL.md の `<feature>`)
-- シナリオは `scenarios/<feature>/` に置き、ファイル名は必ず `<名前>.spec.ts` にする(それ以外は playwright に収集されず、`npx playwright test --list --reporter=list` でもエラーにならないまま静かにスキップされる)
+- シナリオは `scenarios/<feature>/` に置き、ファイル名は `<名前>.spec.ts` にする(`.spec.ts` / `.test.ts` 以外は playwright に収集されず、`npx playwright test --list --reporter=list` でもエラーにならないまま静かにスキップされる)
 
 ## 共通化
 
 保存場所のスイートは複数の機能で共有されるので、書く前に既存の `support/`・`seed/`・他機能の
-シナリオを読み、共通化できる部分を積極的に切り出す。
+シナリオを読み、共通化できる部分を次の条件で切り出す。
 
 - **切り出す条件**: これから書くシナリオ・seed のコードが、既存のコード(または同じバッチで書く
   別のシナリオ)と同じ処理を 2 か所目で必要としたとき。画面への遷移手順・フォーム入力・
@@ -88,8 +88,8 @@ spec を書く前に実画面を観察してセレクタと導線を確定する
 
 1. `playwright-cli` が利用可能なら最優先(a11y スナップショットの ref 駆動で
    画面構造を確認できる)。**必須依存ではない** — なければ 2 へ
-2. `npx playwright test --headed --debug` で実画面を見ながら書く、
-   または一度実行して trace(`npx playwright show-trace`)から確定する
+2. 一度実行して trace(`npx playwright show-trace`)から確定する。`--headed --debug` は
+   Inspector が各操作の前で止まって操作を待つので、人間が画面を見ながら書くときに使う
 
 ## 安定化
 
