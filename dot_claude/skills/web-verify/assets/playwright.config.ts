@@ -6,6 +6,7 @@ import { runName, scenarioTestDir, storageStatePath, suiteDir } from "./support/
 // 動作確認スイートの設定。web-verify skill が scaffold する。
 // - auth-setup プロジェクトは録画・trace を切る: パスワード入力を証跡に残さないため
 // - 本編(scenarios)は全録画: 動画は人間が結果を確認するための証跡
+// - VERIFY_SCREENSHOT=1 のときだけ、各テストの終了時の画面を全体で撮る(資料に載せる変更前・変更後の画像に使う)
 // - VERIFY_FEATURE で、実行するシナリオ・seed・生成物の置き場所を機能ごとに切り替える(support/run.ts)
 
 // 実行時に渡した環境変数は .env より優先される(dotenv は既存の値を上書きしない)
@@ -31,6 +32,7 @@ export default defineConfig({
     baseURL: process.env.VERIFY_BASE_URL,
     trace: "on",
     video: "on",
+    screenshot: process.env.VERIFY_SCREENSHOT === "1" ? { mode: "on", fullPage: true } : "off",
   },
   projects: [
     {
@@ -38,7 +40,7 @@ export default defineConfig({
       // 機能を絞っても認証は必要なので、auth.setup.ts は常に scenarios/ 直下から収集する
       testDir: "./scenarios",
       testMatch: /auth\.setup\.ts/,
-      use: { video: "off", trace: "off" },
+      use: { video: "off", trace: "off", screenshot: "off" },
     },
     {
       name: "scenarios",
