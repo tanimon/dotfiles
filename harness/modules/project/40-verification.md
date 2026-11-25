@@ -10,3 +10,5 @@ chezmoi apply --dry-run        # Preview changes before applying
 Note: shellcheck, shfmt, oxlint, and oxfmt cannot lint `.tmpl` files (Go template syntax is incompatible). For similar past issues, search `docs/solutions/`.
 
 検証コマンドは手で組まない。`shellcheck -x <files>` や `shfmt -i 4 -d <files>` を並べず `just lint` か個別レシピを呼ぶ — 手組みは対象の漏れや `-i 4` の落としで CI と静かにずれる。ブランチ / PR の状態も同じ理由で `bash scripts/pr-context.sh` を使う。
+
+繰り返された誤りのうち仕組みが止めるものは、[ルールと強制の仕組みの対応表](docs/agents/rule-enforcement.md)に載せる。訂正を受けたら、文書を足す前にまず強制の仕組みを作れないかを考え、作ったらこの表に 1 行足す。

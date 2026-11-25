@@ -34,7 +34,7 @@ bats_jobs := `command -v parallel >/dev/null 2>&1 && echo "--jobs $(getconf _NPR
 # 依存レシピはどれもリポジトリに書き込まないので並列に走らせる。出力は混ざるが、失敗したレシピ名は just が最後に出す
 # Run all checks (mirrors CI)
 [parallel]
-lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise check-adr-numbers test-adr-numbers test-pr-context test-harness-scripts check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-onchange-rerun test-source-snapshot test-review-verify test-web-verify-template test-ci-parity
+lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify test-scripts check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise check-adr-numbers test-adr-numbers check-md-links test-md-links test-pr-context test-harness-scripts check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-onchange-rerun test-source-snapshot test-review-verify test-web-verify-template test-ci-parity
 
 # 手元の既定の検証。lint: から [group('slow')](Slow Suite)を除いた残りで、一致は test-ci-parity が検査する。
 # slow の印は、lint 全体の CPU 時間の大半を占める suite に付ける(`just --list` の [slow] が一覧)。
@@ -42,7 +42,7 @@ lint: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite
 # Slow Suite が検査する対象を変えたときは CI を待たずにそのレシピも手元で流す。
 # Run all checks except the slow suites (the default local check; CI runs them all)
 [parallel]
-lint-fast: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise check-adr-numbers test-adr-numbers test-pr-context check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-onchange-rerun test-source-snapshot test-review-verify test-web-verify-template test-ci-parity
+lint-fast: secretlint shellcheck shfmt oxlint oxfmt actionlint zizmor check-composite-actions test-composite-actions test-modify check-templates scan-sensitive test-sensitive check-comment-noise test-comment-noise check-adr-numbers test-adr-numbers check-md-links test-md-links test-pr-context check-guarded-paths test-guarded-paths check-rule-ledger check-instruction-size test-instruction-size test-harness-sync check-instructions test-harness-instructions test-global-instructions test-settings-hooks test-guard-contract test-gitconfig test-apm-mcp test-apm-install test-nono-profile test-nono-packs test-onchange-rerun test-source-snapshot test-review-verify test-web-verify-template test-ci-parity
 
 # Scan for leaked secrets
 @secretlint:
@@ -198,6 +198,14 @@ check-templates:
 # check-adr-numbers.sh のテスト
 @test-adr-numbers:
     LC_ALL=C pnpm exec bats test/check-adr-numbers.bats
+
+# git 管理下の Markdown の相対リンクが git 管理下のパスを指すことを検査する(解決の規則は check-md-links.mjs の冒頭)
+@check-md-links:
+    node scripts/check-md-links.mjs
+
+# check-md-links.mjs のテスト(LC_ALL=C は @test 名が日本語のため)
+@test-md-links:
+    LC_ALL=C pnpm exec bats test/check-md-links.bats
 
 # Smoke test pr-context.sh. LC_ALL=C for the same bats-core locale bug as
 # test-scripts: this suite's @test names are in Japanese.
