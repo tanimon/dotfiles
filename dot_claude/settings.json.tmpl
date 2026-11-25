@@ -278,7 +278,8 @@
     "mattpocock-skills@mattpocock": true,
     "show-me@skills": true,
     "egm@egm": true,
-    "pstack@cursor-plugins": true
+    "pstack@cursor-plugins": true,
+    "cursor-team-kit@dotfiles": true
   },
   {{/* /doctor(2026-10-03)で skillUsage の通算 0 回・直近 30 日の transcript でも呼び出し 0 件と判定して無効化した skill。sentry-cli は ~/.claude/skills/sentry-cli(chezmoi 管理外)で、plugin 版 sentry-cli:sentry-cli と説明文が同一。plugin 版も無効にしているので、使うときはどちらか一方だけを戻す。仕事リポジトリから symlink している QA 依頼用の skill も通算 0 回だったが、利用の意思があるため意図的に残している — 再度落とさないこと。戻すときはエントリを消すだけでよい。 */ -}}
   {{/* 仕事リポジトリから symlink している skill の多くは改名済みで、skillUsage の通算回数は改名後の名前の分しか無い。回数が少なくても利用中なので、/doctor の未使用判定だけで落とさないこと。create-qa-items(同じく仕事リポジトリからの symlink)は QA 項目の作成用で、同じ用途の別 skill があるので無効にしている。上で残すとした QA 依頼用の skill とは別物。 */ -}}
@@ -330,6 +331,24 @@
       "source": {
         "source": "github",
         "repo": "cursor/plugins"
+      },
+      "autoUpdate": true
+    },
+    {{/* dotfiles: cursor-team-kit は cursor/plugins 自身の .claude-plugin/marketplace.json に載っていない(載っているのは origin-apps と pstack だけ)ので、settings の中で宣言するインライン marketplace("source": "settings")に置き、取得元を git-subdir で指す。cursor-team-kit の rules/*.mdc は Claude Code が読まないので効かない。 */ -}}
+    "dotfiles": {
+      "source": {
+        "source": "settings",
+        "name": "dotfiles",
+        "plugins": [
+          {
+            "name": "cursor-team-kit",
+            "source": {
+              "source": "git-subdir",
+              "url": "cursor/plugins",
+              "path": "cursor-team-kit"
+            }
+          }
+        ]
       },
       "autoUpdate": true
     }
