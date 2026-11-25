@@ -195,3 +195,50 @@ copy_briefing() {
     assert_output --partial 'Harness: OK'
     refute_output --partial 'deploy-only'
 }
+
+# install_chezmoi_stub RENDERED_JSON: chezmoi cat が RENDERED_JSON を出すスタブを置く。空なら失敗させる
+install_chezmoi_stub() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    : >"$BATS_TEST_TMPDIR/rendered.json"
+    [[ -z "$1" ]] || printf '%s\n' "$1" >"$BATS_TEST_TMPDIR/rendered.json"
+    cat >"$BATS_TEST_TMPDIR/bin/chezmoi" <<STUB
+#!/usr/bin/env bash
+[[ \$1 == cat && -s "$BATS_TEST_TMPDIR/rendered.json" ]] || { echo 'template error' >&2; exit 1; }
+cat "$BATS_TEST_TMPDIR/rendered.json"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/bin/chezmoi"
+    printf '{"version":1,"last_review_epoch":%s}' "$(date +%s)" >"$HDIR/state.json"
+}
+
+@test "live の settings.json が source の描画とキー順だけ違うなら OK のまま" {
+    install_chezmoi_stub '{"a":1,"hooks":{"Stop":[]}}'
+    printf '{"hooks":{"Stop":[]},"a":1}\n' >"$HOME/.claude/settings.json"
+    run briefing
+    assert_success
+    assert_output --partial 'Harness: OK'
+}
+
+@test "live の settings.json に source に無い hook があれば、取り込み方を添えて警告する" {
+    install_chezmoi_stub '{"hooks":{"Stop":[]}}'
+    printf '{"hooks":{"Stop":[],"PostToolBatch":[{"hooks":[{"command":"orca"}]}]}}\n' >"$HOME/.claude/settings.json"
+    run briefing
+    assert_success
+    assert_output --partial 'ATTENTION'
+    assert_output --partial 'differs from its chezmoi source'
+    assert_output --partial 'dot_claude/settings.json.tmpl'
+}
+
+@test "source を描画できなければ、黙らずに警告する" {
+    install_chezmoi_stub ''
+    printf '{}\n' >"$HOME/.claude/settings.json"
+    run briefing
+    assert_success
+    assert_output --partial 'could not render the chezmoi source'
+}
+
+@test "live の settings.json が無ければ食い違いを見ない" {
+    install_chezmoi_stub '{"hooks":{}}'
+    run briefing
+    assert_success
+    assert_output --partial 'Harness: OK'
+}
