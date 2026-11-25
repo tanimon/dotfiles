@@ -334,7 +334,7 @@
       },
       "autoUpdate": true
     },
-    {{/* dotfiles: cursor-team-kit は cursor/plugins 自身の .claude-plugin/marketplace.json に載っていない(載っているのは origin-apps と pstack だけ)ので、settings の中で宣言するインライン marketplace("source": "settings")に置き、取得元を git-subdir で指す。cursor-team-kit の rules/*.mdc は Claude Code が読まないので効かない。 */ -}}
+    {{/* dotfiles: 上流の marketplace に載っていない plugin を、settings の中で宣言するインライン marketplace("source": "settings")にまとめる。cursor-team-kit は cursor/plugins 自身の .claude-plugin/marketplace.json に載っていないのでここに置き、取得元を git-subdir で指す。dotfiles リポジトリに .claude-plugin/marketplace.json を置いて github ソースで登録する案は、リポジトリが丸ごと clone され main にマージするまで反映されないので採らない。chezmoi で ~/ に marketplace ディレクトリを配置して directory ソースで登録する案は、管理するファイルがこのテンプレートの外にも増えるので採らない。cursor-team-kit の rules/*.mdc は Claude Code が読まないので効かない。workflow-from-chats は Cursor のチャット履歴を読む前提で Claude Code では役に立たないが、plugin 単位で有効にしているので入る。 */ -}}
     "dotfiles": {
       "source": {
         "source": "settings",
