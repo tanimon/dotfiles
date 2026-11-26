@@ -69,3 +69,37 @@ track() {
     assert_failure
     assert_output --partial 'docs/solutions/a.md: b.md -> docs/solutions/b.md'
 }
+
+@test "括弧を含むパス・<> で囲んだパス・ルートを指すリンク・% を含むパスは、実在すれば通る" {
+    track 'docs/foo_(bar).md' 'x'
+    track 'docs/a b.md' 'x'
+    track 'docs/50%-off.md' 'x'
+    track docs/a.md '[p](foo_(bar).md) [s](<a b.md>) [up](../) [top](/) [pct](50%-off.md)'
+    run node "$SCRIPT" "$REPO"
+    assert_success
+}
+
+@test "括弧を含むパス・<> で囲んだパス・% を含むパスも、無ければ落ちる" {
+    track docs/a.md '[p](gone_(x).md) [s](<gone b.md>) [pct](99%-gone.md)'
+    run node "$SCRIPT" "$REPO"
+    assert_failure
+    assert_output --partial 'docs/a.md: gone_(x).md -> docs/gone_(x).md'
+    assert_output --partial 'docs/a.md: gone b.md -> docs/gone b.md'
+    assert_output --partial 'docs/a.md: 99%-gone.md -> docs/99%-gone.md'
+}
+
+@test "参照形式の定義のリンク先も見る。脚注の定義は見ない" {
+    track docs/a.md "$(printf '%s\n' '[r][ok] [m][gone] [^1]' '' '[ok]: b.md' '[gone]: missing.md' '[^1]: 脚注の本文')"
+    track docs/b.md 'b'
+    run node "$SCRIPT" "$REPO"
+    assert_failure
+    assert_output --partial 'docs/a.md: missing.md -> docs/missing.md'
+    refute_output --partial 'docs/b.md'
+    refute_output --partial '脚注'
+}
+
+@test "リストの中でインデントしたコードブロックのリンクは見ない" {
+    track README.md "$(printf '%s\n' '- item' '' '  ```sh' '  [x](nope.md)' '  ```')"
+    run node "$SCRIPT" "$REPO"
+    assert_success
+}

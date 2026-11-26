@@ -86,5 +86,5 @@ command -v starship &>/dev/null && eval "$(starship init zsh)"
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh --cmd cd)"
 
 
-# Claude Code の Bash ツールでだけ立てる option。ツールの初期化より後に置く(理由は claude-code.zsh の冒頭)
+# Claude Code の Bash ツールでだけ立てる option。ツールの初期化より後に置く(理由は claude-code.zsh のヘッダコメント)
 source ~/.config/zsh/claude-code.zsh

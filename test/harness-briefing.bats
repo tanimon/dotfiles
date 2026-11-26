@@ -196,22 +196,30 @@ copy_briefing() {
     refute_output --partial 'deploy-only'
 }
 
-# install_chezmoi_stub RENDERED_JSON: chezmoi cat が RENDERED_JSON を出すスタブを置く。空なら失敗させる
-install_chezmoi_stub() {
-    mkdir -p "$BATS_TEST_TMPDIR/bin"
-    : >"$BATS_TEST_TMPDIR/rendered.json"
-    [[ -z "$1" ]] || printf '%s\n' "$1" >"$BATS_TEST_TMPDIR/rendered.json"
+# stub_chezmoi_cat MODE [RENDERED_JSON]: chezmoi cat のスタブを $BATS_TEST_TMPDIR/bin(setup の stub_uname が
+# PATH に前置する)に置く。MODE が ok なら RENDERED_JSON を出し、empty なら何も出さずに成功し、fail なら失敗する
+stub_chezmoi_cat() {
+    printf '%s\n' "${2:-}" >"$BATS_TEST_TMPDIR/rendered.json"
     cat >"$BATS_TEST_TMPDIR/bin/chezmoi" <<STUB
 #!/usr/bin/env bash
-[[ \$1 == cat && -s "$BATS_TEST_TMPDIR/rendered.json" ]] || { echo 'template error' >&2; exit 1; }
-cat "$BATS_TEST_TMPDIR/rendered.json"
+[[ \$1 == cat ]] || exit 1
+case $1 in
+ok) cat "$BATS_TEST_TMPDIR/rendered.json" ;;
+empty) ;;
+*) echo 'template error' >&2; exit 1 ;;
+esac
 STUB
     chmod +x "$BATS_TEST_TMPDIR/bin/chezmoi"
+}
+
+# 直前に review した状態にして、settings.json の食い違い以外の警告を出さないようにする
+mark_reviewed_now() {
     printf '{"version":1,"last_review_epoch":%s}' "$(date +%s)" >"$HDIR/state.json"
 }
 
 @test "live の settings.json が source の描画とキー順だけ違うなら OK のまま" {
-    install_chezmoi_stub '{"a":1,"hooks":{"Stop":[]}}'
+    stub_chezmoi_cat ok '{"a":1,"hooks":{"Stop":[]}}'
+    mark_reviewed_now
     printf '{"hooks":{"Stop":[]},"a":1}\n' >"$HOME/.claude/settings.json"
     run briefing
     assert_success
@@ -219,7 +227,8 @@ STUB
 }
 
 @test "live の settings.json に source に無い hook があれば、取り込み方を添えて警告する" {
-    install_chezmoi_stub '{"hooks":{"Stop":[]}}'
+    stub_chezmoi_cat ok '{"hooks":{"Stop":[]}}'
+    mark_reviewed_now
     printf '{"hooks":{"Stop":[],"PostToolBatch":[{"hooks":[{"command":"orca"}]}]}}\n' >"$HOME/.claude/settings.json"
     run briefing
     assert_success
@@ -229,15 +238,27 @@ STUB
 }
 
 @test "source を描画できなければ、黙らずに警告する" {
-    install_chezmoi_stub ''
+    stub_chezmoi_cat fail
+    mark_reviewed_now
     printf '{}\n' >"$HOME/.claude/settings.json"
     run briefing
     assert_success
     assert_output --partial 'could not render the chezmoi source'
 }
 
+@test "描画が空なら、食い違いではなく描画できなかったとして警告する" {
+    stub_chezmoi_cat empty
+    mark_reviewed_now
+    printf '{}\n' >"$HOME/.claude/settings.json"
+    run briefing
+    assert_success
+    assert_output --partial 'could not render the chezmoi source'
+    refute_output --partial 'differs from its chezmoi source'
+}
+
 @test "live の settings.json が無ければ食い違いを見ない" {
-    install_chezmoi_stub '{"hooks":{}}'
+    stub_chezmoi_cat ok '{"hooks":{}}'
+    mark_reviewed_now
     run briefing
     assert_success
     assert_output --partial 'Harness: OK'

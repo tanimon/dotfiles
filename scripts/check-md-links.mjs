@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // git 管理下の Markdown の相対リンクが、git 管理下のファイルかディレクトリを指していなければ落とす。
 //
+// 見るリンク: インラインリンク `[t](dest)`(`<dest>` の形と、括弧 1 段を含む dest を含む)と、
+// 参照形式の定義 `[label]: dest`。HTML の `<a href>` と脚注の定義(`[^n]:`)は見ない。
 // リンク先の解決:
 //   - `/` で始まるリンクはリポジトリルートから(GitHub の表示と同じ)
 //   - harness/modules/ の下のファイルはリポジトリルートから。モジュールはルートの CLAUDE.md / AGENTS.md に
 //     合成される前提で書かれているため(harness/project.json)
 //   - それ以外はリンクを書いたファイルのディレクトリから
-// 「git 管理下」は index にあって作業ツリーからも消していないもの。
-// URL(`https:` など scheme 付き)、ページ内アンカー(`#...`)、コードスパンとコードブロックの中は見ない。
-// アンカーの見出しが実在するかは見ない。
+// 「git 管理下」は index にあって作業ツリーからも消していないもの。リポジトリルート自体も含む。
+// URL(`https:` など scheme 付き)、ページ内アンカー(`#...`)、コードスパンとコードブロック(リストの中で
+// インデントしたフェンスを含む)の中は見ない。アンカーの見出しが実在するかは見ない。
 //
 // 使い方: check-md-links.mjs [dir]
 //   dir を省くとカレントディレクトリの git リポジトリを検査する。dir は git リポジトリのルートであること。
@@ -27,7 +29,7 @@ function gitFiles(...args) {
 const deleted = new Set(gitFiles("--deleted"));
 const tracked = gitFiles().filter((f) => !deleted.has(f));
 
-const known = new Set();
+const known = new Set(["."]);
 for (const file of tracked) {
   known.add(file);
   for (let dir = path.posix.dirname(file); dir !== "."; dir = path.posix.dirname(dir)) {
@@ -37,12 +39,27 @@ for (const file of tracked) {
 
 const ROOT_RELATIVE_PREFIX = "harness/modules/";
 
+const INLINE_LINK =
+  /\]\(\s*(?:<([^>\n]*)>|((?:[^()\s]|\([^()\s]*\))+))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+const REFERENCE_DEFINITION = /^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(?:<([^>\n]*)>|(\S+))/gm;
+
 function stripCode(text) {
-  return text.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "").replace(/`[^`\n]*`/g, "");
+  return text
+    .replace(/^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^[ \t]*\1[^\n]*$/gm, "")
+    .replace(/`[^`\n]*`/g, "");
+}
+
+// `%` の後が 16 進でない dest(`50%-off.md`)は decodeURI が投げるので、書かれたままのパスとして扱う
+function decodePath(target) {
+  try {
+    return decodeURI(target);
+  } catch {
+    return target;
+  }
 }
 
 function resolveTarget(file, target) {
-  const decoded = decodeURI(target);
+  const decoded = decodePath(target);
   if (decoded.startsWith("/")) return path.posix.normalize(decoded.slice(1));
   if (file.startsWith(ROOT_RELATIVE_PREFIX)) return path.posix.normalize(decoded);
   return path.posix.normalize(path.posix.join(path.posix.dirname(file), decoded));
@@ -51,11 +68,13 @@ function resolveTarget(file, target) {
 const broken = [];
 for (const file of tracked.filter((f) => f.endsWith(".md"))) {
   const text = stripCode(readFileSync(path.join(root, file), "utf8"));
-  for (const match of text.matchAll(/\]\(<?([^)\s>]+)>?(?:\s+"[^"]*")?\)/g)) {
-    const target = match[1].split("#")[0];
+  const matches = [...text.matchAll(INLINE_LINK), ...text.matchAll(REFERENCE_DEFINITION)];
+  for (const match of matches) {
+    const dest = match[1] ?? match[2];
+    const target = dest.split("#")[0];
     if (target === "" || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(target)) continue;
     const resolved = resolveTarget(file, target).replace(/\/$/, "");
-    if (!known.has(resolved)) broken.push(`${file}: ${match[1]} -> ${resolved}`);
+    if (!known.has(resolved)) broken.push(`${file}: ${dest} -> ${resolved}`);
   }
 }
 

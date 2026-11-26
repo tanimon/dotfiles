@@ -199,7 +199,7 @@ check-templates:
 @test-adr-numbers:
     LC_ALL=C pnpm exec bats test/check-adr-numbers.bats
 
-# git 管理下の Markdown の相対リンクが git 管理下のパスを指すことを検査する(解決の規則は check-md-links.mjs の冒頭)
+# git 管理下の Markdown の相対リンクが git 管理下のパスを指すことを検査する(見るリンクと解決の規則は check-md-links.mjs のヘッダコメント)
 @check-md-links:
     node scripts/check-md-links.mjs
 

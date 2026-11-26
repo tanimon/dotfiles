@@ -41,4 +41,7 @@ run_zsh() {
     run_zsh '' 'printf "%s\n" --include=*.vue'
     assert_failure
     assert_output --partial 'no matches found'
+    run_zsh '' 'H=/h; arr=(x y); echo =ls "$H:t" "${arr[1]}"'
+    assert_success
+    assert_output --regexp '^/.*/ls h x$'
 }

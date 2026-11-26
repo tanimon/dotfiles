@@ -130,7 +130,8 @@ fi
 # まだ apply していない(live が無い)機械では見ない
 SETTINGS="$HOME/.claude/settings.json"
 if [[ -f "$SETTINGS" ]] && command -v chezmoi >/dev/null 2>&1; then
-    if ! RENDERED=$(chezmoi cat "$SETTINGS" 2>/dev/null | jq -S .); then
+    # 描画が空でも jq -S . は空のまま成功するので、空も描画の失敗として扱う(食い違いの警告にしない)
+    if ! RENDERED=$(chezmoi cat "$SETTINGS" 2>/dev/null | jq -S .) || [[ -z "$RENDERED" ]]; then
         WARNINGS+=("could not render the chezmoi source of $SETTINGS to check it for drift — run chezmoi cat $SETTINGS to see why")
     elif ! LIVE=$(jq -S . "$SETTINGS" 2>/dev/null); then
         WARNINGS+=("$SETTINGS is not valid JSON — run chezmoi diff $SETTINGS")

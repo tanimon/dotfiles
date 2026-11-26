@@ -9,11 +9,14 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
 
 ## Bash ツールは zsh で動く
 
-- **bash の書き方とずれる 4 つの option は `~/.config/zsh/claude-code.zsh` が bash 側に寄せてある。**
-  `no_equals`(`=cmd` 展開)・`ksh_arrays`(波括弧の無い `$VAR:h` の修飾子。配列の添字も 0 から)・`no_nomatch`
-  (一致しない glob をそのまま渡す)・`sh_word_split`(クォートしない `$VAR` を分割する)。`== not found`・`bad substitution`・
-  `no matches found`・`command not found: git -c …` が出たら、最新の `~/.claude/shell-snapshots/*.sh` に
+- **bash の書き方とずれる 4 つの option は `~/.config/zsh/claude-code.zsh` が bash 側に寄せてある**(各 option が
+  止める書き方はそのファイルのヘッダコメント)。書き方に効くのは配列で、`ksh_arrays` により添字は 0 から、`$arr` は
+  先頭の要素だけになる(全要素は `"${arr[@]}"`)。`== not found`・`bad substitution`・`no matches found`・
+  `command not found: git -c …` が出たら、最新の `~/.claude/shell-snapshots/*.sh` に
   `noequals` `ksharrays` `nonomatch` `shwordsplit` が写っているかを確かめる。
+  他のシェルでも同じ意味になるよう、`$VAR` の直後に `:` が続くときは `${VAR}` で閉じる。
+  **理由:** クォートや配列で避けるルールを書いても、`command not found: git -c …` が 8 つの transcript で 40 回出ていた。
+  文書では止まらなかったので、シェルの側で起こらなくした。
 - **空になりうる glob のループには、コマンドの先頭に `setopt nullglob;` を置く。** `no_nomatch` の下では一致しない
   `for f in dir/*.md` が bash と同じくパターンの文字列のまま 1 回回る。glob 修飾子 `(N)` はこのシェルが
   `nobareglobqual` で動くため効かない(実測)。
