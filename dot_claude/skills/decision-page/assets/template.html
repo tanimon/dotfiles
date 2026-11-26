@@ -188,9 +188,10 @@ legend { padding: 0; margin-bottom: 4px; }
 
   function syncDiagram() {
     document.querySelectorAll("[data-when]").forEach((n) => {
-      const on = n.dataset.when.split(" ").some((cond) => {
+      const on = n.dataset.when.split(/\s+/).filter(Boolean).some((cond) => {
         const [qid, oid] = cond.split(":");
         const q = data.questions.find((x) => x.id === qid);
+        if (!q) return false;
         const chosen = answers[qid] && answers[qid].choice && answers[qid].choice !== "other" ? answers[qid].choice : (q.options.find((o) => o.recommended) || {}).id;
         return chosen === oid;
       });

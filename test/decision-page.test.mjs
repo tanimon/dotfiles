@@ -167,6 +167,11 @@ const broken = [
     { questions: [q("Q1", [{ id: "A" }])], diagram: '<path data-when="Q1:A Q2:B"/>' },
     /Q2:B が、どの問いの選択肢も指していない/,
   ],
+  [
+    "根拠の表の data-when(一重引用符)が無い選択肢を指す",
+    { questions: [q("Q1", [{ id: "A" }])], evidence: "<td data-when='Q1:A  Q1:Z'></td>" },
+    /Q1:Z が、どの問いの選択肢も指していない/,
+  ],
 ];
 for (const [name, patch, message] of broken) {
   test(`壊れたデータは理由を出して止める: ${name}`, () => {

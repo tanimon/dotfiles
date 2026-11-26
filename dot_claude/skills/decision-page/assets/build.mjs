@@ -40,8 +40,9 @@ function validate(data) {
     if (q.options.filter((o) => o.recommended).length > 1)
       errors.push(`${q.id}: 推奨は 1 問に 1 つまで`);
   }
-  for (const [, when] of String(data.diagram || "").matchAll(/data-when="([^"]*)"/g)) {
-    for (const cond of when.split(" ").filter(Boolean)) {
+  const html = `${data.diagram || ""}${data.evidence || ""}`;
+  for (const [, , when] of html.matchAll(/data-when=(["'])(.*?)\1/g)) {
+    for (const cond of when.split(/\s+/).filter(Boolean)) {
       const [qid, oid] = cond.split(":");
       if (!optionIds.get(qid)?.has(oid))
         errors.push(`data-when の ${cond} が、どの問いの選択肢も指していない`);
