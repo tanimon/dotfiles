@@ -322,6 +322,30 @@ jobs:
           pnpm: 'true'
       - run: just test-adr-numbers
 
+  check-md-links:
+    name: Check Markdown links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+        with:
+          node: 'true'
+      - run: just check-md-links
+
+  test-md-links:
+    name: Markdown link check smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-lint
+        with:
+          pnpm: 'true'
+      - run: just test-md-links
+
   test-pr-context:
     name: pr-context smoke tests
     runs-on: ubuntu-latest

@@ -153,7 +153,7 @@ Does chezmoi need to manage this file?
 
 ## Related
 
-- [`dot_claude/modify_claude.json`](/dot_claude/modify_claude.json) — same pattern for partial JSON management (MCP servers via `jq`); renamed and retargeted from `modify_dot_claude.json`/`~/.claude.json` — see [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md) for why
+- [`dot_config/karabiner/modify_karabiner.json`](/dot_config/karabiner/modify_karabiner.json) — 同じ部分管理のパターン(所有するキーだけを `jq` で書き換える)の現存する実例。`~/.claude.json` を部分管理していた `modify_` スクリプトは削除済みで、symlink の扱いは [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md)
 - [`chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md`](chezmoi-apply-non-interactive-sandbox-claude-json-data-loss.md) — a real incident hitting the environmental-race gotcha in the table above, against `modify_dot_claude.json` specifically (as it was named at the time), with a full recovery playbook
 - [`chezmoi-modify-script-symlink-target.md`](chezmoi-modify-script-symlink-target.md) — the symlink-target gotcha added to the table above, with the isolated-test methodology used to verify it safely
 - [`docs/solutions/integration-issues/claude-code-mcp-server-config-location.md`](/docs/solutions/integration-issues/claude-code-mcp-server-config-location.md) — MCP server config discovery

@@ -54,13 +54,6 @@ ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 setopt nolistbeep
 
 
-# Claude Code の Bash ツールでだけ、`=cmd` 展開(no_equals)と、波括弧の無い `$VAR:h` の修飾子(ksh_arrays)を切る。
-# 理由は ~/.claude/rules/claude-code/bash-tool.md の「Bash ツールは zsh で動く」節。Bash ツールは起動時の
-# シェルスナップショットに setopt の状態を写して使うので、ここで立てた option がスナップショット経由で効く。
-# ksh_arrays は配列も bash と同じ扱い(添字は 0 から)にする。人の対話シェルは zsh の既定のまま残す
-[[ -n "${CLAUDECODE:-}" ]] && setopt no_equals ksh_arrays
-
-
 # Enable zmv
 autoload -Uz zmv
 alias zmv='noglob zmv -W'
@@ -91,3 +84,7 @@ command -v mise &>/dev/null && eval "$(mise activate zsh)"
 command -v sheldon &>/dev/null && eval "$(sheldon source)"
 command -v starship &>/dev/null && eval "$(starship init zsh)"
 command -v zoxide &>/dev/null && eval "$(zoxide init zsh --cmd cd)"
+
+
+# Claude Code の Bash ツールでだけ立てる option。ツールの初期化より後に置く(理由は claude-code.zsh のヘッダコメント)
+source ~/.config/zsh/claude-code.zsh

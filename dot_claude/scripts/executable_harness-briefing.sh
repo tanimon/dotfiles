@@ -124,6 +124,22 @@ if [[ "${DEPLOY_ONLY_COUNT:-0}" -gt 0 ]]; then
     WARNINGS+=("weekly job left deploy-only fix(es) to apply by hand (${DEPLOY_ONLY_COUNT}) — read $DEPLOY_ONLY, apply them, then delete it")
 fi
 
+# live の ~/.claude/settings.json が chezmoi の source の描画と食い違っていないか。orca や /config が live に
+# 書き足した変更は次の chezmoi apply で黙って消えるので、source に取り込むか apply するまで知らせ続ける。
+# 外部ツールはキーの順序を変えて書き戻すので、キー順を正規化して比べる。chezmoi が無い機械と、
+# まだ apply していない(live が無い)機械では見ない
+SETTINGS="$HOME/.claude/settings.json"
+if [[ -f "$SETTINGS" ]] && command -v chezmoi >/dev/null 2>&1; then
+    # 描画が空でも jq -S . は空のまま成功するので、空も描画の失敗として扱う(食い違いの警告にしない)
+    if ! RENDERED=$(chezmoi cat "$SETTINGS" 2>/dev/null | jq -S .) || [[ -z "$RENDERED" ]]; then
+        WARNINGS+=("could not render the chezmoi source of $SETTINGS to check it for drift — run chezmoi cat $SETTINGS to see why")
+    elif ! LIVE=$(jq -S . "$SETTINGS" 2>/dev/null); then
+        WARNINGS+=("$SETTINGS is not valid JSON — run chezmoi diff $SETTINGS")
+    elif [[ "$RENDERED" != "$LIVE" ]]; then
+        WARNINGS+=("$SETTINGS differs from its chezmoi source (orca or /config may have written to it), and chezmoi apply discards live-only changes — run chezmoi diff $SETTINGS, then port live-only changes into dot_claude/settings.json.tmpl or run chezmoi apply")
+    fi
+fi
+
 if [[ ${#WARNINGS[@]} -eq 0 ]]; then
     printf 'Harness: OK | queue: %s | pending: %s | last review: %s' \
         "$QUEUE_COUNT" "$PENDING_COUNT" "$LAST_REVIEW_TEXT"

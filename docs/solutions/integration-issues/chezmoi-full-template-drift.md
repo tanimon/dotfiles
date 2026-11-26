@@ -39,8 +39,8 @@ diff <(chezmoi cat ~/.claude/settings.json) ~/.claude/settings.json
 
 1. **After changing settings via CLI or `/config`**: run `chezmoi diff` to check for drift, then update the source template
 2. **Before modifying a `.tmpl` file**: compare with the deployed target first to catch accumulated drift
-3. **Consider `modify_` pattern**: for files with many runtime-mutable keys, a `modify_` script (like `modify_dot_claude.json`) preserves target state while managing specific keys
+3. **Consider `modify_` pattern**: for files with many runtime-mutable keys, a `modify_` script (like `dot_config/karabiner/modify_karabiner.json`) preserves target state while managing specific keys
 
 ## Related
 
-- [modify_dot_claude.json pattern](../../CLAUDE.md) — partial JSON management for runtime-mutable files
+- [modify_karabiner.json pattern](../../../dot_config/karabiner/CLAUDE.md) — partial JSON management for runtime-mutable files

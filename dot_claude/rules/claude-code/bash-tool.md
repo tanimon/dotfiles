@@ -9,24 +9,19 @@ Claude Code 専用のルール。どのリポジトリでも成立する。
 
 ## Bash ツールは zsh で動く
 
-- **`=cmd` 展開は `~/.zshrc` の `setopt no_equals` で切ってある。** 切れていないと `echo === x` が
-  `== not found` になり、コマンド全体が exit 1 で出力ごと失われる。それでも `== not found` が出たら、
-  最新の `~/.claude/shell-snapshots/*.sh` に `noequals` が写っているかを確かめる。
-- **glob を含む引数はクォートする。** zsh は一致しない glob でコマンド全体を `no matches found` で止める。
-  `grep -r --include='*.vue'` のようにオプション値の `*` も対象。`no matches found` の後に出た件数(`0` など)は無効。
-  展開させたい glob(`for f in dir/*.md` のループ対象など)が空になりうるときは、コマンドの先頭に `setopt nullglob;` を置く。
-  glob 修飾子 `(N)` はこのシェルが `nobareglobqual` で動くため効かず、同じ `no matches found` で止まる(実測)。
+- **bash の書き方とずれる 4 つの option は `~/.config/zsh/claude-code.zsh` が bash 側に寄せてある**(各 option が
+  止める書き方はそのファイルのヘッダコメント)。書き方に効くのは配列で、`ksh_arrays` により添字は 0 から、`$arr` は
+  先頭の要素だけになる(全要素は `"${arr[@]}"`)。`== not found`・`bad substitution`・`no matches found`・
+  `command not found: git -c …` が出たら、最新の `~/.claude/shell-snapshots/*.sh` に
+  `noequals` `ksharrays` `nonomatch` `shwordsplit` が写っているかを確かめる。
+  他のシェルでも同じ意味になるよう、`$VAR` の直後に `:` が続くときは `${VAR}` で閉じる。
+  **理由:** クォートや配列で避けるルールを書いても、`command not found: git -c …` が 8 つの transcript で 40 回出ていた。
+  文書では止まらなかったので、シェルの側で起こらなくした。
+- **空になりうる glob のループには、コマンドの先頭に `setopt nullglob;` を置く。** `no_nomatch` の下では一致しない
+  `for f in dir/*.md` が bash と同じくパターンの文字列のまま 1 回回る。glob 修飾子 `(N)` はこのシェルが
+  `nobareglobqual` で動くため効かない(実測)。
 - **`path` `fpath` `cdpath` `manpath` `status` `argv` を変数名にしない。** `for path in …` は `PATH` を書き換え、
   以降の外部コマンドが `command not found` になる。症状は代入から離れた場所で出る。
-- **波括弧の無い `$VAR:h` の修飾子は `~/.zshrc` の `setopt ksh_arrays` で切ってある。** 切れていないと
-  `"$BR:app/x"` の `:a` が修飾子として消費されてパスが黙って壊れ、`$H:scripts` は `bad substitution` で止まる。
-  この option は配列も bash と同じ扱い(添字は 0 から、`$arr` は先頭の要素だけ。全要素は `"${arr[@]}"`)にする。
-  `$VAR:` の後ろが化けたら、最新のスナップショットに `ksharrays` が写っているかを確かめる。
-  他のシェルでも同じ意味になるよう、`$VAR` の直後に `:` が続くときは `${VAR}` で閉じる。
-- **コマンドと引数を 1 つの文字列変数に入れて `$G add …` と実行しない。** zsh はクォートしない `$VAR` を単語分割しないので、
-  `G="git -c core.fsmonitor=false"; $G add x` は `command not found: git -c core.fsmonitor=false`(exit 127)で止まる。
-  同じオプションを繰り返したいときは配列にして `G=(git -c core.fsmonitor=false); "${G[@]}" add x` と書くか、毎回書き下す。
-  **理由:** この形の `command not found` が 8 つの transcript で 40 回出ていた。
 - **Bash の `grep` はシェルスナップショットが定義する関数で、実体は同梱の ugrep。** ugrep は `.` を UTF-8 のバイト列の
   選択肢に展開するので、マッチの前後の両側を `'.\{0,N\}X.\{0,N\}'` で切り出すと `exceeds complexity limits`(rc=2)で止まる。
   止まる N は `X` で変わり、1 文字や日本語の `X` では N=16 前後でも止まる(実測)ので、N を小さくして通す回避は当てにしない。
