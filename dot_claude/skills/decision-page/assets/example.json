@@ -1,0 +1,83 @@
+{
+  "id": "663-result-routing",
+  "title": "無人実行の結果をあなたに戻す経路",
+  "source": "tanimon/dotfiles#663",
+  "context": "issue 1 件から PR を自動で作る仕組み(#649。人の手を介さずに実装から PR の作成までを行う)を 1 回実行し終えたとき、その結果をどうやってあなたに知らせるかを決める。結果は「PR ができた」「要件があいまいで needs-info を付けて止まった」「途中の段が失敗し、PR を作らなかった」の 3 通り。今は実行を手で起動するので、終わったときに端末を見ていられる。無人で自動起動するのは後の段階。",
+  "diagram": "<svg viewBox=\"0 0 440 300\" role=\"img\" aria-label=\"3 通りの結果が、どこに残り、あなたにどう届くか\"><defs><marker id=\"arr\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto\"><path d=\"M0,0 L10,5 L0,10 z\" class=\"d-head\"/></marker></defs><g class=\"d-col\"><text x=\"85\" y=\"14\">結果</text><text x=\"340\" y=\"10\">残る場所(あなたへの届き方)</text></g><g class=\"d-box\"><rect x=\"0\" y=\"40\" width=\"170\" height=\"50\" rx=\"8\" class=\"\"/><text x=\"85.0\" y=\"70.0\">PR ができた</text><rect x=\"0\" y=\"140\" width=\"170\" height=\"50\" rx=\"8\" class=\"\"/><text x=\"85.0\" y=\"170.0\">needs-info で止まった</text><rect x=\"0\" y=\"240\" width=\"170\" height=\"50\" rx=\"8\" class=\"\"/><text x=\"85.0\" y=\"270.0\">段が失敗した</text><rect x=\"240\" y=\"16\" width=\"200\" height=\"52\" rx=\"8\" class=\"d-pull\"/><text x=\"340.0\" y=\"40.0\">PR</text><text x=\"340.0\" y=\"58.0\" class=\"d-sub d-pull\">見に行って気づく</text><rect x=\"240\" y=\"91\" width=\"200\" height=\"52\" rx=\"8\" class=\"d-pull\"/><text x=\"340.0\" y=\"115.0\">issue のラベル・コメント</text><text x=\"340.0\" y=\"133.0\" class=\"d-sub d-pull\">見に行って気づく</text><rect x=\"240\" y=\"166\" width=\"200\" height=\"52\" rx=\"8\" class=\"d-pull\"/><text x=\"340.0\" y=\"190.0\">失敗の Issue</text><text x=\"340.0\" y=\"208.0\" class=\"d-sub d-pull\">見に行って気づく</text><rect x=\"240\" y=\"241\" width=\"200\" height=\"52\" rx=\"8\" class=\"d-push\"/><text x=\"340.0\" y=\"265.0\">macOS の通知</text><text x=\"340.0\" y=\"283.0\" class=\"d-sub d-push\">向こうから届く</text></g><g class=\"d-edge\"><path data-when=\"Q1:A Q1:B Q1:C\" d=\"M170,65 L228,42\"/><path data-when=\"Q1:A Q1:B Q1:C\" d=\"M170,165 L228,117\"/><path data-when=\"Q1:A Q1:B\" d=\"M170,265 L228,117\"/><path data-when=\"Q1:C\" d=\"M170,265 L228,192\"/><path data-when=\"Q1:B\" d=\"M170,65 L228,262\"/><path data-when=\"Q1:B\" d=\"M170,165 L228,265\"/><path data-when=\"Q1:B\" d=\"M170,265 L228,268\"/></g></svg>",
+  "diagramCaption": "矢印は Q1 で選んだ案の経路。未選択のあいだは推奨の案を表示する。手で起動している今は、どの案でも端末に最後の出力が出る(図には描いていない)。",
+  "questions": [
+    {
+      "id": "Q1",
+      "label": "結果ごとの戻し方",
+      "prompt": "3 通りの結果を、それぞれどこに残すか",
+      "detail": "前提: エージェントはあなたの GitHub アカウントで書き込む。GitHub は自分の操作を自分には通知しないので、PR や issue のコメントは通知として届かず、一覧を見に行って気づくことになる(GitHub の既定の挙動からの推定で、未検証)。",
+      "options": [
+        {
+          "id": "A",
+          "label": "GitHub に残すだけ(失敗は issue にコメント)",
+          "gain": "新しい仕組みが要らない。手で起動している今は、端末の最後の出力で結果が分かる",
+          "cost": "無人で動かし始めたら、見に行くまで気づけない。そのときに決め直す",
+          "recommended": true
+        },
+        {
+          "id": "B",
+          "label": "GitHub に残し、macOS の通知も出す",
+          "gain": "どの結果でも、その場で気づける",
+          "cost": "サンドボックス(nono)の内側から通知を出せるかは未確認。手で起動する今は端末の出力と重複する"
+        },
+        {
+          "id": "C",
+          "label": "失敗のときだけ専用の Issue を立てる",
+          "gain": "週次の自動ジョブが失敗時に Issue を立てる仕組みを再利用でき、同じ失敗は 1 件にまとまる",
+          "cost": "自分のアカウントで立てるので通知は届かない。Issue 一覧を見る習慣が要る"
+        }
+      ]
+    },
+    {
+      "id": "Q2",
+      "label": "成功した run の記録",
+      "prompt": "PR ができた run でも、毎回その run の要約(費用・段ごとの時間)を残すか",
+      "options": [
+        {
+          "id": "A",
+          "label": "PR 本文に要約を足す",
+          "gain": "レビューと同じ画面で費用と時間を見られる",
+          "cost": "PR 本文が長くなる"
+        },
+        {
+          "id": "B",
+          "label": "残さない",
+          "gain": "PR そのものが結果。仕組みが増えない",
+          "cost": "費用の推移を後から追えない"
+        },
+        {
+          "id": "C",
+          "label": "#662(何を数えてどこに残すか)で一緒に決める",
+          "gain": "計測の中身と置き場を一度に決められる",
+          "cost": "#662 が閉じるまで、記録は何も残らない",
+          "recommended": true
+        }
+      ]
+    },
+    {
+      "id": "Q3",
+      "label": "起動漏れの検知",
+      "prompt": "後で自動起動にしたとき、起動されなかったことにどう気づくか",
+      "options": [
+        {
+          "id": "A",
+          "label": "今は決めない。自動起動を足すときに決める",
+          "gain": "手で起動する間は、起動漏れは起きない",
+          "cost": "自動起動を足す issue に、この論点を書き残しておく必要がある",
+          "recommended": true
+        },
+        {
+          "id": "B",
+          "label": "週次の自動ジョブと同じ「最後に成功した時刻の記録」を今入れる",
+          "gain": "その記録が古くなると、セッション開始時の状況表示がすでに警告する",
+          "cost": "手で起動する今は、起動しない週ごとに警告が出るだけで意味が薄い"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,230 @@
+<title>/*TITLE*/</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #1b2130;
+  --muted: #5a6478;
+  --line: #d5dae3;
+  --accent: #2c56c9;
+  --accent-soft: #e6ecfb;
+  --rec: #1d7a4f;
+  --rec-soft: #e3f3ea;
+  --bad: #b3261e;
+  --on-accent: #ffffff;
+  --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #12151c; --surface: #1b1f29; --ink: #e6e9f0; --muted: #a0a9bb; --line: #333a4a;
+    --accent: #8fa9ff; --accent-soft: #232c47; --rec: #6fd3a0; --rec-soft: #183126; --bad: #ff8a80;
+    --on-accent: #0d1020;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #12151c; --surface: #1b1f29; --ink: #e6e9f0; --muted: #a0a9bb; --line: #333a4a;
+  --accent: #8fa9ff; --accent-soft: #232c47; --rec: #6fd3a0; --rec-soft: #183126; --bad: #ff8a80;
+  --on-accent: #0d1020;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 120px;
+}
+.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 28px; }
+header { display: grid; gap: 8px; }
+.eyebrow { font-size: 12px; letter-spacing: .06em; color: var(--muted); }
+h1 { font-size: 24px; line-height: 1.4; margin: 0; text-wrap: balance; }
+.context { margin: 0; max-width: 65ch; }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 8px; }
+figure .scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; max-width: 560px; margin: 0 auto; height: auto; }
+figcaption { font-size: 13px; color: var(--muted); }
+.d-col text { fill: var(--muted); font-size: 13px; text-anchor: middle; }
+.d-box rect { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.d-box rect.d-you { fill: var(--accent-soft); stroke: var(--accent); }
+.d-box text { fill: var(--ink); font-size: 15px; text-anchor: middle; }
+.d-box text.d-sub { fill: var(--muted); font-size: 12px; }
+.d-box rect.d-pull { stroke-dasharray: 5 4; }
+.d-box rect.d-push { stroke: var(--rec); }
+.d-box text.d-push { fill: var(--rec); }
+.d-edge path, .d-pull path, .d-push path { fill: none; stroke-width: 2; display: none; }
+.d-edge path { stroke: var(--accent); marker-end: url(#arr); }
+.d-pull path { stroke: var(--muted); stroke-dasharray: 5 5; }
+.d-push path { stroke: var(--rec); marker-end: url(#arr); }
+.d-edge path.on, .d-pull path.on, .d-push path.on { display: inline; }
+.d-head { fill: var(--accent); }
+.d-legend text { fill: var(--muted); font-size: 11px; }
+.d-pull-l { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 5 5; }
+.d-push-l { stroke: var(--rec); stroke-width: 2; }
+.evidence { overflow-x: auto; }
+.evidence table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+.evidence th, .evidence td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.evidence th { font-weight: 600; color: var(--muted); font-size: 13px; }
+.evidence td.bad { color: var(--bad); font-weight: 600; }
+.evidence .note { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.qs { display: grid; gap: 32px; }
+fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; }
+legend { padding: 0; margin-bottom: 4px; }
+.qid { font-family: var(--font-mono); font-size: 13px; color: var(--accent); margin-right: 8px; }
+.qlabel { font-size: 17px; font-weight: 700; }
+.prompt { margin: 0; }
+.detail { margin: 0; font-size: 13px; color: var(--muted); max-width: 65ch; }
+.opts { display: grid; gap: 8px; }
+.opt { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: start; background: var(--surface); border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; }
+.opt:hover { border-color: var(--accent); }
+.opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.opt input { margin: 5px 0 0; accent-color: var(--accent); }
+.opt .head { display: block; }
+.opt .head > * + * { margin-left: 8px; }
+.opt .oid { font-family: var(--font-mono); font-weight: 700; }
+.opt .olabel { font-weight: 600; }
+.badge { white-space: nowrap; font-size: 12px; color: var(--rec); background: var(--rec-soft); border-radius: 999px; padding: 0 8px; }
+.opt dl { grid-column: 2; margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 13px; color: var(--muted); }
+.opt dt { font-weight: 600; }
+.opt dd { margin: 0; }
+.opt textarea, .notebox textarea { grid-column: 2; width: 100%; font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-height: 64px; }
+.notebox summary { font-size: 13px; color: var(--muted); cursor: pointer; }
+.notebox textarea { margin-top: 6px; }
+.out { display: grid; gap: 8px; }
+.out h2 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 600; }
+.out pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-family: var(--font-mono); font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line);
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.bar .in { max-width: 760px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.progress { font-variant-numeric: tabular-nums; font-weight: 600; }
+.status { font-size: 13px; color: var(--muted); flex: 1 1 200px; }
+.copy { margin-left: auto; font: inherit; font-weight: 700; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 10px; padding: 10px 20px; cursor: pointer; }
+.copy:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) { .opt { transition: border-color .12s, background-color .12s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="eyebrow"></div>
+    <h1 id="title"></h1>
+    <p class="context" id="context"></p>
+  </header>
+  <div id="visual"></div>
+  <form id="form" class="qs"></form>
+  <section class="out">
+    <h2>コピーされるテキスト(このままセッションに貼り戻す)</h2>
+    <pre id="preview"></pre>
+  </section>
+</div>
+<div class="bar"><div class="in">
+  <span class="progress" id="progress"></span>
+  <span class="status" id="status" role="status"></span>
+  <button type="button" class="copy" id="copy">回答をコピー</button>
+</div></div>
+
+<script id="decision-data" type="application/json">/*DATA*/</script>
+<script>
+/*SERIALIZE*/
+(() => {
+  const data = JSON.parse(document.getElementById("decision-data").textContent);
+  const answers = {};
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  $("eyebrow").textContent = `判断のお願い · ${data.source}`;
+  $("title").textContent = data.title;
+  $("context").textContent = data.context;
+  if (data.evidence) { const d = el("div", "evidence"); d.innerHTML = data.evidence; $("visual").append(d); }
+  if (data.diagram) {
+    const f = el("figure"); const s = el("div", "scroll"); s.innerHTML = data.diagram; f.append(s);
+    if (data.diagramCaption) f.append(el("figcaption", null, data.diagramCaption));
+    $("visual").append(f);
+  }
+
+  for (const q of data.questions) {
+    const fieldset = el("fieldset");
+    const lg = el("legend"); lg.append(el("span", "qid", q.id), el("span", "qlabel", q.label)); fieldset.append(lg);
+    fieldset.append(el("p", "prompt", q.prompt));
+    if (q.detail) fieldset.append(el("p", "detail", q.detail));
+    const opts = el("div", "opts");
+    const choices = [...q.options, { id: "other", label: "その他(自由記述)" }];
+    for (const o of choices) {
+      const lab = el("label", "opt");
+      const inp = el("input"); inp.type = "radio"; inp.name = q.id; inp.value = o.id; inp.id = `${q.id}-${o.id}`;
+      const head = el("div", "head");
+      if (o.id !== "other") head.append(el("span", "oid", o.id));
+      head.append(el("span", "olabel", o.label));
+      if (o.recommended) head.append(el("span", "badge", "推奨"));
+      lab.append(inp, head);
+      if (o.gain || o.cost) {
+        const dl = el("dl");
+        if (o.gain) dl.append(el("dt", null, "得るもの"), el("dd", null, o.gain));
+        if (o.cost) dl.append(el("dt", null, "代償"), el("dd", null, o.cost));
+        lab.append(dl);
+      }
+      if (o.id === "other") {
+        const ta = el("textarea"); ta.id = `${q.id}-other-text`; ta.placeholder = "どうしたいかを書く"; ta.hidden = true;
+        ta.addEventListener("input", () => { answers[q.id] = { ...(answers[q.id] || {}), choice: "other", text: ta.value }; update(); });
+        lab.append(ta);
+        inp.addEventListener("change", () => { ta.hidden = false; ta.focus(); });
+      }
+      inp.addEventListener("change", () => {
+        const prev = answers[q.id] || {};
+        answers[q.id] = { ...prev, choice: o.id };
+        fieldset.querySelectorAll("textarea[id$='-other-text']").forEach((t) => { if (o.id !== "other") t.hidden = true; });
+        update();
+      });
+      opts.append(lab);
+    }
+    fieldset.append(opts);
+    const noteBox = el("details", "notebox"); noteBox.append(el("summary", null, "補足を書く(任意)"));
+    const noteText = el("textarea"); noteText.id = `${q.id}-note`;
+    noteText.addEventListener("input", () => { answers[q.id] = { ...(answers[q.id] || {}), note: noteText.value }; update(); });
+    noteBox.append(noteText); fieldset.append(noteBox);
+    $("form").append(fieldset);
+  }
+
+  function syncDiagram() {
+    document.querySelectorAll("[data-when]").forEach((n) => {
+      const on = n.dataset.when.split(/\s+/).filter(Boolean).some((cond) => {
+        const [qid, oid] = cond.split(":");
+        const q = data.questions.find((x) => x.id === qid);
+        if (!q) return false;
+        const chosen = answers[qid] && answers[qid].choice && answers[qid].choice !== "other" ? answers[qid].choice : (q.options.find((o) => o.recommended) || {}).id;
+        return chosen === oid;
+      });
+      n.classList.toggle("on", on);
+    });
+  }
+  function update() {
+    $("progress").textContent = `回答 ${countAnswered(data, answers)}/${data.questions.length}`;
+    $("preview").textContent = serializeDecision(data, answers);
+    syncDiagram();
+  }
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* 次の手段へ */ }
+    }
+    try {
+      const ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.append(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove();
+      if (ok) return true;
+    } catch (e) { /* 次の手段へ */ }
+    return false;
+  }
+  $("copy").addEventListener("click", async () => {
+    const text = serializeDecision(data, answers);
+    const copied = await copyText(text);
+    const left = data.questions.length - countAnswered(data, answers);
+    if (copied) {
+      $("status").textContent = "コピーしました。セッションに貼り付けてください" + (left ? `。未回答が ${left} 問あります` : "");
+    } else {
+      const r = document.createRange(); r.selectNodeContents($("preview")); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      $("status").textContent = "自動でコピーできませんでした。選択済みのテキストを ⌘C / Ctrl+C でコピーしてください";
+    }
+  });
+  update();
+})();
+</script>
