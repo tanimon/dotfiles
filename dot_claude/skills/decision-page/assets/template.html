@@ -12,6 +12,7 @@
   --rec: #1d7a4f;
   --rec-soft: #e3f3ea;
   --bad: #b3261e;
+  --on-accent: #ffffff;
   --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -20,12 +21,14 @@
     color-scheme: dark;
     --bg: #12151c; --surface: #1b1f29; --ink: #e6e9f0; --muted: #a0a9bb; --line: #333a4a;
     --accent: #8fa9ff; --accent-soft: #232c47; --rec: #6fd3a0; --rec-soft: #183126; --bad: #ff8a80;
+    --on-accent: #0d1020;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #12151c; --surface: #1b1f29; --ink: #e6e9f0; --muted: #a0a9bb; --line: #333a4a;
   --accent: #8fa9ff; --accent-soft: #232c47; --rec: #6fd3a0; --rec-soft: #183126; --bad: #ff8a80;
+  --on-accent: #0d1020;
 }
 * { box-sizing: border-box; }
 body {
@@ -97,9 +100,7 @@ legend { padding: 0; margin-bottom: 4px; }
 .bar .in { max-width: 760px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
 .progress { font-variant-numeric: tabular-nums; font-weight: 600; }
 .status { font-size: 13px; color: var(--muted); flex: 1 1 200px; }
-.copy { margin-left: auto; font: inherit; font-weight: 700; color: #fff; background: var(--accent); border: 0; border-radius: 10px; padding: 10px 20px; cursor: pointer; }
-:root[data-theme="dark"] .copy { color: #0d1020; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .copy { color: #0d1020; } }
+.copy { margin-left: auto; font: inherit; font-weight: 700; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 10px; padding: 10px 20px; cursor: pointer; }
 .copy:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) { .opt { transition: border-color .12s, background-color .12s; } }
 </style>
@@ -143,10 +144,10 @@ legend { padding: 0; margin-bottom: 4px; }
   }
 
   for (const q of data.questions) {
-    const fs = el("fieldset");
-    const lg = el("legend"); lg.append(el("span", "qid", q.id), el("span", "qlabel", q.label)); fs.append(lg);
-    fs.append(el("p", "prompt", q.prompt));
-    if (q.detail) fs.append(el("p", "detail", q.detail));
+    const fieldset = el("fieldset");
+    const lg = el("legend"); lg.append(el("span", "qid", q.id), el("span", "qlabel", q.label)); fieldset.append(lg);
+    fieldset.append(el("p", "prompt", q.prompt));
+    if (q.detail) fieldset.append(el("p", "detail", q.detail));
     const opts = el("div", "opts");
     const choices = [...q.options, { id: "other", label: "その他(自由記述)" }];
     for (const o of choices) {
@@ -171,18 +172,18 @@ legend { padding: 0; margin-bottom: 4px; }
       }
       inp.addEventListener("change", () => {
         const prev = answers[q.id] || {};
-        answers[q.id] = { ...prev, choice: o.id, text: o.id === "other" ? (prev.text || "") : undefined };
-        fs.querySelectorAll("textarea[id$='-other-text']").forEach((t) => { if (o.id !== "other") t.hidden = true; });
+        answers[q.id] = { ...prev, choice: o.id };
+        fieldset.querySelectorAll("textarea[id$='-other-text']").forEach((t) => { if (o.id !== "other") t.hidden = true; });
         update();
       });
       opts.append(lab);
     }
-    fs.append(opts);
-    const nb = el("details", "notebox"); nb.append(el("summary", null, "補足を書く(任意)"));
-    const nt = el("textarea"); nt.id = `${q.id}-note`;
-    nt.addEventListener("input", () => { answers[q.id] = { ...(answers[q.id] || {}), note: nt.value }; update(); });
-    nb.append(nt); fs.append(nb);
-    $("form").append(fs);
+    fieldset.append(opts);
+    const noteBox = el("details", "notebox"); noteBox.append(el("summary", null, "補足を書く(任意)"));
+    const noteText = el("textarea"); noteText.id = `${q.id}-note`;
+    noteText.addEventListener("input", () => { answers[q.id] = { ...(answers[q.id] || {}), note: noteText.value }; update(); });
+    noteBox.append(noteText); fieldset.append(noteBox);
+    $("form").append(fieldset);
   }
 
   function syncDiagram() {
@@ -197,8 +198,7 @@ legend { padding: 0; margin-bottom: 4px; }
     });
   }
   function update() {
-    const n = data.questions.filter((q) => answers[q.id] && answers[q.id].choice).length;
-    $("progress").textContent = `回答 ${n}/${data.questions.length}`;
+    $("progress").textContent = `回答 ${countAnswered(data, answers)}/${data.questions.length}`;
     $("preview").textContent = serializeDecision(data, answers);
     syncDiagram();
   }
@@ -216,8 +216,7 @@ legend { padding: 0; margin-bottom: 4px; }
   $("copy").addEventListener("click", async () => {
     const text = serializeDecision(data, answers);
     const copied = await copyText(text);
-    const n = data.questions.filter((q) => answers[q.id] && answers[q.id].choice).length;
-    const left = data.questions.length - n;
+    const left = data.questions.length - countAnswered(data, answers);
     if (copied) {
       $("status").textContent = "コピーしました。セッションに貼り付けてください" + (left ? `。未回答が ${left} 問あります` : "");
     } else {
