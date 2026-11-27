@@ -57,14 +57,16 @@ npx playwright install chromium
 とおりサンドボックスの外で実行する(症状と対処は references/troubleshooting.md の症状別)。
 
 機能ごとの seed `seed/features/<feature>.ts` は、その機能のシナリオを書くときに
-`module.template.ts` をコピーして作る(scaffold 時には作らない)。
+`module.template.ts` をコピーして作る(scaffold 時には作らない)。コピーしたファイルを Edit / Write する前に
+Read ツールで開く(cp で作ったファイルは Read されていないので、Edit / Write が拒否される)。
 
 `example.spec.ts` はコピーしない(spec 記述のお手本として skill 側に置いてあり、
 シナリオは references/scenario-authoring.md に従って観点ごとに書き起こす)。
 
 ## 4. テンプレートのプロジェクト適合
 
-コピー後、調査結果で以下を書き換える:
+コピー後、調査結果で以下を書き換える。書き換える前に各ファイルを Read ツールで開く(cp で作ったファイルは
+Read されていないので、そのままでは Edit / Write が拒否される):
 
 - `playwright.config.ts` の `REPO_DIR_FROM_SUITE` — 配置場所が対象リポの中なら、配置場所から
   リポのルートへの相対パス(`.claude/verify` なら `"../.."`)。外なら `null` のまま
