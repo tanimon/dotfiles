@@ -89,16 +89,15 @@ harness() {
     assert_output --partial '不明なコマンド'
 }
 
-@test "init と update は未実装として exit 64" {
+@test "init と update は範囲外として exit 64" {
     stub_all
     write_manifest
     run harness init --manifest "$MANIFEST" --root "$ROOT"
     assert_failure 64
-    assert_output --partial '未実装'
-    assert_output --partial '#322'
+    assert_output --partial 'harness init: 範囲外です (ADR 0005)'
     run harness update --manifest "$MANIFEST" --root "$ROOT"
     assert_failure 64
-    assert_output --partial '#323'
+    assert_output --partial 'harness update: 範囲外です (ADR 0005)'
 }
 
 @test "manifest ファイルが無ければ exit 2" {

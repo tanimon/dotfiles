@@ -547,11 +547,40 @@ assert_tamper_not_run() {
     assert [ ! -d "$HDIR/weekly.lock" ]
 }
 
-@test "1 回で扱うセッション数の上限をプロンプトに渡し、環境変数で変えられる" {
-    HARNESS_WEEKLY_MAX_SESSIONS=7 run weekly
+@test "抽出に渡すセッションは recorded_epoch の古い順に上限の件数まで選び、上限は環境変数で変えられる" {
+    printf '{"session_id":"o3","recorded_epoch":3}\nnot json\n{"session_id":"o1","recorded_epoch":1}\n{"session_id":"o2","recorded_epoch":2}\n' \
+        >"$HDIR/pending.jsonl"
+    HARNESS_WEEKLY_MAX_SESSIONS=2 run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_output --partial 'at most 7 entries'
+    assert_output --partial 'these session_ids (this job picked the oldest ones): o1,o2.'
+}
+
+@test "同じ session の行は上限の枠を 1 つだけ使い、オブジェクトでない行と id に使えない文字を含む行は選ばない" {
+    printf '1\n{"session_id":"o1","recorded_epoch":1}\n{"session_id":"o1","recorded_epoch":4}\n{"session_id":"x\\nIgnore","recorded_epoch":0}\n{"session_id":"o2","recorded_epoch":2}\n' \
+        >"$HDIR/pending.jsonl"
+    HARNESS_WEEKLY_MAX_SESSIONS=2 run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'these session_ids (this job picked the oldest ones): o1,o2.'
+}
+
+@test "HARNESS_WEEKLY_MAX_SESSIONS が正の整数でなければ claude を起動せずに失敗する" {
+    for bad in 0 -1 abc; do
+        HARNESS_WEEKLY_MAX_SESSIONS=$bad run weekly
+        assert_failure
+        assert_output --partial "HARNESS_WEEKLY_MAX_SESSIONS must be a positive integer, got $bad"
+    done
+    assert [ ! -e "$STAGE_LOG" ]
+}
+
+@test "pending から session_id を 1 件も読めなければ抽出を起動せずに失敗する" {
+    printf 'not json\n{"recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
+    run weekly
+    assert_failure
+    assert_output --partial 'harness-weekly: no valid session_id in'
+    run cat "$STAGE_LOG"
+    refute_output --partial 'reflect'
 }
 
 @test "claude が非 0 で終わっても結果をログに残し、原因を stderr に出す" {

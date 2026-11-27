@@ -19,7 +19,7 @@ Plain `claude` runs under Claude Code's native Bash sandbox; only `claude-nono` 
 
 ### Browsing
 
-Web の取得は組込みの WebFetch / WebSearch を使う(専用のブラウジング skill は置かない。撤去の経緯は #360)。`mcp__claude-in-chrome__*` は使わない — nono のポリシーはブラウザ経路を前提に書かれておらず、WebFetch / WebSearch 自体が nono の egress allowlist の内側に留まるかも未検証(`dot_config/nono/CLAUDE.md`)。
+Web の取得は組込みの WebFetch / WebSearch を使う(専用のブラウジング skill は置かない)。`mcp__claude-in-chrome__*` は使わない — nono のポリシーはブラウザ経路を前提に書かれておらず、WebFetch / WebSearch 自体が nono の egress allowlist の内側に留まるかも未検証(`dot_config/nono/CLAUDE.md`)。
 
 ### Bash ツールの落とし穴
 

@@ -2,7 +2,7 @@
 name: harness-reflect
 description: |
   Extract harness-worthy learnings from sessions into the improvement queue.
-  Triggers: (1) /harness-reflect command, (2) invoked as the first step of
+  Triggers: (1) /harness-reflect command, (2) invoked by Step 2 of
   /harness-review when unreflected sessions are pending, (3) SessionStart
   briefing warns about unreflected sessions piling up. Reads the current
   session and/or transcripts recorded in ~/.claude/harness/pending.jsonl,
@@ -100,8 +100,6 @@ review skill parses them. Verdict の CLI(`~/.claude/scripts/harness-verdict.sh`
    into a temp file, then `mv` over the original. Never write back a copy you
    read earlier: the SessionEnd hook appends concurrently, and a stale
    write-back silently drops sessions recorded in between.
-2. Update state: `jq '.last_reflect_epoch = now | .last_reflect_epoch |= floor'`
-   on `~/.claude/harness/state.json` (write via temp file + `mv`).
-3. Report a summary: the selector's summary line, N sessions analyzed, M entries
+2. Report a summary: the selector's summary line, N sessions analyzed, M entries
    queued, dropped entries (missing transcripts) if any. If nothing was worth queueing, say so —
    an empty result is a valid outcome, not a failure.

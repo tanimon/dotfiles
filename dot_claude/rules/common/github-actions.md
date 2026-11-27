@@ -5,14 +5,14 @@ trigger: "Agent used invalid in operator or wrong permissions in GitHub Actions 
 
 # GitHub Actions Expressions
 
-## Critical: `in` operator does not exist
+## `in` operator does not exist
 
-GitHub Actions expressions do NOT support `in` with array literals. Invalid expressions silently evaluate to `false` — no error, no warning.
+GitHub Actions expressions do not support `in` with array literals. Invalid expressions silently evaluate to `false` — no error, no warning.
 
 **Wrong:** `value in ['A', 'B', 'C']`
 **Correct:** `contains(fromJSON('["A", "B", "C"]'), value)`
 
-Always use `contains(fromJSON(...), ...)` for set-membership checks in workflow `if` conditions.
+Use `contains(fromJSON(...), ...)` for set-membership checks in workflow `if` conditions.
 
 ## Permissions
 
