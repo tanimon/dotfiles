@@ -5,9 +5,7 @@ description: |
   (1) /harness-review command, (2) SessionStart briefing warns the review is
   overdue (7-day cadence). Runs the deterministic doctor, reflects over any
   pending sessions, triages queued candidates against existing rules, then
-  implements adopted changes as ONE pull request for human review. The human
-  PR review is the only quality gate — this skill must present honest
-  trade-offs, not advocacy.
+  implements adopted changes as ONE pull request for human review.
 ---
 
 # Harness Review
@@ -110,6 +108,8 @@ Propose deletions/edits for stale rules in the same PR. Rules kept alive out
 of caution are noise — deprecate aggressively; git history preserves them.
 
 ## Step 5: Implement and open ONE PR
+
+The human PR review is the only quality gate, so the PR presents honest trade-offs, not advocacy.
 
 1. Work on the branch created above (`harness/review-YYYY-MM-DD`, or
    `harness/review-YYYY-MM-DD-manual` when run by hand).
