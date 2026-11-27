@@ -547,11 +547,22 @@ assert_tamper_not_run() {
     assert [ ! -d "$HDIR/weekly.lock" ]
 }
 
-@test "1 回で扱うセッション数の上限をプロンプトに渡し、環境変数で変えられる" {
-    HARNESS_WEEKLY_MAX_SESSIONS=7 run weekly
+@test "抽出に渡すセッションは recorded_epoch の古い順に上限の件数まで選び、上限は環境変数で変えられる" {
+    printf '{"session_id":"o3","recorded_epoch":3}\nnot json\n{"session_id":"o1","recorded_epoch":1}\n{"session_id":"o2","recorded_epoch":2}\n' \
+        >"$HDIR/pending.jsonl"
+    HARNESS_WEEKLY_MAX_SESSIONS=2 run weekly
     assert_success
     run cat "$ARGV_LOG"
-    assert_output --partial 'at most 7 entries'
+    assert_output --partial 'these session_ids (this job picked the oldest ones): o1,o2.'
+}
+
+@test "pending から session_id を 1 件も読めなければ抽出を起動せずに失敗する" {
+    printf 'not json\n{"recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
+    run weekly
+    assert_failure
+    assert_output --partial 'no session_id could be read from pending'
+    run cat "$STAGE_LOG"
+    refute_output --partial 'reflect'
 }
 
 @test "claude が非 0 で終わっても結果をログに残し、原因を stderr に出す" {
