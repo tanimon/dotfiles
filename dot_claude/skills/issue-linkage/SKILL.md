@@ -1,6 +1,6 @@
 ---
 name: issue-linkage
-description: issue と PR の Issue Linkage(関連 issue のメンション、Parent / Blocked by、Closes / Refs、AC 対応表)を書くときに使う。issue-linkage-guard フックが gh issue create / gh pr create を deny したときも使う。PR 本文の骨格(Summary / Evidence / Merge Danger)は /pr スキル、作成済みの PR 本文と差分の照合は pr-body-review スキルが受け持つ。仕事リポジトリ(チケットは Notion)には使わない。
+description: issue と PR の Issue Linkage(関連 issue のメンション、Parent / Blocked by、Closes / Refs、AC 対応表)を書くときに使う。issue-linkage-guard フックが gh issue create / gh pr create を deny したときも使う。PR 本文の骨格(Summary / Evidence / Merge Danger)は /pr スキル、作成済みの PR 本文と差分の照合は `/pr-body-review` が受け持つ。仕事リポジトリ(チケットは Notion)には使わない。
 ---
 
 # issue-linkage
