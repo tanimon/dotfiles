@@ -487,10 +487,16 @@ main() {
         # 進んでいても heartbeat が書かれない。
         # セッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進ませるのは、
         # 途中で止まっても失うのが高々 1 セッション分で、queue に重複を作らないため
+        # 古い順に MAX_SESSIONS 件を選ぶのは入力だけで決まるので、モデルではなくここで選ぶ
+        SELECTED=$(jq -Rnr --argjson n "$MAX_SESSIONS" '[inputs | fromjson? | select(.session_id)] | sort_by(.recorded_epoch) | .[:$n] | map(.session_id) | join(",")' "$PENDING")
+        [[ -n "$SELECTED" ]] || {
+            printf 'harness-weekly: no session_id could be read from pending; skipped reflect\n' >&2
+            exit 1
+        }
         PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).
 Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl, following its rules, with these changes:
 - Skip running harness-select-pending.sh; this job already ran it. Still run the failure detector on each entry you process.
-- Process at most ${MAX_SESSIONS} entries, oldest recorded_epoch first. Leave the rest in pending.jsonl for the next run.
+- Process only the entries with these session_ids (this job picked the oldest ones): ${SELECTED}. Leave every other entry in pending.jsonl.
 - Do the Bookkeeping for each entry before starting the next one: append that session's queue entries (if any), then remove that session's line from pending.jsonl.
 - Update last_reflect_epoch in state.json once at the end.
 ${WRITE_RULE}
