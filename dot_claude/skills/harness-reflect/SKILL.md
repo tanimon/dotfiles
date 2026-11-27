@@ -2,7 +2,7 @@
 name: harness-reflect
 description: |
   Extract harness-worthy learnings from sessions into the improvement queue.
-  Triggers: (1) /harness-reflect command, (2) invoked as the first step of
+  Triggers: (1) /harness-reflect command, (2) invoked by Step 2 of
   /harness-review when unreflected sessions are pending, (3) SessionStart
   briefing warns about unreflected sessions piling up. Reads the current
   session and/or transcripts recorded in ~/.claude/harness/pending.jsonl,
