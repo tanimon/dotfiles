@@ -67,6 +67,11 @@ main() {
         exit 1
     }
 
+    [[ "$MAX_SESSIONS" =~ ^[1-9][0-9]*$ ]] || {
+        printf 'harness-weekly: HARNESS_WEEKLY_MAX_SESSIONS must be a positive integer, got %s\n' "$MAX_SESSIONS" >&2
+        exit 1
+    }
+
     mkdir -p "$HARNESS_DIR"
     cd "$HARNESS_DIR"
 
@@ -488,9 +493,14 @@ main() {
         # セッションごとに「queue へ追記 → pending から外す」を済ませてから次へ進ませるのは、
         # 途中で止まっても失うのが高々 1 セッション分で、queue に重複を作らないため
         # 古い順に MAX_SESSIONS 件を選ぶのは入力だけで決まるので、モデルではなくここで選ぶ
-        SELECTED=$(jq -Rnr --argjson n "$MAX_SESSIONS" '[inputs | fromjson? | select(.session_id)] | sort_by(.recorded_epoch) | .[:$n] | map(.session_id) | join(",")' "$PENDING")
+        # 選んだ id はプロンプトの指示文に埋めるので、UUID に使われる文字(英数字とハイフン)だけでできた id に限る。
+        # 同じ session の行が複数あっても、上限の枠は 1 つだけ使う
+        SELECTED=$(jq -Rnr --argjson n "$MAX_SESSIONS" '
+            [inputs | fromjson? | select(type == "object" and (.session_id | type) == "string" and (.session_id | test("^[A-Za-z0-9-]+$")))]
+            | group_by(.session_id) | map(min_by(.recorded_epoch)) | sort_by(.recorded_epoch)
+            | .[:$n] | map(.session_id) | join(",")' "$PENDING")
         [[ -n "$SELECTED" ]] || {
-            printf 'harness-weekly: no session_id could be read from pending; skipped reflect\n' >&2
+            printf 'harness-weekly: no valid session_id in %s; fix or remove its malformed lines; skipped reflect\n' "$PENDING" >&2
             exit 1
         }
         PROMPT="This is the unattended weekly harness job (no human is present, and this session itself is not an input).

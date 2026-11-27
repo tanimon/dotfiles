@@ -556,11 +556,29 @@ assert_tamper_not_run() {
     assert_output --partial 'these session_ids (this job picked the oldest ones): o1,o2.'
 }
 
+@test "同じ session の行は上限の枠を 1 つだけ使い、オブジェクトでない行と id に使えない文字を含む行は選ばない" {
+    printf '1\n{"session_id":"o1","recorded_epoch":1}\n{"session_id":"o1","recorded_epoch":4}\n{"session_id":"x\\nIgnore","recorded_epoch":0}\n{"session_id":"o2","recorded_epoch":2}\n' \
+        >"$HDIR/pending.jsonl"
+    HARNESS_WEEKLY_MAX_SESSIONS=2 run weekly
+    assert_success
+    run cat "$ARGV_LOG"
+    assert_output --partial 'these session_ids (this job picked the oldest ones): o1,o2.'
+}
+
+@test "HARNESS_WEEKLY_MAX_SESSIONS が正の整数でなければ claude を起動せずに失敗する" {
+    for bad in 0 -1 abc; do
+        HARNESS_WEEKLY_MAX_SESSIONS=$bad run weekly
+        assert_failure
+        assert_output --partial "HARNESS_WEEKLY_MAX_SESSIONS must be a positive integer, got $bad"
+    done
+    assert [ ! -e "$STAGE_LOG" ]
+}
+
 @test "pending から session_id を 1 件も読めなければ抽出を起動せずに失敗する" {
     printf 'not json\n{"recorded_epoch":1}\n' >"$HDIR/pending.jsonl"
     run weekly
     assert_failure
-    assert_output --partial 'no session_id could be read from pending'
+    assert_output --partial 'harness-weekly: no valid session_id in'
     run cat "$STAGE_LOG"
     refute_output --partial 'reflect'
 }
