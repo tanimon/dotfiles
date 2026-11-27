@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# コードコメントのうち、機械的に判定できる種類のノイズを検出する。
+# コードコメントと指示ファイル(CLAUDE.md・ルール・SKILL.md・harness/modules/ の Content Module)のうち、
+# 機械的に判定できる種類のノイズを検出する。
 # 規約の正本はルールファイル(RULE_FILE)で、ここには判定だけを置く。
 set -euo pipefail
 # トークン分割で glob 展開させない
@@ -10,17 +11,25 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ALLOWLIST_FILE="${COMMENT_NOISE_ALLOWLIST:-${SCRIPT_DIR}/comment-noise-allowlist.txt}"
 RULE_FILE="dot_claude/rules/common/code-comments.md"
+ENFORCEMENT_TABLE="docs/agents/rule-enforcement.md"
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
 PLAN_STEP_RE='(^|[^A-Za-z])(Task|Step) [0-9]+'
 # 番号と動詞の間は 24 バイトまで(LC_ALL=C なので日本語は 1 文字 3 バイト)
-ISSUE_ORIGIN_JA_RE='#[0-9]+[^#]{0,24}(で発覚|で追加|で導入|で修正|で判明)'
+ISSUE_ORIGIN_JA_RE='#[0-9]+[^#]{0,24}(で発覚|で追加|で導入|で修正|で判明|で実装|で撤去|で廃止)|経緯は ?(PR ?)?#[0-9]+'
 ISSUE_ORIGIN_EN_RE='(added|introduced|found|fixed) in #[0-9]+'
+# 前の版と比べる書き方。今の事実だけを読む読み手には、比べる相手が無い。
+# 数字に続くもの(「2.1.285 以前は allow が勝つ」)は版の境界という今の事実なので当てない
+HISTORY_RE='初版|旧版|当初は|かつては|(^|[^0-9[:space:]])[[:space:]]*以前は'
+# 指示ファイルの中の日付だけの語(「2026-09-24 に撤去した」「(2026-10-09 に実測)」「2026-09-24T10:00」
+# 「2026年9月24日」)。パスやファイル名の一部の日付(specs/2026-07-25-….md、2026-09-24.md)は、
+# 前後が / や - や拡張子に続くので当たらない
+DATED_EVENT_RE='(^|[^-/0-9A-Za-z_.])20[0-9]{2}-[0-9]{2}-[0-9]{2}($|[^-0-9A-Za-z_.]|\.($|[^0-9A-Za-z])|T[0-9])|20[0-9]{2}年[0-9]{1,2}月[0-9]{1,2}日'
 
-# Markdown(拡張子が .md でないテンプレートと生成物を含む)・docs は経緯の記録が
-# 正当な場合が多く、JSON はコメントを持たない
+# 指示ファイル以外の Markdown(拡張子が .md でないテンプレートと生成物を含む)・docs は経緯の記録が
+# 正当な場合が多く、JSON はコメントを持たない。指示ファイルは is_instruction_file で先に振り分ける
 is_excluded() {
     case $1 in
     *.md | *.md.tmpl | *.mdc | .chezmoitemplates/agent-instructions-common | docs/* | *.json | pnpm-lock.yaml) return 0 ;;
@@ -83,6 +92,26 @@ is_top_dir() {
     return 1
 }
 
+# 指示ファイル: 共通の範囲(scripts/instruction-pathspecs.bash)に Content Module を足し、harness/project.json の
+# Target(生成物)を外す。生成物を読むと、同じ違反を正本の module と二重に出し、直す先を生成物に向けてしまう
+# shellcheck source=scripts/instruction-pathspecs.bash
+source "${SCRIPT_DIR}/instruction-pathspecs.bash"
+GENERATED_TARGETS=""
+if [[ -f harness/project.json ]]; then
+    GENERATED_TARGETS="$(jq -r '.targets[]?.path' harness/project.json)"
+fi
+INSTRUCTION_FILES="$(git ls-files -- "${INSTRUCTION_PATHSPECS[@]}" ':(glob)harness/modules/**/*.md')"
+
+is_instruction_file() {
+    case $'\n'"$GENERATED_TARGETS"$'\n' in
+    *$'\n'"$1"$'\n'*) return 1 ;;
+    esac
+    case $'\n'"$INSTRUCTION_FILES"$'\n' in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+    esac
+    return 1
+}
+
 violations=0
 
 report() {
@@ -115,20 +144,58 @@ check_paths() {
     done
 }
 
+# コードコメントと指示ファイルの両方に当てる、経緯の書き方の判定
+check_history() {
+    local file=$1 lineno=$2 text=$3
+    if [[ $text =~ $ISSUE_ORIGIN_JA_RE || $text =~ $ISSUE_ORIGIN_EN_RE ]]; then
+        report "$file" "$lineno" issue-origin "$text"
+    fi
+    if [[ $text =~ $HISTORY_RE ]]; then
+        report "$file" "$lineno" history "$text"
+    fi
+}
+
 check_line() {
     local file=$1 lineno=$2 text=$3
     if [[ $text =~ $PLAN_STEP_RE ]]; then
         report "$file" "$lineno" plan-step "$text"
     fi
-    if [[ $text =~ $ISSUE_ORIGIN_JA_RE || $text =~ $ISSUE_ORIGIN_EN_RE ]]; then
-        report "$file" "$lineno" issue-origin "$text"
-    fi
+    check_history "$file" "$lineno" "$text"
     check_paths "$file" "$lineno" "$text"
 }
 
+# 指示ファイルは行全体を読む。plan-step と missing-path は見ない(skill の手順は Step N と書くのが正当で、
+# リンクは check-md-links が見る)。frontmatter の date: は台帳(check-rule-ledger)の項目なので見ない。
+# 本文の「date: …」は frontmatter ではないので見る
+check_instruction_file() {
+    local file=$1 hit lineno text in_frontmatter=0
+    while IFS= read -r hit; do
+        lineno=${hit%%:*}
+        text=${hit#*:}
+        if [[ $text == '---' ]]; then
+            if ((lineno == 1)); then
+                in_frontmatter=1
+            elif ((in_frontmatter)); then
+                in_frontmatter=0
+            fi
+        fi
+        check_history "$file" "$lineno" "$text"
+        if ((in_frontmatter)) && [[ $text =~ ^[[:space:]]*date: ]]; then
+            continue
+        fi
+        if [[ $text =~ $DATED_EVENT_RE ]]; then
+            report "$file" "$lineno" dated-event "$text"
+        fi
+    done < <(grep -n '' -- "$file" || true)
+}
+
 while IFS= read -r -d '' file; do
-    is_excluded "$file" && continue
     [[ -f $file ]] || continue
+    if is_instruction_file "$file"; then
+        check_instruction_file "$file"
+        continue
+    fi
+    is_excluded "$file" && continue
     while IFS= read -r hit; do
         lineno=${hit%%:*}
         text=${hit#*:}
@@ -138,7 +205,7 @@ while IFS= read -r -d '' file; do
 done < <(git ls-files -z)
 
 if ((violations > 0)); then
-    printf '\n%d 件のコメントが規約に反しています。規約: %s\n' "$violations" "$RULE_FILE" >&2
+    printf '\n%d 件のコメントと指示ファイルの記述が規約に反しています。経緯は commit・PR・ADR に書き、今の事実だけを残してください。規約: %s(指示ファイルにも「経緯ではなく現在の事実を書く」を当てる。%s の表)\n' "$violations" "$RULE_FILE" "$ENFORCEMENT_TABLE" >&2
     printf '残すべきものは %s に <path-suffix or *>:<regex> で追加してください。\n' "$ALLOWLIST_FILE" >&2
     exit 1
 fi

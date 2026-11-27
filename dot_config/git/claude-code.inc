@@ -7,15 +7,15 @@
 # 背景: Claude Codeのネイティブサンドボックスはgit組み込みfsmonitorデーモンの
 # IPCソケット(.git/fsmonitor--daemon.ipc)への接続を拒否するため、fsmonitor有効な
 # ままだとgit status等のたびに`fsmonitor_ipc__send_query: unspecified error`が
-# stderrに出る(実害なし、終了コードは0)。以前は`.zshrc`経由のCLAUDECODE条件付き
-# export(GIT_CONFIG_COUNT等)でこれを抑制しようとしたが、Claude CodeのBash tool は
-# 非対話シェルでコマンドを実行するため`.zshrc`は読み込まれず、また読み込まれたと
-# してもシェルスナップショット機構はPATH以外のexportを保持しないため、実際には
-# 一度も効いていなかった(実測: 稼働中セッションのGIT_CONFIG_COUNTはClaude Code自身が
-# 設定するcredential.interactive/guiPrompt/safe.directory用の値のみで、fsmonitor
-# 上書きは含まれていなかった)。GIT_CONFIG_GLOBALはsettings.json.tmplの`env`経由で
-# Claude Code自身のプロセスにのみ渡るため、通常のインタラクティブなターミナル作業では
-# ~/.gitconfigのfsmonitor=trueがそのまま有効(CLAUDECODE分岐が不要になった)。
+# stderrに出る(実害なし、終了コードは0)。`.zshrc`経由のCLAUDECODE条件付き
+# export(GIT_CONFIG_COUNT等)では抑制できない。Claude CodeのBash tool は
+# 非対話シェルでコマンドを実行するため`.zshrc`を読まず、読んだとしても
+# シェルスナップショット機構はPATH以外のexportを保持しない(実測: 稼働中セッションの
+# GIT_CONFIG_COUNTはClaude Code自身が設定するcredential.interactive/guiPrompt/
+# safe.directory用の値のみで、fsmonitor上書きを含まない)。GIT_CONFIG_GLOBALは
+# settings.json.tmplの`env`経由でClaude Code自身のプロセスにのみ渡るため、通常の
+# インタラクティブなターミナル作業では~/.gitconfigのfsmonitor=trueがそのまま有効
+# (CLAUDECODE分岐は要らない)。
 #
 # 背景2 (credential.helper): サンドボックスのHTTPプロキシ
 # (localhost:<ランダムポート>)向けのcredential storeがGCM経由でキーチェーンに

@@ -7,3 +7,7 @@
 
 # Claude Code が worktree ごとに書くローカル設定。リポジトリの .gitignore には無い(個人のグローバルな除外で無視している)
 executable_worktree-include.sh:\.claude/settings\.local\.json
+
+# 規約そのものが、禁じる書き方を例として引用している
+code-comments.md:「以前は〜」「〜で発覚」
+code-comments.md:悪い例: 以前は

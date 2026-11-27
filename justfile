@@ -181,7 +181,7 @@ check-templates:
     pnpm exec bats test/scan-sensitive-info.bats
 
 # ファイル名は渡さない。スクリプトが `git ls-files` を自分で走査する。
-# コードコメントのノイズ(計画の内部番号・経緯の番号・存在しないパス)を検出する
+# コードコメントのノイズ(計画の内部番号・経緯の番号・前の版との比較・存在しないパス)と、指示ファイルの経緯の記述(経緯の番号・前の版との比較・出来事の日付)を検出する
 @check-comment-noise:
     bash scripts/check-comment-noise.sh
 
