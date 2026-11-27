@@ -25,8 +25,8 @@ usage() {
 commands:
   check   runtime の Capability Probe と Target の drift を報告する(live は変更しない)
   sync    全 Target を staging に render し、全体検証後に置換する(Atomic Sync)
-  init    Managed Project の登録(未実装: #322)
-  update  依存更新(未実装: #323)
+  init    Managed Project の登録(範囲外: ADR 0005)
+  update  依存更新(範囲外: ADR 0005)
 
 options:
   --manifest PATH    Harness Manifest(既定: harness/manifest.json)
@@ -40,7 +40,7 @@ exit codes:
   0    成功(check は WARN のみでも 0)
   1    check: FAIL / DRIFT が 1 件以上。sync: render または置換の失敗(FAIL 行を確認)
   2    manifest の不備、--root / --source-dir がディレクトリでない、jq が無い
-  64   使い方の誤り(不明なコマンド・オプション、値の欠落、sync --runtime / --no-probe、未実装の init / update)
+  64   使い方の誤り(不明なコマンド・オプション、値の欠落、sync --runtime / --no-probe、範囲外の init / update)
   130  INT / TERM / HUP による中断(staging と書きかけの一時ファイルは削除する)
 USAGE
 }
@@ -126,8 +126,8 @@ main() {
 
     case $command in
     check | sync) ;;
-    init) die 64 "harness init: 未実装です (#322 で実装)" ;;
-    update) die 64 "harness update: 未実装です (#323 で実装)" ;;
+    init) die 64 "harness init: 範囲外です (ADR 0005)" ;;
+    update) die 64 "harness update: 範囲外です (ADR 0005)" ;;
     -h | --help)
         usage
         exit 0
