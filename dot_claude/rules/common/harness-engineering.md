@@ -46,7 +46,7 @@ Bad rules:
    queue into a single human-reviewed PR. Every harness change goes through PR review —
    there is no auto-apply tier.
 3. **Rules** (contextual, persistent): Claude Code では `paths` frontmatter の無いルールはセッション開始時に、
-   有るルールは該当するファイルを扱うときに読み込まれる(Codex の `~/.codex/AGENTS.md` には常に連結される)
+   有るルールは該当するファイルを扱うときに読み込まれる
 4. **CLAUDE.md** (project-scoped): Project architecture, commands, pitfalls
 5. **docs/solutions/** (historical): Past problems and their resolutions
 
