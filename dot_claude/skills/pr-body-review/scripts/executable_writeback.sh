@@ -6,8 +6,10 @@
 #
 # 使い方: writeback.sh <PR の URL> <original.md> <edited.md>
 # 終了コード: 0 書き戻して照合した
-#             1 何も書いていない(引数の不備、本文の取得の失敗、取り直した本文が original.md と食い違う)
+#             1 何も書いていない(引数の不備、本文の取得の失敗、取り直した本文が original.md と食い違う、
+#               gh pr edit が失敗し、書いた後の本文が original.md のまま)
 #             2 書いた後の本文が edited.md と食い違うか、書いた後の本文を取得できない
+# -e を付けない。付けると、差分を見せる diff -u が 1 を返した時点で止まり、終了コード 2 が 1 になる。
 set -uo pipefail
 
 if [[ $# -ne 3 ]]; then
@@ -48,7 +50,9 @@ if ! cmp -s "$original" "$work/before.md"; then
 fi
 
 # 失敗しても書かれたかは分からないので、取り直して照らす。
+edit_failed=
 if ! gh pr edit "$pr_url" --body-file "$edited" >/dev/null; then
+    edit_failed=1
     echo "writeback.sh: gh pr edit が失敗した。書いた後の本文を照らす" >&2
 fi
 
@@ -57,6 +61,11 @@ if ! fetch_body "$work/after.md"; then
     exit 2
 fi
 if ! cmp -s "$edited" "$work/after.md"; then
+    # gh pr edit が成功を返したのに本文が元のままなら、読み取りが古いだけかもしれないので「書いていない」とは言えない。
+    if [[ -n "$edit_failed" ]] && cmp -s "$original" "$work/after.md"; then
+        echo "writeback.sh: gh pr edit が失敗し、本文は original.md のまま。何も書いていない: ${pr_url}" >&2
+        exit 1
+    fi
     echo "writeback.sh: 書いた後の本文が edited.md と食い違う。元に戻すときは $original を gh pr edit --body-file に渡す: $pr_url" >&2
     diff -u "$edited" "$work/after.md" >&2
     exit 2

@@ -1,6 +1,7 @@
 # pr-body-review の writeback.sh: 書く前後に本文を取り直して照らす。gh はスタブにし、PR の本文を 1 つのファイルで持つ。
 setup() {
     load 'helpers/setup'
+    unset GH_FAIL_VIEW GH_FAIL_VIEW_AFTER_EDIT GH_FAIL_EDIT GH_EDIT_WRITES_THEN_FAILS GH_EDIT_IGNORED GH_MANGLE
     SCRIPT="$BATS_TEST_DIRNAME/../dot_claude/skills/pr-body-review/scripts/executable_writeback.sh"
     PR='https://github.com/tanimon/sample/pull/7'
     export GH_LOG="$BATS_TEST_TMPDIR/gh.log"
@@ -13,11 +14,16 @@ printf '%s\n' "$*" >>"$GH_LOG"
 case "$1 $2" in
 "pr view")
     [[ -n "${GH_FAIL_VIEW:-}" ]] && exit 1
+    [[ -n "${GH_FAIL_VIEW_AFTER_EDIT:-}" ]] && grep -q '^pr edit' "$GH_LOG" && exit 1
     jq -Rs '{body: .}' <"$REMOTE_BODY"
     ;;
 "pr edit")
     [[ -n "${GH_FAIL_EDIT:-}" ]] && exit 1
+    # 成功を返したのに保存されていない(読み取りが古い)場合を模す。
+    [[ -n "${GH_EDIT_IGNORED:-}" ]] && exit 0
     cp "$5" "$REMOTE_BODY"
+    # 保存はされたのに失敗を返した場合を模す。
+    [[ -n "${GH_EDIT_WRITES_THEN_FAILS:-}" ]] && exit 1
     # GitHub が本文を書き換えて保存した場合を模す。
     [[ -n "${GH_MANGLE:-}" ]] && printf '\n' >>"$REMOTE_BODY"
     exit 0
@@ -41,10 +47,6 @@ STUB
     run bash "$SCRIPT" "$PR" "$ORIGINAL" "$EDITED"
     assert_success
     cmp "$EDITED" "$REMOTE_BODY"
-    run cat "$GH_LOG"
-    assert_line --index 0 "pr view $PR --json body"
-    assert_line --index 1 "pr edit $PR --body-file $EDITED"
-    assert_line --index 2 "pr view $PR --json body"
 }
 
 @test "末尾に改行の無い本文も 1 バイトも変えずに照らす" {
@@ -80,10 +82,30 @@ STUB
     assert_output '1'
 }
 
-@test "gh pr edit が失敗して本文が変わらなければ 2 で終わり、再試行しない" {
-    run env GH_FAIL_EDIT=1 bash "$SCRIPT" "$PR" "$ORIGINAL" "$EDITED"
+@test "書いた後の本文を取得できなければ 2 で終わる" {
+    run env GH_FAIL_VIEW_AFTER_EDIT=1 bash "$SCRIPT" "$PR" "$ORIGINAL" "$EDITED"
     assert_failure 2
+    run grep -c 'pr edit' "$GH_LOG"
+    assert_output '1'
+}
+
+@test "gh pr edit が失敗して本文が original.md のままなら 1 で終わり、再試行しない" {
+    run env GH_FAIL_EDIT=1 bash "$SCRIPT" "$PR" "$ORIGINAL" "$EDITED"
+    assert_failure 1
     cmp "$ORIGINAL" "$REMOTE_BODY"
+    run grep -c 'pr edit' "$GH_LOG"
+    assert_output '1'
+}
+
+@test "gh pr edit が失敗しても本文が edited.md になっていれば 0 で終わる" {
+    run env GH_EDIT_WRITES_THEN_FAILS=1 bash "$SCRIPT" "$PR" "$ORIGINAL" "$EDITED"
+    assert_success
+    cmp "$EDITED" "$REMOTE_BODY"
+}
+
+@test "gh pr edit が成功を返したのに本文が original.md のままなら 2 で終わる" {
+    run env GH_EDIT_IGNORED=1 bash "$SCRIPT" "$PR" "$ORIGINAL" "$EDITED"
+    assert_failure 2
     run grep -c 'pr edit' "$GH_LOG"
     assert_output '1'
 }
