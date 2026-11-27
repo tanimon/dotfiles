@@ -1,7 +1,7 @@
 ---
 name: pr-body-review-unattended
 description: PR 本文を現在の差分と照らし、食い違う記述(変更点・テスト方法・Acceptance criteria の対応・Closes など)を根拠付きで洗い出し、食い違う箇所だけを直した本文の案と食い違いの一覧をファイルに書いて止まる。質問も GitHub への書き込みもしない。対話版の `/pr-body-review` が Skill ツールで呼ぶときと、無人の呼び出し元が `claude -p` で起動するときに使う。本文を書き戻すのは pr-body-review の `scripts/writeback.sh` だけ。PR を新しく作るとき(骨格は /pr スキル、個人リポジトリの Issue Linkage の節は issue-linkage スキル)や、レビューコメントへの対応には使わない。
-argument-hint: "<PR の URL | PR 番号> [--local <worktree の絶対パス>] [--out <出力先の絶対パス>]"
+argument-hint: "<PR の URL | PR 番号> [--local <worktree の絶対パス>] [--input <入力の絶対パス>] [--out <出力先の絶対パス>]"
 ---
 
 # pr-body-review-unattended
@@ -24,6 +24,11 @@ PR 本文を現在の差分と照らし(PR Body Review。用語は chezmoi リ�
 
 - 1 つ目: PR の URL か番号。省くと現在のブランチの PR
 - `--local <worktree>`: 差分を GitHub ではなく、その worktree の `<base>...HEAD` から読む(push の前のコミットを本文に反映するため)
+- `--input <dir>`: GitHub から読むもの(本文・PR の情報・PR テンプレート・issue)を、呼び出し元が先に読んで置いた場所。`gh` を使えない起動(無人の呼び出し元が `gh` を拒んで起動するとき)のためのもので、`--local` と一緒に渡す。渡されたら、このスキルは `gh` を一度も実行せず、各手順の「`--input` があるとき」に従う。中身は次のとおり
+  - `pr.json`: `{number, url, title, state, baseRefName, headRefName}`
+  - `original.md`: 今の本文(`jq -j` で取ったもの)
+  - `template.md`: 既定ブランチの PR テンプレート。無ければテンプレートは無い
+  - `issues/<N>.json`: 本文の `Closes #N` などで指す issue の `{number, title, body}`。無い issue は読めなかったもの
 - `--out <dir>`: 出力先。省くと手順 1 の既定の場所
 
 ## 1. 対象の PR と出力先を決める
@@ -31,6 +36,8 @@ PR 本文を現在の差分と照らし(PR Body Review。用語は chezmoi リ�
 ```bash
 gh pr view <引数> --json number,url,title,state,baseRefName,headRefName,commits
 ```
+
+**`--input` があるとき**: 上の `gh pr view` は実行せず、`<input>/pr.json` を Read ツールで読む。`commits` は無いので、コミットは手順 3 の `git log` から読む。
 
 PR が無い・特定できないときは、理由を報告して止まる。`state` が `MERGED` / `CLOSED` でも続け、報告にそのことを書く(マージ済みの PR の AC 対応表も直す意味がある。chezmoi リポジトリの `docs/adr/0021-ac-mapping-table-is-the-completion-record.md`)。
 
@@ -42,6 +49,8 @@ PR が無い・特定できないときは、理由を報告して止まる。`s
 mkdir -p <dir>
 gh pr view <PR> --json body | jq -j .body > <dir>/original.md
 ```
+
+**`--input` があるとき**: 上の `gh pr view` の代わりに `cp <input>/original.md <dir>/original.md` で複写する。
 
 本文は Write ツールで書き写さない。書き写すと空白や記号が変わり、`edited.md` との差分に無関係な変更が混ざる。`-q .body` も使わない。`-q` は出力の末尾に改行を足すので、それを書き戻すと実行のたびに本文の末尾の改行が増える。`jq -j` は本文を 1 バイトも足さずに出す。
 
@@ -57,6 +66,8 @@ gh pr view <PR> --json body | jq -j .body > <dir>/original.md
   ```
 
   404 ならテンプレートは無い。読み込まれているルールに PR 本文の書き方があれば、それにも従う。
+
+  **`--input` があるとき**: 上の `gh api` は実行せず、`<input>/template.md` を読む。無ければテンプレートは無い。
 
 ## 3. 本文と差分を照らす
 
@@ -80,7 +91,7 @@ git -C <worktree> show --no-ext-diff <sha>
 
 `origin/<base>` が無ければ、失敗として止まる(GitHub の差分で代えると、push の前のコミットが本文に反映されない)。
 
-どちらのときも、照らす相手は PR 全体の差分で、本文をいつ書いたかは問わない。`Closes #N` / `Refs #N` の issue の AC を読むときは、PR と同じリポジトリを指定する(`gh issue view <N> -R <owner>/<repo> --json body`)。指定しないと、現在のディレクトリのリポジトリにある同じ番号の issue を読んでしまう。
+どちらのときも、照らす相手は PR 全体の差分で、本文をいつ書いたかは問わない。`Closes #N` / `Refs #N` の issue の AC を読むときは、PR と同じリポジトリを指定する(`gh issue view <N> -R <owner>/<repo> --json body`)。指定しないと、現在のディレクトリのリポジトリにある同じ番号の issue を読んでしまう。`--input` があるときは `gh issue view` を実行せず、`<input>/issues/<N>.json` を読む。無い issue は AC を確かめられなかったものとして、その旨を `discrepancies.json` には書かず、報告に書く。
 
 本文の記述を節ごとに差分と照らし、次に当たるものを食い違いとして洗い出す。
 
