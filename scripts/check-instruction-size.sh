@@ -30,21 +30,11 @@ fi
 
 LIMITS_FILE='scripts/instruction-size-limits.txt'
 
-# エージェントが指示として読み込むファイルと skill の本文(source のパスで照合する。配置先のパスでの照合は
-# is_instruction_destination)。harness/modules/ は生成物の CLAUDE.md / AGENTS.md
-# を通して縛られるので、ここには入れない(入れると同じ中身に上限を二重に登録することになる)。
-# skill の補助ファイル(references/ など)は必要なときにしか読み込まれないので入れない。
-INSTRUCTION_PATHSPECS=(
-    ':(glob)**/CLAUDE.md'
-    ':(glob)**/AGENTS.md'
-    ':(glob).claude/rules/**/*.md'
-    ':(glob)dot_claude/rules/**/*.md'
-    ':(glob).cursor/rules/*.mdc'
-    'dot_claude/CLAUDE.md.tmpl'
-    'dot_codex/AGENTS.md.tmpl'
-    '.chezmoitemplates/agent-instructions-common'
-    ':(glob)**/SKILL.md'
-)
+# INSTRUCTION_PATHSPECS(source のパスで照合する。配置先のパスでの照合は is_instruction_destination)。
+# harness/modules/ は生成物の CLAUDE.md / AGENTS.md を通して縛られるので足さない(足すと同じ中身に上限を
+# 二重に登録することになる)。
+# shellcheck source=scripts/instruction-pathspecs.bash
+source "$(cd "$(dirname "$0")" && pwd)/instruction-pathspecs.bash"
 
 # 引数は配置先のパス(chezmoi に配置されないファイルは source のパス)。source のファイル名で決めると
 # private_SKILL.md のような名前で skill:* の上限を逃れられる

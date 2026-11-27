@@ -21,3 +21,4 @@
 | Claude Code の Bash ツールで、bash の書き方(`G="git -c x"; $G add`・クォートしない glob や `?` を含む URL・`=` で始まる語・`$VAR:h`)が zsh に化けない | `dot_config/zsh/claude-code.zsh` の option(`test/claude-code-zsh.bats`) |
 | `git push` の破壊的な綴り(force / delete / `+refspec` など)を通さない | `PreToolUse` の `executable_git-push-guard.sh`(`test/git-push-guard.bats`) |
 | orca や `/config` が live の `~/.claude/settings.json` に書いた変更は、`chezmoi apply` で消える前に `dot_claude/settings.json.tmpl` に取り込む | SessionStart の briefing(`executable_harness-briefing.sh`)が、描画した source と live の食い違いを ATTENTION で出し続ける(`test/harness-briefing.bats`) |
+| 指示ファイル(CLAUDE.md・ルール・SKILL.md・Content Module)に経緯(「初版は」「以前は」、出来事の日付、「#N で実装」)を書かない。コードコメント(`#` と `//` の行。`{{/* */}}` は対象外)にも、日付を除く同じ経緯を書かない | `just check-comment-noise`(範囲は `scripts/instruction-pathspecs.bash`) |

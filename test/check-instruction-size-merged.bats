@@ -15,7 +15,7 @@ setup() {
     configure "$REPO"
     # 測る側のスクリプトはマージ後の tree から呼ばれるので、fixture にも置く
     mkdir -p "$REPO/scripts"
-    cp "$BATS_TEST_DIRNAME/../scripts/check-instruction-size.sh" "$REPO/scripts/"
+    cp "$BATS_TEST_DIRNAME/../scripts/check-instruction-size.sh" "$BATS_TEST_DIRNAME/../scripts/instruction-pathspecs.bash" "$REPO/scripts/"
     # CLAUDE.md は 10 行 / 40 バイトまで。ブランチと基準が離れた行を変えれば衝突しない
     put "$REPO" scripts/instruction-size-limits.txt $'* 3 20\nCLAUDE.md 10 40'
     put "$REPO" CLAUDE.md $'a\nm\nm\nz'

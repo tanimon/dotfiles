@@ -208,7 +208,7 @@ scan() {
     assert_failure 2
 }
 
-@test "拡張子が md でない Markdown(md.tmpl / mdc / 共有本文の partial)は見ない" {
+@test "拡張子が md でない Markdown(md.tmpl / mdc / 共有本文の partial)の手順の Step N は止めない" {
     put x.md.tmpl '## Step 1: install'
     put .cursor/rules/y.mdc '## Step 1: install'
     put .chezmoitemplates/agent-instructions-common '## Step 1: install'
@@ -240,4 +240,47 @@ scan() {
     assert_failure 1
     assert_output --partial 'a.sh:2: [missing-path]'
     refute_output --partial 'a.sh:1:'
+}
+
+@test "history: コードコメントの前の版と比べる書き方を止める" {
+    put a.sh '# 以前は .zshrc で抑制していた'
+    run scan
+    assert_failure 1
+    assert_output --partial 'a.sh:1: [history]'
+}
+
+@test "指示ファイル: 経緯の書き方(history / dated-event / issue-origin)を行全体から止める" {
+    put .claude/rules/r.md '初版はこの床が無かった。'
+    put dot_claude/skills/s/SKILL.md 'gstack は 2026-09-24 に撤去した'
+    put harness/modules/project/m.md '同期ツール(#308 で実装)。'
+    put sub/CLAUDE.md '(2026-10-09 に実測)'
+    run scan
+    assert_failure 1
+    assert_output --partial '.claude/rules/r.md:1: [history]'
+    assert_output --partial 'dot_claude/skills/s/SKILL.md:1: [dated-event]'
+    assert_output --partial 'harness/modules/project/m.md:1: [issue-origin]'
+    assert_output --partial 'sub/CLAUDE.md:1: [dated-event]'
+}
+
+@test "指示ファイル: ファイル名の中の日付・frontmatter の date:・手順の Step N は止めない" {
+    put .claude/rules/r.md $'---\ndate: 2026-10-16\n---\n設計は `docs/superpowers/specs/2026-07-25-x-design.md`。\n## Step 2: 選別する'
+    run scan
+    assert_success
+}
+
+@test "指示ファイル以外の Markdown の経緯は止めない" {
+    put docs/notes.md '2026-09-24 に撤去した。初版は無かった'
+    put README.md '以前は make を使っていた'
+    run scan
+    assert_success
+}
+
+@test "指示ファイル: harness/project.json の Target(生成物)は読まず、正本の module だけを出す" {
+    put harness/project.json '{"targets":[{"path":"CLAUDE.md"}]}'
+    put CLAUDE.md '2026-09-24 に撤去した'
+    put harness/modules/project/m.md '2026-09-24 に撤去した'
+    run scan
+    assert_failure 1
+    assert_output --partial 'harness/modules/project/m.md:1: [dated-event]'
+    refute_output --partial 'CLAUDE.md:1:'
 }

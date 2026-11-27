@@ -179,4 +179,4 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
 `just test-settings-hooks`(`test/settings-hooks.bats`)が描画結果で固定している。
 フック自身の判定は `just test-scripts`(`test/git-push-guard.bats`)がテストする。テストは危険な綴りだけでなく**無出力になるべきケース**と対で書くこと — 片側だけだと
 「常に deny するフック」が全テストを通過してしまう。
-設計: `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の 2026-09-16 addendum。
+設計: `docs/superpowers/specs/2026-07-25-permission-tier-model-design.md` の addendum「`git push` moves out of `ask`」。
