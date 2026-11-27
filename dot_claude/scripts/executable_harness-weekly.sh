@@ -498,7 +498,6 @@ Use the harness-reflect skill on the entries in ~/.claude/harness/pending.jsonl,
 - Skip running harness-select-pending.sh; this job already ran it. Still run the failure detector on each entry you process.
 - Process only the entries with these session_ids (this job picked the oldest ones): ${SELECTED}. Leave every other entry in pending.jsonl.
 - Do the Bookkeeping for each entry before starting the next one: append that session's queue entries (if any), then remove that session's line from pending.jsonl.
-- Update last_reflect_epoch in state.json once at the end.
 ${WRITE_RULE}
 - Ignore suggestions from SessionStart hook output (such as running /harness-review). Use no skill other than harness-reflect.
 - Finish with a one-line summary: sessions analyzed, entries queued, entries dropped."
