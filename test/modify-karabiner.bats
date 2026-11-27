@@ -1,3 +1,5 @@
+bats_require_minimum_version 1.5.0
+
 setup() {
     load 'helpers/setup'
     SCRIPT="$BATS_TEST_DIRNAME/../dot_config/karabiner/modify_karabiner.json"
@@ -41,6 +43,32 @@ modify() {
     assert jq -e '.profiles[0].complex_modifications.rules | length == 1' <<< "$output"
     assert jq -e --slurpfile src "$REPO_ROOT/dot_config/karabiner/complex_modifications.json" '.profiles[0].complex_modifications.rules == $src[0]' <<< "$output"
     assert jq -e 'has("machine_specific") | not' <<< "$output"
+}
+
+@test "jq missing with empty stdin seeds the minimal shape, not a bare newline" {
+    export CHEZMOI_SOURCE_DIR="$REPO_ROOT"
+    # Only cat is on PATH: neither jq nor bash resolves there. Call bash by
+    # absolute path, as the guard-contract suite does for its no-jq cases.
+    stub="$BATS_TEST_TMPDIR/nojq"
+    mkdir -p "$stub"
+    ln -s "$(command -v cat)" "$stub/cat"
+    run --separate-stderr env PATH="$stub" "$(command -v bash)" "$SCRIPT" </dev/null
+    assert_success
+    assert jq -e '.profiles | length == 1' <<< "$output"
+    assert jq -e '.profiles[0].complex_modifications.rules == []' <<< "$output"
+    assert jq -e '.profiles[0].virtual_hid_keyboard.keyboard_type_v2 == "ansi"' <<< "$output"
+    assert jq -e 'has("machine_specific") | not' <<< "$output"
+}
+
+@test "jq missing with stdin passes it through unchanged" {
+    export CHEZMOI_SOURCE_DIR="$REPO_ROOT"
+    stub="$BATS_TEST_TMPDIR/nojq"
+    mkdir -p "$stub"
+    ln -s "$(command -v cat)" "$stub/cat"
+    input='{"profiles":[{"name":"P","selected":true}]}'
+    run --separate-stderr env PATH="$stub" "$(command -v bash)" "$SCRIPT" <<<"$input"
+    assert_success
+    assert jq -e --argjson i "$input" '. == $i' <<< "$output"
 }
 
 @test "missing source file passes through stdin" {

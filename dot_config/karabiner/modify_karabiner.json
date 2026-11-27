@@ -5,9 +5,20 @@ RULES_SOURCE="${CHEZMOI_SOURCE_DIR}/dot_config/karabiner/complex_modifications.j
 
 CURRENT="$(cat)"
 
+# The minimal Karabiner-readable shape for a new machine (Karabiner not yet
+# launched). machine_specific is intentionally omitted -- Karabiner generates
+# its per-machine UUID on first launch.
+MINIMAL='{"profiles":[{"complex_modifications":{"rules":[]},"name":"Default profile","selected":true,"virtual_hid_keyboard":{"keyboard_type_v2":"ansi"}}]}'
+
 # Guard: jq not installed
 if ! command -v jq >/dev/null 2>&1; then
     echo "WARNING: jq not found, skipping Karabiner complex modifications merge" >&2
+    # Empty stdin has nothing to pass through, and jq cannot seed it from the
+    # rules source: emit the minimal shape rather than a bare newline, which
+    # chezmoi would write as an empty karabiner.json.
+    if [ -z "${CURRENT}" ]; then
+        CURRENT=$MINIMAL
+    fi
     printf '%s\n' "${CURRENT}"
     exit 0
 fi
@@ -21,10 +32,8 @@ fi
 
 # Bootstrap: if stdin is empty (new machine, Karabiner not yet launched), seed a
 # minimal Karabiner-readable shape so the merge has somewhere to write rules into.
-# machine_specific is intentionally omitted -- Karabiner generates its per-machine
-# UUID on first launch.
 if [ -z "${CURRENT}" ]; then
-    CURRENT='{"profiles":[{"complex_modifications":{"rules":[]},"name":"Default profile","selected":true,"virtual_hid_keyboard":{"keyboard_type_v2":"ansi"}}]}'
+    CURRENT=$MINIMAL
 fi
 
 # Merge: replace .complex_modifications.rules in every profile, preserve everything else.
