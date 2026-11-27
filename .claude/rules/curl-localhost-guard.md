@@ -129,7 +129,7 @@ token が無い」ように見えて無出力になっていた(`Bash(curl:*)` �
 **curlrc が存在し、curl を実行しうる token があれば `ask` にする。** curl は引数を見る前に `$CURL_HOME/.curlrc` →
 `$XDG_CONFIG_HOME/curlrc` → `$HOME/.curlrc` の最初に見つかったものを読み(`XDG_CONFIG_HOME` が無いときは
 `$CURL_HOME/.config/curlrc` と `$HOME/.config/curlrc` も読む。curl 8.7.1 で実測。このマシンは
-`XDG_CONFIG_HOME` を設定していないので、旧版の 3 か所だけでは `~/.config/curlrc` を見落としていた)、`proxy = …` の 1 行で
+`XDG_CONFIG_HOME` を設定していないので、最初の 3 か所だけを見ると `~/.config/curlrc` を見落とす)、`proxy = …` の 1 行で
 ループバック URL が任意のホストへ振り替わる(実測済み: `no_proxy` が無い環境で
 `curl http://localhost:3000/` が `192.0.2.1:8080` へ接続する)。`--resolve` / `--connect-to` / `-x` を
 綴りで落としている努力が、コマンド文字列に何の痕跡も残さないファイル 1 つで無効化されるため、
@@ -188,7 +188,7 @@ curl-guard は行単位の字面の床(線形)だけを生のコマンドに当�
 
 【共有 reader の性質】トークナイザは `read -ra` ではなく**クォート解釈を持つ自前の走査**。`read -ra` は空白でしか
 割らないので `-H "Accept: application/json"` が2トークンに割れ、後半が URL として読まれて
-正当なリクエストが黙ってプロンプトに落ちる(実際に初版で踏んだ)。逆に `-d '{"a":"x|y"}'` の
+正当なリクエストが黙ってプロンプトに落ちる。逆に `-d '{"a":"x|y"}'` の
 `|` をパイプと誤読する問題も同じ走査で消える。リダイレクトは fd 数字を演算子トークンに
 くっつけて1トークンにまとめる — `2>&1` から `1` が孤立すると、それが URL として読まれる。
 

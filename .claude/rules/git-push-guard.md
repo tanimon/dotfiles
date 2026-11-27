@@ -105,8 +105,8 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   `nice -n 0` / `timeout 60` / `sudo -n` の後ろの git はこの床に来るので、見ないと
   `timeout 60 git -c remote.origin.mirror=true push origin` が無出力だった(実 git でリモートのブランチが消える)。
   `-c push.autoSetupRemote=true` のような無害な設定は巻き込まない。どれが立っても `deny` にはしない。
-  初版はこの床が無く、しかも `$`/バッククォートの fail-closed 判定が「binary が git だった」
-  分岐の**内側**にあったため、認識器が外れた瞬間に fail-closed 自体が無効化されていた。
+  この床が無く、`$`/バッククォートの fail-closed 判定を「binary が git だった」
+  分岐の**内側**にだけ置くと、認識器が外れた瞬間に fail-closed 自体が無効になる。
 - **字面の床(GLOSSARY の Text Floor)。** 上の床でも、構文として読み切れない入力(閉じない引用符、
   `$(…)` / バッククォートの内側、heredoc やコメントに飲み込まれた行)は取りこぼす。そこで共有 reader の
   `shell_reader_text_floor_matches` に、`git … push` と危険な綴りが同じ行にあるかを問い合わせ、あれば `ask` にする。
@@ -142,7 +142,7 @@ push セグメント内の変数・コマンド置換、`push` または `mirror
   segment と、push の引数の語頭の `#` より後ろでは、危険な綴りを `ask` にする。受容した格下げ: heredoc の後ろに
   実際に書かれた force push と、引用された `'#x'` の後ろの `--force` も `ask` になる(どちらも確認は出る)。
   heredoc かどうかを token 列から判定してはいけない: `<<`・here-string の `<<<`・`< <(…)` はどれも `<`, `<` の
-  演算子 token になり、初版は本文を持たない `cat <<< x; git push origin main --force` まで `ask` に下げていた。
+  演算子 token になるので、token 列で判定すると本文を持たない `cat <<< x; git push origin main --force` まで `ask` に下がる。
   reader が走査の時点で「前後に `<` が続かない引用符の外の `<<`」だけを記録する。
 - **コマンド全体を見る検査は 1 回だけ走らせる。** `GIT_CONFIG*` の token の検査を push の segment ごとに
   コマンド全体へ当てていたため segment 数 × token 数の二乗になり、8 KB 近い
