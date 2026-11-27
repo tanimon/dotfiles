@@ -89,6 +89,11 @@ scripts/instruction-size-limits.txt
 scripts/check-instruction-size.sh
 # 判定の対象の範囲(check-comment-noise.sh も読む)。外にあると、ループの PR が範囲を狭めて上限から外せる
 scripts/instruction-pathspecs.bash
+# 指示ファイルの経緯の記述の検出器。ループの PR が判定を緩めると、ループの書くルールに経緯が残っても CI が通る。
+# 許可リスト(scripts/comment-noise-allowlist.txt)は載せない。ルールが禁じる書き方を例として引用するたびに
+# 足す必要があり、載せるとループがその引用を書けなくなる。足した行は PR の差分として人のレビューで確かめる
+scripts/check-comment-noise.sh
+test/check-comment-noise.bats
 test/check-instruction-size.bats
 # check-instruction-size.sh は合成後の出力とテンプレートを描画してから測るので、描画の seam(描画の module・Machine Profile の
 # fixture)も載せる。外にあると、ループの PR が測る対象を差し替えられる(fixture が空のデータを返せば、出力が縮んで上限内に見える)。

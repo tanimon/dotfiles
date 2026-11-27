@@ -268,6 +268,31 @@ scan() {
     assert_success
 }
 
+@test "指示ファイル: frontmatter の外の date: と、時刻つき・和文の日付は止める" {
+    put .claude/rules/r.md $'---\nname: r\n---\ndate: 2026-09-24 に撤去した\n2026-09-24T10:00 に実測\n2026年9月24日に撤去した'
+    run scan
+    assert_failure 1
+    assert_output --partial '.claude/rules/r.md:4: [dated-event]'
+    assert_output --partial '.claude/rules/r.md:5: [dated-event]'
+    assert_output --partial '.claude/rules/r.md:6: [dated-event]'
+}
+
+@test "指示ファイル: frontmatter の字下げした date:・拡張子つきのファイル名の日付は止めない" {
+    put .claude/rules/r.md $'---\nmeta:\n  date: 2026-10-16\n---\n記録は `2026-09-24.md` にある。'
+    run scan
+    assert_success
+}
+
+@test "版の境界の「N 以前は」は止めず、「経緯は PR #N」は止める" {
+    put .claude/rules/r.md $'2.1.285 以前は allow が勝つ\n経緯は PR #12'
+    put a.sh '# 1.2以前は null を返す'
+    run scan
+    assert_failure 1
+    assert_output --partial '.claude/rules/r.md:2: [issue-origin]'
+    refute_output --partial '.claude/rules/r.md:1:'
+    refute_output --partial 'a.sh:1:'
+}
+
 @test "指示ファイル以外の Markdown の経緯は止めない" {
     put docs/notes.md '2026-09-24 に撤去した。初版は無かった'
     put README.md '以前は make を使っていた'
