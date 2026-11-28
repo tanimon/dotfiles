@@ -1,0 +1,14 @@
+{
+  "id": "pr703-19e421b8",
+  "adopted": "2026-11-28",
+  "title": "[2026-11-25] scratchpad の後片付けの rm -rf を検証コマンドに繋げない",
+  "failure_patterns": [],
+  "eval": {
+    "status": "invalid",
+    "case_id": "2026-11-28-19e421b8",
+    "with": 1,
+    "without": 1
+  },
+  "pr": 703,
+  "via": "weekly"
+}
